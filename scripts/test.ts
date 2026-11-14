@@ -14264,6 +14264,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export interface In6 { kept6: number; toJSON(): { other6: number } }',
       'export function firstThen(): { first5: In5; second5: { toJSON(): In5 } } { const i: In5 = { kept5: 1, toJSON: () => ({ other5: 2 }) }; return { first5: i, second5: { toJSON: () => i } } }',
       'export function wrapFirst(): { second6: { toJSON(): In6 }; first6: In6 } { const i: In6 = { kept6: 1, toJSON: () => ({ other6: 2 }) }; return { second6: { toJSON: () => i }, first6: i } }',
+      'export type Fn9 = (() => void) & { added9: number }',
+      'export function withFn9(): { fn9: Fn9 } { return { fn9: Object.assign(() => {}, { added9: 1 }) } }',
       'export interface Wire8 { other8: number }',
       'export function wire8(): Wire8 { return { other8: 0 } }',
       'export interface Inner8 { kept8: number; child8?: Inner8; toJSON(): Wire8 }',
@@ -14301,7 +14303,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'const crossedJs = JSON.stringify(mm.crossed()); deepStrictEqual(mm.crossedDeep(), {})',
       "const kc = 'viaConst' as const; const ku = (kc.length > 3 ? 'viaU1' : 'viaU2') as 'viaU1' | 'viaU2'; const kn = 7 as const; const kd = mm.keyed()",
       "const keyedV = [kd[kc], kd[ku], kd[mm.symKey], kd[kn], mm.maybe()?.['viaOpt'], mm.maybe()?.[kc.length > 0 ? 'viaOpt2' : 'viaOpt2']]",
-      'const selfJs = JSON.stringify(mm.selfJson()) + JSON.stringify(mm.chained()) + JSON.stringify(mm.firstThen()) + JSON.stringify(mm.wrapFirst()) + JSON.stringify(mm.withFn()) + JSON.stringify(mm.selfChild()); deepStrictEqual(mm.weak(), new WeakMap()); deepStrictEqual(mm.promised(), Promise.resolve({}))',
+      'const selfJs = JSON.stringify(mm.selfJson()) + JSON.stringify(mm.chained()) + JSON.stringify(mm.firstThen()) + JSON.stringify(mm.wrapFirst()) + JSON.stringify(mm.withFn()) + JSON.stringify(mm.selfChild()) + JSON.stringify(mm.withFn9()); deepStrictEqual(mm.weak(), new WeakMap()); deepStrictEqual(mm.promised(), Promise.resolve({}))',
       'let ga = 0; let srcB = 0; ({ srcA: ga, srcB } = mm.assigned())',
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
@@ -14366,7 +14368,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：toJSON 返回自己的照常序列化；WeakMap 这类弱引用容器深比较也进不去；解构赋值的键读的是右边的字段（含改名），没解构的不算',
     ['Self.kept3', 'weak.weakVal', 'assigned.srcA', 'assigned.srcB', 'assigned.srcC'].map(k => moreOf(`m.ts#${k}`)?.used), [true, false, true, true, false])
   eq('字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算',
-    ['In5.kept5', 'In6.kept6', 'Wire8.other8', 'withToJSON.toJSON', 'withFn.fn7', 'Fn7.added7'].map(k => moreOf(`m.ts#${k}`)?.used), [true, true, true, true, true, false])
+    ['In5.kept5', 'In6.kept6', 'Wire8.other8', 'withToJSON.toJSON', 'withFn.fn7', 'Fn7.added7', 'withFn9.fn9', 'Fn9.added9'].map(k => moreOf(`m.ts#${k}`)?.used), [true, true, true, true, true, false, true, false])
   eq('字段：深比较不进 WeakMap 这类弱引用容器，也不等 Promise 兑现',
     ['weak.weakVal', 'promised.pendingVal'].map(k => moreOf(`m.ts#${k}`)?.used), [false, false])
   eq('字段：同一位置只换一次 toJSON —— 换来的值自己的 toJSON 不再调用，照原样序列化',

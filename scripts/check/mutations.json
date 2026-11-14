@@ -24720,6 +24720,18 @@
       ]
     },
     {
+      "id": "M-H198-cj",
+      "req": "harness",
+      "why": "JSON 那一路只在拆开之后看可调用：函数与对象交叉出来的值整体不写进 JSON，拆开后对象那一半的字段被算成碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (!entries && t.getCallSignatures().length > 0) return",
+      "replace": "if (!entries && !t.isIntersection() && t.getCallSignatures().length > 0) return",
+      "by": "test",
+      "kills": [
+        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+      ]
+    },
+    {
       "id": "M-H196-a",
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",

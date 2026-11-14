@@ -252,10 +252,10 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       const toJSON = entries || !swap || !(t.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection)) ? undefined : t.getProperty('toJSON')
       const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures()
       if (replaced.length > 0) { mark(toJSON); for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries, false); return }
+      if (!entries && t.getCallSignatures().length > 0) return // JSON 不写可调用的值，挂在它上面的属性没被读
       if (t.isIntersection()) { for (const u of t.types) whole(u, seen, entries, swap); return }
       if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
       if (!(t.flags & ts.TypeFlags.Object)) return
-      if (!entries && t.getCallSignatures().length > 0) return // JSON 不写可调用的值，挂在它上面的属性没被读
       if (fromLibrary(t) && entries && !/^(Weak|Promise$)/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)
       for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)
       for (const p of t.getProperties()) {
