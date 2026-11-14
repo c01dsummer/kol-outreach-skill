@@ -20749,6 +20749,10 @@ await group('h-iou-file-reminder', () => {
     .filter((form, i) => i === 0 || known.filter(f => f === form || f.endsWith(`/${form}`)).length === 1)
   const namesSelfcheck = new RegExp(`(^|[^\\w./-])(${selfcheckForms.map(f => f.replace(/[./]/g, c => `\\${c}`)).join('|')})(?=$|[^\\w./-]|\\.(?!\\w))`)
   const realClosed = closedKeys(realDocs)
+  ok('独立计数自己的认法：认完整路径与唯一尾段（句末的点、全角标点不算连着），不认 scripts/selfcheck.ts、x/check/selfcheck.ts、selfcheck.tsx、selfcheck.ts.bak',
+    selfcheckForms.every(f => namesSelfcheck.test(`改 ${f}。`) && namesSelfcheck.test(`见${f}.`))
+      && ['scripts/selfcheck.ts', 'x/check/selfcheck.ts', 'selfcheck.tsx', 'selfcheck.ts.bak', 'scripts/check/selfcheck.tsx']
+        .every(t => !namesSelfcheck.test(`改 ${t} 时`)))
   const stillOpen = entryTexts(realDocs).some(t => !realClosed.has(entryKey(t.entry) ?? '') && namesSelfcheck.test(t.text))
   ok('真仓库：改 selfcheck.ts 时列得出，列出的每一条正文里都写着 selfcheck.ts',
     (real.hits.length > 0) === stillOpen && real.hits.every(h => namesSelfcheck.test(realText.get(`${h.entry.file}:${h.entry.line}`) ?? '')))
