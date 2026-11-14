@@ -22781,6 +22781,450 @@
       "kills": [
         "D4.t 独立认领：冻结用例 G3-19N 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格"
       ]
+    },
+    {
+      "id": "M-H198-a",
+      "req": "harness",
+      "why": "认契约测试的那一条丢了：`*-test.ts` 里读到的字段全算没人碰，新字段只有那里测着时误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "|| /^scripts\\/[^/]+-test\\.ts$/.test(path) ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是"
+      ]
+    },
+    {
+      "id": "M-H198-b",
+      "req": "harness",
+      "why": "子目录里的文件也算判定文件：玩具树、夹具里的返回值被当成检查链的字段",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "/^scripts\\/check\\/[^/]+\\.ts$/",
+      "replace": "/^scripts\\/check\\/.+\\.ts$/",
+      "by": "test",
+      "kills": [
+        "判定文件：scripts/check 直属、不是验证者"
+      ]
+    },
+    {
+      "id": "M-H198-c",
+      "req": "harness",
+      "why": "判别联合不记判别值：两个成员里的同名字段合成一个名字，新成员加的字段被当成早就有",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "parts.push(`{${m.name.getText()}=${m.type.literal.text}}`); break",
+      "replace": "break",
+      "by": "test",
+      "kills": [
+        "字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条，名字相同）"
+      ]
+    },
+    {
+      "id": "M-H198-d",
+      "req": "harness",
+      "why": "交给 eq 的整个值不算碰到：整体比对已经守着的字段被报成没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])",
+      "replace": "new Set(['assert', 'deepStrictEqual', 'stringify'])",
+      "by": "test",
+      "kills": [
+        "字段：整个值交给 eq，逐层都算用到"
+      ]
+    },
+    {
+      "id": "M-H198-e",
+      "req": "harness",
+      "why": "先规整再比（canon 这类返回 unknown 的）不算整体比对：误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const opaque = (tc.getTypeAtLocation(n).flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) !== 0",
+      "replace": "const opaque = false",
+      "by": "test",
+      "kills": [
+        "字段：交给返回 unknown 的规整函数，也算整体比对"
+      ]
+    },
+    {
+      "id": "M-H198-f",
+      "req": "harness",
+      "why": "按类型写成的期望值对象不算碰到：误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "for (const t of contextual.isUnion() ? contextual.types : [contextual]) mark(t.getProperty(name.text))",
+      "replace": "void 0",
+      "by": "test",
+      "kills": [
+        "字段：按上下文类型写成的期望值对象，键算用到"
+      ]
+    },
+    {
+      "id": "M-H198-g",
+      "req": "harness",
+      "why": "解构出来的字段不算碰到：误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "mark(tc.getTypeAtLocation(n.parent).getProperty(name.text))",
+      "replace": "void 0",
+      "by": "test",
+      "kills": [
+        "字段：解构算用到"
+      ]
+    },
+    {
+      "id": "M-H198-h",
+      "req": "harness",
+      "why": "没有按名字的兜底：黑盒重抄类型的测试读到的字段全算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "used: used.has(decl) || byName(file, text),",
+      "replace": "used: used.has(decl),",
+      "by": "test",
+      "kills": [
+        "字段：黑盒重抄类型时按名字兜底 —— 只认验证者 import 了的那个文件"
+      ]
+    },
+    {
+      "id": "M-H198-i",
+      "req": "harness",
+      "why": "按名字兜底不看 import：随便哪份测试里有个同名属性，别的文件里的新字段就算有人碰，漏网",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "files.has(file) && localNames.get(v)!.has(name)",
+      "replace": "localNames.get(v)!.has(name)",
+      "by": "test",
+      "kills": [
+        "字段：黑盒重抄类型时按名字兜底 —— 只认验证者 import 了的那个文件"
+      ]
+    },
+    {
+      "id": "M-H198-j",
+      "req": "harness",
+      "why": "整体比对只算最外一层：嵌在数组、对象里的字段被报成没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "for (const p of t.getProperties()) { mark(p); whole(tc.getTypeOfSymbol(p), seen) }",
+      "replace": "for (const p of t.getProperties()) mark(p)",
+      "by": "test",
+      "kills": [
+        "字段：整个值交给 eq，逐层都算用到"
+      ]
+    },
+    {
+      "id": "M-H198-k",
+      "req": "harness",
+      "why": "不问基线：主干上早就有、本来没人碰的字段全算新增，任何 PR 都红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const fresh = [...merged.values()].filter(f => !before.has(f.key))",
+      "replace": "const fresh = [...merged.values()]",
+      "by": "test",
+      "kills": [
+        "字段闸门：基线上已有的字段不归它管，没人碰也不红"
+      ]
+    },
+    {
+      "id": "M-H198-l",
+      "req": "harness",
+      "why": "空理由的豁免不红：写一个光秃秃的标记就能把没人碰的新字段放过去",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "red: unused.length > 0 || unjustified.length > 0",
+      "replace": "red: unused.length > 0",
+      "by": "test",
+      "kills": [
+        "字段闸门：只新增一个空理由的豁免也红"
+      ]
+    },
+    {
+      "id": "M-H198-m",
+      "req": "harness",
+      "why": "同名的几处只看第一处：判别值所在的属性一个成员用到了，另一个成员上的那条照样报没人碰",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "used: had.used || f.used",
+      "replace": "used: had.used",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的两处有一处用到就算用到"
+      ]
+    },
+    {
+      "id": "M-H198-n",
+      "req": "harness",
+      "why": "不排序：报出来的先后随程序里文件的顺序变，两跑同一棵树打的不一样",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": ".sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段闸门：按名字排，不按找到的先后"
+      ]
+    },
+    {
+      "id": "M-H198-o",
+      "req": "harness",
+      "why": "空理由的豁免也放行：光秃秃一个标记就挡住了红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const waived = idle.filter(f => f.waiver !== undefined && f.waiver.length > 0)",
+      "replace": "const waived = idle.filter(f => f.waiver !== undefined)",
+      "by": "test",
+      "kills": [
+        "字段闸门：有理由的豁免放行，空理由的单列"
+      ]
+    },
+    {
+      "id": "M-H198-p",
+      "req": "harness",
+      "why": "行号从 0 起：报出来的位置差一行，点过去是别的字段",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "line: sf.getLineAndCharacterOfPosition(decl.getStart()).line + 1,",
+      "replace": "line: sf.getLineAndCharacterOfPosition(decl.getStart()).line,",
+      "by": "test",
+      "kills": [
+        "字段：行号从 1 起，指向声明那一行"
+      ]
+    },
+    {
+      "id": "M-H198-q",
+      "req": "harness",
+      "why": "库里的泛型不取类型参数：装在 Map、Promise 里的字段一个都看不见，新加的怎么没人碰都不红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    if (fromLibrary(t)) for (const a of argumentsOf(t)) walk(a, `${via}<>`, seen)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条，名字相同）"
+      ]
+    },
+    {
+      "id": "M-H198-r",
+      "req": "harness",
+      "why": "行尾的注释不读：写在同一行的豁免不算，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    ...(ts.getTrailingCommentRanges(text, after) ?? []),\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：豁免写在上一行或同一行；标记后面空着就是空串"
+      ]
+    },
+    {
+      "id": "M-H198-s",
+      "req": "harness",
+      "why": "块注释的收尾 */ 当成理由的一部分：空理由的块注释豁免被当成有理由放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": ".replace(/\\*\\/$/, '')",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段"
+      ]
+    },
+    {
+      "id": "M-H198-t",
+      "req": "harness",
+      "why": "索引签名不展开：Record 与 { [k: string]: … } 里的字段看不见，漏网",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    for (const info of tc.getIndexInfosOfType(t)) walk(info.type, `${via}[*]`, seen)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：Readonly 这类映射、Record 与索引签名、交叉都展开；返回类型声明在 lib 下的不算"
+      ]
+    },
+    {
+      "id": "M-H198-u",
+      "req": "harness",
+      "why": "整体比对不穿索引签名：Record 里的字段交给比对函数也算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
+      ]
+    },
+    {
+      "id": "M-H198-v",
+      "req": "harness",
+      "why": "整体比对不穿库里的泛型：装在 Map 里交给比对函数的字段算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "      if (fromLibrary(t)) for (const a of argumentsOf(t)) whole(a, seen)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：整体比对穿过 Map 取里面的字段"
+      ]
+    },
+    {
+      "id": "M-H198-w",
+      "req": "harness",
+      "why": "按名字兜底不限重抄的那份类型：验证者里随便哪个同名属性都算，常见的名字（ok、kind、path）一律放过，漏网",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (copied.has(d)) names.add(s!.name)",
+      "replace": "names.add(s!.name)",
+      "by": "test",
+      "kills": [
+        "字段：按名字兜底只认重抄的那份类型，本文件别的同名属性不算"
+      ]
+    },
+    {
+      "id": "M-H198-x",
+      "req": "harness",
+      "why": "重抄的类型不走函数的返回值：黑盒测试读到的返回字段全算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "      for (const sig of t.getCallSignatures()) copy(tc.getReturnTypeOfSignature(sig), seen)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认"
+      ]
+    },
+    {
+      "id": "M-H198-y",
+      "req": "harness",
+      "why": "不认静态 import：只经 import 语句引的文件，按名字兜底不算，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) imported(n.moduleSpecifier.text)",
+      "replace": "if (ts.isImportDeclaration(n)) void 0",
+      "by": "test",
+      "kills": [
+        "字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认"
+      ]
+    },
+    {
+      "id": "M-H198-z",
+      "req": "harness",
+      "why": "不认动态 import()：只经 import() 引的文件，按名字兜底不算，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "&& n.arguments.length > 0 && ts.isStringLiteralLike(n.arguments[0])) imported(n.arguments[0].text)",
+      "replace": "&& n.arguments.length > 0) void 0",
+      "by": "test",
+      "kills": [
+        "字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认"
+      ]
+    },
+    {
+      "id": "M-H198-aa",
+      "req": "harness",
+      "why": "import 路径不折 ..：独立黑盒测试目录里 ../check/ 引的文件对不上，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (p === '..') out.pop(); else if (p !== '.') out.push(p)",
+      "replace": "if (p !== '.') out.push(p)",
+      "by": "test",
+      "kills": [
+        "字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认"
+      ]
+    },
+    {
+      "id": "M-H198-ab",
+      "req": "harness",
+      "why": "按下标读不算：r['x'] 这种读法算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "      else if (ts.isElementAccessExpression(n)) mark(tc.getSymbolAtLocation(n.argumentExpression))\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算"
+      ]
+    },
+    {
+      "id": "M-H198-ac",
+      "req": "harness",
+      "why": "断言函数收下整个值不算整体比对：误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])",
+      "replace": "new Set(['eq', 'deepStrictEqual', 'stringify'])",
+      "by": "test",
+      "kills": [
+        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
+      ]
+    },
+    {
+      "id": "M-H198-ad",
+      "req": "harness",
+      "why": "深比较那种整体比对不算：误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])",
+      "replace": "new Set(['eq', 'assert', 'stringify'])",
+      "by": "test",
+      "kills": [
+        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
+      ]
+    },
+    {
+      "id": "M-H198-ae",
+      "req": "harness",
+      "why": "序列化成 JSON 再比不算整体比对：误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])",
+      "replace": "new Set(['eq', 'assert', 'deepStrictEqual'])",
+      "by": "test",
+      "kills": [
+        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
+      ]
+    },
+    {
+      "id": "M-H198-af",
+      "req": "harness",
+      "why": "同名的几处只看第一处的豁免：第二处写了豁免也照样红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const waiver = had.waiver ?? f.waiver",
+      "replace": "const waiver = had.waiver",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的两处只一处写了豁免，照样算豁免"
+      ]
+    },
+    {
+      "id": "M-H198-ag",
+      "req": "harness",
+      "why": "按类型写期望值时不拆联合：判别联合的期望值对象算没碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "contextual.isUnion() ? contextual.types : [contextual]",
+      "replace": "[contextual]",
+      "by": "test",
+      "kills": [
+        "字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算"
+      ]
+    },
+    {
+      "id": "M-H198-ah",
+      "req": "harness",
+      "why": "解构改名时按新名字找：{ a: b } 读的是 a，却去找 b，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const name = n.propertyName ?? n.name",
+      "replace": "const name = n.name",
+      "by": "test",
+      "kills": [
+        "字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算"
+      ]
+    },
+    {
+      "id": "M-H198-ai",
+      "req": "harness",
+      "why": "字段不限声明在判定文件里：lib 下的类型也被当成检查链的字段，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (isJudgedFile(rel(d.getSourceFile())) && !found.has(d))",
+      "replace": "if (!found.has(d))",
+      "by": "test",
+      "kills": [
+        "字段：Readonly 这类映射、Record 与索引签名、交叉都展开；返回类型声明在 lib 下的不算"
+      ]
+    },
+    {
+      "id": "M-H198-aj",
+      "req": "harness",
+      "why": "空理由的豁免只看没人碰的：用到了的字段上留着一个光秃秃的标记不报",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const unjustified = fresh.filter(f => f.waiver !== undefined && f.waiver.length === 0)",
+      "replace": "const unjustified = fresh.filter(f => !f.used && f.waiver !== undefined && f.waiver.length === 0)",
+      "by": "test",
+      "kills": [
+        "字段闸门：用到了的新字段写了空理由的豁免，也算不成立"
+      ]
+    },
+    {
+      "id": "M-H198-ak",
+      "req": "harness",
+      "why": "理由不去首尾空白：只写了几个空格的豁免被当成有理由放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": ".replace(/\\*\\/$/, '').trim()",
+      "replace": ".replace(/\\*\\/$/, '')",
+      "by": "test",
+      "kills": [
+        "字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段"
+      ]
     }
   ],
   "exemptions": [
