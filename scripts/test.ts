@@ -10974,6 +10974,14 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('零个不成立', jobsWanted([], '0', 8, 100), undefined)
   eq('负数不成立', jobsWanted([], '-1', 8, 100), undefined)
   eq('小数不成立', jobsWanted(['--jobs=2.5'], undefined, 8, 100), undefined)
+  // 旗标本身写坏了，与 --only= 同一套读法当场拒绝（ADR-99 第 335 行）：写了两次不能只认头一个，
+  // 空格写法不能当成没写、退回环境变量或核数 —— 两种都是把「我写的那个」换成了另一个数
+  const refused = (argv: string[]): string => {
+    try { return `没有拒绝，派 ${jobsWanted(argv, '2', 8, 100)} 个` } catch (e) { return e instanceof Error ? e.message : String(e) }
+  }
+  ok('--jobs= 写了两次：拒绝，不只认头一个', refused(['--jobs=3', '--jobs=1']).includes('只能写一次 --jobs='))
+  ok('--jobs 空格写法：拒绝并说出该怎么写', refused(['--jobs', '3']).includes('--jobs=<个数>'))
+  eq('一次 --jobs= 夹在别的参数中间：照常认', refused(['--worker', '--jobs=3', '--brief']), '没有拒绝，派 3 个')
 
   // 分份（ADR-197）：CI 上几台 runner 各跑清单的一份。没写就是整份；写了读不出来要说读不出来 ——
   // 悄悄按整份跑是每台各跑一遍全量，悄悄跑错一份是有几条谁也没跑
