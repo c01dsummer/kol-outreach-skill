@@ -4271,3 +4271,9 @@ ADR-74 第 198 行（派工硬来那一刀）同一条 PR 还，记在 ADR-74 �
 > ⚠️ 已还：ADR-70 第 206 行 · 还在本块所在 PR：真闭包不含产品入口，名单从 `package.json` 读，配 `M-H17-n`
 
 > ⚠️ 已还：ADR-70 第 351 行 · 还在本块所在 PR：判据级负片只数自己的判据，配 `M-H21-l`
+
+**本记录第 4249 行在本块所在 PR 上又响了一次。** 本块所在 PR 并进主干（`130c48f`）后的完整检查（`8697153`，干净克隆，以 nobody 跑，没有插桩）红在变异一步的子集基线：`h-prebuilt-no-config-lifecycle-contract` 在正常代码上就以退出码 1 结束，冻结工具 `packet/lifecycle319/preload/run.mjs` 回 `INVALID`、`semanticAssertions` 0，`reason` 是「public R preload qualification invalid; no product assertions」，也就是 preload 的 R 失格。同一棵树上以 nobody 单独跑这一组照常全过。这回日志里只留下概括那句，冻结工具自己那份报告随临时根删掉了，没法确认是不是还是在 `.pid` 上抛的 TypeError。三个钟头里第二次，两次都在同一组、同一个冻结工具。本 PR 照旧没碰冻结包（改它要另有授权），在下面重挂；要不要授权改冻结包、或给这一组的基线加一次重跑，是合并者的事，写在 PR 正文里。
+
+> ⚠️ 已重挂：ADR-70 第 4249 行 · 在本块所在 PR 上又以 preload 的 R 失格结束一次；现行的是本记录末尾那张
+
+> ⚠️ 欠条（重挂本记录第 4249 行 · 档：登记）：冻结 preload 工具在 `h-prebuilt-no-config-lifecycle-contract` 里偶发 R 失格（读 ready 文件只查「在不在」是已知的一种成因），整组带记号失败；2026-11-14 未插桩的完整检查里见到两次（`842339b` 的 `M-H62-aq`、`8697153` 的子集基线），单独重跑都过。两份文件都在冻结包里，改要另有授权 · 重启条件：这一组再以 preload 的 R 失格结束一次，或冻结包下一次版本变更，或合并者对改冻结包给出授权，先到为准（重新起算）
