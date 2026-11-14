@@ -10645,6 +10645,9 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
     fileText(join(late.taskDir, 'creators.json')) === lateList && fileText(join(late.taskDir, manualName)) === lateManual &&
     fileText(join(late.taskDir, agentName)) === lateAgent && isDeepStrictEqual(jsonFile(join(late.taskDir, agentName))?.rounds, lateRounds) &&
     !existsSync(join(late.taskDir, 'kol.csv')) && !existsSync(join(late.cwd, 'memory', 'creators.json')), '已付费证据丢失或冲突仍交付')
+  // KOL-108 第 2 条：收尾投影抛评审输入错误（退 2）时，stdout 不出汇总（ADR-193 第一节）
+  named('collect 收尾投影发现评审输入冲突以退出码 2 结束，stdout 不出汇总',
+    lr.ok && lr.status === 2 && lr.stdout.trim() === '', `退出=${lr.status}，stdout=${lr.stdout.slice(0, 200)}`)
 
   const save = fixture('save-failure', [person('old')])
   put(save, agentName, { version: 1, updated_at: clock, reviews: {}, rounds: [] })
@@ -10661,6 +10664,48 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
     jsonFile(stop.task)?.requests === 0 && fetchAttempts(stop.log).length === 0 && fileText(stop.armed).includes('armed') && positive,
     '预算状态被输入或保存错误掩盖、或请求提前发出')
   reviewCliEntryCompleted.exit = true
+})
+
+// KOL-108 第 2 条：收尾那一路（冻结候选、投影、保存评审正本、写名单）抛出时不出汇总，退出码按评审输入 2、
+// 保存失败 6 分（ADR-193 第一节）。上一组的只读正本在开跑前那次保存就失败；这里让开跑前没有可存的变化
+// （正本已冻着名单里的人），只有收尾冻结累加器里多出来的那人时才真去写，失败才落在收尾。
+group('review-cli-entry-collect-wrapup', ['review-cli-entry-positive'], () => {
+  const { agentName, person, document, put, fixture, observed, entry } = reviewCliEntryFixture()
+  const positive = reviewCliEntryPositive.value === true
+  const noSummary = (r: ReturnType<typeof runBoth>) => r.stdout.trim() === ''
+  const staged = (name: string) => {
+    const f = fixture(name, [person('kept')])
+    put(f, 'creators.raw.json', [person('kept'), person('wrapup_new')])
+    put(f, agentName, document({}, ['tiktok:kept']))
+    return f
+  }
+
+  const review = staged('wrapup-review-save')
+  const reviewAgent = fileText(join(review.taskDir, agentName)), reviewList = fileText(join(review.taskDir, 'creators.json'))
+  chmodSync(join(review.taskDir, agentName), 0o444)
+  let rs: ReturnType<typeof runBoth>
+  try { rs = runBoth('收尾保存评审正本失败', entry('collect', review), review.cwd, { status: 6, soft: [0, 1, 2, 3, 4, 5, 7] }, observed(review)) }
+  finally { chmodSync(join(review.taskDir, agentName), 0o644) }
+  named('collect 收尾保存评审正本失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总',
+    rs!.ok && rs!.status === 6 && noSummary(rs!) && rs!.stderr.includes(agentName) && positive,
+    `退出=${rs!.status}，stdout=${rs!.stdout.slice(0, 200)}`)
+  named('收尾保存评审正本失败的夹具确实走到收尾：开跑前那次没有可存的变化，正本与名单都没被改',
+    rs!.ok && fileText(join(review.taskDir, agentName)) === reviewAgent &&
+    fileText(join(review.taskDir, 'creators.json')) === reviewList, '正本或名单被改，或失败不在收尾那次保存')
+
+  const list = staged('wrapup-list-save')
+  const listAgent = fileText(join(list.taskDir, agentName)), listList = fileText(join(list.taskDir, 'creators.json'))
+  chmodSync(join(list.taskDir, 'creators.json'), 0o444)
+  let ls: ReturnType<typeof runBoth>
+  try { ls = runBoth('收尾写名单失败', entry('collect', list), list.cwd, { status: 6, soft: [0, 1, 2, 3, 4, 5, 7] }, observed(list)) }
+  finally { chmodSync(join(list.taskDir, 'creators.json'), 0o644) }
+  named('collect 收尾写名单失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总',
+    ls!.ok && ls!.status === 6 && noSummary(ls!) && ls!.stderr.includes('creators.json') && positive,
+    `退出=${ls!.status}，stdout=${ls!.stdout.slice(0, 200)}`)
+  named('收尾写名单失败的夹具确实走到写名单：收尾那次正本已存下新人，名单原样',
+    ls!.ok && fileText(join(list.taskDir, agentName)) !== listAgent &&
+    fileText(join(list.taskDir, agentName)).includes('tiktok:wrapup_new') &&
+    fileText(join(list.taskDir, 'creators.json')) === listList, '失败不在写名单那一步')
 })
 
 group('review-cli-entry-render', [], () => {

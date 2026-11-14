@@ -22638,6 +22638,44 @@
       ]
     },
     {
+      "id": "M-D6-bt",
+      "req": "D6.aa",
+      "why": "KOL-108 第 2 条退回去：收尾那次保存评审正本失败时不算保存失败，按其余运行错误退 1，调用方读不出「没存上」",
+      "file": "scripts/collect.ts",
+      "find": "  saving(() => reviews.save(new Date().toISOString()))\n  saving(() => persistListAndStatus(",
+      "replace": "  reviews.save(new Date().toISOString())\n  saving(() => persistListAndStatus(",
+      "by": "selfcheck",
+      "kills": [
+        "collect 收尾保存评审正本失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总"
+      ]
+    },
+    {
+      "id": "M-D6-bu",
+      "req": "D6.aa",
+      "why": "KOL-108 第 2 条退回去：收尾写名单失败时不算保存失败，按其余运行错误退 1，调用方读不出名单没写上",
+      "file": "scripts/collect.ts",
+      "find": "  saving(() => persistListAndStatus(dir, state, fin.kept, fin.memory_status))\n",
+      "replace": "  persistListAndStatus(dir, state, fin.kept, fin.memory_status)\n",
+      "by": "selfcheck",
+      "kills": [
+        "collect 收尾写名单失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总"
+      ]
+    },
+    {
+      "id": "M-D6-bv",
+      "req": "D6.aa",
+      "why": "收尾那一路还没走完就先在 stdout 打出汇总：之后冻结候选、投影或保存失败时，调用方已经拿到一份像是成功的汇总",
+      "file": "scripts/collect.ts",
+      "find": "  reviews.freezeCandidates(fin.kept, new Date().toISOString())\n",
+      "replace": "  console.log(JSON.stringify({ dir, stopped }))\n  reviews.freezeCandidates(fin.kept, new Date().toISOString())\n",
+      "by": "selfcheck",
+      "kills": [
+        "collect 收尾保存评审正本失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总",
+        "collect 收尾写名单失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总",
+        "collect 收尾投影发现评审输入冲突以退出码 2 结束，stdout 不出汇总"
+      ]
+    },
+    {
       "id": "M-D14-m",
       "req": "D14.i",
       "why": "collect 的保存失败落到 main().catch 时按其他运行错误退 1：调用方读不出「没存上」，可能当成断点已保存去续跑",
