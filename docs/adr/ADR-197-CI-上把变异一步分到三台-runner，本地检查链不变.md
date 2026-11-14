@@ -5,7 +5,7 @@
 - 触发它的事实：KOL-1 关单标准第 3 条（需求所有者丸子 2026-11-14 12:02 CST 定）要 Linux CI 完整检查连跑 5 次的中位数不超过 18 分钟。同一天在 #470 第一个提交上实测现状：主干 `5f68c8b` 在 5 台 runner 上各跑一遍，job 耗时 19:35、24:35、28:24、29:04、29:09，中位 28:24（CI run 43555465585）
 - 决定人与时间：做法由 KOL-1 线程提出；多花 runner 分钟数这一取舍，需求所有者丸子 2026-11-14 05:25Z 在 KOL-1 线程的决策卡上选「分到 3 台并行（推荐）」（卡上问「CI 提速是否接受多花 runner 分钟数，把变异分到 3 台机器并行？」；另两个选项是分到 2 台、不加机器只改代码）
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
-- 连带改动：`scripts/check/jobs-rule.ts`（新增 `shardWanted`、`shardOf`）· `scripts/check/mutate.ts`（认 `MUTATE_SHARD`）· `.github/workflows/check.yml`（拆成三种 job）· `scripts/test.ts` 组 `h-jobs` 加 16 条断言 · `scripts/check/selfcheck.ts` 新组 `mutate-shard`（入口接线）· `scripts/check/mutations.json` 加 `M-H188-a`～`j` · `README.md`、`docs/ARCHITECTURE.md` 各一句 · `scripts/check/launches.json` 回写
+- 连带改动：`scripts/check/jobs-rule.ts`（新增 `shardWanted`、`shardOf`）· `scripts/check/mutate.ts`（认 `MUTATE_SHARD`）· `.github/workflows/check.yml`（拆成三种 job）· `scripts/test.ts` 组 `h-jobs` 加 16 条断言 · `scripts/check/selfcheck.ts` 新组 `mutate-shard`（入口接线）· `scripts/check/mutations.json` 加 `M-H197-a`～`j` · `README.md`、`docs/ARCHITECTURE.md` 各一句 · `scripts/check/launches.json` 回写
 
 ## 一、时间花在哪
 
@@ -69,9 +69,9 @@ ADR-97 第三节量过：单机上的派工离理想下界只差 2.7%，靠排�
 
 - 拆开后 `check` 这个 job 在前两种有一个红时会被跳过，分支保护把「跳过」当过：加了 `if: !cancelled()` 与第一步的闸门，前两种不全绿就红。
 - 分片时成本报告报「基线观测组合不在配置中」：组合改成按整份路由建，只把这一份的编号记进去。
-- `shardWanted` 有走不到的一支（`count < 1`）删掉；「最后一份」「负数」「后面多一截」「两头空白」四种没测，补了断言与 `M-H188-g`～`j`。
+- `shardWanted` 有走不到的一支（`count < 1`）删掉；「最后一份」「负数」「后面多一截」「两头空白」四种没测，补了断言与 `M-H197-g`～`j`。
 - 入口里的接线（只派这一份、读不出来就退、验证者里摘掉变量）原来没有东西守：`mutate.ts` 在自检的基础设施闭包里，`by: selfcheck` 的变异会被「自己验自己」拦下，所以加自检组 `mutate-shard`，在玩具树上真起 `mutate` 跑 1/2、2/2、3/2 三次；手工把这五处接线逐一弄坏，这一组都红。
-- `README.md` 一句与事实不符、`docs/ARCHITECTURE.md` 缺 `MUTATE_SHARD` 的约定、`M-H188-a` 的 `why` 措辞：改了。
+- `README.md` 一句与事实不符、`docs/ARCHITECTURE.md` 缺 `MUTATE_SHARD` 的约定、`M-H197-a` 的 `why` 措辞：改了。
 
 **欠条清点**：三个互不知情的上下文按 ADR-01–70、71–140、141–196 分段读了台账（`npm run -s adr-ledger`，629 条），对着本条的 diff 判：
 

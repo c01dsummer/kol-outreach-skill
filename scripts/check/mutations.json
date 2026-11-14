@@ -6308,7 +6308,7 @@
       ]
     },
     {
-      "id": "M-H188-a",
+      "id": "M-H197-a",
       "req": "harness",
       "why": "分份写成空串时不再当成没写、按整份跑，而是读不出来就拒绝 —— 环境里留着一个空的分份变量，变异一步就起不来",
       "file": "scripts/check/jobs-rule.ts",
@@ -6320,7 +6320,7 @@
       ]
     },
     {
-      "id": "M-H188-b",
+      "id": "M-H197-b",
       "req": "harness",
       "why": "分份的份数与第几份对调着读 —— 写「第 2 份、共 3 份」，跑起来是另一种分法，几台 runner 合起来不再是整份清单",
       "file": "scripts/check/jobs-rule.ts",
@@ -6332,7 +6332,7 @@
       ]
     },
     {
-      "id": "M-H188-c",
+      "id": "M-H197-c",
       "req": "harness",
       "why": "第几份超过份数也收下 —— 写错成「3/2」时这一跑一条变异也不跑，却照样报全部被抓到",
       "file": "scripts/check/jobs-rule.ts",
@@ -6344,7 +6344,7 @@
       ]
     },
     {
-      "id": "M-H188-d",
+      "id": "M-H197-d",
       "req": "harness",
       "why": "第 0 份也收下 —— 写错成「0/2」时这一跑一条变异也不跑，却照样报全部被抓到",
       "file": "scripts/check/jobs-rule.ts",
@@ -6356,7 +6356,7 @@
       ]
     },
     {
-      "id": "M-H188-e",
+      "id": "M-H197-e",
       "req": "harness",
       "why": "分份不再轮流发，改成只发头一份 —— 几台 runner 合起来不是整份清单，有几条变异谁也没跑，而每一份都报全部被抓到",
       "file": "scripts/check/jobs-rule.ts",
@@ -6369,7 +6369,7 @@
       ]
     },
     {
-      "id": "M-H188-f",
+      "id": "M-H197-f",
       "req": "harness",
       "why": "分份读法认不带斜杠、只写一个数的写法 —— 「2」被收下、份数读成不是数，写错的分法不再被拒",
       "file": "scripts/check/jobs-rule.ts",
@@ -6381,7 +6381,7 @@
       ]
     },
     {
-      "id": "M-H188-g",
+      "id": "M-H197-g",
       "req": "harness",
       "why": "最后一份被当成越界拒掉 —— CI 上第 3/3 份那台起不来，那三分之一的变异没人跑",
       "file": "scripts/check/jobs-rule.ts",
@@ -6393,7 +6393,7 @@
       ]
     },
     {
-      "id": "M-H188-h",
+      "id": "M-H197-h",
       "req": "harness",
       "why": "分份读法不再要求从头读起 —— 带负号、前面多一截的写法被读成别的份，写错的分法不再被拒",
       "file": "scripts/check/jobs-rule.ts",
@@ -6405,7 +6405,7 @@
       ]
     },
     {
-      "id": "M-H188-i",
+      "id": "M-H197-i",
       "req": "harness",
       "why": "分份读法不再要求读到尾 —— 后面多一截的写法被读成前面那两个数，写错的分法不再被拒",
       "file": "scripts/check/jobs-rule.ts",
@@ -6417,7 +6417,7 @@
       ]
     },
     {
-      "id": "M-H188-j",
+      "id": "M-H197-j",
       "req": "harness",
       "why": "分份读之前不再去掉两头的空白 —— 环境变量里多敲一个空格，这一跑就起不来",
       "file": "scripts/check/jobs-rule.ts",
