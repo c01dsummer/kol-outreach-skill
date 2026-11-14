@@ -165,13 +165,17 @@ const named = (label: string, ok: boolean, why: string) => {
 }
 
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number; soft?: readonly number[] }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
+  expect?: { status: number; soft?: readonly number[]; timeoutMs?: number }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
   // extra 只给这一次 spawn：崩溃续跑那几条轨迹要给「杀掉那一跑」传旋钮、给续跑不传
   const kidEnv = { ...env, ...extra }
   // 预编缓存里有整棵树现在这一版就裸 node 起，否则照旧 tsx（`prebuilt.ts`，ADR-158）；
   // 退出码按 tsx 的壳会报的那样换算（夹具「被杀」那几条认的是 137）
   const [exe, argv] = prebuiltCommand(args, cwd, kidEnv)
-  const spawned = spawnSync(exe, argv, { env: kidEnv, cwd, encoding: 'utf8' })
+  // `timeoutMs` 给的是「卡住了也要有个了断」：到点用 SIGKILL 杀掉这一个子进程，`r.error` 带 ETIMEDOUT，
+  // 下面照「起不来 / 被打死」那一支报（带进程记号，`soft` 救不回来）——卡住就是没跑完，不是哪条断言判了不过。
+  // 只杀直接起的这一个：调用点要自己说清楚卡住那一刻底下还有没有孙进程（#467 CodeRabbit 第 1 轮）。
+  const spawned = spawnSync(exe, argv, { env: kidEnv, cwd, encoding: 'utf8',
+    ...(expect?.timeoutMs === undefined ? {} : { timeout: expect.timeoutMs, killSignal: 'SIGKILL' as const }) })
   const r = { ...spawned, ...asTsx(argv, spawned.status, spawned.signal) }
   const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // P1 例外：同上
@@ -193,7 +197,9 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   }
   if (bad) {
     failed++
-    const why = r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
+    const why = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
+      ? `过了 ${(expect?.timeoutMs ?? 0) / 1000} 秒还没结束，已杀掉（卡住了）`
+      : r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
     console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
     return { ok: false, stdout: '', stderr: '', status: r.status }
   }
@@ -279,7 +285,7 @@ const runTool = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string
  * 要读 stdout 与判成败,`run` 只给一股。
  */
 const runToolBoth = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string[] = [],
-  cwd = process.cwd(), expect?: { status: number; soft?: readonly number[] }) =>
+  cwd = process.cwd(), expect?: { status: number; soft?: readonly number[]; timeoutMs?: number }) =>
   runBoth(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect, mutationFixtureEnv(tool, rest, cwd))
 
 console.log('\n[脚本自检] 假 fetch，无真实请求\n')
@@ -8728,6 +8734,97 @@ group('mutate-jobs-per-run', [], () => {
     JSON.stringify(left) === JSON.stringify([String(process.pid), 'w0', `0${deadPid}`].sort()), `作业根底下剩：${left.join('、')}`)
 })
 
+// ---- worker 副本带哪些文件：清单由 git 说（ADR-72 第 303 行）----
+group('mutate-copy-list', [], () => {
+  // 判定那一半（`workerCopyList`：解析、去重、入口占着的两处、`.env` 一族、不在顶层、清单空）有单测与负片；
+  // **这里守的是入口那一半**：真去问了 git、照清单一份一份建副本。玩具语料自己建 git 历史（与 `mutationFixtureEnv`
+  // 建的同形：两次提交），另摆五样，每个 worker 里的验证者把它看到的记一笔：
+  // - 没受跟踪、也没被忽略的 `notes/loose.txt` —— 该带（站的是 `--others`）；
+  // - 写进 `.gitignore` 的 `ignored.txt` —— 不该带（站的是 `--exclude-standard`；原先的手抄表里没有这个名字，整棵复制会带上）；
+  // - 没登记的 `.env.production` —— 不该带（不交给 git 的那一道）；
+  // - 受跟踪、工作树里已删掉的 `gone.txt` —— 不带，也不让建副本那一步失败（`--cached` 照列它）；
+  // - 受跟踪的相对符号链接 `linked` —— 建成符号链接，不跟进去复制成文件；
+  // - 一份没受跟踪的嵌套仓库 `nested/`（git 列成一项、以斜杠结尾）—— 不带，也不让建副本那一步失败；
+  // - 受跟踪、工作树里换成了命名管道的 `piped.txt` —— 不带：拿去复制会在打开那一下挂住，整跑停在建副本（#467 CodeRabbit 第 1 轮）。
+  // 正常基线那一处（同一个建副本的函数）这个语料走不到 —— 它没有子集基线；不在仓库顶层那一种入口里没有夹具，记在 ADR-72。
+  // 入口在自检的验证基础设施闭包里，指名自检的变异被「自己验自己」拦下；`by: test` 不被拦，但需求测试只起 `mutate --worker`、
+  // 根本不起派工，走不到这两处 —— 所以这一半只有自检夹具、没有负片。
+  const copyTmp = join(tmp, 'jobs-copy-list'), copyMark = join(tmp, 'jobs-copy-list-seen.txt')
+  seedJobs(copyTmp, [jobMut('M-J-g', 'keep', 'gone'), jobMut('M-J-h', 'hold', 'lost')], copyMark)
+  const q = "'"
+  const git = (...args: string[]): void => {
+    const r = spawnSync('git', args, { cwd: copyTmp, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')}：${r.stderr || r.error}`)
+  }
+  try {
+    writeFileSync(join(copyTmp, 'scripts', 'test.ts'), [
+      `import { v, w } from ${q}./check/a.js${q}`,
+      `import { appendFileSync, existsSync, lstatSync } from ${q}node:fs${q}`,
+      `appendFileSync(${JSON.stringify(copyMark)}, JSON.stringify({ cwd: process.cwd(), loose: existsSync(${q}notes/loose.txt${q}),`
+        + ` ignored: existsSync(${q}ignored.txt${q}), env: existsSync(${q}.env.production${q}), gone: existsSync(${q}gone.txt${q}),`
+        + ` link: existsSync(${q}linked${q}) && lstatSync(${q}linked${q}).isSymbolicLink(), nested: existsSync(${q}nested${q}), piped: existsSync(${q}piped.txt${q}) }) + ${q}\\n${q})`,
+      `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
+      `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
+    ].join('\n') + '\n', 'utf8')
+    writeFileSync(join(copyTmp, 'gone.txt'), 'x')
+    writeFileSync(join(copyTmp, 'piped.txt'), 'x')
+    symlinkSync(join('docs', 'requirements.json'), join(copyTmp, 'linked'))
+    git('init', '--quiet', '-b', 'main')
+    git('config', 'user.name', 'Mutation fixture')
+    git('config', 'user.email', 'fixture@example.invalid')
+    git('add', '--', 'scripts', 'docs', 'gone.txt', 'piped.txt', 'linked')
+    git('commit', '--quiet', '-m', 'fixture baseline')
+    git('commit', '--quiet', '--allow-empty', '-m', 'fixture head')
+    rmSync(join(copyTmp, 'gone.txt'))
+    rmSync(join(copyTmp, 'piped.txt'))
+    const fifo = spawnSync('mkfifo', [join(copyTmp, 'piped.txt')], { encoding: 'utf8' })
+    if (fifo.status !== 0) throw new Error(`mkfifo：${fifo.stderr || fifo.error}`)
+    mkdirSync(join(copyTmp, 'notes'))
+    writeFileSync(join(copyTmp, 'notes', 'loose.txt'), 'x')
+    writeFileSync(join(copyTmp, '.gitignore'), 'ignored.txt\n')
+    writeFileSync(join(copyTmp, 'ignored.txt'), 'x')
+    writeFileSync(join(copyTmp, '.env.production'), 'SECRET=x\n')
+    mkdirSync(join(copyTmp, 'nested'))
+    writeFileSync(join(copyTmp, 'nested', 'x.txt'), 'x')
+    const inner = spawnSync('git', ['init', '--quiet'], { cwd: join(copyTmp, 'nested'), encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    if (inner.status !== 0) throw new Error(`git init（嵌套仓库）：${inner.stderr || inner.error}`)
+    rmSync(copyMark, { force: true })
+  } catch (e) {
+    failed++
+    console.error(`  ✗ 副本清单夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+  // 建副本时若去打开那根命名管道，`open` 会一直等一个写端，整跑停在那里不动 —— 自检也跟着挂住、什么也不报。
+  // 所以旁边起一个「疏通的」：每半秒用不阻塞的方式把管道的写端开一下再关上。没人在读时这一下直接失败、什么也不发生
+  // （修复在的时候就是这样）；有人卡在读端时，读端拿到文件结尾，那份副本建成一个空文件、整跑接着走完 ——
+  // 于是撤掉修复不会挂住，而是由下面「换成命名管道的没带」那条具名断言判红，派工起的子孙也都自己跑完、收干净。
+  // 撤掉修复实测过：具名断言红、整跑照常结束、不留进程（#467 CodeRabbit 第 1 轮）。
+  // 时限是疏通的那个自己也出了岔子时的兜底：到点只杀直接起的那一个，经 tsx 起时它底下那个真跑着的 node 会留下，
+  // 所以兜底只保证自检不挂住，不保证收干净。
+  const unjam = spawn(process.execPath, ['-e', [
+    `const fs = require('node:fs')`,
+    `const end = Date.now() + 150000`,
+    `setInterval(() => {`,
+    `  try { fs.closeSync(fs.openSync(process.argv[1], fs.constants.O_WRONLY | fs.constants.O_NONBLOCK)) } catch {}`,
+    `  if (Date.now() > end) process.exit(0)`,
+    `}, 500)`,
+  ].join('\n'), join(copyTmp, 'piped.txt')], { stdio: 'ignore' })
+  const run = runToolBoth('mutate 派工：副本照 git 的清单建', 'mutate', ['--jobs=2'], copyTmp, { status: 0, timeoutMs: 120_000 })
+  unjam.kill('SIGKILL')
+  if (!run.ok) return
+  const seen = existsSync(copyMark) ? readFileSync(copyMark, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : []
+  const shown = JSON.stringify(seen)
+  named('副本清单：派工照常跑完，两条都抓到', /2 个变异全部被抓到/.test(run.stdout), run.stdout.split('\n').slice(-8).join('\n'))
+  named('副本清单：两个验证者都跑在隔离目录里', seen.length === 2 && seen.every(r => r.cwd.includes('mutate-jobs')), shown)
+  named('副本清单：没受跟踪、也没被忽略的带上了', seen.length === 2 && seen.every(r => r.loose === true), shown)
+  named('副本清单：写进忽略规则的没带', seen.length === 2 && seen.every(r => r.ignored === false), shown)
+  named('副本清单：没登记的环境文件没带', seen.length === 2 && seen.every(r => r.env === false), shown)
+  named('副本清单：工作树里已删掉的没带，建副本也没失败', seen.length === 2 && seen.every(r => r.gone === false), shown)
+  named('副本清单：符号链接建成符号链接', seen.length === 2 && seen.every(r => r.link === true), shown)
+  named('副本清单：没受跟踪的嵌套仓库没带，建副本也没失败', seen.length === 2 && seen.every(r => r.nested === false), shown)
+  named('副本清单：换成命名管道的没带，建副本也没挂住', seen.length === 2 && seen.every(r => r.piped === false), shown)
+})
+
 // ---- 起 worker 时资源不够：报出来的原因要指向资源，不要指向派工代码 ----
 group('jobs-resource', [], () => {
   // 打开的文件数到顶时，`spawn` **既不同步抛、也来不及发 `error`**：Node 在装管道之前
@@ -8747,7 +8844,7 @@ group('jobs-resource', [], () => {
   //
   // **这条路上压根没有验证者可漏**，虽然它每次都走硬来（硬来现在会按组收掉各 worker 底下的
   // 验证者，见 ADR-74；这里说的不是那一刀，是这条路走到时一个验证者都还没起来）。
-  // 理由是结构上的，不是运气：派工那一段从 `cpSync` 到 `spawn` 到
+  // 理由是结构上的，不是运气：派工那一段从建副本到 `spawn` 到
   // 派第一个编号，整个是**一遍同步**跑完的，中间事件循环一次都没转 —— 而 worker 要先把
   // tsx 启起来、读到 stdin，才谈得上起验证者。硬来那一句 `process.exit` 就发生在同一拍里。
   // 本夹具在第一趟真实 spawn 前耗尽描述符，spawn 返回后释放；它只验启动失败后的清理

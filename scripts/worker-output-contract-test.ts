@@ -2,9 +2,8 @@ import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { basename, isAbsolute, join, relative, sep } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
-import { copyIntoWorker } from './check/jobs-rule.js'
 import { SELFCHECK_FIXTURE_MARK } from './check/verifier-rule.js'
 import { WORKER_OUTPUT_CONTRACT_FILES } from './worker-output-contract-data.js'
 import { WORKER_OUTPUT_GUARDIAN, WORKER_OUTPUT_GUARDIAN_SHA256 } from './worker-output-guardian-data.js'
@@ -15,6 +14,17 @@ const PREFIX = 'WORKER_OUTPUT_CONTRACT_JSON '
 const sha = (body: string | Buffer): string => createHash('sha256').update(body).digest('hex')
 const inside = (candidate: string, root: string): boolean => candidate === root || candidate.startsWith(root + sep)
 function invalid(message: string): never { throw new Error(`${SELFCHECK_FIXTURE_MARK} worker-output contract: ${message}`) }
+/**
+ * Which names the opaque cwd specimen leaves out. This fixture deliberately does not consult Git (see
+ * `sourceManifest`), so it keeps its own name list: the one the worker copy used before it switched to
+ * `git ls-files` (`workerCopyList` in `jobs-rule.ts`, ADR-72 line 303). It decides only what this
+ * specimen contains, not what any mutation worker sees.
+ */
+const SPECIMEN_SKIP = new Set(['node_modules', '.git', '.check-cache', 'output', 'memory'])
+const inSpecimen = (src: string): boolean => {
+  const name = basename(src)
+  return !SPECIMEN_SKIP.has(name) && !name.startsWith('.env')
+}
 type SourceEntry = { path: string; type: 'file' | 'symlink'; sha256: string }
 
 /** Uses current visible cwd bytes, without consulting Git or a parent directory. */
@@ -23,7 +33,7 @@ function sourceManifest(root: string): SourceEntry[] {
   const visit = (rel: string): void => {
     for (const name of readdirSync(join(root, rel)).sort()) {
       const next = rel ? join(rel, name) : name, entry = join(root, next)
-      if (!copyIntoWorker(entry)) continue
+      if (!inSpecimen(entry)) continue
       if (next.includes('\n') || next.includes('\r')) invalid('source path cannot be represented by this fixture')
       const st = lstatSync(entry)
       if (st.isDirectory()) { visit(next); continue }
@@ -36,7 +46,7 @@ function sourceManifest(root: string): SourceEntry[] {
           const resolved = realpathSync(entry)
           if (isAbsolute(link) || !inside(resolved, root)) invalid('source symlink escapes the isolated snapshot: ' + next)
           const target = relative(root, resolved)
-          if (target.split(sep).some(part => !copyIntoWorker(part))) invalid('source symlink points into an excluded subtree: ' + next)
+          if (target.split(sep).some(part => !inSpecimen(part))) invalid('source symlink points into an excluded subtree: ' + next)
         }
         rows.push({ path: next, type: 'symlink', sha256: sha(link) })
       } else if (st.isFile()) rows.push({ path: next, type: 'file', sha256: sha(readFileSync(entry)) })
@@ -69,7 +79,7 @@ export function runWorkerOutputContract(): boolean {
       execPath: realpathSync(process.execPath), sha256: sha(readFileSync(process.execPath)) }
     const specimen = join(home, 'specimen')
     cpSync(root, specimen, { recursive: true, dereference: false, verbatimSymlinks: true,
-      filter: source => source === root || copyIntoWorker(source) })
+      filter: source => source === root || inSpecimen(source) })
     if (!isDeepStrictEqual(sourceManifest(specimen), before) || !readFileSync(join(specimen, 'scripts/check/mutate.ts')).equals(coreBefore)) invalid('opaque source copy differs from current cwd')
     // Dependencies are a separate declared shared input, not Git specimen files.
     symlinkSync(dependenciesAt, join(specimen, 'node_modules'), 'dir')
