@@ -2,6 +2,7 @@ import type {
   AccountAssessmentSummary, AudienceRiskFlag, Creator, Measurement,
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
+import { unsourcedLine } from './draft-claims.js'
 import { formatDiscoverySources } from './discovery.js'
 import { draftSubject, sampleScopeText, sortForReviewOutput, type ReviewOutputOptions } from './rows.js'
 import { normalizedAccountKey } from './review.js'
@@ -246,7 +247,8 @@ const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: rea
     <h2>冻结账号与原任务来源</h2>${sources}</section>`
 }
 
-export interface HtmlOutputOptions extends ReviewOutputOptions { filters?: 'dual' }
+/** `facts`：任务里已证实的产品事实原文（P2.c）；缺席或空数组都是「没有可对的」：作品文字对不上的说法全列出来，前面写明没有可对的。 */
+export interface HtmlOutputOptions extends ReviewOutputOptions { filters?: 'dual'; facts?: readonly string[] }
 
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
 export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOptions = {}): string {
@@ -261,6 +263,14 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
     const subject = options.mode === 'review' ? draftSubject(c.outreach_draft) : undefined
     return subject === undefined ? '' : `
     <div class="bio" data-draft-subject="outreach_subject">主题：${esc(subject)}</div>`
+  }
+  // P2.c：草稿里对不上出处的数字与承诺词；对照是已证实的产品事实，加上这位博主自己作品的文字。
+  // 只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-199）。
+  const claimsLine = (c: Creator) => {
+    const claims = options.mode === 'review'
+      ? unsourcedLine(c.outreach_draft, options.facts, (c.recent_posts ?? []).map(p => p.desc)) : undefined
+    return claims === undefined ? '' : `
+    <div class="bio" data-draft-claims="unsourced">出处对不上：${esc(claims)}（只查数字和承诺词，其余说法仍要自己看）</div>`
   }
   const card = (c: Creator) => `
 ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.effective_priority === undefined ? '' : ` data-priority="${esc(c.effective_priority)}"`}>`
@@ -288,7 +298,7 @@ ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.e
   ${c.linked_handle ? renderAssessment(c.linked_account_assessment,
     c.linked_handle.startsWith('tiktok:') ? 'TikTok（关联）' : 'Instagram（关联）') : ''}
   ${c.previously_recommended ? `<div class="prev">曾推荐：${esc(c.previously_recommended)}</div>` : ''}
-  ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>${subjectLine(c)}
+  ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>${subjectLine(c)}${claimsLine(c)}
     <pre>${esc(c.outreach_draft)}</pre>
     <button onclick="cp(this)">复制</button></details>` : ''}
 </div>`

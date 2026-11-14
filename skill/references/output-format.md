@@ -180,6 +180,8 @@ HTML 在原卡片中按主平台、关联平台分别展示 Agent 原判断、�
 
 评审模式 HTML 的草稿块在草稿上方单列一行「主题：」，带 `data-draft-subject="outreach_subject"`，取值同上表 `outreach_subject`，在输出处转义；默认模式 HTML 不出这一行（U13.c）。
 
+评审模式 HTML 的草稿块在「主题：」之后再单列一行「出处对不上：…（只查数字和承诺词，其余说法仍要自己看）」，带 `data-draft-claims="unsourced"`：列出草稿里带数字的说法和承诺词中，任务已证实的产品事实与该账号作品文字里都找不到的那些；都找得到写「无」；任务里没有已证实的产品事实时开头写明「任务里没有已证实的产品事实可对」。没有草稿或草稿只有空白不出，默认模式不出；评审 CSV/XLSX 没有这一列（P2.c，ADR-199）。
+
 评审模式 HTML 的平台区块提供账号定界：Agent／人工区块分别带 `data-review-kind="agent"`／`"manual"`，其 `data-account-key` 为各自规范化平台账号键；有效建议区块带 `data-review-kind="effective"`，`data-account-key` 为主账号键。仅在人工来源键实际存在时，有效建议区块再带 `data-priority-account-key` 原来源键。属性在输出处转义，不能把关联平台标签贴在主平台内容上；旧公共视图的卡片开头、主页链接及默认模式 markup 保持原样。
 
 每个 Agent／人工字段值另有 `data-review-field` 节点，属性值为原字段名，节点文本只含该字段原值或缺席标识，人读标签位于同一行；主平台和关联平台的“人工合格性”“人工采用”以及四项证据各自对应其字段原值。
