@@ -76,7 +76,7 @@ function nameOf(ts: typeof Ts, n: Ts.Node): string | undefined {
 }
 
 /**
- * 只写不读：`=` 的左边（套着括号、在解构赋值的数组或对象字面量里也算）、`for (… of/in …)` 的循环变量、`delete` 的操作数。
+ * 只写不读：`=` 的左边（套着括号、`!`、`as`／`<T>` 断言、在解构赋值的数组或对象字面量里也算）、`for (… of/in …)` 的循环变量、`delete` 的操作数。
  * `+=`、`++` 这类先读旧值再写的不算只写。
  */
 function writeOnly(ts: typeof Ts, e: Ts.Expression): boolean {
@@ -85,6 +85,7 @@ function writeOnly(ts: typeof Ts, e: Ts.Expression): boolean {
     const p = n.parent
     if (ts.isDeleteExpression(p)) return true
     if (ts.isParenthesizedExpression(p) || ts.isArrayLiteralExpression(p) || ts.isSpreadElement(p)) { n = p; continue }
+    if (ts.isNonNullExpression(p) || ts.isAsExpression(p) || ts.isTypeAssertionExpression(p)) { n = p; continue }
     if ((ts.isPropertyAssignment(p) && p.initializer === n) || ts.isSpreadAssignment(p)) { n = p.parent; continue }
     if ((ts.isForOfStatement(p) || ts.isForInStatement(p)) && p.initializer === n) return true
     return ts.isBinaryExpression(p) && p.left === n && p.operatorToken.kind === ts.SyntaxKind.EqualsToken

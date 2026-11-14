@@ -13964,8 +13964,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function mapped(): Map<string, { inMap: number }> { return new Map() }',
       'export function jsonMap(): Map<string, { viaJson: number }> { return new Map() }',
       "export function named(): { 0: number; ['comp']: number; [Symbol.iterator]: number } { return { 0: 1, comp: 2, [Symbol.iterator]: 3 } }",
-      'export function written(): { onlySet: number; onlyIdx: number; bumped: number; paren: number; spread: number; inObj: number; looped: number; gone?: number; inc: number; inArr: number; rest: { a?: number }; iter: number[] } {',
-      '  return { onlySet: 1, onlyIdx: 2, bumped: 3, paren: 4, spread: 5, inObj: 6, looped: 7, inc: 8, inArr: 9, rest: {}, iter: [] } }',
+      'export function written(): { onlySet: number; onlyIdx: number; bumped: number; paren: number; spread: number; inObj: number; looped: number; gone?: number; inc: number; inArr: number; rest: { a?: number }; iter: number[]; nn?: number; asserted: number; angle: number } {',
+      '  return { onlySet: 1, onlyIdx: 2, bumped: 3, paren: 4, spread: 5, inObj: 6, looped: 7, inc: 8, inArr: 9, rest: {}, iter: [], asserted: 10, angle: 11 } }',
     ].join('\n'),
     'scripts/check/u.ts': "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const } }",
     'scripts/check/g.ts': 'export function gOnly(): { gg: number } { return { gg: 1 } }',
@@ -13982,7 +13982,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'const s = JSON.stringify(f.both())',
       'const j = JSON.stringify(f.jsonMap())',
       "const w = f.written(); w.onlySet = 1; w['onlyIdx'] = 2; w.bumped += 1; (w.paren) = 4",
-      "declare const xs: number[]; [, ...[w.spread]] = xs; ({ k: w.inObj } = { k: 6 }); for (w.looped of xs) {}; delete w.gone; w.inc++; ({ ...w.rest } = { a: 1 }); for (const _ of w.iter) {}",
+      "declare const xs: number[]; [, ...[w.spread]] = xs; ({ k: w.inObj } = { k: 6 }); for (w.looped of xs) {}; delete w.gone; w.inc++; ({ ...w.rest } = { a: 1 }); for (const _ of w.iter) {}; w.nn! = 1; (w.asserted as number) = 2; (<number>w.angle) = 3",
       'const arr = [w.inArr]',
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
@@ -14019,6 +14019,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算',
     ['paren', 'spread', 'inObj', 'rest', 'looped', 'gone', 'inc', 'inArr', 'iter'].map(k => moreOf(`f.ts#written.${k}`)?.used),
     [false, false, false, false, false, false, true, true, true])
+  eq('字段：套着 ! 与 as、<T> 类型断言的只写也不算读到',
+    ['nn', 'asserted', 'angle'].map(k => moreOf(`f.ts#written.${k}`)?.used), [false, false, false])
   eq('字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段',
     ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined])
 

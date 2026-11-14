@@ -23693,6 +23693,42 @@
       "kills": [
         "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
       ]
+    },
+    {
+      "id": "M-H198-be",
+      "req": "harness",
+      "why": "套着 ! 的赋值左边当成读到：测试只往字段里写、从不读它也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "ts.isNonNullExpression(p) || ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：套着 ! 与 as、<T> 类型断言的只写也不算读到"
+      ]
+    },
+    {
+      "id": "M-H198-bf",
+      "req": "harness",
+      "why": "套着 as 断言的赋值左边当成读到：测试只往字段里写、从不读它也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "ts.isAsExpression(p) || ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：套着 ! 与 as、<T> 类型断言的只写也不算读到"
+      ]
+    },
+    {
+      "id": "M-H198-bg",
+      "req": "harness",
+      "why": "套着 <T> 断言的赋值左边当成读到：测试只往字段里写、从不读它也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " || ts.isTypeAssertionExpression(p)) { n = p; continue }",
+      "replace": ") { n = p; continue }",
+      "by": "test",
+      "kills": [
+        "字段：套着 ! 与 as、<T> 类型断言的只写也不算读到"
+      ]
     }
   ],
   "exemptions": [
