@@ -20394,6 +20394,12 @@ await group('h-worker-output-reclaim', async () => {
     eq('worker夹具回收：账本最后一行没写完、不是 JSON、组号缺了或不像组号，都当确认不了',
       ['{"role":"driver-guardian","pgid":11}', '{"role":"driver-guardian","pgid":11}\nnot json\n', '{"role":"wrapper-guardian","pgid":null}\n', '{"role":"wrapper-guardian","pgid":1}\n'].map(groupsOf),
       [null, null, null, null])
+    // 账本在、却读不出（这里拿一个同名目录顶替），和一行是 JSON 的 null：都交回确认不了，不抛出去
+    fsx.rmSync(ledger, { force: true }); fsx.mkdirSync(ledger)
+    const caught = (read: () => unknown) => { try { return read() } catch { return 'threw' } }
+    const unreadable = caught(() => recordedGroups(ledger, 7))
+    fsx.rmdirSync(ledger)
+    eq('worker夹具回收：账本读不出、或有一行是 null，都当确认不了', [unreadable, caught(() => groupsOf('null\n'))], [null, null])
     const unknown = px.join(base, 'unknown'); fsx.mkdirSync(unknown)
     const third = reclaimOwned([unknown], null)
     eq('worker夹具回收：组列不出来时不删，说明原因', [typeof third === 'string' && third.includes('cannot be listed'), fsx.existsSync(unknown)], [true, true])

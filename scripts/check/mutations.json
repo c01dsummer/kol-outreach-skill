@@ -6791,6 +6791,30 @@
       ]
     },
     {
+      "id": "M-H201-h",
+      "req": "harness",
+      "why": "账本在却读不出时直接抛 —— 外层的 finally 被这一下打断，两个目录留着却不报是哪两个",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "  try { text = readFileSync(ledger, 'utf8') } catch { return null }\n",
+      "replace": "  text = readFileSync(ledger, 'utf8')\n",
+      "by": "test",
+      "kills": [
+        "worker夹具回收：账本读不出、或有一行是 null，都当确认不了"
+      ]
+    },
+    {
+      "id": "M-H201-i",
+      "req": "harness",
+      "why": "账本里一行是 JSON 的 null 时去读它的属性 —— 抛出去，外层的 finally 同样被打断",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "    if (typeof parsed !== 'object' || parsed === null) return null\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "worker夹具回收：账本读不出、或有一行是 null，都当确认不了"
+      ]
+    },
+    {
       "id": "M-H201-e",
       "req": "harness",
       "why": "已经退出、只剩僵尸的进程也算组里还活着 —— 没人收尸的机器上永远等不到，每次都判失格、临时根也留着",
