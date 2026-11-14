@@ -93,7 +93,7 @@ jobs:
         continue-on-error: true
 
   mutate:
-    name: 变异（第 ${{ matrix.shard }}/3 份）
+    name: 变异（第 ${{ matrix.shard }}/3 份 · 第 ${{ matrix.rep }} 组）
     runs-on: ubuntu-latest
     strategy:
       # 一份红了别的照跑完：一次推送看得到全部存活的变异，不用一份一份地修
