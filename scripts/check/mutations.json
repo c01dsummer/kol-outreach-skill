@@ -24483,7 +24483,7 @@
       "req": "harness",
       "why": "有 toJSON 时连它的返回值也不比：toJSON 交出去、真被序列化比对了的字段误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "{ for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries); return }",
+      "find": "{ for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries, false); return }",
       "replace": "return",
       "by": "test",
       "kills": [
@@ -24668,6 +24668,18 @@
       "by": "test",
       "kills": [
         "字段：toJSON 返回自己的照常序列化；WeakMap 这类弱引用容器深比较也进不去；解构赋值的键读的是右边的字段（含改名），没解构的不算"
+      ]
+    },
+    {
+      "id": "M-H198-cf",
+      "req": "harness",
+      "why": "toJSON 换来的值又按它自己的 toJSON 再换一次：真正写出去的字段算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "whole(tc.getReturnTypeOfSignature(sig), seen, entries, false)",
+      "replace": "whole(tc.getReturnTypeOfSignature(sig), seen, entries, true)",
+      "by": "test",
+      "kills": [
+        "字段：同一位置只换一次 toJSON —— 换来的值自己的 toJSON 不再调用，照原样序列化"
       ]
     },
     {
