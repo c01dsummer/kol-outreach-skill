@@ -138,7 +138,7 @@
     {"config":"[\"test\",[\"h-infra-rules\"]]","launches":0,"maxPaid":null,"running":31,"stopping":0},
     {"config":"[\"test\",[\"h-iou-file-reminder\"]]","launches":0,"maxPaid":null,"running":20,"stopping":0},
     {"config":"[\"test\",[\"h-iou-file-reminder-entry\"]]","launches":6,"maxPaid":null,"running":2,"stopping":0},
-    {"config":"[\"test\",[\"h-jobs\"]]","launches":0,"maxPaid":null,"running":78,"stopping":0},
+    {"config":"[\"test\",[\"h-jobs\"]]","launches":0,"maxPaid":null,"running":89,"stopping":0},
     {"config":"[\"test\",[\"h-launch-preload\"]]","launches":3,"maxPaid":null,"running":20,"stopping":0},
     {"config":"[\"test\",[\"h-launch-preload-edge\"]]","launches":1,"maxPaid":null,"running":6,"stopping":0},
     {"config":"[\"test\",[\"h-launch-rule\"]]","launches":0,"maxPaid":null,"running":191,"stopping":0},
