@@ -1110,20 +1110,23 @@ export function routeDelta(base: RouteSnapshot, head: RouteSnapshot): {
 type RouteChange = ReturnType<typeof routeDelta>['changes'][number]
 
 /**
- * 维护报告的呈现分组（ADR-120 第 74 行，KOL-32）：只按「基线有没有这条、现在有没有这条」分新增、删除、改配置三类。
- * `routeDelta` 的 kind 与判定一字不动 —— 同一条变化照旧带着它的 kind，只是换个地方列。三类合起来就是原清单，
- * 各类里的先后照原清单。
+ * 维护报告的呈现分组（ADR-120 第 74 行，KOL-32）：按「基线目录里有没有这条、现在的路由里有没有这条」分新增、删除、
+ * 改配置三类 —— 与 `routeDelta` 判新增、判删除用的是同一对来源。`routeDelta` 的 kind 与判定一字不动：同一条变化
+ * 照旧带着它的 kind，只是换个地方列。三类合起来就是原清单；每类里先列路由/全跑正文变化、再列执行配置变化，
+ * 各自照原清单的先后，评审先看到要解释的那几条。
  */
 export function groupRouteChanges(base: RouteSnapshot, head: RouteSnapshot, changes: readonly RouteChange[]):
   { added: RouteChange[]; removed: RouteChange[]; changed: RouteChange[] } {
-  const before = new Set(base.routes.map(r => r.id)), after = new Set(head.routes.map(r => r.id))
+  const before = new Set(base.mutations.map(m => m.id)), after = new Set(head.routes.map(r => r.id))
   const groups = { added: [] as RouteChange[], removed: [] as RouteChange[], changed: [] as RouteChange[] }
   for (const change of changes) {
     if (!before.has(change.id)) groups.added.push(change)
     else if (!after.has(change.id)) groups.removed.push(change)
     else groups.changed.push(change)
   }
-  return groups
+  const routeFirst = (list: RouteChange[]) => [...list.filter(change => change.kind !== 'configuration'),
+    ...list.filter(change => change.kind === 'configuration')]
+  return { added: routeFirst(groups.added), removed: routeFirst(groups.removed), changed: routeFirst(groups.changed) }
 }
 
 const KIND_NAMES: Record<RouteChange['kind'], string> = { 'added-full': '新增全跑', 'back-to-full': '选跑退回全跑',
@@ -1142,7 +1145,8 @@ export function routeReport(base: RouteSnapshot, head: RouteSnapshot, delta: Ret
   const count = (kind: RouteChange['kind']) => delta.changes.filter(change => change.kind === kind).length
   const lines = [
     `  新增 ${groups.added.length} 条，删除 ${groups.removed.length} 条，改配置 ${groups.changed.length} 条；`
-      + `其中新增全跑 ${count('added-full')}，选跑退回全跑 ${count('back-to-full')}，旧全跑正文改变 ${count('changed-full')}；`
+      + `其中路由/正文 ${delta.changes.length - count('configuration')} 条（新增全跑 ${count('added-full')}，`
+      + `选跑退回全跑 ${count('back-to-full')}，旧全跑正文改变 ${count('changed-full')}），执行配置 ${count('configuration')} 条；`
       + `验证者布局 ${delta.layoutChanges.length} 份`,
   ]
   const section = (title: string, list: readonly RouteChange[]) => {

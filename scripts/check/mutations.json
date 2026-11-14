@@ -12276,7 +12276,7 @@
       "find": "    if (!before.has(change.id)) groups.added.push(change)",
       "replace": "    if (change.kind === 'added-full') groups.added.push(change)",
       "by": "test",
-      "kills": ["维护报告-按基线与现状有无分三类且类内照原序"]
+      "kills": ["维护报告-按有无分三类且类内路由正文变化在前"]
     },
     {
       "id": "M-H188-b",
@@ -12286,7 +12286,7 @@
       "find": "    else if (!after.has(change.id)) groups.removed.push(change)",
       "replace": "    else if (false) groups.removed.push(change)",
       "by": "test",
-      "kills": ["维护报告-按基线与现状有无分三类且类内照原序"]
+      "kills": ["维护报告-按有无分三类且类内路由正文变化在前"]
     },
     {
       "id": "M-H188-c",
@@ -12296,7 +12296,7 @@
       "find": "groups.added.push(change)",
       "replace": "groups.added.unshift(change)",
       "by": "test",
-      "kills": ["维护报告-按基线与现状有无分三类且类内照原序"]
+      "kills": ["维护报告-按有无分三类且类内路由正文变化在前"]
     },
     {
       "id": "M-H188-d",
@@ -12316,7 +12316,7 @@
       "find": "JSON.stringify(head.layouts[by])}`)\n  }\n  return lines\n",
       "replace": "JSON.stringify(head.layouts[by])}`)\n  }\n  return [...lines.slice(1), lines[0]]\n",
       "by": "test",
-      "kills": ["维护报告-摘要在最前且三类计数与种类计数手算一致"]
+      "kills": ["维护报告-摘要在最前且三类与各种类计数手算一致"]
     },
     {
       "id": "M-H188-f",
@@ -12336,7 +12336,7 @@
       "find": "    for (const change of list) {",
       "replace": "    for (const change of list.slice(0, 1)) {",
       "by": "test",
-      "kills": ["维护报告-每段完整列出本类每一条且照原序"]
+      "kills": ["维护报告-每段完整列出本类每一条"]
     },
     {
       "id": "M-H188-h",
@@ -12357,6 +12357,46 @@
       "replace": "      if (false) lines.push(",
       "by": "test",
       "kills": ["维护报告-全跑原因紧跟在那一条下面"]
+    },
+    {
+      "id": "M-H188-j",
+      "req": "harness",
+      "why": "每类里不再把路由与全跑正文变化排在执行配置变化前面，要解释的那几条埋进配置变化里",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return { added: routeFirst(groups.added), removed: routeFirst(groups.removed), changed: routeFirst(groups.changed) }",
+      "replace": "  return groups",
+      "by": "test",
+      "kills": ["维护报告-按有无分三类且类内路由正文变化在前"]
+    },
+    {
+      "id": "M-H188-k",
+      "req": "harness",
+      "why": "验证者布局变化不再列出，拆组或改依赖时评审看不到",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  for (const by of delta.layoutChanges) {\n    lines.push(",
+      "replace": "  for (const by of [] as string[]) {\n    lines.push(",
+      "by": "test",
+      "kills": ["维护报告-验证者布局变化殿后"]
+    },
+    {
+      "id": "M-H188-l",
+      "req": "harness",
+      "why": "摘要里新增全跑一栏数的是选跑退回全跑的条数，两个计数接反",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "新增全跑 ${count('added-full')}，",
+      "replace": "新增全跑 ${count('back-to-full')}，",
+      "by": "test",
+      "kills": ["维护报告-摘要在最前且三类与各种类计数手算一致"]
+    },
+    {
+      "id": "M-H188-m",
+      "req": "harness",
+      "why": "报告里新增全跑与选跑退回全跑两个种类名对调，逐条看到的种类与实际相反",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "{ 'added-full': '新增全跑', 'back-to-full': '选跑退回全跑',",
+      "replace": "{ 'added-full': '选跑退回全跑', 'back-to-full': '新增全跑',",
+      "by": "test",
+      "kills": ["维护报告-完整报告逐行与手写期望相同"]
     },
     {
       "id": "M-H48-a",

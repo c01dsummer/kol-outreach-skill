@@ -9677,6 +9677,17 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
     const claimSentinel = '{"sentinel":"preexisting claims"}\n'; entryWrite(claimPath, claimSentinel);
     const accepted = entryRun(fixture.cwd, fixture.base);
     named('维护入口-合法解释真实施变通过', (accepted.status) === (0), '实际值必须与既定期望完全相同');
+    // 报告正文由入口交给规则模块拼、再逐行打（ADR-120「报告按新增、删除、改配置分组」）：这里只核入口把基线、现状和
+    // 全跑解释按对的方向接进去 —— 两侧传反时这条变异会落进「删除」、前后路由颠倒。期望手写。
+    named('维护入口-报告按新增删除改配置分段且方向与解释接对', String(accepted.stdout).includes([
+      '  新增 1 条，删除 0 条，改配置 0 条；其中路由/正文 1 条（新增全跑 1，选跑退回全跑 0，旧全跑正文改变 0），执行配置 0 条；验证者布局 1 份',
+      '  新增（完整清单，1 条）：',
+      '    M-X-a 新增全跑：不存在 → test 全跑（执行 a,b）',
+      '      全跑原因：This fixture must observe every verifier group.；重评条件：When its complete behavior is selectable.',
+      '  删除（完整清单，0 条）：', '    无', '  改配置（完整清单，0 条）：', '    无',
+      // 基线目录还是空的，那时没有任何验证者布局可比，所以布局那一行的改前是 undefined。
+      '  test 分组依赖/顺序变化：undefined → [{"id":"a","needs":[]},{"id":"b","needs":[]}]',
+    ].join('\n') + '\n'), '维护报告正文与手写期望不同：' + JSON.stringify(String(accepted.stdout).slice(0, 900)));
     const observed = entryExists(fixture.marker) ? entryRead(fixture.marker, 'utf8').split('\n').filter(Boolean) : [];
     named('维护入口-施变仅按顺序执行全部目标组', (JSON.stringify(observed)) === (JSON.stringify(['a:gone', 'b:gone'])), '实际值必须与既定期望完全相同');
     named('维护入口-施变后恢复目标', (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
