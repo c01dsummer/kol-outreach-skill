@@ -6626,6 +6626,26 @@
       ]
     },
     {
+      "id": "M-H36-y",
+      "req": "harness",
+      "why": "--jobs= 写了两次不再拒绝，只认头一个：写的人以为后面那个数算数，这一跑按前一个派",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (argv.filter(a => a.startsWith('--jobs=')).length > 1) throw new Error('变异测试只能写一次 --jobs=')\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["--jobs= 写了两次：拒绝，不只认头一个"]
+    },
+    {
+      "id": "M-H36-z",
+      "req": "harness",
+      "why": "空格写法 --jobs 3 不再拒绝，当成没写：悄悄按环境变量或机器核数派",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (argv.includes('--jobs')) throw new Error('--jobs 要写成 --jobs=<个数>，不认空格写法')\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["--jobs 空格写法：拒绝并说出该怎么写"]
+    },
+    {
       "id": "M-H36-h",
       "req": "harness",
       "why": "记号后面是 null 的那一行不再被挡下来 —— `typeof null` 也是 object，往下取字段就当场抛出去，一行读不出来的汇报把整跑掀了，而这个函数说好的是「认不出就交回 undefined，不猜」",
