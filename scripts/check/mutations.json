@@ -22769,6 +22769,16 @@
       ]
     },
     {
+      "id": "M-D6-bw",
+      "req": "D6.ab",
+      "why": "补 profile 时费用错误被当成那一个人的失败吞掉，保存费用失败之后照样接着请求下一个人，退出码与汇总都像没出事",
+      "file": "scripts/collect.ts",
+      "find": "      if (e instanceof CostError || e instanceof BudgetInputError) throw e",
+      "replace": "      if (e instanceof BudgetInputError) throw e",
+      "by": "selfcheck",
+      "kills": ["collect 在 profile 补全遇费用错误（保存费用失败）即中止：退出码 6、不出汇总、之后不再请求下一个人"]
+    },
+    {
       "id": "M-D6-bt",
       "req": "D6.aa",
       "why": "KOL-108 第 2 条退回去：收尾那次保存评审正本失败时不算保存失败，按其余运行错误退 1，调用方读不出「没存上」",
