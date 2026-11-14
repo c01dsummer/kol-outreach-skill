@@ -12412,6 +12412,11 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   ok('选跑判定拒绝成环：没点到环上的组也拒绝',
     rejected(() => wanted([{ id: '甲', needs: ['乙'] }, { id: '乙', needs: ['甲'] }, { id: '旁', needs: [] }], ['旁']))
       .includes('甲 → 乙 → 甲'))
+  // 环前有一段引路：入登记在最前、走进环之前先经过它。点出的那一圈从头一个走进环的组（甲）起，不带引路段 ——
+  // 只比结尾的话带上引路段也照样「包含」，所以比整句
+  eq('选跑判定拒绝成环：环前的引路段不算进那一圈',
+    rejected(() => wanted([{ id: '入', needs: ['甲'] }, { id: '甲', needs: ['乙'] }, { id: '乙', needs: ['甲'] }], ['入'])),
+    '组的 needs 成环：甲 → 乙 → 甲')
   // 菱形不是环：顶经左右两条路都走到底，底被走到两次。把「走过的」当成「在走的」，这张图就被误拒。
   // 期望按码点排序：右 U+53F3 < 左 U+5DE6 < 底 U+5E95 < 顶 U+9876
   const D = [{ id: '底', needs: [] }, { id: '左', needs: ['底'] }, { id: '右', needs: ['底'] }, { id: '顶', needs: ['左', '右'] }]
@@ -12633,6 +12638,10 @@ harness('自检组之间共享的运行态：needs 写全才不会在拆进程�
   eq('读方登记在前、闭包里也没有写方：closure 与 order 各报一条', said(scan(
     "group('peek', [], () => { if (dir) {} })", "group('collect', [], () => { dir = 'out' })",
     "group('both', ['collect', 'peek'], () => {})")), ['closure dir: collect → peek', 'order dir: collect → peek'])
+  // 先后只在同一族里才有意义：跨族的两组在不同进程里跑，谁先谁后无从说起，只报 family
+  eq('跨族、读方登记在写方之前：只报 family，不报 order', said(scan(
+    "group('peek', [], () => { if (dir) {} })", "group('collect', [], () => { dir = 'out' })")),
+    ['family dir: collect → peek'])
   // needs 指向登记在后的组本身不是错：坏输入那几组拉着合法对照一起跑，却不读它写的东西（ADR-131 发现二）。
   // 被依赖的那组真写了一份状态，不读它的那组才算「不读」—— 它什么也不写的话这一条是空真
   eq('needs 指向登记在后的组、但不读它写的东西：不报', said(scan(

@@ -2291,6 +2291,16 @@
       "kills": ["选跑判定拒绝自指并点名那一组", "选跑判定拒绝成环并点出那一圈", "选跑判定拒绝成环：没点到环上的组也拒绝", "族划分拒绝自指并点名那一组", "族划分拒绝成环并点出那一圈"]
     },
     {
+      "id": "M-H42-as",
+      "req": "harness",
+      "why": "成环那一句把走进环之前的引路段也算进那一圈：报出来的头一个组根本不在环上，照着它去拆依赖拆错了地方",
+      "file": "scripts/check/group-rule.ts",
+      "find": "[...path.slice(at), id]",
+      "replace": "[...path, id]",
+      "by": "test",
+      "kills": ["选跑判定拒绝成环：环前的引路段不算进那一圈"]
+    },
+    {
       "id": "M-H43-a",
       "req": "harness",
       "file": "scripts/check/mutate-rule.ts",
@@ -13400,6 +13410,16 @@
       "replace": "      if (hit === undefined) { if (familyOf.get(w.id) === familyOf.get(r.id) && registered.get(w.id)! > registered.get(r.id)!) faults.push({ state, writer: w.id, reader: r.id, kind: 'order' }); continue }",
       "by": "test",
       "kills": ["needs 指向登记在后的组、但不读它写的东西：不报"]
+    },
+    {
+      "id": "M-H51-aq",
+      "req": "harness",
+      "why": "登记先后不再限于同一族：跨族的两组本来在不同进程里跑、谈不上谁先谁后，读方登记在前时除了跨族那一条又多报一条顺序错",
+      "file": "scripts/check/share-rule.ts",
+      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !state.startsWith(PATH)",
+      "replace": "      if (!e.writes.has(state) && !state.startsWith(PATH)",
+      "by": "test",
+      "kills": ["跨族、读方登记在写方之前：只报 family，不报 order"]
     },
     {
       "id": "M-H52-a",
