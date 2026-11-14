@@ -314,6 +314,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-contexts', needs: [] },
   { id: 'h-observer-records', needs: [] },
   { id: 'h-blackbox-many-task-files', needs: [] },
+  { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -4145,6 +4146,12 @@ harness('审计对一条需求的裁定')
     mutatedCriteria: new Set(['P9.a', 'P9.b']) })).mutatedCrit, 2)
   eq('一条都没有就是 0', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']) })).mutatedCrit, 0)
+  // 交进来的判据级负片编号是全仓的：只数与这条需求判据的交集。上面两条喂的恰好都是 P9 自己的，
+  // 直接数集合大小也全绿 —— 那时审计会把全仓的总数印在每一条需求头上（ADR-70 第 345–354 行那张欠条）。
+  // 手算：P9 的判据是 P9.a、P9.b，与 {P9.a, D9.a, P5.f} 的交集只有 P9.a，所以是 1
+  eq('别的需求的判据级负片不算到这条头上', requirementVerdict(p, ev({
+    claimedCriteria: new Set(['P9.a', 'P9.b']),
+    mutatedCriteria: new Set(['P9.a', 'D9.a', 'P5.f']) })).mutatedCrit, 1)
 
   // 需求级豁免那一路此前一条测试都没有 —— 生产数据里三条豁免全是判据号，
   // 于是它整段拆掉照样全绿（实测）。它是可达的（有人写一条需求号的豁免就走到），
@@ -11414,6 +11421,11 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 多拦几条变异；少收就是**放行**一条自己验自己的变异（`closure` 头上同一条道理）
   eq('注释里的也收 —— 宁可闭包偏大，不可偏小',
     importsOf('scripts/a.ts', `// 早先是 from './old.js'`).to, ['scripts/old.ts'])
+  // 不带 from 的副作用 import 是 ESM 里合法的一句：只认 from 的话这条边收不到，
+  // 它加载的依赖落在闭包外，打在它身上、又指名了验证者的变异被放行（ADR-70 第 193–199 行那张欠条）
+  eq('不带 from 的副作用 import 也是一条边',
+    importsOf('scripts/check/a.ts', `import './b.js'\nimport '../lib/c.js'`).to,
+    ['scripts/check/b.ts', 'scripts/lib/c.ts'])
 
   // ---- 递归，不是只收一层 ----
   const graph = [
@@ -11446,6 +11458,23 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 凭空多两个文件）。判据故意宽是为了不漏，可它宽出来的东西该在这儿被看见
   const real = infraClosure(f => existsSync(f) ? rf(f, 'utf8') : undefined)
   eq('真闭包里没有磁盘上不存在的路径', real.filter(f => !existsSync(f)), [])
+  // 被测入口不能在真闭包里：种子里出现一句形状像加载它的引用，它就被收进来，打在它上面、
+  // 改跑自检的变异全被当成自己验自己拦下 —— collect.ts 上那条正是这条记录的头号用例（ADR-70 第 201–207 行那张欠条）。
+  // 名单从 package.json 里产品命令（带 --env-file-if-exists 起的那几条）读，不从闭包那边取，也不手抄
+  const productCommands = Object.values(JSON.parse(rf('package.json', 'utf8')).scripts as Record<string, string>)
+    .filter(cmd => cmd.includes('--env-file-if-exists'))
+  // 按命令分组留着：只比总数时，一条命令抽空、另一条抽出两份也会相抵
+  const entriesByCommand = productCommands.map(cmd => [...cmd.matchAll(/\b(scripts\/[\w./-]+\.ts)\b/g)].map(m => m[1]))
+  const productEntries = entriesByCommand.flat()
+  // 名单不能悄悄少一份：每条产品命令恰好抽出一份入口、文件都在盘上，collect 在里面
+  eq('产品入口名单读得出来：每条产品命令恰好一份入口、都在盘上',
+    [entriesByCommand.length > 0, entriesByCommand.every(g => g.length === 1 && existsSync(g[0])), productEntries.includes('scripts/collect.ts')],
+    [true, true, true])
+  eq('被测入口一个都不在真闭包里', real.filter(f => productEntries.includes(f)), [])
+  // 抽边仍不认的两种写法（双引号的静态引用、动态 import()）在真闭包里今天一处都没有。哪天有了，这条红：
+  // 那时抽边要么再认一种形状，要么改写那一句 —— 漏收正是这道闸门最不该错的那一头（ADR-70 末尾 2026-11-14 那块）
+  eq('真闭包里没有抽边认不得的引用写法',
+    real.filter(f => existsSync(f) && statSync(f).isFile() && /\b(?:from|import)\s*"\.|\bimport\s*\(\s*['"`]\./.test(rf(f, 'utf8'))), [])
 
   // ---- 谁受这条判据管 ----
   const infra = ['scripts/check/mutate-rule.ts']
@@ -19500,7 +19529,18 @@ const d28Kit = (root: string) => {
   // 拒绝：退出 2，预留与请求都是零（观测装上了），配置文件原字节，工作目录整棵不变 —— 没有任务目录、没有写记忆
   const held = (g: Got) => g.status === 2 && g.armed && g.reserves === 0 && g.attempts === 0 && g.kept && g.same
   // 列出：配置文件路径、位置、按先后每一处被丢掉的原文；出现次数在写着第一处原文的那一行里（写了两次的 2，三次的 3）
-  const listed = (g: Got) => g.status === 2 && g.pathSaid && g.message.includes(g.at!) && inOrder(g.message, g.tokens!)
+  // 位置照 D27.a 的写法原文，而且就写在这一处的那一行上：在写着第一处原文的那一行里、原文之前，前面是行首、空白或
+  // 「：」「；」，后面是空白或「：」「，」。只核「整份 stderr 含键名」的话，根上的 found 写成 ["found"]、found["0"]
+  // 或 $found 也过，别处一句含 found 的话也能替它作证（ADR-143 第 45 行那张欠条）
+  const atSaid = (message: string, at: string, first: string) => {
+    if (at === '') return false
+    const line = message.split('\n').find(l => l.includes(first))
+    if (line === undefined) return false
+    // 只判离原文最近的那一处：probe 把几处问题拼在一行里，前面别的问题里的同名位置不能替它作证
+    const i = line.lastIndexOf(at, line.indexOf(first) - at.length)
+    return i >= 0 && /^(|[\s：；])$/u.test(line[i - 1] ?? '') && /^[\s：，]$/u.test(line[i + at.length] ?? '')
+  }
+  const listed = (g: Got) => g.status === 2 && g.pathSaid && atSaid(g.message, g.at!, g.tokens![0]) && inOrder(g.message, g.tokens!)
     && (g.times === undefined || (g.times === 2 ? /[2两二]/ : /[3三]/).test(g.message.split('\n').find(line => line.includes(g.tokens![0])) ?? ''))
   // F3.c：内部异常的类名（以 Error 结尾的标识符）与栈帧（行首空白加 at ）都不出现
   const leaks = (g: Got) => /\b[A-Za-z]*Error\b/.test(g.message) || /^\s+at\s/m.test(g.message)
@@ -20400,6 +20440,50 @@ await group('h-blackbox-many-task-files', async () => {
     eq('独立黑盒测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过',
       lc, [['新 task.json（若已建）LC：U = 0 [output/kept-1/task.json]', 'pass'], ['新 task.json（若已建）LC：U = 0 [output/left-2/task.json]', 'red']])
   } finally { scRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('d19-config-known-gap', () => {
+// 用 harness 不用 suite：它钉的是 D19 不要求的行为（一个接受了的缺口），不该把 D19 记成被这一组覆盖
+harness('已知缺口：collect --config 新建任务时，未列出键上读不出精确值的数字照今天写成 null、0')
+{
+  // ADR-190 末尾那张（原 ADR-138 第 76 行）：需求所有者 2026-10-11 定为不修，接受为已知缺口 —— collect --config 新建任务时重建了根，只与配置共用
+  // tasks 与 brand_calibration 两个 holder，那里未列出键上读不出精确值的数字（1e400、1e-400）写成 null、0，写出时不报错也不提示。
+  // 这两条断言**正面钉住**这个缺口，期望照那张欠条的原文写，不照运行结果抄，也不认领任何判据。
+  // 哪天它们红了，就是新建任务怎么拼根变了：回去读那张欠条，定这个缺口是不是已经还了，不要把期望改回去了事
+  const root = mkdtempSync(join(tmpdir(), 'kol-d19-gap-'))
+  try {
+    const cwd = join(root, 'cwd')
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} }, null, 2) + '\n')
+    const unlisted = '"zq_huge":1e400,"zq_tiny":1e-400'
+    writeFileSync(join(cwd, 'config.json'), '{"product":"d19gap","market":"US","target_count":1,"budget_usd":1,'
+      + `"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok",${unlisted}}],`
+      + '"brand_calibration":{"version":"hand-v1","target_creator_types":[],"tone_aesthetic":[],"natural_scenarios":[],'
+      + `"negative_signals":[],"sources":[],${unlisted}}}\n`)
+    const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
+    const argv = [join(process.cwd(), 'scripts', 'collect.ts'), '--config', 'config.json']
+    const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d19-gap', FAKE_FETCH_NO_429: '1',
+      NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)}`
+    const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
+    const made = existsSync(join(cwd, 'output')) ? readdirSync(join(cwd, 'output')) : []
+    const file = made.length === 1 ? join(cwd, 'output', made[0], 'task.json') : ''
+    const text = file && existsSync(file) ? rf(file, 'utf8') : ''
+    // 目标 1 人、假供应商一页就够，所以照常以「达标」那个退出码 4 收尾（ADR-193）—— 写出时不报错、不拒绝
+    eq('已知缺口：collect --config 带着未列出键上的 1e400、1e-400 照常以达标（4）结束、建了一个任务目录，stderr 不提这两个键',
+      [r.status, made.length, /zq_huge|zq_tiny/.test(r.stderr ?? '')], [4, 1, false])
+    // 两个 holder 各自解析出来逐个比（键整个丢掉时是 undefined，严格比 null 会红）；
+    // 再按盘上原文数：1e-400 原样留着时解析出来也是 0，只有看原文才分得出
+    let saved: { tasks?: Record<string, unknown>[], brand_calibration?: Record<string, unknown> } = {}
+    try { saved = JSON.parse(text) } catch { /* 读不出来就让下面那条红 */ }
+    const holders = [saved.tasks?.[0], saved.brand_calibration]
+    eq('已知缺口：新建的 task.json 里，任务条目与 brand_calibration 未列出键上的 1e400 写成 null、1e-400 写成 0，原文不在',
+      [holders.map(h => [h !== undefined && Object.hasOwn(h, 'zq_huge') ? h.zq_huge : 'missing', h !== undefined && Object.hasOwn(h, 'zq_tiny') ? h.zq_tiny : 'missing']),
+        (text.match(/1e-?400/g) ?? []).length],
+      [[[null, 0], [null, 0]], 0])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
 })
 
 if (seenGroups.size !== GROUPS.length) {
