@@ -13,6 +13,28 @@ import { jobsWanted } from './jobs-rule.js'
 export interface Group { id: string; needs: readonly string[] }
 
 /**
+ * 自指与成环当场抛（ADR-99 第 327 行那一串）。下面两处都按记忆化走闭包、按并查集连族，
+ * 这两种写错在那里都被悄悄咽下；而按登记顺序跑时，环上总有一组排在它的前置组前头，
+ * 读到的是初始值。调用前 id 唯一、依赖都在（`byId` 是全图）。
+ *
+ * 点名那一圈：按登记顺序逐组沿 `needs` 往下走，从头一个走进环的组起、走回它为止。
+ * 自指是只有一组的环，报成「甲 → 甲」。
+ */
+function rejectLoops(groups: readonly Group[], byId: ReadonlyMap<string, Group>): void {
+  const done = new Set<string>(), path: string[] = []
+  const walk = (id: string): void => {
+    const at = path.indexOf(id)
+    if (at >= 0) throw new Error(`组的 needs 成环：${[...path.slice(at), id].join(' → ')}`)
+    if (done.has(id)) return
+    path.push(id)
+    for (const need of byId.get(id)!.needs) walk(need)
+    path.pop()
+    done.add(id)
+  }
+  for (const g of groups) walk(g.id)
+}
+
+/**
  * 这一跑要跑哪几组。
  *
  * **不点名就是全跑**（交回 `undefined`）—— 缺省行为逐字如旧，这是这条改动
@@ -35,6 +57,7 @@ export function wanted(groups: readonly Group[], only?: readonly string[]): Set<
   for (const g of groups) for (const need of g.needs) {
     if (!byId.has(need)) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)
   }
+  rejectLoops(groups, byId)
   const unknown = only.filter(id => !byId.has(id))
   if (unknown.length) {
     throw new Error(`--only 点了不存在的组：${unknown.join('、')}`
@@ -88,7 +111,7 @@ export function parseOnlyStrict(argv: readonly string[], allowed: readonly strin
  * 拆开的话前置组要在两个进程里各跑一遍，两份运行态互不相通（ADR-132 第二节）。
  * 族内按登记顺序，族按首个成员的登记位置排，于是派工与输出顺序都是确定的。
  *
- * 校验与 `wanted` 同一套：重复 id、缺失依赖当场抛。自检入口不分跑法、开跑前先调这里一次（选跑在它之后），
+ * 校验与 `wanted` 同一套：重复 id、缺失依赖、自指、成环当场抛。自检入口不分跑法、开跑前先调这里一次（选跑在它之后），
  * 所以登记坏了每一种跑法都在开跑前停下：缺失依赖说出是哪一组缺了哪个，重复 id 只说有重复、不说是哪个；
  * 不拆进程的整跑里选跑不校验，开跑前只有这一处（ADR-132 第九节讲 `M-H42-l`、`M-H42-m` 的那一块）。
  */
@@ -104,6 +127,7 @@ export function families(groups: readonly Group[]): string[][] {
       root[find(i)] = find(j)
     }
   })
+  rejectLoops(groups, new Map(groups.map(g => [g.id, g])))
   const byRoot = new Map<number, string[]>()
   groups.forEach((g, i) => {
     const r = find(i)
