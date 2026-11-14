@@ -13964,7 +13964,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function mapped(): Map<string, { inMap: number }> { return new Map() }',
       'export function jsonMap(): Map<string, { viaJson: number }> { return new Map() }',
       "export function named(): { 0: number; ['comp']: number; [Symbol.iterator]: number } { return { 0: 1, comp: 2, [Symbol.iterator]: 3 } }",
-      'export function written(): { onlySet: number; onlyIdx: number; bumped: number } { return { onlySet: 1, onlyIdx: 2, bumped: 3 } }',
+      'export function written(): { onlySet: number; onlyIdx: number; bumped: number; paren: number; spread: number; inObj: number; looped: number; gone?: number; inc: number; inArr: number; rest: { a?: number }; iter: number[] } {',
+      '  return { onlySet: 1, onlyIdx: 2, bumped: 3, paren: 4, spread: 5, inObj: 6, looped: 7, inc: 8, inArr: 9, rest: {}, iter: [] } }',
     ].join('\n'),
     'scripts/check/u.ts': "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const } }",
     'scripts/check/g.ts': 'export function gOnly(): { gg: number } { return { gg: 1 } }',
@@ -13980,11 +13981,13 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "const r = f.ro(); const k = r['kept']",
       'const s = JSON.stringify(f.both())',
       'const j = JSON.stringify(f.jsonMap())',
-      "const w = f.written(); w.onlySet = 1; w['onlyIdx'] = 2; w.bumped += 1",
+      "const w = f.written(); w.onlySet = 1; w['onlyIdx'] = 2; w.bumped += 1; (w.paren) = 4",
+      "declare const xs: number[]; [, ...[w.spread]] = xs; ({ k: w.inObj } = { k: 6 }); for (w.looped of xs) {}; delete w.gone; w.inc++; ({ ...w.rest } = { a: 1 }); for (const _ of w.iter) {}",
+      'const arr = [w.inArr]',
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
       "const m = await import('./f.js') as unknown as { copied: () => { cp: number } }",
-      'export const v = [k, s, j, other, wantCu, m.copied().cp]',
+      'export const v = [k, s, j, other, wantCu, m.copied().cp, arr]',
     ].join('\n'),
     'scripts/pid-boundary-contract-test.ts': [
       "import { gOnly } from './check/g.js'",
@@ -14013,6 +14016,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     ['scripts/check/f.ts#named.0', 'scripts/check/f.ts#named.[Symbol.iterator]', 'scripts/check/f.ts#named.comp'])
   eq('字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算',
     ['f.ts#written.onlySet', 'f.ts#written.onlyIdx', 'f.ts#written.bumped'].map(k => moreOf(k)?.used), [false, false, true])
+  eq('字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算',
+    ['paren', 'spread', 'inObj', 'rest', 'looped', 'gone', 'inc', 'inArr', 'iter'].map(k => moreOf(`f.ts#written.${k}`)?.used),
+    [false, false, false, false, false, false, true, true, true])
   eq('字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段',
     ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined])
 

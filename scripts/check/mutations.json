@@ -23351,7 +23351,7 @@
       "req": "harness",
       "why": "按下标读不算：r['x'] 这种读法算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      else if (ts.isElementAccessExpression(n)) { if (!written(n)) mark(tc.getSymbolAtLocation(n.argumentExpression)) }\n",
+      "find": "      else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.argumentExpression)) }\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -23555,7 +23555,7 @@
       "req": "harness",
       "why": "只被赋值的属性也算读到：测试只往字段里写、从不读它也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "if (!written(n)) mark(tc.getSymbolAtLocation(n.name))",
+      "find": "if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.name))",
       "replace": "mark(tc.getSymbolAtLocation(n.name))",
       "by": "test",
       "kills": [
@@ -23567,7 +23567,7 @@
       "req": "harness",
       "why": "只被下标赋值的属性也算读到：测试只往字段里写、从不读它也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "if (!written(n)) mark(tc.getSymbolAtLocation(n.argumentExpression))",
+      "find": "if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.argumentExpression))",
       "replace": "mark(tc.getSymbolAtLocation(n.argumentExpression))",
       "by": "test",
       "kills": [
@@ -23579,11 +23579,119 @@
       "req": "harness",
       "why": "复合赋值也当成只写：先读旧值再写回的字段被报成没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "e.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken",
+      "find": "p.operatorToken.kind === ts.SyntaxKind.EqualsToken",
       "replace": "true",
       "by": "test",
       "kills": [
         "字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算"
+      ]
+    },
+    {
+      "id": "M-H198-av",
+      "req": "harness",
+      "why": "delete 的操作数也当成读到：测试只删字段、从不读它也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    if (ts.isDeleteExpression(p)) return true\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
+      ]
+    },
+    {
+      "id": "M-H198-aw",
+      "req": "harness",
+      "why": "套了括号的赋值左边当成读到：测试只往字段里写、从不读它也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "ts.isParenthesizedExpression(p) || ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
+      ]
+    },
+    {
+      "id": "M-H198-ax",
+      "req": "harness",
+      "why": "解构赋值的数组字面量里的写当成读到：只写不读的字段也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "ts.isArrayLiteralExpression(p) || ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
+      ]
+    },
+    {
+      "id": "M-H198-ay",
+      "req": "harness",
+      "why": "解构赋值里 ...剩余 元素的写当成读到：只写不读的字段也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " || ts.isSpreadElement(p)) { n = p; continue }",
+      "replace": ") { n = p; continue }",
+      "by": "test",
+      "kills": [
+        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
+      ]
+    },
+    {
+      "id": "M-H198-az",
+      "req": "harness",
+      "why": "对象解构赋值里的写当成读到：只写不读的字段也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "(ts.isPropertyAssignment(p) && p.initializer === n) || ",
+      "replace": "false || ",
+      "by": "test",
+      "kills": [
+        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
+      ]
+    },
+    {
+      "id": "M-H198-ba",
+      "req": "harness",
+      "why": "对象解构赋值里 ...剩余 的写当成读到：只写不读的字段也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " || ts.isSpreadAssignment(p)) { n = p.parent; continue }",
+      "replace": ") { n = p.parent; continue }",
+      "by": "test",
+      "kills": [
+        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
+      ]
+    },
+    {
+      "id": "M-H198-bb",
+      "req": "harness",
+      "why": "for…of 的循环变量当成读到：测试只拿字段当循环变量、从不读它也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    if ((ts.isForOfStatement(p) || ts.isForInStatement(p)) && p.initializer === n) return true\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
+      ]
+    },
+    {
+      "id": "M-H198-bc",
+      "req": "harness",
+      "why": "被 for…of 遍历的字段也当成只写：真读了的字段被报成没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "&& p.initializer === n) return true",
+      "replace": "&& true) return true",
+      "by": "test",
+      "kills": [
+        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
+      ]
+    },
+    {
+      "id": "M-H198-bd",
+      "req": "harness",
+      "why": "++ 和数组字面量里的读也当成只写：先读旧值或真读了的字段被报成没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    return ts.isBinaryExpression(p) && p.left === n && p.operatorToken.kind",
+      "replace": "    return true || ts.isBinaryExpression(p) && p.left === n && p.operatorToken.kind",
+      "by": "test",
+      "kills": [
+        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
       ]
     }
   ],

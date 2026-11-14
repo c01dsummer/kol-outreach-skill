@@ -11,7 +11,7 @@
  *    声明（接口、类型别名、函数、属性、变量；数字名与计算属性名也算名字），类型字面量若带一个取字符串字面量的属性（判别联合的 `kind`），
  *    记成 `{kind=…}`；推断出来的对象字面量同理，看那个属性推出来的类型是不是字符串字面量（`'a' as const`）。所以新加一个函数、走到旧字段的路变了，旧字段的名字不变。
  * 2. **哪些算「用到」**（也在 `fieldsOf` 里）：验证者文件（`isVerifierFile` 认的那几种）里任一处
- *    —— 读属性（`.x`、`['x']`；只被 `=` 赋值的不算读）、解构、按上下文类型对得上的对象字面量键（期望值写成那个类型），
+ *    —— 读属性（`.x`、`['x']`；只写不读的不算，见 `writeOnly`）、解构、按上下文类型对得上的对象字面量键（期望值写成那个类型），
  *    解析到这个声明上；或把**整个值**交给整体比对：`eq`、`assert`、`deepStrictEqual`、`JSON.stringify`，
  *    以及返回 `unknown`/`any` 的调用（`canon` 这类先规整再比的）的实参，它类型里的属性逐层都算碰到
  *    （`Map`/`Set` 这类库泛型里面只有 `deepStrictEqual` 进得去，别的走 JSON，那里面成了 `{}`）——
@@ -73,6 +73,22 @@ function nameOf(ts: typeof Ts, n: Ts.Node): string | undefined {
   if (ts.isComputedPropertyName(name))
     return ts.isStringLiteralLike(name.expression) || ts.isNumericLiteral(name.expression) ? name.expression.text : `[${name.expression.getText()}]`
   return undefined
+}
+
+/**
+ * 只写不读：`=` 的左边（套着括号、在解构赋值的数组或对象字面量里也算）、`for (… of/in …)` 的循环变量、`delete` 的操作数。
+ * `+=`、`++` 这类先读旧值再写的不算只写。
+ */
+function writeOnly(ts: typeof Ts, e: Ts.Expression): boolean {
+  let n: Ts.Node = e
+  for (;;) {
+    const p = n.parent
+    if (ts.isDeleteExpression(p)) return true
+    if (ts.isParenthesizedExpression(p) || ts.isArrayLiteralExpression(p) || ts.isSpreadElement(p)) { n = p; continue }
+    if ((ts.isPropertyAssignment(p) && p.initializer === n) || ts.isSpreadAssignment(p)) { n = p.parent; continue }
+    if ((ts.isForOfStatement(p) || ts.isForInStatement(p)) && p.initializer === n) return true
+    return ts.isBinaryExpression(p) && p.left === n && p.operatorToken.kind === ts.SyntaxKind.EqualsToken
+  }
 }
 
 /** 声明往上每一层有名字的东西，接成字段的稳定名字 */
@@ -237,11 +253,8 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) imported(n.moduleSpecifier.text)
       else if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword
         && n.arguments.length > 0 && ts.isStringLiteralLike(n.arguments[0])) imported(n.arguments[0].text)
-      // 只被赋值（`r.x = 1`）不算读到；`+=` 这类复合赋值先读旧值，照算
-      const written = (e: Ts.Expression) =>
-        ts.isBinaryExpression(e.parent) && e.parent.left === e && e.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      if (ts.isPropertyAccessExpression(n)) { if (!written(n)) mark(tc.getSymbolAtLocation(n.name)) }
-      else if (ts.isElementAccessExpression(n)) { if (!written(n)) mark(tc.getSymbolAtLocation(n.argumentExpression)) }
+      if (ts.isPropertyAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.name)) }
+      else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.argumentExpression)) }
       else if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent)) {
         const name = n.propertyName ?? n.name
         if (ts.isIdentifier(name) || ts.isStringLiteral(name)) mark(tc.getTypeAtLocation(n.parent).getProperty(name.text))
