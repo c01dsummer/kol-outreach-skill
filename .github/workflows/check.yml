@@ -26,14 +26,15 @@ permissions:
   contents: read
   actions: read
 
+# 一条检查链拆在三种 job 上跑（ADR-197）：`npm run check` 那一串里最贵的是变异一步，它在 CI 上按
+# `MUTATE_SHARD=k/n` 分到 n 台 runner 上各跑一份；其余各步在 chain 那个 job 里照原顺序跑；
+# 最后一步启动数闸门要变异一步与自检各写的那份计数，放在 check 那个 job 里，等前两种都绿了才跑。
+# 合起来跑的步骤、判红的条件与本地 `npm run check` 一样：哪一份红、哪一步红，这一跑就红。
+# 分份只在这里写：本地不写 MUTATE_SHARD，就是整份。
 jobs:
-  check:
+  chain:
+    name: 检查链（变异以外各步）
     runs-on: ubuntu-latest
-    # 临时（KOL-1 实测用，PR 转 Ready 前撤掉）：同一份代码在 5 台 runner 上各跑一遍，取中位数
-    strategy:
-      fail-fast: false
-      matrix:
-        rep: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,19 +73,89 @@ jobs:
       # 同样命中缓存。--prefer-offline 有缓存就不回源问元数据,--no-audit 去掉装完
       # 之后那次审计请求
       - run: npm ci --prefer-offline --no-audit
-      # 与本地 `npm run check` 是同一条链 —— 谁跑都一样红
-      # 临时（KOL-1 实测用，PR 转 Ready 前撤掉）：与 npm run check 同一串步骤，逐步计时
-      - name: npm run check（逐步计时）
+      # 与本地 `npm run check` 同一串，只少了变异与启动数两步（各在下面的 job 里）
+      - run: npm run anchors && npm run size && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run compile && npm test && npm run selfcheck && npm run audit
+      # 自检按族写的启动计数：check 那个 job 里的启动数闸门要读它
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selfcheck-launches
+          path: output/selfcheck-launches/families.json
+          if-no-files-found: error
+          retention-days: 3
+      # 只报数：这台 runner 的 CPU 型号与核数（同 check 那个 job 末尾那一步的理由）
+      - run: lscpu
+        if: always()
+        continue-on-error: true
+
+  mutate:
+    name: 变异（第 ${{ matrix.shard }}/3 份）
+    runs-on: ubuntu-latest
+    strategy:
+      # 一份红了别的照跑完：一次推送看得到全部存活的变异，不用一份一份地修
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # 同 chain 那个 job：变异的验证者里有起入口、要断网的自检组
+      - name: 装 bubblewrap（外层断网要它）
         run: |
-          set -e
-          TIMEFORMAT='%R %U %S'
-          for s in anchors size spec skill adr typecheck compile test mutate selfcheck audit launches; do
-            { time npm run "$s" 2>&1; } 2> "$RUNNER_TEMP/t-$s"
-            echo "STEP $s real=$(tail -n1 "$RUNNER_TEMP/t-$s")"
-          done
-          for s in anchors size spec skill adr typecheck compile test mutate selfcheck audit launches; do
-            echo "::notice title=step $s::$(tail -n1 "$RUNNER_TEMP/t-$s") · $(lscpu | sed -n 's/^Model name: *//p')"
-          done
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap
+          command -v bwrap
+          bwrap --version
+      - name: 关掉用户命名空间限制（bwrap 断网要它）
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+      - run: npm ci --prefer-offline --no-audit
+      # 预编 JS：验证者跑预编的那份，缺了就照旧 tsx（ADR-158），只是慢
+      - run: npm run compile
+      - run: npm run mutate
+        env:
+          MUTATE_SHARD: ${{ matrix.shard }}/3
+      # 每一份都按整份清单跑基线、数启动数，写下的启动数文件一样（ADR-197）；交第 1 份那个给最后一步
+      - uses: actions/upload-artifact@v4
+        if: matrix.shard == 1
+        with:
+          name: mutation-launches
+          path: output/mutation-launches/launches.json
+          if-no-files-found: error
+          retention-days: 3
+      # 只报数：这台 runner 的 CPU 型号与核数（同 check 那个 job 末尾那一步的理由）
+      - run: lscpu
+        if: always()
+        continue-on-error: true
+
+  check:
+    needs: [chain, mutate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: mutation-launches
+          path: output/mutation-launches
+      - uses: actions/download-artifact@v4
+        with:
+          name: selfcheck-launches
+          path: output/selfcheck-launches
+      # 检查链的最后一步，同本地 `npm run check` 的最后一步
+      - run: npm run launches
       # 只报数：本跑墙钟与主干上 check 前 5 次 push 成功跑的中位比一比，打一行到 notice 与 step summary
       # （ADR-151 P1）。不判快慢，「是劣化还是 runner 噪声、是哪条改动」由评审与合并者读
       # （`process/6-INTEGRATE.md`「改验证成本时」）。

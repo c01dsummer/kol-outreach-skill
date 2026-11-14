@@ -54,7 +54,7 @@ import {
   type Ran, type CostBaseline, type CostCombination, type CostIdentity, type CostMutation,
   BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines,
   configurationCost, configurationCostLines, configurationKey, costObservation,
-  groupShot, hardStopPlan, jobsRunDir, jobsWanted, looksLikeReport, missingVerdicts,
+  groupShot, hardStopPlan, jobsRunDir, jobsWanted, looksLikeReport, missingVerdicts, shardOf, shardWanted,
   noStdio, ownGroup, parseReport, reportLine, staleRunDirs, verifierBill, workerCopyList,
 } from './jobs-rule.js'
 import {
@@ -504,7 +504,9 @@ const forgetVerifier = (): void => {
 // 正常基线那一跑注入的计数预加载（ADR-145 第十三节）；按本文件的位置找，玩具树里起的 mutate 也找得到
 const launchPreload = new URL(`../${LAUNCH_PRELOAD}`, import.meta.url).href
 const verifierEnv = (verifier: Verifier, cwd: string | undefined, countLog: string | undefined): NodeJS.ProcessEnv => {
-  const env = { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE }
+  // 分份只管这一跑自己发哪几条（ADR-197）：验证者里再起的 mutate（玩具树）一律整份，不带它
+  const { MUTATE_SHARD: _shard, ...inherited } = process.env
+  const env = { ...inherited, MUTATING: '1', NODE_COMPILE_CACHE }
   return countLog === undefined ? env
     : countingEnv(env, { log: countLog, target: resolve(cwd ?? '.', verifier.script), preload: launchPreload })
 }
@@ -833,7 +835,7 @@ const readOwnGroup = (): number | undefined => {
 const dispatch = async (jobs: number): Promise<void> => {
   await workerFiles()
   freshJobs()
-  const queue = muts.map(m => m.id)
+  const queue = mine.map(m => m.id)
   const byId = new Map(muts.map(m => [m.id, m]))
   const reported = new Set<string>()
   /** 一个槽 = 一个 worker 壳,加上它那份号文件搁哪 */
@@ -952,7 +954,7 @@ const dispatch = async (jobs: number): Promise<void> => {
   dropJobs()
   // 派出去却没回话的：跑它的那一份崩了、被杀了、或者那一行没写出来。三种在输出上
   // 长得一样 —— **那一条没有结论**，而没有结论不是通过（`process/README.md` 总纲）
-  for (const id of missingVerdicts(muts.map(m => m.id), reported)) {
+  for (const id of missingVerdicts(mine.map(m => m.id), reported)) {
     const m = byId.get(id)
     if (m === undefined) continue
     silent.push(m)
@@ -960,7 +962,16 @@ const dispatch = async (jobs: number): Promise<void> => {
   }
 }
 
-const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), muts.length)
+// 这一跑只跑清单的第几份（ADR-197）：CI 上几台 runner 各跑一份，本地不写就是整份。检查、基线与启动数照旧按整份清单做，
+// 只有施变、派工与收尾那一句按这一份
+const shard = shardWanted(process.env.MUTATE_SHARD)
+if (shard === undefined) {
+  exitWith(1, `✗ 变异测试：说不清这一跑是第几份 —— MUTATE_SHARD 要写成「k/n」，1 ≤ k ≤ n（现在是 ${JSON.stringify(process.env.MUTATE_SHARD)}）\n`,
+    '  跑整份请把它去掉，不要写一个读不出来的值；未施加任何变异。')
+}
+const mine = shardOf(muts, shard.index, shard.count)
+const sharded = shard.count > 1
+const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), mine.length)
 if (jobs === undefined) {
   exitWith(1, '✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n',
     '  按机器核数跑请把它去掉，不要写一个读不出来的值。')
@@ -1044,7 +1055,8 @@ try {
 }
 // 在首次正常基线和施变之前冻结 live 源码、目录与锁的原字节身份；读取失败保留未知。
 const combinations = new Map<string, CostCombination>()
-for (const route of currentSnapshot().routes) {
+const mineIds = new Set(mine.map(m => m.id))
+for (const route of currentSnapshot().routes.filter(r => mineIds.has(r.id))) {
   const key = configurationKey(route)
   const previous = combinations.get(key)
   if (previous === undefined) combinations.set(key, { key,
@@ -1064,7 +1076,7 @@ try {
   identity.identityFault = `待验源码／目录／依赖锁身份未取得：${e instanceof Error ? e.message : String(e)}`
 }
 costContext = { identity, combinations: [...combinations.values()] }
-for (const route of currentSnapshot().routes) {
+for (const route of currentSnapshot().routes.filter(r => mineIds.has(r.id))) {
   costMutationIndex.set(route.id, costMutations.length)
   costMutations.push({ id: route.id, key: configurationKey(route), state: 'not-started', reason: '尚未派出变异，未启动验证者' })
 }
@@ -1204,7 +1216,8 @@ console.log(`  子集选跑 ${selectedCount} 条、${subsets.size} 种配置；�
 for (const line of launchOutput) console.log(line)
 // 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
 // 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
-if (jobs === 1) for (const m of muts) { observeHand(m.id); record(m, await runOne(m)) }
+if (sharded) console.log(`  这一跑只跑第 ${shard.index}/${shard.count} 份：${mine.length} 条（整份 ${muts.length} 条，ADR-197）`)
+if (jobs === 1) for (const m of mine) { observeHand(m.id); record(m, await runOne(m)) }
 else await dispatch(jobs)
 
 console.log()
@@ -1239,7 +1252,8 @@ if (survived.length || elsewhere.length || crashed.length || notApplied.length |
   await publishCost()
   exitWith(1)
 }
-console.log(`✓ 变异测试：${muts.length} 个变异全部被抓到`)
+console.log(sharded ? `✓ 变异测试：第 ${shard.index}/${shard.count} 份 ${mine.length} 个变异全部被抓到（整份 ${muts.length} 个，其余几份在别的 runner 上跑）`
+  : `✓ 变异测试：${muts.length} 个变异全部被抓到`)
 identity.state = 'succeeded'
 delete identity.reason
 await publishCost()
