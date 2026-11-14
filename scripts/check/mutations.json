@@ -689,6 +689,29 @@
       "by": "test",
       "kills": ["CSV 保留占位符", "占位符一个不少"]
     },
+    {"id": "M-P2-c1", "req": "P2.c", "why": "评审 HTML 不再出「出处对不上」那一行 —— 编出来的参数混在草稿里，运营看不出哪句没出处", "file": "scripts/lib/report.ts", "find": "    return claims === undefined ? '' : `\n    <div class=\"bio\" data-draft-claims=\"unsourced\">", "replace": "    return claims === undefined || claims !== undefined ? '' : `\n    <div class=\"bio\" data-draft-claims=\"unsourced\">", "by": "test", "kills": ["P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出"]},
+    {"id": "M-P2-c2", "req": "P2.c", "why": "render 不把任务里的已证实产品事实交给报告 —— 有出处的说法也全被标成对不上，真编的那几条淹在里面", "file": "scripts/render.ts", "find": "const facts = verifiedFacts(state.brand_calibration)", "replace": "const facts: string[] = []", "by": "test", "kills": ["P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样"]},
+    {"id": "M-P2-c3", "req": "P2.c", "why": "品牌偏好也被当成出处 —— 品牌想给的保修、想说的卖点没在商品页证实，却不再被标出", "file": "scripts/lib/draft-claims.ts", "find": "filter(s => s.kind === 'verified_product_fact')", "replace": "filter(s => s.kind !== undefined)", "by": "test", "kills": ["P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样"]},
+    {"id": "M-P2-c4", "req": "P2.c", "why": "比对一律当成对得上 —— 编出来的参数、保修一条也标不出来", "file": "scripts/lib/draft-claims.ts", "find": "    if (sourced(claim, source)) continue", "replace": "    if (sourced(claim, source) || claim) continue", "by": "test", "kills": ["P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出"]},
+    {"id": "M-P2-c5", "req": "P2.c", "why": "换了写法就对不上（400 mL 与 400ml、10 seconds 与 ten seconds）—— 有出处的说法被误标，标记失去可信度", "file": "scripts/lib/draft-claims.ts", "find": "  if (source.keys.has(claim.key)) return true", "replace": "  return source.text.includes(claim.text)", "by": "test", "kills": ["P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出"]},
+    {"id": "M-P2-c6", "req": "P2.c", "why": "不拿博主自己作品的文字对 —— 第一句引用他作品里的数字被误标成编造的产品事实", "file": "scripts/lib/report.ts", "find": "(c.recent_posts ?? []).map(p => p.desc)) : undefined", "replace": "[]) : undefined", "by": "test", "kills": ["P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出"]},
+    {"id": "M-P2-c7", "req": "P2.c", "why": "占位符里的字也当成说法 —— 运营已经留空待填的 {…} 被重复标出", "file": "scripts/lib/draft-claims.ts", "find": "const withoutPlaceholders = (text: string): string => text.replace(/\\{[^{}]*\\}/g, ' ')", "replace": "const withoutPlaceholders = (text: string): string => text", "by": "test", "kills": ["P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出"]},
+    {"id": "M-P2-c8", "req": "P2.c", "why": "任务里没有已证实的产品事实时不写明 —— 运营把「全都对不上」读成比对过的结果", "file": "scripts/lib/draft-claims.ts", "find": "  return facts?.length ? list : `${NO_FACTS}：${list}`", "replace": "  return list", "by": "test", "kills": ["P2.c 任务里没有已证实的产品事实时，草稿里的说法全列出来，前面写明没有可对的"]},
+    {"id": "M-P2-c9", "req": "P2.c", "why": "扫完没有对不上的也不出这一行 —— 和没有草稿分不开，运营不知道这封查过没有", "file": "scripts/lib/draft-claims.ts", "find": "  const list = claims.length === 0 ? NONE_FLAGGED : claims.join('；')", "replace": "  if (claims.length === 0) return undefined\n  const list = claims.join('；')", "by": "test", "kills": ["P2.c 有草稿、扫完没有对不上的写「无」，没草稿或草稿全是空白的卡片不出这一行"]},
+    {"id": "M-P2-c10", "req": "P2.c", "why": "数字的单位冲突也算对得上 —— 出处写 400 g、信里写 400ml，编出来的容量标不出来", "file": "scripts/lib/draft-claims.ts", "find": "  if (kind === 'num') return unit === '' || seen.has('')", "replace": "  if (kind === 'num') return true", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c11", "req": "P2.c", "why": "价格对上了带单位的同数 —— 出处里的 40 g 被当成 40 美元的出处", "file": "scripts/lib/draft-claims.ts", "find": "  if (kind === 'price') return seen.has('')", "replace": "  if (kind === 'price') return true", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c12", "req": "P2.c", "why": "同一写法重复列出 —— 那一行被重复项撑长，运营要逐条核的数目虚高", "file": "scripts/lib/draft-claims.ts", "find": "    if (seen.has(claim.text.toLowerCase())) continue", "replace": "    if (seen.has(claim.text)) continue", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c13", "req": "P2.c", "why": "千分位不按三位一组认 —— 数字后面跟的逗号被吃进说法，1,000 与 1000 对不上", "file": "scripts/lib/draft-claims.ts", "find": "const DIGITS = '(?:(?:\\\\d{1,3}(?:,\\\\d{3})+|\\\\d+)(?:\\\\.\\\\d+)?|\\\\.\\\\d+)'", "replace": "const DIGITS = '(?:(?:\\\\d[\\\\d,]*|\\\\d+)(?:\\\\.\\\\d+)?|\\\\.\\\\d+)'", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c14", "req": "P2.c", "why": "连写的拼写数字（twenty-five）只认个位 —— 出处写 5 分钟也被当成 25 分钟的出处", "file": "scripts/lib/draft-claims.ts", "find": "    ...ONES.map((o, j) => [`${t}-${o}`, String((i + 2) * 10 + j + 1)])]),", "replace": "    ]),", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c15", "req": "P2.c", "why": "承诺词一律当成对得上 —— 编出来的保修、认证标不出来", "file": "scripts/lib/draft-claims.ts", "find": "  if (claim.stem !== undefined) return claim.stem.test(source.text)", "replace": "  if (claim.stem !== undefined) return true", "by": "test", "kills": ["P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出"]},
+    {"id": "M-P2-c16", "req": "P2.c", "why": "没有已证实的产品事实、草稿也没扫到说法时写成「无」—— 读起来像比对过、全对得上", "file": "scripts/lib/draft-claims.ts", "find": "  return facts?.length ? list : `${NO_FACTS}：${list}`", "replace": "  return facts?.length || claims.length === 0 ? list : `${NO_FACTS}：${list}`", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c17", "req": "P2.c", "why": "默认模式 HTML 也出这一行 —— 旧调用方的报告字节变了（U9.a）", "file": "scripts/lib/report.ts", "find": "    const claims = options.mode === 'review'\n", "replace": "    const claims = options.mode !== undefined || true\n", "by": "test", "kills": ["P2.c 默认模式 HTML 不出这一行（U9.a）"]},
+    {"id": "M-P2-c18", "req": "P2.c", "why": "型号串按子串对 —— 出处里的 H13 被当成信里 H1 的出处", "file": "scripts/lib/draft-claims.ts", "find": "  if (source.keys.has(claim.key)) return true", "replace": "  if (source.keys.has(claim.key) || source.text.toLowerCase().includes(claim.text.toLowerCase())) return true", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c19", "req": "P2.c", "why": "k 不算单位 —— 出处写 120 K、信里写 120k 就对不上，有出处的数被误标", "file": "scripts/lib/draft-claims.ts", "find": "  x: 'x', times: 'x', k: 'k',", "replace": "  x: 'x', times: 'x',", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c20", "req": "P2.c", "why": "出处里的价格不登记成数 —— 信里不写币符的同一个价也被标成对不上", "file": "scripts/lib/draft-claims.ts", "find": "    if (kind !== 'num' && kind !== 'price') continue", "replace": "    if (kind !== 'num') continue", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c21", "req": "P2.c", "why": "数字后面紧跟字母时拆出前面的数 —— 1080p 被当成 1080，出处里任何一个 1080 都把它对上了", "file": "scripts/lib/draft-claims.ts", "find": "(?:${unitPattern})\\\\b))?(?!\\\\w|\\\\.\\\\d)`, 'gi')", "replace": "(?:${unitPattern})\\\\b))?`, 'gi')", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c22", "req": "P2.c", "why": "负号不算数的一部分 —— 信里写 -20、出处写 20，编反了的数对上了", "file": "scripts/lib/draft-claims.ts", "find": "(?<![\\\\w.])(-?${DIGITS})", "replace": "(?<![\\\\w.])-?(${DIGITS})", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c23", "req": "P2.c", "why": "多字承诺词按一组词干对 —— 出处里只有 free trial，信里的 free shipping 也被当成有出处", "file": "scripts/lib/draft-claims.ts", "find": "  ['free shipping', 'free shipping'],", "replace": "  ['free shipping', 'free (?:shipping|trial)'],", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实"]},
     {
       "id": "M-U1-a",
       "req": "U9.a",
@@ -19116,7 +19139,7 @@
       "req": "U9.j",
       "why": "生产 HTML 入口未选择评审输出，最终有效建议的顺序及各平台原评审没有展示。",
       "file": "scripts/render.ts",
-      "find": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual' }))",
+      "find": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts }))",
       "replace": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta))",
       "by": "selfcheck",
       "kills": [
@@ -19580,8 +19603,8 @@
       "req": "U10.j",
       "why": "真实交付未选择双筛选，生产 HTML 仍默认只显示单层",
       "file": "scripts/render.ts",
-      "find": "renderHtml(creators, meta, { mode: 'review', filters: 'dual' })",
-      "replace": "renderHtml(creators, meta, { mode: 'review' })",
+      "find": "renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts })",
+      "replace": "renderHtml(creators, meta, { mode: 'review', facts })",
       "by": "test",
       "kills": [
         "真实生产 HTML 已接入两个独立筛选组"
@@ -23167,13 +23190,13 @@
       "req": "S1.b",
       "scope": "整条（经用户自己的邮箱工具只存草稿、不发送）",
       "why": "调不调、调哪个工具由 Agent 照 Skill 文字在宿主里决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）。",
-      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看，并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
+      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看（连同报告里那封信的「出处对不上」一行，ADR-199），并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
     },
     {
       "req": "P2.a",
-      "scope": "「是否编造」这一半",
-      "why": "「草稿里的产品事实是否真的来自产品页」由 Agent 的判断决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。",
-      "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」；靠每次开工前读那份文档。见 ADR-01。"
+      "scope": "「是否编造」这一半里机器标不出的那几样：不带数字又不在承诺词表里的换说法、数字对得上但意思歪了、已证实的产品事实本身写错",
+      "why": "这几样要读懂句子意思、或要回到商品页核对底本，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。带数字的说法和词表里的承诺词由 P2.c 标出，有自己的认领与负片。",
+      "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」，并要人看报告里「出处对不上」那一行；product-intake.md 写明读了商品页就把产品事实原文逐条记成已证实的产品事实。见 ADR-01、ADR-199。"
     },
     {
       "req": "P1.b",

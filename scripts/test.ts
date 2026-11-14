@@ -154,6 +154,7 @@ import {
   TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
 } from './providers/tikhub-pricing.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
+import { unsourcedLine } from './lib/draft-claims.js'
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
@@ -190,6 +191,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-profile-state', needs: [] },
   { id: 'p1-plays', needs: [] },
   { id: 'p2-placeholders', needs: [] },
+  { id: 'p2-draft-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
@@ -748,6 +750,103 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   criterion('P2.b')
 }
 
+})
+await group('p2-draft-claims', () => {
+suite('P2', '开发信草稿里对不上出处的数字与承诺词在评审 HTML 里标出，不拦')
+{
+  // P2.c（ADR-199）：期望只取自判据原文与下面写进夹具的字面值。对照是已证实的产品事实，加上这位博主自己作品的文字。
+  // 阳性对照：出处里有的说法（换了写法也算：400 mL ↔ 400ml、10 seconds ↔ ten seconds、29.99 USD ↔ $29.99）不报；
+  // 第一句引用博主作品里的数字（3-ingredient）不报；{…} 占位符里的字不算说法。负片：编出来的 2-year、warranty、IPX7、30% 要报。
+  const FACTS = ['400 mL capacity portable blender', 'Rinses clean in 10 seconds', 'BPA-free Tritan jar', 'Price: 29.99 USD']
+  const DRAFT = 'Subject: Your 3-ingredient smoothie series\n\nHi Mei,\n\nYour 3-ingredient smoothie series is great.\n\n' +
+    "I'm {name} from Brightly. We make a 400ml blender that rinses in about ten seconds, BPA-free, only $29.99, " +
+    'with a 2-year warranty, IPX7 rated, now 30% off.\n\nHappy to send one over. One post is plenty. {12 month warranty}\n\nBest,\n{name}'
+  const POSTS = [{ desc: '3 ingredient smoothie, no cleanup drama', plays: 1 }] as unknown as Creator['recent_posts']
+  const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 4,
+    tiers: { A: 4, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false }
+  const people = [
+    mk('tiktok', 'claims', { tier: 'A', score: 4, outreach_draft: DRAFT, recent_posts: POSTS, profile_url: 'https://example.com/claims' }),
+    mk('tiktok', 'clean', { tier: 'A', score: 3, outreach_draft: 'Subject: Hi\n\nWe make a 400 ml blender, BPA-free.\n\nBest,\n{name}', profile_url: 'https://example.com/clean' }),
+    mk('tiktok', 'blank', { tier: 'A', score: 2, outreach_draft: ' \n ', profile_url: 'https://example.com/blank' }),
+    mk('tiktok', 'none', { tier: 'A', score: 1, profile_url: 'https://example.com/none' }),
+  ]
+  const before = structuredClone(people)
+  const lineOf = (page: string, handle: string): string | undefined => {
+    const card = page.split('<div class="card ').find(chunk => chunk.includes(`href="https://example.com/${handle}"`))
+    const m = card === undefined ? null : /<div class="bio" data-draft-claims="unsourced">([^<]*)<\/div>/.exec(card)
+    return m === null ? undefined : m[1]
+  }
+  const SUFFIX = '（只查数字和承诺词，其余说法仍要自己看）'
+  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual', facts: FACTS })
+  eq('P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出',
+    lineOf(review, 'claims'), `出处对不上：2-year；warranty；IPX7；30%${SUFFIX}`)
+  eq('P2.c 有草稿、扫完没有对不上的写「无」，没草稿或草稿全是空白的卡片不出这一行',
+    ['clean', 'blank', 'none'].map(h => lineOf(review, h)), [`出处对不上：无${SUFFIX}`, undefined, undefined])
+  ok('P2.c 只标不改：草稿原文逐字在 HTML 里，占位符一个不少，输入名单不变',
+    review.includes(DRAFT.replace(/&/g, '&amp;').replace(/'/g, '&#39;')) && isDeepStrictEqual(people, before))
+  const noFacts = renderHtml(people, meta, { mode: 'review', filters: 'dual' })
+  eq('P2.c 任务里没有已证实的产品事实时，草稿里的说法全列出来，前面写明没有可对的',
+    lineOf(noFacts, 'claims'), `出处对不上：任务里没有已证实的产品事实可对：400ml；ten seconds；BPA-free；$29.99；2-year；warranty；IPX7；30%${SUFFIX}`)
+  const legacy = renderHtml(people, meta)
+  ok('P2.c 默认模式 HTML 不出这一行（U9.a）', !legacy.includes('data-draft-claims'))
+  // 比对口径逐条：每一行是 [草稿, 已证实的产品事实, 期望]；作品文字都给空，只看对出处这一边。
+  const rules: Array<[string, string, string[], string | undefined]> = [
+    ['数字按值与单位比：单位冲突对不上', 'A 400ml jar.', ['Weighs 400 g'], '400ml'],
+    ['数字按值与单位比：单位别名归一（mL、ounces、hrs）', 'A 400 mL jar, 16 ounces, 10 hrs.', ['400ml', '16 oz', '10 hours'], '无'],
+    ['草稿带单位、出处没写单位：同数即可', 'A 400ml jar.', ['Capacity: 400'], '无'],
+    ['草稿没写单位、出处带单位：同数即可', 'Holds 400, weighs 400 g.', ['400 g'], '无'],
+    ['千分位与小数归一，后面跟的逗号不算数的一部分', 'Packs 1,000 mAh, 2.50 lb.', ['1000mAh', '2.5 lb'], '无'],
+    ['数后面跟的逗号不吃进说法', 'Holds 500, weighs 500 g.', ['x'], '500；500 g'],
+    ['不写单位的数对得上出处里同数的价格', 'Only 29 dollars.', ['$29'], '无'],
+    ['k 跟在数后面整串算一条', 'Reached 120k views.', ['x'], '120k'],
+    ['k 算单位：120k 与 120 K 对得上', 'Reached 120k views.', ['120 K views'], '无'],
+    ['「.5」这样的小数也扫', 'Weighs just .5 kg.', ['Weighs 1 kg'], '.5 kg'],
+    ['价格对价格或不带单位的同数，不对带单位的同数', 'Only $29, $35 and $40.', ['Price 29', '$35', '40 g'], '$40'],
+    ['拼写的数字：十三到十九、七十、八十、连写的二十五、thousand', 'Runs seventy hours, eighty percent quieter, sixteen ounces, twenty-five minutes, a thousand-hour motor.', ['x'], 'seventy hours；eighty percent；sixteen ounces；twenty-five minutes；thousand-hour'],
+    ['连写的拼写数字按整数比，不拆成个位', 'Brews in twenty-five minutes.', ['Brews in 5 minutes'], 'twenty-five minutes'],
+    ['型号串整串对，不按子串', 'An H1 chip and IPX7 rating.', ['H13 HEPA filter', 'IPX7'], 'H1'],
+    ['多字承诺词出处里逐字有就对得上', 'A 30-day return policy, and our returns window is generous.', ['30-day return policy', 'Returns window: 30 days'], '无'],
+    ['数字开头的型号串整串对：1080p 不拆出 1080', 'Shoots 1080p, has a 2nd lens.', ['1080 lumens', '2 lenses'], '1080p；2nd'],
+    ['数字开头的型号串出处里整串有就对得上', 'Shoots 1080p video.', ['Records 1080p'], '无'],
+    ['负数带负号比；区间与连字符词里的不算负号', 'Works to -20 degrees, lasts 3-5 years, COVID-19 safe.', ['Rated to 20 degrees', '3 to 5 years', 'COVID-19'], '-20'],
+    ['多字承诺词各对各的：出处里的 free trial 不是 free shipping 的出处', 'Free shipping and a free trial.', ['30-day free trial'], 'Free shipping'],
+    ['同一写法只列一次（不分大小写）', 'A 400ml jar. Yes, 400ml. 400ML!', ['x'], '400ml'],
+    ['任务里没有已证实的产品事实、又没扫到说法时也写明没有可对的', 'Hi Ana, love your videos.', [], '任务里没有已证实的产品事实可对：无'],
+  ]
+  eq('P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实',
+    rules.map(([name, draft, facts]) => [name, unsourcedLine(draft, facts, [])]), rules.map(([name, , , want]) => [name, want]))
+  criterion('P2.c'); tension('U9', 'P2')
+}
+{
+  // 真起 render：task.json 的 brand_calibration 里两条已证实的产品事实、一条品牌偏好（偏好不算出处），名单里一条草稿；
+  // render 以 0 结束（不拦），report.html 里那一行只列编出来的，kol.csv 里草稿原样。
+  const root = mkdtempSync(join(tmpdir(), 'kol-p2-claims-'))
+  try {
+    const dir = join(root, 'task'), cwd = join(root, 'cwd'), now = '2026-10-01T00:00:00Z'
+    mkdirSync(dir); mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const DRAFT = 'Subject: Quick one\n\nHi Ana,\n\nWe make a 400ml blender with a 5-year warranty, waterproof.\n\nBest,\n{name}'
+    const creator = { platform: 'tiktok', handle: 'p2_claims', nickname: 'p2_claims', followers: 80000, bio: 'Creator profile', bio_links: [], verified: false,
+      profile_url: 'https://www.tiktok.com/@p2_claims', source_keyword: 'portable', source_dimension: 'category', source_tasks: [0],
+      fit: '✅', fit_reason: '夹具里的内容判断', outreach_draft: DRAFT, email: 'p2@example.test' }
+    const calibration = { version: 'brand-v1', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [
+      { source: 'product page', kind: 'verified_product_fact', detail: 'Capacity 400 mL' },
+      { source: 'product page', kind: 'verified_product_fact', detail: 'Waterproof base' },
+      { source: 'brand call', kind: 'brand_preference', detail: 'we would like to offer a 5-year warranty' },
+    ] }
+    writeFileSync(join(dir, 'task.json'), JSON.stringify({ product: 'p2claims', market: 'US', target_count: 1, brand_calibration: calibration,
+      tasks: [{ keyword: 'portable', dimension: 'category', platform: 'tiktok' }], done: [0], created_at: now, updated_at: now }))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify([creator]))
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
+    const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
+    const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
+    const line = /<div class="bio" data-draft-claims="unsourced">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
+    eq('P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样',
+      [r.status, line, read('kol.csv').includes(DRAFT.replace(/"/g, '""'))],
+      [0, '出处对不上：5-year；warranty（只查数字和承诺词，其余说法仍要自己看）', true])
+    if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
 })
 if (fullRun) {
 suite('P1', '响应结构探测不得被空数组满足')
