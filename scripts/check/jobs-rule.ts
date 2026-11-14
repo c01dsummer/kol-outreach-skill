@@ -221,7 +221,7 @@ export function jobsWanted(
 }
 
 /**
- * 这一跑只跑变异清单的第几份（ADR-197）。`MUTATE_SHARD=k/n`：清单按出现顺序轮流分成 n 份，这一跑跑第 k 份；
+ * 这一跑只跑变异清单的第几份（ADR-197）。`MUTATE_SHARD=k/n`：清单按子集配置成摞分成 n 份（ADR-200，见 `shardOf`），这一跑跑第 k 份；
  * 没写（或写空）就是整份，也就是 1/1。**说不清是哪一份就交回 undefined**，由入口当场拒绝 ——
  * 写错的分法悄悄按整份跑，CI 上几台 runner 会各跑一遍全量，人以为分了、其实没分；
  * 悄悄按 1/1 以外的哪一份跑更坏：有几份谁也没跑，却没有一处会红。
@@ -239,12 +239,35 @@ export function shardWanted(env: string | undefined): { index: number; count: nu
 }
 
 /**
- * 第 index 份（从 1 数）是哪几条：按清单顺序轮流发，第 i 条（从 0 数）归第 `i % count + 1` 份。
- * 每一条恰好落在一份里，几份合起来就是整份清单、顺序不变。轮流发而不是切成连续几段：
- * 贵的变异在清单里一段一段挨着（同一个验证者配置的写在一起），切成连续几段会让某一份全是贵的。
+ * 第 index 份（从 1 数）是哪几条（ADR-200）：**同一种子集配置的整摞落在同一份里**，那种配置的正常基线就只在这一份跑一次。
+ * `keyOf` 交回这一条的配置键；交回 undefined 的（整跑的，没有子集基线）各自成一摞。
+ * 摞按条数从多到少排（一样多的按在清单里第一次出现的先后），逐摞发给眼下条数最少的那一份（一样少的给编号小的）。
+ * 交回的照清单原顺序。每一条恰好落在一份里，几份合起来就是整份清单；每一份各自算，算出来的分法一样。
+ *
+ * 按条数而不按秒数配：主干 1914cad 上 198 种配置照条数这样分，三份按实测秒数相差不到 3%（ADR-200 第二节）。
+ * 不再轮流发：轮流发时每一份都碰到约八成的配置，每种配置的基线三份各跑一遍（ADR-197 第五节那张欠条）。
  */
-export function shardOf<T>(items: readonly T[], index: number, count: number): T[] {
-  return items.filter((_unused, i) => i % count === index - 1)
+export function shardOf<T>(items: readonly T[], keyOf: (item: T) => string | undefined, index: number, count: number): T[] {
+  const piles: number[][] = []
+  const byKey = new Map<string, number[]>()
+  items.forEach((item, i) => {
+    const key = keyOf(item)
+    const known = key === undefined ? undefined : byKey.get(key)
+    if (known !== undefined) { known.push(i); return }
+    const pile = [i]
+    piles.push(pile)
+    if (key !== undefined) byKey.set(key, pile)
+  })
+  const order = piles.map((pile, at) => ({ pile, at })).sort((a, b) => b.pile.length - a.pile.length || a.at - b.at)
+  const loads: number[] = Array.from({ length: count }, () => 0)
+  const mine = new Set<number>()
+  for (const { pile } of order) {
+    let to = 0
+    for (let s = 1; s < count; s++) if (loads[s] < loads[to]) to = s
+    loads[to] += pile.length
+    if (to === index - 1) for (const i of pile) mine.add(i)
+  }
+  return items.filter((_unused, i) => mine.has(i))
 }
 
 /**

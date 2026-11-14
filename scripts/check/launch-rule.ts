@@ -311,6 +311,48 @@ function recordFault(record: unknown, source: string | undefined): string | unde
   return undefined
 }
 
+/** 变异一步分份跑时（ADR-200），第 k 份写的启动数文件名；不分份时照旧写 `launches.json` 一份 */
+export const launchPartFile = (index: number, count: number): string => `output/mutation-launches/launches-${index}-of-${count}.json`
+export const LAUNCH_PART_NAME = /^launches-(\d+)-of-(\d+)\.json$/
+
+/**
+ * 把分份跑写的几份启动数文件拼成整份跑会写的那一份（ADR-200）。几份按配置成摞分（`shardOf`），配置互不相交，
+ * 所以 tally、findings、baselines、again 直接拼起来；再照 `launchFindings` 与 `launchTally` 的顺序排一遍
+ * （findings：全跑的按 id 在前，其余按配置键、同一配置里照原顺序；tally 按配置键），拼出来的与整份跑的一个字不差。
+ * 拼不起来交回原因：少一份、多一份、同一份两次、份数说法不一、不是同一个提交或同一棵树写的、各段不是该有的形状。
+ * 每一份自己的内容不在这里核 —— 拼好的照旧交给 `launchGate` 与 `launchSummary`。
+ */
+export function joinLaunchParts(parts: readonly unknown[]): { readonly record: Record<string, unknown> } | { readonly fault: string } {
+  if (parts.length === 0) return { fault: '一份也没有' }
+  const objects = parts.filter(isObject)
+  if (objects.length !== parts.length) return { fault: '有一份读不出来或不是一个 JSON 对象' }
+  const shards = objects.map(p => p.shard)
+  if (!shards.every(s => isObject(s) && Number.isSafeInteger(s.index) && Number.isSafeInteger(s.count)))
+    return { fault: '有一份没写自己是第几份' }
+  const count = (shards[0] as { count: number }).count
+  if (!shards.every(s => (s as { count: number }).count === count)) return { fault: '几份说的总份数不一样' }
+  const seen = [...shards.map(s => (s as { index: number }).index)].sort((a, b) => a - b)
+  const wanted = Array.from({ length: count }, (_unused, i) => i + 1)
+  if (seen.length !== wanted.length || seen.some((k, i) => k !== wanted[i]))
+    return { fault: `要第 1 到第 ${count} 份各一份，拿到的是第 ${seen.join('、')} 份` }
+  if (!objects.every(p => p.schema === objects[0].schema && p.head === objects[0].head && p.source === objects[0].source))
+    return { fault: '几份不是同一个提交、同一棵树上写的（schema、head 或源码身份对不上）' }
+  if (!objects.every(p => Array.isArray(p.tally) && Array.isArray(p.findings) && isObject(p.baselines) && isObject(p.again)))
+    return { fault: '有一份的 tally、findings 不是数组，或 baselines、again 不是对象' }
+  const rank = (f: unknown): [number, string] => isObject(f) && f.kind === 'full-run' ? [0, String(f.id)] : [1, isObject(f) ? String(f.config) : '']
+  const findings = objects.flatMap(p => p.findings as unknown[]).sort((a, b) => {
+    const [x, y] = [rank(a), rank(b)]
+    return x[0] - y[0] || byText(x[1], y[1])
+  })
+  const tally = objects.flatMap(p => p.tally as unknown[])
+    .sort((a, b) => byText(isObject(a) ? String(a.config) : '', isObject(b) ? String(b.config) : ''))
+  // baselines、again 照第 1 份到第 n 份的顺序拼：拿到的先后不同，拼出来的也一字不差
+  const inOrder = [...objects].sort((a, b) => (a.shard as { index: number }).index - (b.shard as { index: number }).index)
+  const { shard: _shard, ...first } = inOrder[0]
+  return { record: { ...first, tally, findings,
+    baselines: Object.assign({}, ...inOrder.map(p => p.baselines)), again: Object.assign({}, ...inOrder.map(p => p.again)) } }
+}
+
 /**
  * 检查链最后一步的判定（ADR-145 第二十一节）：先核数据，缺了、另一棵树上写的都红，主干上也红；
  * 再看发现：没有就绿，有就在 PR 上红（「不确定」也红），在主干上只报数，缺计数的除外。不重判，读文件里变异一步判好的发现。

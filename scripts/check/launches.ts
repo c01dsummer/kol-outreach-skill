@@ -2,7 +2,8 @@
 /**
  * 启动数闸门 —— 检查链的最后一步（ADR-145 第二十一节）。
  *
- * 不起验证者、不重跑任何东西：读变异一步写的 `output/mutation-launches/launches.json`，算当前树的源码身份，
+ * 不起验证者、不重跑任何东西：读变异一步写的 `output/mutation-launches/launches.json`（CI 上分份跑时是几份 `launches-k-of-n.json`，
+ * 由 `joinLaunchParts` 拼回整份，ADR-200），算当前树的源码身份，
  * 问 git 判 HEAD 在不在主干上，交给 `launch-rule.ts`，照它交回的打、退出：闸门的判法在 `launchGate`，摘要那一行的在 `summaryLine`。
  * 放在最后，是为了它红的时候变异、自检、审计的结果照常拿得到（`&&` 链会跳过红了之后的每一步）。
  *
@@ -17,9 +18,9 @@
  * 带 `--write` 时只做一件事（第 3 小节）：派生得出来就写这个文件；派生不出来或写不进去打一行 ✗、以 1 退出。不打别的行，不判闸门。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mutationSourceIdentity } from './claims.js'
-import { LAUNCH_SUMMARY_FILE, type LaunchTrunk, SELFCHECK_LAUNCHES_FILE, idleGroupsLine, launchGate, launchSummary, summaryLine } from './launch-rule.js'
+import { LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, type LaunchTrunk, SELFCHECK_LAUNCHES_FILE, idleGroupsLine, joinLaunchParts, launchGate, launchSummary, summaryLine } from './launch-rule.js'
 import { executionRoutes } from './mutate-rule.js'
 import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
 
@@ -33,7 +34,19 @@ const baseline = resolveBaseline(tryGit)
 const trunk: LaunchTrunk = baseline.kind === 'cannot-answer' ? { unknown: baseline.why }
   : { onTrunk: baseline.kind === 'not-applicable' || baseline.onTrunk }
 
-const tree = source(), record = json('output/mutation-launches/launches.json'), summary = launchSummary(record, tree)
+// 整份跑写 launches.json 一份；CI 上分份跑（ADR-200）各写 launches-k-of-n.json，在这里拼回整份的那一份。
+// 两样都有时认整份那一份（变异一步开跑前会删掉另一样，两样并存只可能是手放进来的）；拼不起来就当没有文件，闸门照旧红
+const parts = (): { record: unknown; fault?: string } => {
+  const dir = 'output/mutation-launches'
+  let names: string[] = []
+  try { names = readdirSync(dir).filter(n => LAUNCH_PART_NAME.test(n)).sort() } catch { /* 没有这个目录：当没有分份文件 */ }
+  if (names.length === 0) return { record: undefined }
+  const joined = joinLaunchParts(names.map(n => json(`${dir}/${n}`)))
+  return 'fault' in joined ? { record: undefined, fault: `${names.join('、')} 拼不起来：${joined.fault}` } : { record: joined.record }
+}
+const whole = json('output/mutation-launches/launches.json')
+const read = whole !== undefined ? { record: whole } : parts()
+const tree = source(), record = read.record, summary = launchSummary(record, tree)
 // 读不成、算的时候抛错都交 undefined，由 idleGroupsLine 打成数不出来的那句
 const routes = (): Parameters<typeof idleGroupsLine>[2] => {
   try {
@@ -54,6 +67,7 @@ if (process.argv.slice(2).includes('--write')) {
     } catch (e) { console.log(`✗ 启动数摘要没写：写不进 ${LAUNCH_SUMMARY_FILE}（${code(e)}）`); process.exitCode = 1 }
   }
 } else {
+  if (read.fault !== undefined) console.log(`✗ 分份的启动数文件：${read.fault}`)
   console.log(idleGroupsLine(json(SELFCHECK_LAUNCHES_FILE), tree, routes()))
   const sum = summaryLine(inTree(), summary, trunk)
   console.log(sum.line)

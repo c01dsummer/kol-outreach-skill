@@ -64,8 +64,8 @@ import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import { asTsx, prebuildOne, prebuiltCommand } from './prebuilt.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import {
-  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchVerifier,
-  inProcessLine, launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
+  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchVerifier, LAUNCH_PART_NAME,
+  inProcessLine, launchPartFile, launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
 } from './launch-rule.js'
 import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 import { realIo, writeAllSync } from './sync-write.js'
@@ -88,8 +88,13 @@ const costEnabled = !process.argv.includes('--brief') && !process.argv.includes(
 // 启动数文件这一跑重写，开跑先删旧的，排在变异集体检之前：这一跑在哪一步停下、数没数成，
 // 检查链最后一步都读不到上一跑的（ADR-145 第二十一节第 2 小节）。删不掉（比如那是个目录、没有权限）
 // 就以 1 退出、不往下跑，同变异集那几道体检：留着它，最后一步读到的就是上一跑的数
+// 分份跑写的那几份（ADR-200）一起删：留着别的份上一跑的，最后一步会拿它与这一跑的拼在一起
 const LAUNCHES_FILE = 'output/mutation-launches/launches.json'
-if (costEnabled) try { rmSync(LAUNCHES_FILE, { force: true }) } catch (e) {
+if (costEnabled) try {
+  rmSync(LAUNCHES_FILE, { force: true })
+  if (existsSync(dirname(LAUNCHES_FILE))) for (const name of readdirSync(dirname(LAUNCHES_FILE)))
+    if (LAUNCH_PART_NAME.test(name)) rmSync(join(dirname(LAUNCHES_FILE), name), { force: true })
+} catch (e) {
   exitWith(1, `✗ 变异测试：上一跑留下的启动数文件删不掉（${e instanceof Error ? e.message : String(e)}）—— 留着它，检查链最后一步读到的是上一跑的数；未施加任何变异`,
     `\n  先把 ${LAUNCHES_FILE} 挪走或删掉再跑。`)
 }
@@ -962,14 +967,16 @@ const dispatch = async (jobs: number): Promise<void> => {
   }
 }
 
-// 这一跑只跑清单的第几份（ADR-197）：CI 上几台 runner 各跑一份，本地不写就是整份。检查、基线与启动数照旧按整份清单做，
-// 只有施变、派工与收尾那一句按这一份
+// 这一跑只跑清单的第几份（ADR-197）：CI 上几台 runner 各跑一份，本地不写就是整份。开跑前的检查照旧按整份清单做；
+// 子集基线、启动数、成本报告、施变、派工与收尾那一句按这一份（ADR-200）
 const shard = shardWanted(process.env.MUTATE_SHARD)
 if (shard === undefined) {
   exitWith(1, `✗ 变异测试：说不清这一跑是第几份 —— MUTATE_SHARD 要写成「k/n」，1 ≤ k ≤ n（现在是 ${JSON.stringify(process.env.MUTATE_SHARD)}）\n`,
     '  跑整份请把它去掉，不要写一个读不出来的值；未施加任何变异。')
 }
-const mine = shardOf(muts, shard.index, shard.count)
+// 同一种子集配置的整摞落在同一份里（ADR-200），这一份只跑自己那几种配置的基线；整跑的没有子集基线，各自成一摞
+const mine = shardOf(muts, m => { const only = onlyFor(m); return only === undefined ? undefined : JSON.stringify([m.by, [...only].sort()]) },
+  shard.index, shard.count)
 const sharded = shard.count > 1
 const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), mine.length)
 if (jobs === undefined) {
@@ -1033,12 +1040,11 @@ try {
 }
 // 在首次正常基线和施变之前冻结 live 源码、目录与锁的原字节身份；读取失败保留未知。
 const combinations = new Map<string, CostCombination>()
-// 分份时（ADR-197）组合仍按整份建 —— 子集基线按整份跑，组合少了，那几种基线就成了「组合不在配置中」；
-// 组合里只记这一份的变异，别的份的变异不算「配置了却没观测到」
+// 分份时（ADR-200）组合只按这一份建：子集基线也只跑这一份的配置，别的份的配置与变异都不在这一份的成本报告里
 const mineIds = new Set(mine.map(m => m.id))
-for (const route of currentSnapshot().routes) {
+for (const route of currentSnapshot().routes.filter(r => mineIds.has(r.id))) {
   const key = configurationKey(route)
-  const ids = mineIds.has(route.id) ? [route.id] : []
+  const ids = [route.id]
   const previous = combinations.get(key)
   if (previous === undefined) combinations.set(key, { key,
     route: { by: route.by, ...(route.only === undefined ? {} : { only: [...route.only].sort() }), executes: [...route.executes] },
@@ -1069,7 +1075,7 @@ for (const route of currentSnapshot().routes.filter(r => mineIds.has(r.id))) {
 const countLaunches = async (configs: readonly { by: string; only: string[]; key: string; id: string }[], dir: string,
   live: Set<ChildProcess>): Promise<string[]> => {
   try {
-    const mutations: LaunchMutation[] = muts.map(m =>
+    const mutations: LaunchMutation[] = mine.map(m =>
       ({ id: m.id, by: (m.by ?? 'test') as LaunchVerifier, only: onlyFor(m), kills: m.kills ?? [] }))
     const declared = { selfcheck: [...inventoryOf('selfcheck').keys()], test: [...inventoryOf('test').keys()] }
     const again = new Map<string, BaselineLaunches | undefined>()
@@ -1086,8 +1092,11 @@ const countLaunches = async (configs: readonly { by: string; only: string[]; key
     const lines = [`  ${tallyLine(tally)}`]
     if (findings.length) lines.push('  检查链最后一步的启动数闸门会照下面这些判（变异一步只报数）：', ...launchReport(findings).map(l => `    ${l}`))
     try {
-      mkdirSync(dirname(LAUNCHES_FILE), { recursive: true })
-      writeFileSync(LAUNCHES_FILE, JSON.stringify({ ...record, baselines: Object.fromEntries(launchCounts),
+      // 分份时写这一份自己的那个文件、记下是第几份，检查链最后一步拼回整份（ADR-200）
+      const file = sharded ? launchPartFile(shard.index, shard.count) : LAUNCHES_FILE
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, JSON.stringify({ ...record, ...(sharded ? { shard: { index: shard.index, count: shard.count } } : {}),
+        baselines: Object.fromEntries(launchCounts),
         again: Object.fromEntries([...again].map(([key, b]) => [key, b ?? null])) }, null, 2) + '\n')
     } catch (e) {
       lines.push(`  启动数文件没写成（${e instanceof Error ? e.message : String(e)}）`)
@@ -1110,7 +1119,7 @@ const launchRead = (log: string): BaselineLaunches | undefined => {
 let launchOutput: string[] = []
 let fullWithoutKills = 0
 let fullUngrouped = 0
-for (const m of muts) {
+for (const m of mine) {
   const only = onlyFor(m)
   if (only === undefined) {
     if (m.by === undefined || m.kills === undefined) fullWithoutKills++
@@ -1197,7 +1206,7 @@ console.log(`  子集选跑 ${selectedCount} 条、${subsets.size} 种配置；�
 for (const line of launchOutput) console.log(line)
 // 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
 // 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
-if (sharded) console.log(`  这一跑只跑第 ${shard.index}/${shard.count} 份：${mine.length} 条（整份 ${muts.length} 条，ADR-197）`)
+if (sharded) console.log(`  这一跑只跑第 ${shard.index}/${shard.count} 份：${mine.length} 条（整份 ${muts.length} 条，ADR-197）；子集基线与启动数只做这一份的配置（ADR-200）`)
 if (jobs === 1) for (const m of mine) { observeHand(m.id); record(m, await runOne(m)) }
 else await dispatch(jobs)
 

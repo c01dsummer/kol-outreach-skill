@@ -32,7 +32,7 @@ import { configurationKey, costObservation, configurationCost, configurationCost
 import type { RunVerdict } from './check/mutate-rule.js'
 import { stopsEarly } from './check/mutate-rule.js'
 import {
-  LAUNCH_LIMIT, LAUNCH_SUMMARY_FILE, LAUNCH_SUMMARY_SCHEMA, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport,
+  LAUNCH_LIMIT, LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, joinLaunchParts, launchPartFile, LAUNCH_SUMMARY_SCHEMA, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport,
   launchSummary, launchTally, paidLaunches, printLabel, settleLaunches, summaryLine, tallyLine,
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchSummary, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
@@ -230,6 +230,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-mutation-cost', needs: [] },
   { id: 'h-launch-rule', needs: [] },
   { id: 'h-launch-summary-deep', needs: [] },
+  { id: 'h-launch-parts', needs: [] },
   { id: 'h-launch-preload', needs: [] },
   { id: 'h-launch-preload-edge', needs: [] },
   { id: 'h-prebuilt', needs: [] },
@@ -9859,6 +9860,39 @@ const preloadRun = (dir: string, toy: string, options: string | undefined, log?:
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', parsed: parseLaunchLog(text), rows, L: rows.filter(x => x.t === 'L'),
     seen: (() => { try { return JSON.parse(said!.slice(3)) } catch { return undefined } })() }
 }
+// 分份跑写的几份启动数文件拼回整份（ADR-200）。期望从 ADR-200 第三节手推：配置互不相交，直接拼；
+// findings 照整份跑的顺序（全跑的按 id 在前，其余按配置键，同一配置里照原顺序），tally 按配置键；拼好的不带「第几份」
+await group('h-launch-parts', () => {
+  const part = (index: number, count: number, over: Record<string, unknown> = {}) => ({
+    schema: 'mutation-launches/v1', head: 'H', source: 'S', shard: { index, count }, tally: [], findings: [], baselines: {}, again: {}, ...over })
+  const p1 = part(1, 2, { tally: [{ config: 'c' }, { config: 'a' }],
+    findings: [{ kind: 'paid', config: 'c', id: 'm2' }, { kind: 'full-run', id: 'z' }, { kind: 'paid', config: 'c', id: 'm1' }],
+    baselines: { c: 1, a: 3 }, again: { c: null } })
+  const p2 = part(2, 2, { tally: [{ config: 'b' }],
+    findings: [{ kind: 'product', config: 'b' }, { kind: 'full-run', id: 'y' }, { kind: 'missing', config: 'd' }], baselines: { b: 2 } })
+  const joined = joinLaunchParts([p2, p1])
+  const record = 'record' in joined ? joined.record : undefined
+  eq('拼份：tally 按配置键排', record?.tally, [{ config: 'a' }, { config: 'b' }, { config: 'c' }])
+  eq('拼份：findings 全跑的按 id 在前，其余按配置键，同一配置里照原顺序', record?.findings, [{ kind: 'full-run', id: 'y' }, { kind: 'full-run', id: 'z' },
+    { kind: 'product', config: 'b' }, { kind: 'paid', config: 'c', id: 'm2' }, { kind: 'paid', config: 'c', id: 'm1' }, { kind: 'missing', config: 'd' }])
+  eq('拼份：baselines 与 again 拼成一个', [record?.baselines, record?.again], [{ c: 1, a: 3, b: 2 }, { c: null }])
+  eq('拼份：拼好的不带第几份，其余照抄', record === undefined ? undefined : [record.shard, record.schema, record.head, record.source],
+    [undefined, 'mutation-launches/v1', 'H', 'S'])
+  const fault = (parts: unknown[]) => { const j = joinLaunchParts(parts); return 'fault' in j ? j.fault : '拼成了' }
+  eq('拼份：一份也没有', fault([]), '一份也没有')
+  eq('拼份：少一份', fault([p1]), '要第 1 到第 2 份各一份，拿到的是第 1 份')
+  eq('拼份：同一份两次', fault([p1, p1]), '要第 1 到第 2 份各一份，拿到的是第 1、1 份')
+  eq('拼份：多一份', fault([p1, p2, part(3, 2)]), '要第 1 到第 2 份各一份，拿到的是第 1、2、3 份')
+  eq('拼份：份数说法不一', fault([p1, part(2, 3)]), '几份说的总份数不一样')
+  eq('拼份：没写第几份', fault([p1, { ...p2, shard: undefined }]), '有一份没写自己是第几份')
+  eq('拼份：有一份不是对象', fault([p1, null]), '有一份读不出来或不是一个 JSON 对象')
+  eq('拼份：另一棵树上写的', fault([p1, { ...p2, source: 'T' }]), '几份不是同一个提交、同一棵树上写的（schema、head 或源码身份对不上）')
+  eq('拼份：另一个提交上写的', fault([p1, { ...p2, head: 'G' }]), '几份不是同一个提交、同一棵树上写的（schema、head 或源码身份对不上）')
+  eq('拼份：有一份的 findings 不是数组', fault([p1, { ...p2, findings: {} }]), '有一份的 tally、findings 不是数组，或 baselines、again 不是对象')
+  eq('拼份：文件名', [launchPartFile(2, 3), LAUNCH_PART_NAME.test('launches-2-of-3.json'), LAUNCH_PART_NAME.test('launches.json')],
+    ['output/mutation-launches/launches-2-of-3.json', true, false])
+})
+
 const printsOf = (b: BaselineLaunches | undefined) => b?.prints.map(p => [p.body, p.launched])
 
 await group('h-launch-preload', () => {
@@ -10892,12 +10926,15 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('分份读不出来：后面多一截', shardWanted('1/2/3'), undefined)
   eq('分份：两头的空白不算', shardWanted(' 2/3 '), { index: 2, count: 3 })
   eq('分份读不出来：大到失了精度（两个数转成同一个数）', shardWanted('9007199254740993/9007199254740992'), undefined)
-  // 轮流发：每一条恰好落在一份里，几份合起来是整份、顺序不变；连续一段贵的也被拆开
-  const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
-  eq('分份：第 1 份按轮流发', shardOf(ids, 1, 3), ['a', 'd', 'g'])
-  eq('分份：第 3 份按轮流发', shardOf(ids, 3, 3), ['c', 'f'])
-  eq('分份：几份合起来恰好是整份', [1, 2, 3].flatMap(k => shardOf(ids, k, 3)).sort(), ids)
-  eq('分份：整份就是原清单', shardOf(ids, 1, 1), ids)
+  // 成摞发（ADR-200）：同一种配置整摞落在一份里，那种配置的基线只在那一份跑；整跑的（键是 undefined）各自成一摞。
+  // x 三条、y 两条、d 与 h 整跑、z 一条：x→1（3,0,0），y→2（3,2,0），d→3（3,2,1），z→3（3,2,2），h→2（一样少给编号小的）
+  const piled: [string, string | undefined][] = [['a', 'x'], ['b', 'y'], ['c', 'x'], ['d', undefined], ['e', 'z'], ['f', 'x'], ['g', 'y'], ['h', undefined]]
+  const pileOf = (k: number, n: number) => shardOf(piled, p => p[1], k, n).map(p => p[0])
+  eq('分份：同一种配置整摞落在同一份', pileOf(1, 3), ['a', 'c', 'f'])
+  eq('分份：一样少的给编号小的那一份，照清单原顺序交回', pileOf(2, 3), ['b', 'g', 'h'])
+  eq('分份：整跑的各自成一摞', pileOf(3, 3), ['d', 'e'])
+  eq('分份：几份合起来恰好是整份', [1, 2, 3].flatMap(k => pileOf(k, 3)).sort(), piled.map(p => p[0]))
+  eq('分份：整份就是原清单', pileOf(1, 1), piled.map(p => p[0]))
 
   // 汇报行：写下去再读回来，五种结论一个不丢。两边各写一份格式的话，
   // 改一边不改另一边的症状是「每一条都没回话」，而人会去翻变异集，不会去翻这个格式
