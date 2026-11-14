@@ -10689,8 +10689,10 @@ group('review-cli-entry-collect-wrapup', ['review-cli-entry-positive'], () => {
   named('collect 收尾保存评审正本失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总',
     rs!.ok && rs!.status === 6 && noSummary(rs!) && rs!.stderr.includes(agentName) && positive,
     `退出=${rs!.status}，stdout=${rs!.stdout.slice(0, 200)}`)
-  named('收尾保存评审正本失败的夹具确实走到收尾：开跑前那次没有可存的变化，正本与名单都没被改',
-    rs!.ok && fileText(join(review.taskDir, agentName)) === reviewAgent &&
+  // 开跑前那次保存若失败，同样退 6、点名正本、两份文件不变；能分开两次的是「续跑 … 已完成」那句 ——
+  // collect 只在开跑前那次保存成功之后才打它。
+  named('收尾保存评审正本失败的夹具确实走到收尾：开跑前那次保存已过（打出续跑那句），正本与名单都没被改',
+    rs!.ok && /续跑 .* —— 已完成 /.test(rs!.stderr) && fileText(join(review.taskDir, agentName)) === reviewAgent &&
     fileText(join(review.taskDir, 'creators.json')) === reviewList, '正本或名单被改，或失败不在收尾那次保存')
 
   const list = staged('wrapup-list-save')
