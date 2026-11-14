@@ -13971,6 +13971,11 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     'scripts/check/g.ts': 'export function gOnly(): { gg: number } { return { gg: 1 } }',
     'scripts/check/h.ts': 'export function hz(): { other: number } { return { other: 1 } }',
     'scripts/check/k.ts': 'export function kOnly(): { kk: number } { return { kk: 1 } }\nexport function table(): Record<string, { tcp: number }> { return {} }',
+    'scripts/check/m.ts': [
+      "export function dotted(): { a: { b: number }; 'a.b': number } { return { a: { b: 1 }, 'a.b': 2 } }",
+      "export function numeric(): { 0: number; 1: number; ['lit']: number; ['dlit']: number } { return { 0: 1, 1: 2, lit: 3, dlit: 4 } }",
+    ].join('\n'),
+    'scripts/check/n.ts': 'export function nOnly(): { extless: number } { return { extless: 1 } }',
     'scripts/check/selfcheck.ts': [
       'declare function assert(c: unknown, w: unknown): void',
       'declare function deepStrictEqual(a: unknown, b: unknown): void',
@@ -13984,10 +13989,13 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "const w = f.written(); w.onlySet = 1; w['onlyIdx'] = 2; w.bumped += 1; (w.paren) = 4",
       "declare const xs: number[]; [, ...[w.spread]] = xs; ({ k: w.inObj } = { k: 6 }); for (w.looped of xs) {}; delete w.gone; w.inc++; ({ ...w.rest } = { a: 1 }); for (const _ of w.iter) {}; w.nn! = 1; (w.asserted as number) = 2; (<number>w.angle) = 3",
       'const arr = [w.inArr]',
+      "const mm = await import('./m.js')",
+      "const wantNum: Partial<ReturnType<typeof mm.numeric>> = { 0: 1, ['lit']: 3 }",
+      "const { 1: one, ['dlit']: dl } = mm.numeric()",
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
       "const m = await import('./f.js') as unknown as { copied: () => { cp: number } }",
-      'export const v = [k, s, j, other, wantCu, m.copied().cp, arr]',
+      'export const v = [k, s, j, other, wantCu, m.copied().cp, arr, wantNum, one, dl]',
     ].join('\n'),
     'scripts/pid-boundary-contract-test.ts': [
       "import { gOnly } from './check/g.js'",
@@ -13998,6 +14006,10 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     'scripts/independent-blackbox-tests/suite.ts': [
       "const m = await import('../check/k.js') as unknown as { kOnly: () => { kk: number }; table: () => Record<string, { tcp: number }> }",
       "export const v = [m.kOnly().kk, m.table()['one'].tcp]",
+    ].join('\n'),
+    'scripts/independent-blackbox-tests/bare.ts': [
+      "const m = await import('../check/n') as unknown as { nOnly: () => { extless: number } }",
+      'export const v = m.nOnly().extless',
     ].join('\n'),
   }))
   const moreOf = (k: string) => more.find(f => f.key === `scripts/check/${k}`)
@@ -14021,6 +14033,13 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     [false, false, false, false, false, false, true, true, true])
   eq('字段：套着 ! 与 as、<T> 类型断言的只写也不算读到',
     ['nn', 'asserted', 'angle'].map(k => moreOf(`f.ts#written.${k}`)?.used), [false, false, false])
+  const dottedKeys = more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#dotted.')).map(f => f.key).sort()
+  eq('字段：名字里带点的字段写成带引号的一段，不和嵌套路径撞成同一个键',
+    [dottedKeys, fieldVerdict(more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#dotted.')), ['scripts/check/m.ts#dotted.a', 'scripts/check/m.ts#dotted.a.b']).fresh.map(f => f.key)],
+    [['scripts/check/m.ts#dotted."a.b"', 'scripts/check/m.ts#dotted.a', 'scripts/check/m.ts#dotted.a.b'], ['scripts/check/m.ts#dotted."a.b"']])
+  eq('字段：按名字兜底认不带扩展名的 import（照程序自己的解析）', moreOf('n.ts#nOnly.extless')?.used, true)
+  eq('字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到',
+    ['0', '1', 'lit', 'dlit'].map(k => moreOf(`m.ts#numeric.${k}`)?.used), [true, true, true, true])
   eq('字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段',
     ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined])
 

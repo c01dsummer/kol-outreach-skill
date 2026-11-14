@@ -23087,7 +23087,7 @@
       "req": "harness",
       "why": "按类型写成的期望值对象不算碰到：误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "for (const t of contextual.isUnion() ? contextual.types : [contextual]) mark(t.getProperty(name.text))",
+      "find": "for (const t of contextual.isUnion() ? contextual.types : [contextual]) mark(t.getProperty(name))",
       "replace": "void 0",
       "by": "test",
       "kills": [
@@ -23099,7 +23099,7 @@
       "req": "harness",
       "why": "解构出来的字段不算碰到：误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "mark(tc.getTypeAtLocation(n.parent).getProperty(name.text))",
+      "find": "mark(tc.getTypeAtLocation(n.parent).getProperty(name))",
       "replace": "void 0",
       "by": "test",
       "kills": [
@@ -23337,10 +23337,10 @@
     {
       "id": "M-H198-aa",
       "req": "harness",
-      "why": "import 路径不折 ..：独立黑盒测试目录里 ../check/ 引的文件对不上，误红",
+      "why": "按名字兜底时认错了 import 的文件：经相对路径 import 的被测文件对不上号，重抄类型里读到的字段误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "if (p === '..') out.pop(); else if (p !== '.') out.push(p)",
-      "replace": "if (p !== '.') out.push(p)",
+      "find": "if (hit !== undefined) mine.add(relOf(root, hit.resolvedFileName))",
+      "replace": "if (hit !== undefined) mine.add(spec)",
       "by": "test",
       "kills": [
         "字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认"
@@ -23423,8 +23423,8 @@
       "req": "harness",
       "why": "解构改名时按新名字找：{ a: b } 读的是 a，却去找 b，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "const name = n.propertyName ?? n.name",
-      "replace": "const name = n.name",
+      "find": "const name = literalName(ts, n.propertyName ?? n.name)",
+      "replace": "const name = literalName(ts, n.name)",
       "by": "test",
       "kills": [
         "字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算"
@@ -23507,8 +23507,8 @@
       "req": "harness",
       "why": "数字名的属性没有名字：同一层几个数字名字段撞成上一层的名字，新增的不报",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "|| ts.isPrivateIdentifier(name) || ts.isNumericLiteral(name)) return name.text",
-      "replace": "|| ts.isPrivateIdentifier(name)) return name.text",
+      "find": "if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text",
+      "replace": "if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text",
       "by": "test",
       "kills": [
         "字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]"
@@ -23519,8 +23519,8 @@
       "req": "harness",
       "why": "字面量计算属性名不取字面量本身：同一个字段写成 ['x'] 与 x 名字不同",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isStringLiteralLike(name.expression) || ts.isNumericLiteral(name.expression) ? name.expression.text : ",
-      "replace": "false ? '' : ",
+      "find": "if (ts.isComputedPropertyName(name) && (ts.isStringLiteralLike(name.expression) || ts.isNumericLiteral(name.expression))) return name.expression.text",
+      "replace": "",
       "by": "test",
       "kills": [
         "字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]"
@@ -23728,6 +23728,66 @@
       "by": "test",
       "kills": [
         "字段：套着 ! 与 as、<T> 类型断言的只写也不算读到"
+      ]
+    },
+    {
+      "id": "M-H198-bh",
+      "req": "harness",
+      "why": "名字里带点的字段与嵌套路径撞成同一个键：新加的这种字段被当成基线上已有的，没人碰也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "/[.#{}=[\\]\"]/.test(name) ? JSON.stringify(name) : name",
+      "replace": "name",
+      "by": "test",
+      "kills": [
+        "字段：名字里带点的字段写成带引号的一段，不和嵌套路径撞成同一个键"
+      ]
+    },
+    {
+      "id": "M-H198-bj",
+      "req": "harness",
+      "why": "按名字兜底认不出不带扩展名的 import：重抄类型里读到的字段误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const hit = ts.resolveModuleName(spec, sf.fileName, program.getCompilerOptions(), ts.sys).resolvedModule",
+      "replace": "const hit = spec.endsWith('.js') ? ts.resolveModuleName(spec, sf.fileName, program.getCompilerOptions(), ts.sys).resolvedModule : undefined",
+      "by": "test",
+      "kills": [
+        "字段：按名字兜底认不带扩展名的 import（照程序自己的解析）"
+      ]
+    },
+    {
+      "id": "M-H198-bi",
+      "req": "harness",
+      "why": "计算属性名的 [表达式] 也被加引号：它和名字恰好是这串字的字面量字段撞成同一个键",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "literalName(ts, raw) === undefined ? name : segment(name)",
+      "replace": "segment(name)",
+      "by": "test",
+      "kills": [
+        "字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]"
+      ]
+    },
+    {
+      "id": "M-H198-bk",
+      "req": "harness",
+      "why": "按上下文类型写的期望值里，数字名与字面量计算属性名的键不算碰到：误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const name = literalName(ts, n.name)\n        if (contextual",
+      "replace": "const name = ts.isIdentifier(n.name) || ts.isStringLiteral(n.name) ? n.name.text : undefined\n        if (contextual",
+      "by": "test",
+      "kills": [
+        "字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到"
+      ]
+    },
+    {
+      "id": "M-H198-bl",
+      "req": "harness",
+      "why": "解构里数字名与字面量计算属性名不算碰到：误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const name = literalName(ts, n.propertyName ?? n.name)",
+      "replace": "const pn = n.propertyName ?? n.name, name = ts.isIdentifier(pn) || ts.isStringLiteral(pn) ? pn.text : undefined",
+      "by": "test",
+      "kills": [
+        "字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到"
       ]
     }
   ],

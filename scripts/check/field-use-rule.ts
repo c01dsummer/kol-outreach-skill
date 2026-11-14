@@ -65,15 +65,25 @@ export interface Field {
 const relOf = (root: string, fileName: string): string =>
   fileName.startsWith(root + '/') ? fileName.slice(root.length + 1) : fileName
 
-/** 一个声明自己的名字：标识符、字符串、数字、私有名；计算属性名取字面量本身，别的写成 `[表达式]` */
+/** 写死的属性名：标识符、字符串、数字，或里面是字符串、数字字面量的计算属性名；别的给 undefined */
+function literalName(ts: typeof Ts, name: Ts.Node): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text
+  if (ts.isComputedPropertyName(name) && (ts.isStringLiteralLike(name.expression) || ts.isNumericLiteral(name.expression))) return name.expression.text
+  return undefined
+}
+
+/** 一个声明自己的名字：写死的名字（见 `literalName`）、私有名；别的计算属性名写成 `[表达式]` */
 function nameOf(ts: typeof Ts, n: Ts.Node): string | undefined {
   const name = (n as { name?: Ts.Node }).name
   if (name === undefined) return undefined
-  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isPrivateIdentifier(name) || ts.isNumericLiteral(name)) return name.text
-  if (ts.isComputedPropertyName(name))
-    return ts.isStringLiteralLike(name.expression) || ts.isNumericLiteral(name.expression) ? name.expression.text : `[${name.expression.getText()}]`
-  return undefined
+  if (ts.isPrivateIdentifier(name)) return name.text
+  const lit = literalName(ts, name)
+  if (lit !== undefined) return lit
+  return ts.isComputedPropertyName(name) ? `[${name.expression.getText()}]` : undefined
 }
+
+/** 键里的一段：名字里带 `.`、`#`、`{`、`}`、`=`、`[`、`]`、`"` 的写成 JSON 字符串，免得和别的路径撞成同一个键 */
+const segment = (name: string): string => /[.#{}=[\]"]/.test(name) ? JSON.stringify(name) : name
 
 /**
  * 只写不读：`=` 的左边（套着括号、`!`、`as`／`<T>` 断言、在解构赋值的数组或对象字面量里也算）、`for (… of/in …)` 的循环变量、`delete` 的操作数。
@@ -114,7 +124,8 @@ function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declara
       continue
     }
     const name = nameOf(ts, n)
-    if (name !== undefined) parts.push(name)
+    const raw = (n as { name?: Ts.Node }).name
+    if (name !== undefined) parts.push(raw !== undefined && ts.isComputedPropertyName(raw) && literalName(ts, raw) === undefined ? name : segment(name))
   }
   return `${relOf(root, decl.getSourceFile().fileName)}#${parts.reverse().join('.')}`
 }
@@ -197,12 +208,11 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     if (!isVerifierFile(self)) continue
     const mine = new Set<string>(), names = new Set<string>()
     imports.set(self, mine); localNames.set(self, names)
-    const dir = self.slice(0, self.lastIndexOf('/'))
+    // 按程序自己的解析认文件：`./x.js`、不带扩展名的 `./x` 都落到 `x.ts`
     const imported = (spec: string) => {
       if (!spec.startsWith('.')) return
-      const parts = `${dir}/${spec}`.split('/'), out: string[] = []
-      for (const p of parts) { if (p === '..') out.pop(); else if (p !== '.') out.push(p) }
-      mine.add(out.join('/').replace(/\.js$/, '.ts'))
+      const hit = ts.resolveModuleName(spec, sf.fileName, program.getCompilerOptions(), ts.sys).resolvedModule
+      if (hit !== undefined) mine.add(relOf(root, hit.resolvedFileName))
     }
     /**
      * 重抄的类型：断言的值剥掉括号、`await` 与里层的 `as` 以后是一个 `import(…)` 调用。
@@ -257,13 +267,13 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       if (ts.isPropertyAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.name)) }
       else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.argumentExpression)) }
       else if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent)) {
-        const name = n.propertyName ?? n.name
-        if (ts.isIdentifier(name) || ts.isStringLiteral(name)) mark(tc.getTypeAtLocation(n.parent).getProperty(name.text))
+        const name = literalName(ts, n.propertyName ?? n.name)
+        if (name !== undefined) mark(tc.getTypeAtLocation(n.parent).getProperty(name))
       } else if ((ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) && ts.isObjectLiteralExpression(n.parent)) {
         const contextual = tc.getContextualType(n.parent)
-        const name = n.name
-        if (contextual !== undefined && (ts.isIdentifier(name) || ts.isStringLiteral(name)))
-          for (const t of contextual.isUnion() ? contextual.types : [contextual]) mark(t.getProperty(name.text))
+        const name = literalName(ts, n.name)
+        if (contextual !== undefined && name !== undefined)
+          for (const t of contextual.isUnion() ? contextual.types : [contextual]) mark(t.getProperty(name))
       } else if (ts.isCallExpression(n)) {
         const callee = ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text
           : ts.isIdentifier(n.expression) ? n.expression.text : ''
