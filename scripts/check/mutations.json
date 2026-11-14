@@ -6751,7 +6751,7 @@
       "replace": "    break\n",
       "by": "test",
       "kills": [
-        "worker夹具回收：组里的进程还在往临时根里写时，等它停了再删，删后没有被建回来；别的目录不动"
+        "worker夹具回收：组里的进程还在往临时根里写时，等它自己退出（退出码 0、没收到信号）再删，删后没有被建回来；别的目录不动"
       ]
     },
     {
@@ -6763,7 +6763,7 @@
       "replace": "    if (Date.now() >= until) break\n    if (Date.now() < until - deadlineMs - 1) {\n",
       "by": "test",
       "kills": [
-        "worker夹具回收：到时限组还没停，不删、说明留下了哪个目录"
+        "worker夹具回收：到时限组还没停，不删、说明留下了哪个目录，也没动那组进程"
       ]
     },
     {
@@ -6795,11 +6795,11 @@
       "req": "harness",
       "why": "已经退出、只剩僵尸的进程也算组里还活着 —— 没人收尸的机器上永远等不到，每次都判失格、临时根也留着",
       "file": "scripts/worker-output-contract-test.ts",
-      "find": "      if (pgids.includes(pgid) && fields[0] !== 'Z') live.add(pgid)\n",
-      "replace": "      if (pgids.includes(pgid)) live.add(pgid)\n",
+      "find": "  const running = (state: string): boolean => !state.includes('Z')\n",
+      "replace": "  const running = (state: string): boolean => state.length > 0\n",
       "by": "test",
       "kills": [
-        "worker夹具回收：组里的进程还在往临时根里写时，等它停了再删，删后没有被建回来；别的目录不动"
+        "worker夹具回收：组里的进程还在往临时根里写时，等它自己退出（退出码 0、没收到信号）再删，删后没有被建回来；别的目录不动"
       ]
     },
     {
@@ -6823,7 +6823,7 @@
       "replace": "    const holders: number[] = []\n",
       "by": "test",
       "kills": [
-        "worker夹具回收：账本上没有、但当前目录在临时根里的进程还在写时，也等它退了再删，删后没有被建回来"
+        "worker夹具回收：账本上没有、但当前目录在临时根里的进程还在写时，也等它自己退出（退出码 0、没收到信号）再删，删后没有被建回来"
       ]
     },
     {

@@ -73,6 +73,8 @@ function dependencyManifest(root: string, rel = ''): SourceEntry[] {
  * many processes a test group starts (the launch-count gate, ADR-145); elsewhere `ps` lists the table.
  */
 export function liveGroups(pgids: readonly number[]): number[] | null {
+  // One rule for both process-table readers: a member that is only a zombie has exited and counts as stopped.
+  const running = (state: string): boolean => !state.includes('Z')
   if (process.platform === 'linux') {
     let pids: string[]
     try { pids = readdirSync('/proc').filter(name => /^\d+$/.test(name)) } catch { return null }
@@ -84,7 +86,7 @@ export function liveGroups(pgids: readonly number[]): number[] | null {
       const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
       const pgid = Number(fields[2])
       if (!Number.isSafeInteger(pgid)) return null
-      if (pgids.includes(pgid) && fields[0] !== 'Z') live.add(pgid)
+      if (pgids.includes(pgid) && running(fields[0]!)) live.add(pgid)
     }
     return [...live]
   }
@@ -95,7 +97,7 @@ export function liveGroups(pgids: readonly number[]): number[] | null {
     const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/.exec(row)
     if (!match) return null
     const pgid = Number(match[2])
-    if (pgids.includes(pgid) && !match[3]!.includes('Z')) live.add(pgid)
+    if (pgids.includes(pgid) && running(match[3]!)) live.add(pgid)
   }
   return [...live]
 }
@@ -108,7 +110,8 @@ export function liveGroups(pgids: readonly number[]): number[] | null {
 export function recordedGroups(ledger: string, carrierGroup: number | undefined): number[] | null {
   const groups = carrierGroup === undefined ? [] : [carrierGroup]
   if (!existsSync(ledger)) return groups
-  const text = readFileSync(ledger, 'utf8')
+  let text: string
+  try { text = readFileSync(ledger, 'utf8') } catch { return null }
   if (text !== '' && !text.endsWith('\n')) return null
   for (const line of text.split('\n').filter(Boolean)) {
     let entry: { role?: unknown; pgid?: unknown }
@@ -123,7 +126,9 @@ export function recordedGroups(ledger: string, carrierGroup: number | undefined)
 /**
  * Processes whose current directory is inside one of `roots` (zombies have none). This catches what the ledger cannot:
  * a process the code under test starts in a group of its own (the worker's verifier is detached). Linux reads
- * /proc; elsewhere `lsof` lists every process's cwd. Null when neither can be read.
+ * /proc; elsewhere `lsof` lists the cwd of every process of this user. Only this user (or root) can enter the roots,
+ * which mkdtemp makes private, so other users' processes cannot hold them; this user's own processes are all readable,
+ * so lsof must finish without any error (status 0) for the list to count. Null when neither can be read completely.
  */
 export function cwdHolders(roots: readonly string[]): number[] | null {
   const all = roots.flatMap(root => { try { return [root, realpathSync(root)] } catch { return [root] } })
@@ -139,8 +144,8 @@ export function cwdHolders(roots: readonly string[]): number[] | null {
     }
     return found
   }
-  const lsof = spawnSync('lsof', ['-a', '-d', 'cwd', '-F', 'pn', '-w'], { encoding: 'utf8', timeout: 2000, maxBuffer: 8 * 1024 * 1024 })
-  if (lsof.error || (lsof.status !== 0 && lsof.status !== 1)) return null
+  const lsof = spawnSync('lsof', ['-a', '-u', String(process.getuid?.() ?? -1), '-d', 'cwd', '-F', 'pn'], { encoding: 'utf8', timeout: 2000, maxBuffer: 8 * 1024 * 1024 })
+  if (lsof.error || lsof.status !== 0) return null
   const found: number[] = []
   let pid = 0
   for (const line of lsof.stdout.split('\n')) {

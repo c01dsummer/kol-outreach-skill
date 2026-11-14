@@ -4,6 +4,7 @@ import { join, dirname, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { reclaimOwned, recordedGroups } from './worker-output-contract-test.js';
 
 // Copies the current working bytes into a private specimen under `home`, with a private TMPDIR (`runtime`) holding two
 // foreign directories — one of them named like a driver root — and the baseline test hook replaced by `injection(runtime)`.
@@ -105,6 +106,8 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export async function runInterruptedCleanupRegression(source = process.cwd()) {
   const home = mkdtempSync(join(tmpdir(), 'wci-'));
   let child: ReturnType<typeof spawn> | undefined;
+  // The run's process groups, as the carrier's ledger names them; teardown waits for these before removing `home`.
+  let ledgerPath: string | undefined;
   try {
     const ready = (runtime: string) => join(runtime, 'writer-ready.json');
     const { runtime, args, options, foreignPreserved } = prepare(home, realpathSync(source), runtime => `
@@ -114,7 +117,8 @@ export async function runInterruptedCleanupRegression(source = process.cwd()) {
   const independentFixtureBeat = () => { try { independentFixtureFs.mkdirSync(independentFixtureAt, { recursive: true }); independentFixtureFs.writeFileSync(independentFixtureAt + '/interrupt-heartbeat', String(Date.now())) } catch { /* keep trying */ } }
   independentFixtureBeat()
   setInterval(independentFixtureBeat, 10)
-  independentFixtureFs.writeFileSync(${JSON.stringify(ready(runtime))}, JSON.stringify({ cwd: independentFixtureAt }))
+  independentFixtureFs.writeFileSync(${JSON.stringify(ready(runtime) + '.tmp')}, JSON.stringify({ cwd: independentFixtureAt }))
+  independentFixtureFs.renameSync(${JSON.stringify(ready(runtime) + '.tmp')}, ${JSON.stringify(ready(runtime))})
   await new Promise(() => {})
 `);
     const out: Buffer[] = [];
@@ -130,7 +134,8 @@ export async function runInterruptedCleanupRegression(source = process.cwd()) {
     if (carrierHomes.length !== 1) throw new Error('expected exactly one carrier home');
     const carrierHome = join(runtime, carrierHomes[0]!);
     const driverRoot = dirname(JSON.parse(readFileSync(ready(runtime), 'utf8')).cwd);
-    const ledger = readFileSync(join(carrierHome, 'process-groups.ndjson'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
+    ledgerPath = join(carrierHome, 'process-groups.ndjson');
+    const ledger = readFileSync(ledgerPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
     const controller = ledger.find(entry => entry.role === 'controller')?.pid;
     if (!Number.isSafeInteger(controller) || dirname(driverRoot) !== runtime || !existsSync(join(driverRoot, 'normal', 'interrupt-heartbeat'))) throw new Error('writer, ledger or driver root not as expected');
     process.kill(controller, 'SIGTERM');
@@ -150,10 +155,13 @@ export async function runInterruptedCleanupRegression(source = process.cwd()) {
   } catch (error) {
     return { status: 'invalid', reason: error instanceof Error ? error.message : String(error) };
   } finally {
-    // On an early exit the writer can outlive the entry by a few hundred ms (its guardians stop it); retry until it has.
+    // On an early exit the writer can outlive the entry (its guardians stop it), and it re-creates its directory every
+    // 10 ms. Stop what this run started, then remove `home` only once those groups and every process working inside
+    // it have stopped, so nothing is written back after the removal and nothing is left running.
     if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-    for (let tries = 0; ; tries++) {
-      try { rmSync(home, { recursive: true, force: true }); break; } catch (error) { if (tries >= 50) throw error; await sleep(100); }
-    }
+    const groups = ledgerPath === undefined ? [] : recordedGroups(ledgerPath, undefined) ?? [];
+    for (const pgid of groups) { try { process.kill(-pgid, 'SIGKILL'); } catch { /* already gone */ } }
+    const kept = reclaimOwned([home], groups, 10000);
+    if (kept !== undefined) console.error(`interrupted-cleanup teardown: ${kept}`);
   }
 }
