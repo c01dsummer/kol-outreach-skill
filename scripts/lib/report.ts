@@ -247,7 +247,7 @@ const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: rea
     <h2>冻结账号与原任务来源</h2>${sources}</section>`
 }
 
-/** `facts`：任务里已证实的产品事实原文（P2.c）；缺席或空数组都是「没有可对的」，草稿里的说法全列出来。 */
+/** `facts`：任务里已证实的产品事实原文（P2.c）；缺席或空数组都是「没有可对的」：作品文字对不上的说法全列出来，前面写明没有可对的。 */
 export interface HtmlOutputOptions extends ReviewOutputOptions { filters?: 'dual'; facts?: readonly string[] }
 
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */

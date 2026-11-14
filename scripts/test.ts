@@ -154,6 +154,7 @@ import {
   TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
 } from './providers/tikhub-pricing.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
+import { unsourcedLine } from './lib/draft-claims.js'
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
@@ -775,18 +776,37 @@ suite('P2', '开发信草稿里对不上出处的数字与承诺词在评审 HTM
     return m === null ? undefined : m[1]
   }
   const SUFFIX = '（只查数字和承诺词，其余说法仍要自己看）'
-  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual', facts: FACTS } as Parameters<typeof renderHtml>[2])
+  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual', facts: FACTS })
   eq('P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出',
     lineOf(review, 'claims'), `出处对不上：2-year；warranty；IPX7；30%${SUFFIX}`)
   eq('P2.c 有草稿、扫完没有对不上的写「无」，没草稿或草稿全是空白的卡片不出这一行',
     ['clean', 'blank', 'none'].map(h => lineOf(review, h)), [`出处对不上：无${SUFFIX}`, undefined, undefined])
   ok('P2.c 只标不改：草稿原文逐字在 HTML 里，占位符一个不少，输入名单不变',
     review.includes(DRAFT.replace(/&/g, '&amp;').replace(/'/g, '&#39;')) && isDeepStrictEqual(people, before))
-  const noFacts = renderHtml(people, meta, { mode: 'review', filters: 'dual' } as Parameters<typeof renderHtml>[2])
+  const noFacts = renderHtml(people, meta, { mode: 'review', filters: 'dual' })
   eq('P2.c 任务里没有已证实的产品事实时，草稿里的说法全列出来，前面写明没有可对的',
     lineOf(noFacts, 'claims'), `出处对不上：任务里没有已证实的产品事实可对：400ml；ten seconds；BPA-free；$29.99；2-year；warranty；IPX7；30%${SUFFIX}`)
   const legacy = renderHtml(people, meta)
   ok('P2.c 默认模式 HTML 不出这一行（U9.a）', !legacy.includes('data-draft-claims'))
+  // 比对口径逐条：每一行是 [草稿, 已证实的产品事实, 期望]；作品文字都给空，只看对出处这一边。
+  const rules: Array<[string, string, string[], string | undefined]> = [
+    ['数字按值与单位比：单位冲突对不上', 'A 400ml jar.', ['Weighs 400 g'], '400ml'],
+    ['数字按值与单位比：单位别名归一（mL、ounces、hrs）', 'A 400 mL jar, 16 ounces, 10 hrs.', ['400ml', '16 oz', '10 hours'], '无'],
+    ['草稿带单位、出处没写单位：同数即可', 'A 400ml jar.', ['Capacity: 400'], '无'],
+    ['草稿没写单位、出处带单位：同数即可', 'Holds 400, weighs 400 g.', ['400 g'], '无'],
+    ['千分位与小数归一，后面跟的逗号不算数的一部分', 'Packs 1,000 mAh, 2.50 lb.', ['1000mAh', '2.5 lb'], '无'],
+    ['数后面跟的逗号不吃进说法', 'Holds 500, weighs 500 g.', ['x'], '500；500 g'],
+    ['「.5」这样的小数也扫', 'Weighs just .5 kg.', ['Weighs 1 kg'], '.5 kg'],
+    ['价格对价格或不带单位的同数，不对带单位的同数', 'Only $29, $35 and $40.', ['Price 29', '$35', '40 g'], '$40'],
+    ['拼写的数字：十三到十九、七十、八十、连写的二十五、thousand', 'Runs seventy hours, eighty percent quieter, sixteen ounces, twenty-five minutes, a thousand-hour motor.', ['x'], 'seventy hours；eighty percent；sixteen ounces；twenty-five minutes；thousand-hour'],
+    ['连写的拼写数字按整数比，不拆成个位', 'Brews in twenty-five minutes.', ['Brews in 5 minutes'], 'twenty-five minutes'],
+    ['型号串整串对，不按子串', 'An H1 chip and IPX7 rating.', ['H13 HEPA filter', 'IPX7'], 'H1'],
+    ['多字承诺词出处里逐字有就对得上', 'A 30-day return policy, and our returns window is generous.', ['30-day return policy', 'Returns window: 30 days'], '无'],
+    ['同一写法只列一次（不分大小写）', 'A 400ml jar. Yes, 400ml. 400ML!', ['x'], '400ml'],
+    ['任务里没有已证实的产品事实、又没扫到说法时也写明没有可对的', 'Hi Ana, love your videos.', [], '任务里没有已证实的产品事实可对：无'],
+  ]
+  eq('P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、多字承诺词、去重、空事实',
+    rules.map(([name, draft, facts]) => [name, unsourcedLine(draft, facts, [])]), rules.map(([name, , , want]) => [name, want]))
   criterion('P2.c'); tension('U9', 'P2')
 }
 {
