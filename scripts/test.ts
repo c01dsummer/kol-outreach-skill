@@ -20347,6 +20347,7 @@ await group('h-worker-output-reclaim', async () => {
   const fsx = await import('node:fs'), osx = await import('node:os'), px = await import('node:path')
   const base = fsx.mkdtempSync(px.join(osx.tmpdir(), 'wrc-'))
   const started: number[] = []
+  const exits: Promise<unknown>[] = []
   const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
   // 一个自成一组、不理 SIGTERM 的进程：每 10 毫秒把 dir 建回来再写一个文件，活 lifeMs 毫秒
   // 回给调用者组号和它怎么结束的：自己活到头退出是退出码 0、没有信号；被谁发信号杀掉的，信号会记在这里
@@ -20356,6 +20357,7 @@ await group('h-worker-output-reclaim', async () => {
       setTimeout(() => process.exit(0), ${lifeMs})`], { detached: true, stdio: 'ignore', cwd })
     const ended = new Promise<{ code: number | null; signal: string | null }>(resolve => child.once('exit', (code, signal) => resolve({ code, signal })))
     started.push(child.pid!)
+    exits.push(ended)
     for (const until = Date.now() + 10000; !fsx.existsSync(px.join(dir, 'beat')); await wait(10)) if (Date.now() > until) throw new Error(`${SELFCHECK_FIXTURE_MARK} reclaim writer did not start`)
     return { pgid: child.pid!, ended }
   }
@@ -20400,6 +20402,8 @@ await group('h-worker-output-reclaim', async () => {
     eq('worker夹具回收：看进程表读得出本进程自己那一组', [Number.isSafeInteger(ownGroup) && ownGroup > 0, liveGroups([ownGroup])], [true, [ownGroup]])
   } finally {
     for (const pid of started) { try { process.kill(-pid, 'SIGKILL') } catch { /* already gone */ } }
+    // 信号发出不等于进程已退：等写进程都退了再删，免得它把 base 建回来
+    await Promise.all(exits)
     fsx.rmSync(base, { recursive: true, force: true })
   }
 })

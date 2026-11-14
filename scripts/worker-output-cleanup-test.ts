@@ -123,11 +123,14 @@ export async function runInterruptedCleanupRegression(source = process.cwd()) {
 `);
     const out: Buffer[] = [];
     const started = spawn(process.execPath, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+    let launchError: Error | undefined;
+    started.on('error', error => { launchError = error; });
     child = started;
     started.stdout!.on('data', (b: Buffer) => out.push(b));
     started.stderr!.resume();
     const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => started.on('close', (code, signal) => resolve({ code, signal })));
     for (const until = Date.now() + 240000; !existsSync(ready(runtime)); await sleep(50)) {
+      if (launchError !== undefined) throw launchError;
       if (Date.now() > until || started.exitCode !== null) throw new Error('the baseline writer never started');
     }
     const carrierHomes = readdirSync(runtime).filter(name => name.startsWith('worker-output-carrier-'));
@@ -159,8 +162,9 @@ export async function runInterruptedCleanupRegression(source = process.cwd()) {
     // 10 ms. Stop what this run started, then remove `home` only once those groups and every process working inside
     // it have stopped, so nothing is written back after the removal and nothing is left running.
     if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-    const groups = ledgerPath === undefined ? [] : recordedGroups(ledgerPath, undefined) ?? [];
-    for (const pgid of groups) { try { process.kill(-pgid, 'SIGKILL'); } catch { /* already gone */ } }
+    // An unreadable ledger stays null: reclaimOwned then keeps `home` rather than guess that nothing is running.
+    const groups = ledgerPath === undefined ? [] : recordedGroups(ledgerPath, undefined);
+    for (const pgid of groups ?? []) { try { process.kill(-pgid, 'SIGKILL'); } catch { /* already gone */ } }
     const kept = reclaimOwned([home], groups, 10000);
     if (kept !== undefined) console.error(`interrupted-cleanup teardown: ${kept}`);
   }

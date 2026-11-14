@@ -114,8 +114,10 @@ export function recordedGroups(ledger: string, carrierGroup: number | undefined)
   try { text = readFileSync(ledger, 'utf8') } catch { return null }
   if (text !== '' && !text.endsWith('\n')) return null
   for (const line of text.split('\n').filter(Boolean)) {
-    let entry: { role?: unknown; pgid?: unknown }
-    try { entry = JSON.parse(line) as typeof entry } catch { return null }
+    let parsed: unknown
+    try { parsed = JSON.parse(line) } catch { return null }
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const entry = parsed as { role?: unknown; pgid?: unknown }
     if (entry.role === 'controller') continue
     if (typeof entry.pgid !== 'number' || !Number.isSafeInteger(entry.pgid) || entry.pgid <= 1) return null
     groups.push(entry.pgid)
@@ -130,16 +132,39 @@ export function recordedGroups(ledger: string, carrierGroup: number | undefined)
  * which mkdtemp makes private, so other users' processes cannot hold them; this user's own processes are all readable,
  * so lsof must finish without any error (status 0) for the list to count. Null when neither can be read completely.
  */
+/**
+ * Real uid and start time (clock ticks since boot) of a process, from /proc/<pid>/status and /proc/<pid>/stat, which
+ * need no ptrace check, unlike cwd. Undefined when either cannot be read.
+ */
+function owner(pid: string): { uid: number; started: number } | undefined {
+  try {
+    const uid = /^Uid:\s+(\d+)/m.exec(readFileSync(`/proc/${pid}/status`, 'utf8'))
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const started = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19])
+    return uid && Number.isSafeInteger(started) ? { uid: Number(uid[1]), started } : undefined
+  } catch { return undefined }
+}
+
 export function cwdHolders(roots: readonly string[]): number[] | null {
   const all = roots.flatMap(root => { try { return [root, realpathSync(root)] } catch { return [root] } })
   const inside = (dir: string): boolean => all.some(root => dir === root || dir.startsWith(root + sep))
   if (process.platform === 'linux') {
     let pids: string[]
     try { pids = readdirSync('/proc').filter(name => /^\d+$/.test(name)) } catch { return null }
+    const self = owner(String(process.pid))
     const found: number[] = []
     for (const pid of pids) {
       let dir: string
-      try { dir = readlinkSync(`/proc/${pid}/cwd`) } catch { continue }
+      try { dir = readlinkSync(`/proc/${pid}/cwd`) } catch (error) {
+        // Gone already: nothing to wait for. Otherwise the cwd is hidden (the process is not dumpable). It can only be
+        // one this run started if it belongs to this user and was born after this process (which made the roots);
+        // such a process might be inside, so the listing is not complete. Older or foreign ones are skipped.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        const it = owner(pid)
+        if (it === undefined) { if (existsSync(`/proc/${pid}`)) return null; continue }
+        if (self === undefined || (it.uid === process.getuid?.() && it.started >= self.started)) return null
+        continue
+      }
       if (inside(dir)) found.push(Number(pid))
     }
     return found
