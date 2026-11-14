@@ -136,6 +136,16 @@ jobs:
             || say "墙钟：无从比较（主干的运行记录里缺起跑或结束时间）"
           [ "$median" -gt 0 ] || say "墙钟：无从比较（主干前 5 次的中位是 $median 秒）"
           say "本跑 $(mmss "$mine") · 主干前 5 次中位 $(mmss "$median") · ×$(awk -v a="$mine" -v b="$median" 'BEGIN { printf "%.2f", a / b }')"
+      # 只提醒：这一跑改到的文件被哪几条开着的欠条写进了正文（需求所有者 2026-11-14 要的，KOL-110；ADR-196）。
+      # 汇总那一句打成一条 notice（PR 的 Checks 页与这一跑的总览上看得到），全文写进这一跑的 Summary。
+      # 「改到的」与体量闸门同一个起点：PR 上是这次合并用的主干头，推 main 时是上一版。
+      # 不判响没响、不拦合入：不在 `npm run check` 里，脚本每条路都以 0 退出，另有 continue-on-error 兜底；
+      # 检查红了也照跑（红的时候更要看碰了哪些欠条）。本地同一件事是 `npm run debt-touch`
+      - name: 欠条点名提醒（只提醒）
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: npm run -s debt-touch
       # 只报数：这台 runner 的 CPU 型号与核数。同一份代码在不同 runner 上秒数差到 ×0.6–×1.6，
       # 原先日志里看不出这一跑落在哪种机器上（ADR-145 第三十一节第 5 小节）。排在最后、检查红了也照跑：
       # 日志只取得到末尾几千行时也看得见它。读不到也不让这一跑红。

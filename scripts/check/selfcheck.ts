@@ -55,7 +55,11 @@ import {
   selfcheckSummary,
 } from './verifier-rule.js'
 
-const EXEMPT: Record<string, string> = {}   // 目前无豁免
+const EXEMPT: Record<string, string> = {
+  // 只提醒、恒以 0 退出的入口，不在检查链里（CI 单列一步）。它在玩具 git 仓库上的真起由需求测试组
+  // `h-iou-file-reminder` 做（改被点名的文件列出、改别的不列、不是仓库时无从比较，三次都以 0 退出），这里不再起一遍（ADR-196）
+  'scripts/check/debt-touch.ts': '欠条点名提醒入口：需求测试组 h-iou-file-reminder 在玩具仓库上真起',
+}
 
 /**
  * **入口认领**:哪几条验收判据是这一次端到端真跑过的。

@@ -22781,6 +22781,165 @@
       "kills": [
         "D4.t 独立认领：冻结用例 G3-19N 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格"
       ]
+    },
+    {
+      "id": "M-H196-a",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "一个文件名在仓库里不止一份时也拿它认文件 —— 欠条里写一句「x.md」，就算点到了其中随便一份，另一份被改时提醒的是错的那条，读的人顺着去核也核不出所以然",
+      "find": "  for (const [name, set] of owners) if (set.size === 1) out.set(name, [...set][0])",
+      "replace": "  for (const [name, set] of owners) if (set.size >= 1) out.set(name, [...set][0])",
+      "by": "test",
+      "kills": [
+        "不止一份的文件名只认完整路径"
+      ]
+    },
+    {
+      "id": "M-H196-b",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "不带扩展名的尾段也当文件名认 —— 「Dockerfile」「Makefile」这种词在欠条正文里大多是在说一类东西，被认成某一个文件，改它时就会列出一串不相干的欠条",
+      "find": "      if (i > 0 && !parts[parts.length - 1].includes('.')) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "不带扩展名的尾段不认，完整路径照认"
+      ]
+    },
+    {
+      "id": "M-H196-c",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "名字前面还连着路径字符也算点名 —— 欠条写的是另一个目录下的同名文件，或者一个前缀不同的文件，改这一个时照样列出它",
+      "find": "  if (at > 0 && PATH_CHAR.test(text[at - 1])) return false\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "名字两头连着路径字符的不算"
+      ]
+    },
+    {
+      "id": "M-H196-d",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "名字后面接着一个点和别的字也算点名 —— 欠条写的是备份文件或多一截扩展名的另一个文件，改这一个时照样列出它",
+      "find": "  if (next === '.') return !/[A-Za-z0-9_]/.test(text[at + len + 1] ?? '')",
+      "replace": "  if (next === '.') return true",
+      "by": "test",
+      "kills": [
+        "名字两头连着路径字符的不算"
+      ]
+    },
+    {
+      "id": "M-H196-e",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "欠条只拿条件那一行找文件名，不看整张欠条 —— 文件写在欠条头那一行、条件写的是「下一条碰它的 PR」时，改那个文件一条也不提醒",
+      "find": "      out.push({ entry, text: block\n",
+      "replace": "      out.push({ entry, text: false\n",
+      "by": "test",
+      "kills": [
+        "文件点在块头、条件行没点：照样列出"
+      ]
+    },
+    {
+      "id": "M-H196-f",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "欠条里围栏示例写的路径也算点名 —— 一段演示命令里出现的文件被当成这张欠条点的名，改它时列出不相干的欠条",
+      "find": "        ? lines.slice(block.start, block.end).filter((_, k) => !quoted[block.start + k]).join('\\n')",
+      "replace": "        ? lines.slice(block.start, block.end).join('\\n')",
+      "by": "test",
+      "kills": [
+        "围栏示例里写的路径不算点名"
+      ]
+    },
+    {
+      "id": "M-H196-g",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "已经标了已还、已重挂或收尾的欠条照样列 —— 关上的和开着的混在一起，读的人要逐条再去翻状态行，提醒的条数也虚高",
+      "find": "    if (key !== null && closed.has(key)) { closedHits++; continue }",
+      "replace": "    if (key !== null && closed.has(key) && false) { closedHits++; continue }",
+      "by": "test",
+      "kills": [
+        "已标已还的不列，只计数",
+        "没命中时只有汇总与漏网情形，已关的另报数"
+      ]
+    },
+    {
+      "id": "M-H196-h",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "围栏里演示状态行写法的那几行也被当成真的状态行 —— 一张开着的欠条被一段示例「关」掉，从提醒里消失，而漏报正是这条提醒失效的意思",
+      "find": "      if (quoted[i]) return\n      for (const m of line.matchAll(CLOSING))",
+      "replace": "      for (const m of line.matchAll(CLOSING))",
+      "by": "test",
+      "kills": [
+        "围栏里演示的状态行不算"
+      ]
+    },
+    {
+      "id": "M-H196-i",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "状态行只认已还、已重挂，不认收尾 —— 需求所有者定了不做的欠条照样当开着列出来",
+      "find": "(已还|已重挂|收尾)",
+      "replace": "(已还|已重挂)",
+      "by": "test",
+      "kills": [
+        "状态行的键：已还、已重挂、收尾三种都认"
+      ]
+    },
+    {
+      "id": "M-H196-j",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "点了名就列，不管这次改没改到那个文件 —— 每条改动都把全部点了文件的欠条列一遍，提醒成了噪声",
+      "find": "    const both = namedFiles(text, names).filter(f => touched.has(f))",
+      "replace": "    const both = namedFiles(text, names)",
+      "by": "test",
+      "kills": [
+        "改到没被点名的文件：一条不列",
+        "入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H196-k",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "汇总那句不再说「只提醒，不拦合入」和「响没响要逐条读条件判」 —— 列出来的条数读起来就像「这些都响了」",
+      "find": " —— 只提醒，不拦合入；响没响逐条读条件判`",
+      "replace": "`",
+      "by": "test",
+      "kills": [
+        "全文：条目一行、空一行、汇总、漏网情形"
+      ]
+    },
+    {
+      "id": "M-H196-l",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "报告不再说漏网情形 —— 没写文件路径的欠条提醒不到，读的人看到「没有被点名」就以为这次没碰到任何欠条",
+      "find": "    `  ${BLIND_SPOT}`,\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "全文：条目一行、空一行、汇总、漏网情形",
+        "没命中时只有汇总与漏网情形，已关的另报数"
+      ]
+    },
+    {
+      "id": "M-H196-m",
+      "req": "harness",
+      "file": "scripts/check/debt-touch.ts",
+      "why": "改到的文件只算已提交的，工作区里还没提交的改动不算 —— 本地提交前跑一次，正改着的那个被点名的文件不提醒",
+      "find": "git('diff', '--name-only', '--no-renames', '-z', baseline.base)",
+      "replace": "git('diff', '--name-only', '--no-renames', '-z', baseline.base, baseline.head)",
+      "by": "test",
+      "kills": [
+        "入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出"
+      ]
     }
   ],
   "exemptions": [

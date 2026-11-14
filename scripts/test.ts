@@ -40,6 +40,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, ledgerReport, ledgerSummary, orphanIous } from './check/debt-rule.js'
+import { closedKeys, entryKey, namedFiles, pathNames, touchLines, touchReport } from './check/debt-touch-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -314,6 +315,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-contexts', needs: [] },
   { id: 'h-observer-records', needs: [] },
   { id: 'h-blackbox-many-task-files', needs: [] },
+  { id: 'h-iou-file-reminder', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -20290,6 +20292,91 @@ await group('h-blackbox-many-task-files', async () => {
     eq('独立黑盒测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过',
       lc, [['新 task.json（若已建）LC：U = 0 [output/kept-1/task.json]', 'pass'], ['新 task.json（若已建）LC：U = 0 [output/left-2/task.json]', 'red']])
   } finally { scRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-iou-file-reminder', () => {
+  harness('欠条点名提醒：改到的文件被哪几条开着的欠条写进了正文（只提醒，不拦）')
+  const files = ['scripts/check/mutate.ts', 'scripts/a.ts', 'scripts/b.ts', 'README.md', 'docs/README.md', 'docs/x.md', 'skill/x.md',
+    'docs/adr/ADR-1-x.md', 'Makefile', 'tools/Dockerfile']
+  const names = pathNames(files)
+  // 认得的名字只有一种来源：受控文件的路径本身。尾段只在只属于一个文件、又带扩展名时才认
+  eq('认得完整路径与只属于它的带扩展名尾段', ['scripts/check/mutate.ts', 'check/mutate.ts', 'mutate.ts'].map(n => names.get(n)),
+    ['scripts/check/mutate.ts', 'scripts/check/mutate.ts', 'scripts/check/mutate.ts'])
+  eq('不止一份的文件名只认完整路径', [names.has('x.md'), names.get('docs/x.md'), names.get('README.md'), names.get('docs/README.md')],
+    [false, 'docs/x.md', 'README.md', 'docs/README.md'])
+  eq('不带扩展名的尾段不认，完整路径照认', [names.has('Dockerfile'), names.get('tools/Dockerfile'), names.get('Makefile')], [false, 'tools/Dockerfile', 'Makefile'])
+  // 两头不能还连着路径字符：同名前缀、多一个扩展名、前面还有一截别的目录，都不是这个文件
+  eq('名字两头连着路径字符的不算', ['改 xmutate.ts 时', '改 mutate.tsx 时', '改 other/mutate.ts 时', '改 mutate.ts.bak 时']
+    .map(t => namedFiles(t, names)), [[], [], [], []])
+  eq('后面接行号、标点、反引号、句号都算', ['`mutate.ts`', 'mutate.ts:12', '碰 mutate.ts。', '（check/mutate.ts）', 'mutate.ts.']
+    .map(t => namedFiles(t, names)), Array(5).fill(['scripts/check/mutate.ts']))
+
+  // 阳性对照与对照：一条开着的欠条点了 scripts/a.ts —— 改它就列出这一条（带文件与行号），改 b.ts 不列
+  const adr = (body: string) => new Map([['docs/adr/ADR-1-x.md', `# ADR-1 x\n\n${body}\n`]])
+  const open = adr('> ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR')
+  const hitA = touchReport(open, files, ['scripts/a.ts'])
+  eq('改到被点名的文件：列出那条欠条，写明所在文件与行号、点到的文件', hitA.hits.map(h => [h.entry.file, h.entry.line, h.files]),
+    [['docs/adr/ADR-1-x.md', 3, ['scripts/a.ts']]])
+  eq('改到没被点名的文件：一条不列', touchReport(open, files, ['scripts/b.ts']).hits, [])
+  // 块头写缺什么、条件那一行写什么时候回来 —— 文件只点在块头那一行时照样算
+  eq('文件点在块头、条件行没点：照样列出', touchReport(adr('> ⚠️ 欠条：`scripts/a.ts` 少一道核\n> 重启条件：下一条碰它的 PR'), files, ['scripts/a.ts'])
+    .hits.map(h => h.entry.line), [4])
+  eq('围栏示例里写的路径不算点名', touchReport(adr('> ⚠️ 欠条：少一道核\n> ```\n> scripts/a.ts\n> ```\n> 重启条件：下一条碰它的 PR'), files, ['scripts/a.ts']).hits, [])
+  // 这次删掉的文件不在受控文件里了，但它是改到的文件
+  eq('删掉的文件也认', touchReport(adr('> ⚠️ 欠条：`scripts/gone.ts` · 重启条件：x'), files, ['scripts/gone.ts']).hits.length, 1)
+
+  // 已关上的不列，只报数：状态行指到「记录 + 行号」
+  eq('状态行的键：已还、已重挂、收尾三种都认', [...closedKeys(new Map([['d.md',
+    '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n> ⚠️ 已重挂：ADR-2 第 4 行 · 现行的是 ADR-3 第 5 行\n> ⚠️ 收尾：ADR-6 第 7 行 · 需求所有者 不做']]))].sort(),
+    ['ADR-1:3', 'ADR-2:4', 'ADR-6:7'])
+  eq('围栏里演示的状态行不算', [...closedKeys(new Map([['d.md', '```\n⚠️ 已还：ADR-1 第 3 行\n```']]))], [])
+  eq('条目的键取记录编号与行号，不是编号记录的文件没有键',
+    [entryKey({ file: 'docs/adr/ADR-86-x.md', line: 118, notation: '重启条件', text: '' }), entryKey({ file: 'docs/adr/README.md', line: 2, notation: '重启条件', text: '' })],
+    ['ADR-86:118', null])
+  const shut = new Map([...open, ['docs/adr/ADR-2-y.md', '# ADR-2 y\n\n> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n']])
+  const closedR = touchReport(shut, files, ['scripts/a.ts'])
+  eq('已标已还的不列，只计数', [closedR.hits, closedR.closed], [[], 1])
+  eq('状态行指的是别的行：照旧算开着', touchReport(new Map([...open, ['docs/adr/ADR-2-y.md', '> ⚠️ 已还：ADR-1 第 9 行']]), files, ['scripts/a.ts']).hits.length, 1)
+
+  // 报告的样子：一条一行、空一行、汇总、漏网情形每次都说
+  eq('全文：条目一行、空一行、汇总、漏网情形', touchLines(hitA), [
+    'docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts  —— ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR',
+    '',
+    '  欠条点名提醒：改到的 1 个文件被 1 条开着的欠条点了名 —— 只提醒，不拦合入；响没响逐条读条件判',
+    '  只认欠条正文里逐字写着的文件路径；只写了模块名、代码标识符、需求编号或「某类改动」的欠条这里提醒不到，仍要读台账（npm run adr-ledger）判',
+  ])
+  eq('没命中时只有汇总与漏网情形，已关的另报数', touchLines(closedR), [
+    '  欠条点名提醒：改到的 1 个文件没有被开着的欠条点名（另有 1 条点到了、已标已还／已重挂／收尾，不列）',
+    '  只认欠条正文里逐字写着的文件路径；只写了模块名、代码标识符、需求编号或「某类改动」的欠条这里提醒不到，仍要读台账（npm run adr-ledger）判',
+  ])
+
+  // 真仓库：ADR-70 那张「下一条碰 `selfcheck.ts` 的 `run` / `runBoth` 的 PR」只写了文件名，改 selfcheck.ts 时要列出它
+  const realDocs = adrDocs()
+  const tracked = cxSpawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], { encoding: 'utf8' }).stdout.split('\0').filter(Boolean)
+  const real = touchReport(realDocs, tracked, ['scripts/check/selfcheck.ts'])
+  ok('真仓库：改 selfcheck.ts 时列出只写了 `selfcheck.ts` 的那张欠条',
+    real.hits.some(h => h.entry.file.startsWith('docs/adr/ADR-70-') && h.entry.text.includes('下一条碰 `selfcheck.ts` 的 `run`')))
+
+  // 入口：在玩具仓库里真起一次 —— 改被点名的文件列出那条、改别的不列，两次都以 0 退出；不是仓库时说无从比较，也以 0 退出
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-iou-reminder-'))
+  try {
+    const entry = cxJoin(process.cwd(), 'scripts/check/debt-touch.ts')
+    const run = (cwd: string) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...process.env, GITHUB_ACTIONS: '' } })
+    const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8' })
+    cxMkdirSync(cxJoin(root, 'docs/adr'), { recursive: true }); cxMkdirSync(cxJoin(root, 'scripts'))
+    cxWriteFileSync(cxJoin(root, 'docs/adr/ADR-1-x.md'), '# ADR-1 x\n\n> ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR\n')
+    cxWriteFileSync(cxJoin(root, 'scripts/a.ts'), 'a\n'); cxWriteFileSync(cxJoin(root, 'scripts/b.ts'), 'b\n')
+    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base'); g('checkout', '-q', '-b', 'work')
+    cxWriteFileSync(cxJoin(root, 'scripts/b.ts'), 'b2\n'); g('commit', '-qam', 'b')
+    const onB = run(root)
+    cxWriteFileSync(cxJoin(root, 'scripts/a.ts'), 'a2\n')
+    const onA = run(root)
+    eq('入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出', [onB.status, onB.stdout.includes('ADR-1-x.md:3'), onA.status, onA.stdout.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts')],
+      [0, false, 0, true])
+    cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
+    const bare = run(root)
+    eq('入口：不是 git 仓库时说无从比较，仍以 0 退出', [bare.status, bare.stdout.startsWith('欠条点名提醒：无从比较（')], [0, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 
 if (seenGroups.size !== GROUPS.length) {
