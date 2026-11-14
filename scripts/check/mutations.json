@@ -22758,13 +22758,14 @@
     {
       "id": "M-D6-bs",
       "req": "D6.ab",
-      "why": "KOL-108 第 1 条退回去：补 profile 的循环被 402 打断时不打「N 人补全失败」那一行，汇总的 profile_failed 有数、stderr 却一句不提",
+      "why": "KOL-108 第 1 条退回去：补 profile 的循环被 402 或费用错误打断时不打「N 人补全失败」那一行，汇总的 profile_failed 有数、stderr 却一句不提",
       "file": "scripts/collect.ts",
       "find": "  } finally {\n    if (profileFailed) console.error(",
       "replace": "  } finally {\n    if (profileFailed && false) console.error(",
       "by": "selfcheck",
       "kills": [
-        "collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上"
+        "collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上",
+        "collect 在 profile 补全先遇 404、再因费用错误（保存费用失败）中止：stderr 照打「1 人补全失败」那一行"
       ]
     },
     {
