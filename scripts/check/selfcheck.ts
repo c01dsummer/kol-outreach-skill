@@ -249,6 +249,9 @@ for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIR
   'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) GIT_ISOLATED[key] = undefined
 const mutationFixtureEnv = (tool: keyof typeof SELFCHECK_TOOLS, rest: readonly string[], cwd: string): NodeJS.ProcessEnv => {
   if (tool === 'anchors') return GIT_ISOLATED
+  // 准入读物包的入口也读 git（清单写出自哪个提交）：同样隔离；玩具树在 tmp 下、没有 .git，天花板设在它的父目录，
+  // 往上找不到仓库 —— 清单该写「无从确认」（ADR-202 第二节第 0 份）
+  if (tool === 'admission') return { ...GIT_ISOLATED, GIT_CEILING_DIRECTORIES: dirname(resolve(cwd)) }
   if (tool !== 'mutate' || rest.includes('--brief') || cwd === process.cwd()) return {}
   const fixtureGitEnv: NodeJS.ProcessEnv = { ...process.env,
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
@@ -7316,6 +7319,260 @@ group('anchor-residue-entry', [], () => {
   toy(dupTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine, fine] })
   const dup = runToolBoth('anchors 变异编号重复即以退出码 1 结束', 'anchors', [], dupTmp, { status: 1 })
   if (dup.ok) named('anchors 编号重复时点名那个编号', dup.stderr.includes('1 个编号重复') && dup.stderr.includes('M-X-e  出现不止一次'), dup.stderr)
+})
+
+// ---- 准入读物包：入口真的读了真树、出包或一个文件都不写（ADR-202 第六节「第二片：入口」，接线证明）----
+group('admission-entry', [], () => {
+  // 判定是四个纯函数 —— 需求单 requirementSheet、变异说明 briefSheet、声明扫描 declarationFindings、insideRoot ——
+  // 由需求测试 h-admission 断言、M-H202-* 守着；剩下的那一半是**接线**：入口真的读了 docs/requirements.json、
+  // scripts/check/mutations.json、scripts/lib/ 与 scripts/providers/ 下（含子目录）的 .ts、skill/ 下（含子目录）的 .md，
+  // 先取包目录的真实路径再问 insideRoot，先全部算完、扫完，有一处不出包就一个文件都不写；出了包逐个文件一行、末行汇总，
+  // 照判定退出。入口这一半不配负片，理由同 anchor-residue-entry：指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦，
+  // 但需求测试不起这个入口，要负片得另加一组起真 admission.ts 的需求测试。这里用自检组证接线。
+  // 期望一律从 ADR-202 第二到第六节的原文手推（需求单、变异说明逐字），不照入口的输出抄。
+  // 每棵树与每个包目录的路径写成字面量（组间共享的扫描只认字面量路径，ADR-134 第二节）。
+  // 玩具树在 tmp 下、没有 .git；入口经 runToolBoth 起，mutationFixtureEnv 给它 GIT_ISOLATED 并把 GIT_CEILING_DIRECTORIES
+  // 设成玩具树的父目录 —— 往上找不到仓库，清单要写「无从确认」。
+  //
+  // 玩具登记表：P1 两条判据、点到名 S2（原文）与 D3（判据），P9 不在登记表里、ADR-15 不认；交点 P1 × D3 声明在 P1、
+  // S2 × P1 声明在对面、U6 × S2 与 P1 无关；S2 点到 U6 —— 只走一跳，不收；D3 作废、没有判据。
+  // 编号用 P/S/D/U：点到名只认 [PSDFU] 打头（ADR-202 第二节第 1 份第 4 条），X 打头的认不出。
+  // 入口出包前先过 spec-sync 那一道登记表校验（ADR-202 第十四节第 9 条、第十六节），所以玩具登记表要是一份过得了校验的：
+  // 有分类表、cat 与编号前缀一致、点了的决策记录写进 adr 并在 docs/adr 下有那一份、作废的那条也有判据
+  const cats = { P: '红线', S: '规格', D: '数据', U: '体验' }
+  const reqs = [
+    { id: 'P1', cat: 'P', pri: 'P0', text: '用户看到的总数要对，口径与S2一致。', adr: ['ADR-15'],
+      accept: [{ id: 'P1.a', text: '总数等于名单行数（P9 不算，ADR-15 也不算）' }, { id: 'P1.b', text: '重复的账号只算一次，不用 D3 的办法' }],
+      tension: [{ with: 'D3', ruling: '作废的那条不再生效', adr: 'ADR-9' }] },
+    { id: 'S2', cat: 'S', pri: 'P1', text: '名单按分数排，见 U6。', accept: [{ id: 'S2.a', text: '分数高的在前' }],
+      tension: [{ with: 'P1', ruling: '排序不改总数' }] },
+    { id: 'D3', cat: 'D', pri: 'P1', text: '按昵称去重。', accept: [{ id: 'D3.a', text: '昵称相同的只留一个' }], deprecated: { since: '2026-01-01', why: '换了办法' } },
+    { id: 'U6', cat: 'U', pri: 'P2', text: '导出要带表头。', accept: [{ id: 'U6.a', text: '第一行是表头' }],
+      tension: [{ with: 'S2', ruling: '表头不参与排序' }] },
+  ]
+  const sheetWant = [
+    '# P1', '', '用户看到的总数要对，口径与S2一致。', '',
+    '## 验收标准', '', '- **P1.a** 总数等于名单行数（P9 不算，ADR-15 也不算）', '- **P1.b** 重复的账号只算一次，不用 D3 的办法', '',
+    '## 交点', '', '- **P1 × D3**：作废的那条不再生效', '- **S2 × P1**：排序不改总数', '',
+    '## 点到名的需求', '', '只走一跳：下面这些是上面的原文里点到名的，它们自己点到的不再往下收。', '',
+    '### S2', '', '名单按分数排，见 U6。', '', '- **S2.a** 分数高的在前', '',
+    '### D3（已作废）', '', '按昵称去重。', '', '- **D3.a** 昵称相同的只留一个',
+  ].join('\n') + '\n'
+  // 变异：P10 名下的不收（D1 的包不收 D10 名下的），S2 名下的不收；豁免同理。P1 那条豁免名下有 M-P1-b（req 一字不差），
+  // P1.c 那条没有、也没有 scope —— 没有括号那一段
+  const mutations = [
+    { id: 'M-P1-a', req: 'P1.a', why: '总数比名单行数多一', file: 'scripts/lib/calc.ts', find: 'a + 41', replace: 'a + 42' },
+    { id: 'M-P10-a', req: 'P10', why: '别的需求名下的一条', file: 'scripts/lib/calc.ts', find: 'a + 41', replace: 'a + 40' },
+    { id: 'M-S2-a', req: 'S2', why: '分数低的排到前面', file: 'scripts/providers/feed.ts', find: 's.trim()', replace: 's' },
+    { id: 'M-P1-b', req: 'P1', why: '重复的账号算了两次', file: 'scripts/lib/calc.ts', find: 'a + 41', replace: 'a + 82' },
+  ]
+  const exemptions = [
+    { req: 'P10', scope: '只在别处', why: '别的需求名下的豁免', mitigation: 'n/a' },
+    { req: 'P1', scope: '只在名单为空时', why: '空名单这一支没有可观察的产出', mitigation: 'n/a' },
+    { req: 'S2', why: '排序这一支没有可观察的产出', mitigation: 'n/a' },
+    { req: 'P1.c', why: '导出编码这一支没有可观察的产出', mitigation: 'n/a' },
+  ]
+  const briefWant = [
+    '# 变异集 · P1', '',
+    'P1 与 P1.x 名下的变异「违反了什么」，与 `npm run mutate -- --brief` 同一栏；变异改哪个文件、改成什么不在这里。', '',
+    '  M-P1-a  [P1.a]  总数比名单行数多一',
+    '  M-P1-b  [P1]  重复的账号算了两次',
+    '  ⊘     [P1]  名下有负片（只在名单为空时）：空名单这一支没有可观察的产出',
+    '  ⊘     [P1.c]  名下无变异：导出编码这一支没有可观察的产出', '',
+    '共 2 个变异、2 处显式豁免。',
+  ].join('\n') + '\n'
+  // 源：带函数体的函数与类方法、带文档注释；同目录一份 .d.ts 不收；scripts/ 顶层入口与 scripts/check/ 不收；skill/ 下的 .txt 不收
+  const sources: Record<string, string> = {
+    'scripts/lib/calc.ts': '/** 加四十一 */\nexport function f(a: number): number { return a + 41 }\n',
+    'scripts/lib/sub/box.ts': 'export class Box {\n  constructor(private n: number) {}\n  twice(): number { return this.n * 2 }\n}\n',
+    'scripts/lib/types.d.ts': 'export type T = number\n',
+    'scripts/lib/README.md': '不是源码\n',
+    'scripts/providers/feed.ts': 'export const LIMIT = 3\nexport function g(s: string): string { return s.trim() }\n',
+    'scripts/entry.ts': 'export const entry = () => 1\n',
+    'scripts/check/tool.ts': 'export const tool = () => 1\n',
+    // 两个名字按码元比与按区域习惯比先后一样（S < t），免得「字典序」两种读法分出两种期望
+    'skill/SKILL.md': '# 玩具技能\n\n照 P1 做。\r\n末行没有换行',
+    'skill/topics/deep/guide.md': '# 深一层\n\n子目录照搬。\n',
+    'skill/notes.txt': '不是 .md\n',
+  }
+  const toy = (dir: string, catalog: unknown, registry: unknown[] = reqs) => {
+    for (const [name, text] of Object.entries(sources)) {
+      mkdirSync(dirname(join(dir, name)), { recursive: true }); writeFileSync(join(dir, name), text, 'utf8')
+    }
+    mkdirSync(join(dir, 'docs', 'adr'), { recursive: true })
+    writeFileSync(join(dir, 'docs', 'adr', 'ADR-9-玩具交点.md'), '# ADR-9 玩具交点\n', 'utf8')
+    writeFileSync(join(dir, 'docs', 'adr', 'ADR-15-玩具总数.md'), '# ADR-15 玩具总数\n', 'utf8')
+    writeFileSync(join(dir, 'docs', 'requirements.json'), JSON.stringify({ categories: cats, requirements: registry }), 'utf8')
+    writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'), JSON.stringify(catalog), 'utf8')
+  }
+  // 一棵目录下的全部条目（目录带 / 结尾），用来核「一个文件都没写、一个字节都没动」
+  const listing = (dir: string): string[] => {
+    const out: string[] = []
+    const walk = (d: string, rel: string) => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const r = rel === '' ? e.name : `${rel}/${e.name}`
+        if (e.isDirectory()) { out.push(`${r}/`); walk(join(d, e.name), r) } else out.push(r)
+      }
+    }
+    if (existsSync(dir)) walk(dir, '')
+    return out.sort()
+  }
+  const refused = (stderr: string, phrase: string) =>
+    stderr.split('\n').some(l => l.startsWith('✗ 准入读物包：') && l.includes(phrase))
+  const usage = '用法：npm run admission -- <需求编号> <包目录>'
+
+  const tree = join(tmp, 'admission-tree')
+  toy(tree, { mutations, exemptions })
+  // 仓库里的一个空目录：仓库外的符号链接指着它（第四例）
+  mkdirSync(join(tree, 'empty-target'))
+  const treeBefore = listing(tree)
+  const treeSame = () => isDeepStrictEqual(listing(tree), treeBefore)
+
+  // 好树出包
+  const pkg = join(tmp, 'admission-pkg')
+  const want = [
+    '00-清单.md', '01-需求-P1.md',
+    '02-签名/scripts/lib/calc.d.ts', '02-签名/scripts/lib/sub/box.d.ts', '02-签名/scripts/providers/feed.d.ts',
+    '03-对外文档/skill/SKILL.md', '03-对外文档/skill/topics/deep/guide.md',
+    '04-变异集-违反了什么.md',
+  ]
+  const good = runToolBoth('admission 好树出包即以退出码 0 结束', 'admission', ['P1', pkg], tree)
+  if (good.ok) {
+    const files = listing(pkg).filter(p => !p.endsWith('/'))
+    named('admission 包里正好是清单、需求单、三份签名、两份对外文档、变异说明', isDeepStrictEqual(files, [...want].sort()), files.join('\n'))
+    named('admission 出包不往玩具树里写东西', treeSame(), listing(tree).join('\n'))
+    const out = good.stdout.split('\n').filter(l => l !== '')
+    named('admission 按写入顺序逐个文件打一行', isDeepStrictEqual(out.filter(l => l.startsWith('  ')), want.map(f => `  ${f}`)), good.stdout)
+    const tail = (abs: string) => `✓ 准入读物包 · P1 → ${abs}：共 8 个文件（清单 1 · 需求单 1 · 签名 3 · 对外文档 2 · 变异说明 1）`
+    named('admission 末行汇总说出包目录与各份的个数',
+      out.length > 0 && (out[out.length - 1] === tail(resolve(pkg)) || (existsSync(pkg) && out[out.length - 1] === tail(realpathSync(pkg)))),
+      good.stdout)
+    const text = (rel: string) => existsSync(join(pkg, rel)) ? readFileSync(join(pkg, rel), 'utf8') : ''
+    named('admission 需求单逐字对得上手推', text('01-需求-P1.md') === sheetWant, text('01-需求-P1.md'))
+    named('admission 变异说明逐字对得上手推', text('04-变异集-违反了什么.md') === briefWant, text('04-变异集-违反了什么.md'))
+    const sameBytes = (rel: string) => existsSync(join(pkg, '03-对外文档', rel))
+      && readFileSync(join(pkg, '03-对外文档', rel)).equals(readFileSync(join(tree, rel)))
+    named('admission 对外文档逐字节照搬、子目录照搬', sameBytes('skill/SKILL.md') && sameBytes('skill/topics/deep/guide.md'),
+      listing(join(pkg, '03-对外文档')).join('\n'))
+    const calc = text('02-签名/scripts/lib/calc.d.ts')
+    const box = text('02-签名/scripts/lib/sub/box.d.ts')
+    const feed = text('02-签名/scripts/providers/feed.d.ts')
+    named('admission 签名里有声明、没有函数体',
+      calc.includes('export declare function f(a: number): number;') && calc.includes('加四十一')
+        && box.includes('twice(): number;') && feed.includes('export declare function g(s: string): string;')
+        && ![calc, box, feed].some(s => s.includes('return') || s.includes('a + 41') || s.includes('this.n') || s.includes('s.trim()')),
+      `${calc}\n---\n${box}\n---\n${feed}`)
+    const manifest = text('00-清单.md')
+    const rows = want.slice(1).filter(rel => {
+      const sha = existsSync(join(pkg, rel)) ? sha256(readFileSync(join(pkg, rel), 'utf8')) : ''
+      return !manifest.includes(`| \`${rel}\` | \`${sha}\` |`)
+    })
+    named('admission 清单逐个文件列路径与 SHA256、不列自己', rows.length === 0 && !manifest.includes('| `00-清单.md` |'),
+      `对不上的：${rows.join('、')}\n${manifest}`)
+    const mlines = manifest.split('\n')
+    named('admission 读不到 git 时清单写无从确认、不写干净',
+      manifest.includes('出自提交：无从确认') && mlines.some(l => l.includes('工作区') && l.includes('无从确认'))
+        && !mlines.some(l => /工作区[：:]\s*干净/.test(l)), manifest)
+    named('admission 清单说机器只扫了三种、说只读这个目录',
+      manifest.includes('函数体') && manifest.includes('不是声明的语句') && manifest.includes('初始值不是字面量')
+        && manifest.includes('只读这个目录'), manifest)
+  }
+
+  // 参数多一个少一个：打用法，什么都不写
+  const none = runToolBoth('admission 不带参数即以退出码 2 结束', 'admission', [], tree, { status: 2 })
+  if (none.ok) named('admission 不带参数时打用法、不写东西', none.stderr.includes(usage) && treeSame(), none.stderr)
+  const argsPkg = join(tmp, 'admission-pkg-args')
+  const three = runToolBoth('admission 三个参数即以退出码 2 结束', 'admission', ['P1', argsPkg, '多一个'], tree, { status: 2 })
+  if (three.ok) named('admission 三个参数时打用法、不建包目录', three.stderr.includes(usage) && !existsSync(argsPkg) && treeSame(), three.stderr)
+
+  // 包目录在仓库里：相对路径按当前目录（玩具树根）解；等于根也算在里面（根不空，但「在仓库里」先判）
+  const inner = runToolBoth('admission 包目录在仓库里即以退出码 2 结束', 'admission', ['P1', 'admission-out'], tree, { status: 2 })
+  if (inner.ok) named('admission 包目录在仓库里时拒收、玩具树一个文件不多',
+    refused(inner.stderr, '在仓库里') && !existsSync(join(tree, 'admission-out')) && treeSame(), inner.stderr)
+  const root = runToolBoth('admission 包目录就是仓库根即以退出码 2 结束', 'admission', ['P1', '.'], tree, { status: 2 })
+  if (root.ok) named('admission 包目录等于仓库根时说在仓库里', refused(root.stderr, '在仓库里') && treeSame(), root.stderr)
+
+  // 仓库外的符号链接指着仓库里的空目录：只比字符串会当成「仓库外、已存在而且是空的」而往仓库里写 —— 要先取真实路径
+  const link = join(tmp, 'admission-link')
+  symlinkSync(join(tree, 'empty-target'), link)
+  const linked = runToolBoth('admission 包目录是指进仓库的符号链接即以退出码 2 结束', 'admission', ['P1', link], tree, { status: 2 })
+  if (linked.ok) named('admission 先解符号链接再判在不在仓库里',
+    refused(linked.stderr, '在仓库里') && readdirSync(join(tree, 'empty-target')).length === 0 && treeSame(), linked.stderr)
+  // 链接后面还有一段不存在的：存在的那一部分照样要解
+  const below = runToolBoth('admission 包目录在指进仓库的链接下面即以退出码 2 结束', 'admission',
+    ['P1', join(tmp, 'admission-link', '新包')], tree, { status: 2 })
+  if (below.ok) named('admission 存在的那一部分解了符号链接再判',
+    refused(below.stderr, '在仓库里') && readdirSync(join(tree, 'empty-target')).length === 0 && treeSame(), below.stderr)
+
+  // 已存在而且不空：原有内容一个字节不动、不多一个文件
+  const full = join(tmp, 'admission-full')
+  mkdirSync(full)
+  writeFileSync(join(full, 'old.txt'), 'old\n', 'utf8')
+  const occupied = runToolBoth('admission 包目录已存在而且不空即以退出码 2 结束', 'admission', ['P1', full], tree, { status: 2 })
+  if (occupied.ok) named('admission 包目录不空时拒收、原有内容不动',
+    refused(occupied.stderr, '已存在而且不空') && isDeepStrictEqual(listing(full), ['old.txt'])
+      && readFileSync(join(full, 'old.txt'), 'utf8') === 'old\n' && treeSame(), occupied.stderr)
+
+  // 编号：登记表里没有、判据编号（按没有处理）、作废
+  const missingPkg = join(tmp, 'admission-pkg-missing')
+  const missing = runToolBoth('admission 编号不在登记表里即以退出码 2 结束', 'admission', ['P7', missingPkg], tree, { status: 2 })
+  if (missing.ok) named('admission 编号不在登记表里时拒收、不建包目录',
+    refused(missing.stderr, '需求登记表里没有 P7') && !existsSync(missingPkg) && treeSame(), missing.stderr)
+  const criterionPkg = join(tmp, 'admission-pkg-criterion')
+  const criterion = runToolBoth('admission 给判据编号即以退出码 2 结束', 'admission', ['P1.a', criterionPkg], tree, { status: 2 })
+  if (criterion.ok) named('admission 判据编号按登记表里没有处理、不建包目录',
+    refused(criterion.stderr, '需求登记表里没有 P1.a') && !existsSync(criterionPkg) && treeSame(), criterion.stderr)
+  const deprecatedPkg = join(tmp, 'admission-pkg-deprecated')
+  const gone = runToolBoth('admission 编号已作废即以退出码 2 结束', 'admission', ['D3', deprecatedPkg], tree, { status: 2 })
+  if (gone.ok) named('admission 作废的编号拒收、不建包目录',
+    refused(gone.stderr, 'D3 已作废') && !existsSync(deprecatedPkg) && treeSame(), gone.stderr)
+
+  // 登记表没过校验（需求编号重复）：不出包、以 2 退出，点出是哪一处 —— 不然点到名的那条会出两块（第十四节第 9 条）
+  const dupReqTree = join(tmp, 'admission-dup-req')
+  toy(dupReqTree, { mutations, exemptions }, [...reqs, reqs[1]])
+  const dupReqPkg = join(tmp, 'admission-pkg-dup-req')
+  const dupReq = runToolBoth('admission 登记表没过校验即以退出码 2 结束', 'admission', ['P1', dupReqPkg], dupReqTree, { status: 2 })
+  if (dupReq.ok) named('admission 登记表没过校验时拒收、点出问题、不建包目录',
+    refused(dupReq.stderr, '登记表') && dupReq.stderr.includes('S2 编号重复') && !existsSync(dupReqPkg), dupReq.stderr)
+  // 变异目录里编号重复：不出包、以 2 退出，点出那个编号（ADR-34 第 90 行那一类：读变异编号的地方都先过 duplicateIds）
+  const dupMutTree = join(tmp, 'admission-dup-mut')
+  toy(dupMutTree, { mutations: [...mutations, mutations[0]], exemptions })
+  const dupMutPkg = join(tmp, 'admission-pkg-dup-mut')
+  const dupMut = runToolBoth('admission 变异编号重复即以退出码 2 结束', 'admission', ['P1', dupMutPkg], dupMutTree, { status: 2 })
+  if (dupMut.ok) named('admission 变异编号重复时拒收、点出那个编号、不建包目录',
+    refused(dupMut.stderr, '编号重复') && dupMut.stderr.includes('M-P1-a') && !existsSync(dupMutPkg), dupMut.stderr)
+
+  // 夹带：P1 名下 300 条变异的「违反了什么」都夹带运算符 —— 拒收后退出不能截断，最后一条那一行也得在；
+  // S2、P10 名下夹带的不算（不收进包的不扫）。签名是干净的，所以 n 就是 300
+  const leakTree = join(tmp, 'admission-leak')
+  const num = (i: number) => String(i).padStart(3, '0')
+  const leaky = Array.from({ length: 300 }, (_, k) =>
+    ({ id: `M-P1-${num(k + 1)}`, req: 'P1', why: `第 ${k + 1} 条：总数 ?? 零`, file: 'scripts/lib/calc.ts', find: 'a + 41', replace: 'a' }))
+  toy(leakTree, { mutations: [...leaky,
+    { id: 'M-S2-z', req: 'S2', why: '分数 ?? 零', file: 'scripts/providers/feed.ts', find: 's.trim()', replace: 's' },
+    { id: 'M-P10-z', req: 'P10', why: '别处 ?? 零', file: 'scripts/lib/calc.ts', find: 'a + 41', replace: 'a' }],
+  exemptions: [] })
+  const leakBefore = listing(leakTree)
+  const leakPkg = join(tmp, 'admission-pkg-leak')
+  const leak = runToolBoth('admission 变异说明夹带实现原文即以退出码 1 结束', 'admission', ['P1', leakPkg], leakTree, { status: 1 })
+  const lines = leak.ok ? leak.stderr.split('\n') : []
+  const head = lines.findIndex(l => l.startsWith('✗ 准入读物包：扫出 300 处实现，不出包'))
+  // 以 1 退出的不只是拒收：入口起不来、崩了也是 1。汇总那一行都没有就是没走到拒收 —— 照进程失败报（带记号），
+  // 下面几条不判：不然「不建包目录」「不算别处的」会对着一个没跑起来的入口空着绿
+  if (leak.ok && head < 0) {
+    failed++
+    console.error(`  ✗ admission 变异说明夹带实现原文即以退出码 1 结束${SELFCHECK_PROCESS_MARK}：以 1 退出，却没有「扫出 300 处实现」那一行 —— `
+      + `没走到拒收\n${leak.stderr.split('\n').slice(-12).join('\n')}`)
+  }
+  if (leak.ok && head >= 0) {
+    const items = lines.slice(head + 1).filter(l => l.includes('夹带实现原文'))
+    const wantItems = leaky.map(m => `  ${m.id} 的「违反了什么」夹带实现原文：??`)
+    named('admission 夹带时汇总说出处数、逐处一行、一行不少', isDeepStrictEqual(items, wantItems),
+      `认出 ${items.length} 行；末三行：\n${lines.slice(-3).join('\n')}`)
+    named('admission 不收进包的变异夹带不算', !leak.stderr.includes('M-S2-z') && !leak.stderr.includes('M-P10-z'), leak.stderr.slice(-400))
+    named('admission 夹带时不建包目录、玩具树不动', !existsSync(leakPkg) && isDeepStrictEqual(listing(leakTree), leakBefore),
+      listing(leakPkg).join('\n'))
+  }
 })
 
 // ---- 变异锚点读暂存区：入口真的读了 git 暂存区与 HEAD（ADR-70 末尾「变异残留：暂存区」第五片，接线证明）----
