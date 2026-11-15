@@ -155,7 +155,7 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - name: 变异以外各步与三份变异都绿了才往下
+      - name: 变异以外各步与各份变异都绿了才往下
         env:
           CHAIN: ${{ needs.chain.result }}
           MUTATE: ${{ needs.mutate.result }}

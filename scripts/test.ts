@@ -11793,6 +11793,18 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   ok('接线：行尾「\\」后面插一个空行，红', says(swap(`${cont}\n`, `${cont}\n\n`), '接在上一行行尾'))
   eq('接线：多加几行整行注释，不报', faults(swap('    needs: [chain, mutate]\n', '    # 等前两种\n    needs: [chain, mutate]\n      # 块里的 shell 注释\n')), [])
   eq('接线：读不到 check 那一串，说读不到', workflowWiringFaults(wf, undefined), ['读不到 package.json 的 check 那一串'])
+  // check 那一串原样填进 chain 那一行：带 `\ #` 时 YAML 把后半截当注释、CI 只跑前几步；带 `$$` 时替换会吃掉字符 —— 不是「npm run 某步 && …」就红
+  const shape = 'package.json 的 check 那一串不是「npm run 某步 && npm run 某步 …」的样子，不拿它填 chain 那一行'
+  eq('接线：check 那一串里夹「\\ #」，红', faults(pinnedWorkflow('npm run a && npm run shard-load && true \\ # && npm run b').join('\n'),
+    'npm run a && npm run shard-load && true \\ # && npm run b'), [shape])
+  eq('接线：check 那一串里夹「$$」，红', faults(pinnedWorkflow('npm run a && echo $$').join('\n'), 'npm run a && echo $$'), [shape])
+  eq('接线：钉死的样子照字面填 chain，「$&」不被当成替换记号', pinnedWorkflow('npm run a$&').filter(l => l.includes('npm run a')), ['      - run: npm run a$&'])
+  eq('接线：只去掉恰好是 mutate、launches 的那两步，放在开头也去', faults(wf, 'npm run launches && npm run a && npm run shard-load && npm run b && npm run mutate'), [])
+  ok('接线：名字只是以 mutate 起头的那一步不去', faults(wf, 'npm run a && npm run shard-load && npm run mutate-x && npm run b')
+    .some(f => f.includes('应为「- run: npm run a && npm run shard-load && npm run mutate-x && npm run b」')))
+  eq('接线：全是空格的行算空行，不报', faults(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n      \n')), [])
+  ok('接线：怪空白那一行报原文件的行号', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n    # x\u2028\n'), `第 ${wf.split('\n').indexOf('    needs: [chain, mutate]') + 2} 行`))
+  ok('接线：续行后的注释报它自己的行号', says(swap(`${cont}\n`, `${cont}\n          # x\n`), `第 ${wf.split('\n').indexOf(cont) + 2} 行`))
   ok('接线：check 那一串多了一步、chain 没跟上，红在 chain 那一行', faults(wf, 'npm run a && npm run shard-load && npm run c && npm run mutate && npm run b && npm run launches')
     .some(f => f.includes('应为「- run: npm run a && npm run shard-load && npm run c && npm run b」')))
   ok('接线：MUTATE_JOBS 改成 4，说是第几行、应为什么', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), "是「MUTATE_JOBS: '4'」", "应为「MUTATE_JOBS: '6'」"))

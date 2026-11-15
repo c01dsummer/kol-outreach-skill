@@ -288,7 +288,7 @@ const WORKFLOW_PIN: readonly string[] = [
   "    if: ${{ !cancelled() }}",
   "    runs-on: ubuntu-latest",
   "    steps:",
-  "      - name: 变异以外各步与三份变异都绿了才往下",
+  "      - name: 变异以外各步与各份变异都绿了才往下",
   "        env:",
   "          CHAIN: ${{ needs.chain.result }}",
   "          MUTATE: ${{ needs.mutate.result }}",
@@ -365,21 +365,27 @@ const WORKFLOW_PIN: readonly string[] = [
 export function pinnedWorkflow(chain: string): string[] {
   const list = Array.from({ length: SHARD_COUNT }, (_unused, i) => i + 1).join(', ')
   return WORKFLOW_PIN.map(l => l.replaceAll('«N»', String(SHARD_COUNT)).replaceAll('«LIST»', list)
-    .replaceAll('«JOBS»', String(CI_MUTATE_JOBS)).replaceAll('«CHAIN»', chain))
+    .replaceAll('«JOBS»', String(CI_MUTATE_JOBS)).replaceAll('«CHAIN»', () => chain))
 }
 
 /**
- * `check.yml` 的接线对不对得上（ADR-203 第四节；需求所有者选的「整份钉死」）：整份去掉整行注释与空行后，逐行与 `pinnedWorkflow` 相同。
+ * `check.yml` 的接线对不对得上（ADR-203 第四节；选择卡上推荐的「整份钉死」）：整份去掉整行注释与空行后，逐行与 `pinnedWorkflow` 相同。
  * **不从文字猜 YAML 的结构。** 先前两版都是找几行关键的字、再猜它们落在哪个 job、哪一步，评审一轮轮找到合法的 YAML 写法
  * （引号括起来的键、接到下一行的命令、块里的假记号、流式写法……）让它猜错、悄悄放行。逐字相同就没有可猜的：
  * 工作流里任何一处起作用的改动都红，改的人在同一条 PR 里改钉死的那份，评审看得见。最坏是误红。
- * 整行注释（空格缩进之后以 `#` 起头的行）与空行（空的或全是空格）不比：块里的这种行是 shell 注释，不起作用；行内注释、行尾空白照样比。
+ * 整行注释（空格缩进之后以 `#` 起头的行）与空行（空的或全是空格）不比：这种行不改变 YAML 解析出的结构（缩进不够时让整份解析失败，
+ * GitHub 上看得见），落在 `run:` 块里是 shell 注释；行内注释、行尾空白照样比。
  * 空格、tab 与换行以外的空白（单独的 `\r`、U+0085、U+2028、全角空格……）出现在哪里都红；注释或空行接在行尾 `\` 后面也红。
- * `checkScript` 是 `package.json` 的 `check` 那一串，读不到（undefined）也算对不上。对得上交回 []。
+ * `checkScript` 是 `package.json` 的 `check` 那一串，读不到（undefined）、或不是 `CHECK_SHAPE` 那种「npm run 某步 && …」也算对不上 ——
+ * 它原样填进 chain 那一行，里面要是有 `#`、`\`、`$` 之类，YAML 与 shell 读出来的就不是字面那一串。对得上交回 []。
  */
+/** `package.json` 的 `check` 那一串只许这个样子：几步 `npm test`／`npm run 某名字` 用 ` && ` 连起来 */
+const CHECK_SHAPE = /^npm (test|run [a-z][\w:-]*)( && npm (test|run [a-z][\w:-]*))*$/
+
 export function workflowWiringFaults(workflow: string, checkScript: string | undefined): string[] {
   if (checkScript === undefined) return ['读不到 package.json 的 check 那一串']
-  const want = pinnedWorkflow(checkScript.replace(' && npm run mutate', '').replace(' && npm run launches', ''))
+  if (!CHECK_SHAPE.test(checkScript)) return ['package.json 的 check 那一串不是「npm run 某步 && npm run 某步 …」的样子，不拿它填 chain 那一行']
+  const want = pinnedWorkflow(checkScript.split(' && ').filter(step => step !== 'npm run mutate' && step !== 'npm run launches').join(' && '))
   // 换行只认 \n 与 \r\n，空白只认空格与 tab：单独的 \r、U+0085、U+2028、全角空格、不换行空格……YAML 或 shell 会当真，
   // 去注释、去空行时却可能被当成空白或换行吃掉，一律红（最坏是误红）
   const text = workflow.replace(/\r\n/g, '\n'), odd = /[^\S \t\n]|\u0085/.exec(text)
