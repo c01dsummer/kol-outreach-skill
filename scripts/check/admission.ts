@@ -24,7 +24,7 @@ import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { briefSheet, declarationFindings, insideRoot, requirementSheet } from './admission-rule.js'
 import { duplicateIds } from './attribution-rule.js'
 import { GIT_CONFIG } from './size-rule.js'
@@ -127,8 +127,12 @@ function main(): number {
   if (dup.length > 0) return refuse(`变异目录里编号重复：${dup.join('、')}`)
   const brief = briefSheet(id, corpus.mutations, corpus.exemptions ?? [])
 
+  // 两个源目录与 skill/ 少一个就不出包：当成空集合出包的话，交出去的包缺一整份读物而照样以 0 退出（#484 上 CodeRabbit 第一轮）
+  const missingDirs = [...SOURCES, DOCS].filter(d => !existsSync(d) || !statSync(d).isDirectory())
+  if (missingDirs.length > 0) return refuse(`读不到 ${missingDirs.join('、')} —— 当前目录要是仓库根`)
+
   const ts = createRequire(import.meta.url)('typescript') as typeof Ts
-  const sources = SOURCES.flatMap(d => existsSync(d) ? walk(d) : []).filter(f => f.endsWith('.ts') && !f.endsWith('.d.ts')).sort()
+  const sources = SOURCES.flatMap(d => walk(d)).filter(f => f.endsWith('.ts') && !f.endsWith('.d.ts')).sort()
   const signatures = new Map<string, string>()
   let skipped = false
   if (sources.length > 0) {
@@ -140,6 +144,10 @@ function main(): number {
       signatures.set(relative(root, realish(name) ?? resolve(name)).split('\\').join('/'), text)
     }).emitSkipped
   }
+  // 源码 import 了仓库外的 .ts（或源目录里的符号链接指到仓库外），tsc 也给它出声明，路径以 .. 起头：
+  // 照搬进包会写到包目录外面去，而且那份不是这两个源目录的签名（#484 上 CodeRabbit 第一轮）
+  const outside = [...signatures.keys()].filter(f => f === '..' || f.startsWith('../') || isAbsolute(f))
+  if (outside.length > 0) return refuse(`声明产出落在仓库外：${outside.join('、')} —— 源目录里的代码引用了仓库外的文件`)
   const missing = sources.map(f => f.replace(/\.ts$/, '.d.ts')).filter(f => !signatures.has(f))
   if (skipped || missing.length > 0) {
     console.error(`✗ 准入读物包：声明没出全（${missing.join('、') || '产出被跳过'}），不出包`)
@@ -154,7 +162,7 @@ function main(): number {
     return 1
   }
 
-  const docs = existsSync(DOCS) ? walk(DOCS).filter(f => f.endsWith('.md')).sort() : []
+  const docs = walk(DOCS).filter(f => f.endsWith('.md')).sort()
   const sigs = [...signatures].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
   const files = new Map<string, Buffer>([
     [`01-需求-${id}.md`, Buffer.from(sheet.text)],
@@ -168,7 +176,10 @@ function main(): number {
     catch { return undefined }
   }
   const head = git('rev-parse', 'HEAD')
-  const status = head === undefined ? undefined : git('status', '--porcelain')
+  // 只问进包的那几样输入，未跟踪的逐个列、被忽略的也列：用户配置里 status.showUntrackedFiles=no、或输入被 .gitignore 挡着时，
+  // 光一句 git status 会说「干净」而包里装着没提交的东西（#484 上 CodeRabbit 第一轮）
+  const status = head === undefined ? undefined
+    : git('status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', REGISTRY, CATALOG, ADR_DIR, ...SOURCES, DOCS)
   const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex')
   const manifest = [
     `# 准入读物包 · ${id}`, '',

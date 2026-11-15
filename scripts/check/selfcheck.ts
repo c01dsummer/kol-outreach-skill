@@ -7417,6 +7417,10 @@ group('admission-entry', [], () => {
     if (existsSync(dir)) walk(dir, '')
     return out.sort()
   }
+  // 「一个字节都没动」要比字节：listing 只记路径，入口改写了一个已有文件而不增删时它看不出（#484 上 CodeRabbit 第一轮）。
+  // 目录条目照留，新冒出来的空目录照样看得见
+  const snapshot = (dir: string): string[] => listing(dir).map(p => p.endsWith('/') ? p
+    : `${p} ${readFileSync(join(dir, p)).toString('base64')}`)
   const refused = (stderr: string, phrase: string) =>
     stderr.split('\n').some(l => l.startsWith('✗ 准入读物包：') && l.includes(phrase))
   const usage = '用法：npm run admission -- <需求编号> <包目录>'
@@ -7425,8 +7429,8 @@ group('admission-entry', [], () => {
   toy(tree, { mutations, exemptions })
   // 仓库里的一个空目录：仓库外的符号链接指着它（第四例）
   mkdirSync(join(tree, 'empty-target'))
-  const treeBefore = listing(tree)
-  const treeSame = () => isDeepStrictEqual(listing(tree), treeBefore)
+  const treeBefore = snapshot(tree)
+  const treeSame = () => isDeepStrictEqual(snapshot(tree), treeBefore)
 
   // 好树出包
   const pkg = join(tmp, 'admission-pkg')
@@ -7560,6 +7564,26 @@ group('admission-entry', [], () => {
   if (nullItem.ok) named('admission 变异里有 null 时拒收、点出第几项、不建包目录',
     refused(nullItem.stderr, 'mutations 第 5 项') && !existsSync(nullItemPkg), nullItem.stderr)
 
+  // 少一个输入目录（skill/）：不当成空集合出包，以 2 拒收、不建包目录（#484 上 CodeRabbit 第一轮）
+  const noSkillTree = join(tmp, 'admission-no-skill')
+  toy(noSkillTree, { mutations, exemptions })
+  rmSync(join(noSkillTree, 'skill'), { recursive: true, force: true })
+  const noSkillPkg = join(tmp, 'admission-pkg-no-skill')
+  const noSkill = runToolBoth('admission 少了 skill 目录即以退出码 2 结束', 'admission', ['P1', noSkillPkg], noSkillTree, { status: 2 })
+  if (noSkill.ok) named('admission 少了 skill 目录时拒收、点出来、不建包目录',
+    refused(noSkill.stderr, '读不到 skill') && !existsSync(noSkillPkg), noSkill.stderr)
+  // 源码引用了仓库外的 .ts：tsc 给它出的声明路径以 .. 起头，照搬会写到包目录外面 —— 以 2 拒收，包目录内外都不写
+  const reachTree = join(tmp, 'admission-reach-out')
+  toy(reachTree, { mutations, exemptions })
+  mkdirSync(join(tmp, 'admission-outside-src'), { recursive: true })
+  writeFileSync(join(tmp, 'admission-outside-src', 'far.ts'), 'export const far = 1\n', 'utf8')
+  writeFileSync(join(reachTree, 'scripts', 'lib', 'near.ts'), "export { far } from '../../../admission-outside-src/far.js'\n", 'utf8')
+  const reachPkg = join(tmp, 'admission-pkg-reach-out')
+  const reach = runToolBoth('admission 源码引用了仓库外的文件即以退出码 2 结束', 'admission', ['P1', reachPkg], reachTree, { status: 2 })
+  if (reach.ok) named('admission 声明产出落在仓库外时拒收、包目录内外都不写',
+    refused(reach.stderr, '落在仓库外') && !existsSync(reachPkg)
+      && isDeepStrictEqual(listing(join(tmp, 'admission-outside-src')), ['far.ts']), reach.stderr)
+
   // 有 git 的树：清单写出 HEAD 的提交与工作区干不干净；包目录是已存在的空目录照常出包（契约是「不存在或是空的」）。
   // 复核手改把干净与不干净写反、把提交写成 HEAD~1 都存活过 —— 那时玩具树全没有 git
   const gitTree = join(tmp, 'admission-git')
@@ -7589,6 +7613,18 @@ group('admission-entry', [], () => {
     if (dirty.ok) named('admission 有没提交的改动时清单说对不上、不说干净',
       dirtyManifest.includes(`出自提交：${gitHead}`) && dirtyManifest.includes('有没提交的改动') && !/工作区[：:]\s*干净/.test(dirtyManifest),
       dirtyManifest.slice(0, 300))
+    // 没提交的那份进包的文档被 .gitignore 挡着、仓库又配了不列未跟踪的：照样说对不上（#484 上 CodeRabbit 第一轮）
+    rmSync(join(gitTree, 'skill', 'draft.txt'))
+    writeFileSync(join(gitTree, '.git', 'info', 'exclude'), 'skill/hidden.md\n', 'utf8')
+    writeFileSync(join(gitTree, 'skill', 'hidden.md'), '# 没提交、被忽略\n', 'utf8')
+    if (gitOk('config', 'status.showUntrackedFiles', 'no') !== undefined) {
+      const hiddenPkg = join(tmp, 'admission-pkg-hidden')
+      const hidden = runToolBoth('admission 进包的文件被忽略时照常出包', 'admission', ['P1', hiddenPkg], gitTree)
+      const hiddenManifest = existsSync(join(hiddenPkg, '00-清单.md')) ? readFileSync(join(hiddenPkg, '00-清单.md'), 'utf8') : ''
+      if (hidden.ok) named('admission 进包的文件被忽略、仓库不列未跟踪的时清单仍说对不上',
+        existsSync(join(hiddenPkg, '03-对外文档', 'skill', 'hidden.md')) && hiddenManifest.includes('有没提交的改动')
+          && !/工作区[：:]\s*干净/.test(hiddenManifest), hiddenManifest.slice(0, 300))
+    }
   }
 
   // 登记表没过校验（需求编号重复）：不出包、以 2 退出，点出是哪一处 —— 不然点到名的那条会出两块（第十四节第 9 条）
@@ -7616,7 +7652,7 @@ group('admission-entry', [], () => {
     { id: 'M-S2-z', req: 'S2', why: '分数 ?? 零', file: 'scripts/providers/feed.ts', find: 's.trim()', replace: 's' },
     { id: 'M-P10-z', req: 'P10', why: '别处 ?? 零', file: 'scripts/lib/calc.ts', find: 'a + 41', replace: 'a' }],
   exemptions: [] })
-  const leakBefore = listing(leakTree)
+  const leakBefore = snapshot(leakTree)
   const leakPkg = join(tmp, 'admission-pkg-leak')
   const leak = runToolBoth('admission 变异说明夹带实现原文即以退出码 1 结束', 'admission', ['P1', leakPkg], leakTree, { status: 1 })
   const lines = leak.ok ? leak.stderr.split('\n') : []
@@ -7634,7 +7670,7 @@ group('admission-entry', [], () => {
     named('admission 夹带时汇总说出处数、逐处一行、一行不少', isDeepStrictEqual(items, wantItems),
       `认出 ${items.length} 行；末三行：\n${lines.slice(-3).join('\n')}`)
     named('admission 不收进包的变异夹带不算', !leak.stderr.includes('M-S2-z') && !leak.stderr.includes('M-P10-z'), leak.stderr.slice(-400))
-    named('admission 夹带时不建包目录、玩具树不动', !existsSync(leakPkg) && isDeepStrictEqual(listing(leakTree), leakBefore),
+    named('admission 夹带时不建包目录、玩具树不动', !existsSync(leakPkg) && isDeepStrictEqual(snapshot(leakTree), leakBefore),
       listing(leakPkg).join('\n'))
   }
 })
