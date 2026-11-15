@@ -6459,8 +6459,8 @@
       "req": "harness",
       "why": "分份只认第 1 份 —— 每一份都跑第 1 份那几摞，几台 runner 合起来不是整份清单，有几条变异谁也没跑",
       "file": "scripts/check/jobs-rule.ts",
-      "find": "    if (to === index - 1) for (const i of pile) mine.add(i)",
-      "replace": "    if (to === 0) for (const i of pile) mine.add(i)",
+      "find": "  return items.filter((_unused, i) => shardAt[i] === index - 1)",
+      "replace": "  return items.filter((_unused, i) => shardAt[i] === 0)",
       "by": "test",
       "kills": [
         "分份：几份合起来恰好是整份"
@@ -6543,8 +6543,8 @@
       "req": "harness",
       "why": "小摞先发 —— 大摞最后落到哪一份由前面的小摞定，三份的条数可以差出一大截，最慢的那台拖住整跑",
       "file": "scripts/check/jobs-rule.ts",
-      "find": "  const order = piles.map((pile, at) => ({ pile, at })).sort((a, b) => b.pile.length - a.pile.length || a.at - b.at)",
-      "replace": "  const order = piles.map((pile, at) => ({ pile, at })).sort((a, b) => a.pile.length - b.pile.length || a.at - b.at)",
+      "find": "  const order = piles.map((pile, at) => ({ pile, at, weight: weigh(pile) })).sort((a, b) => b.weight - a.weight || a.at - b.at)",
+      "replace": "  const order = piles.map((pile, at) => ({ pile, at, weight: weigh(pile) })).sort((a, b) => a.weight - b.weight || a.at - b.at)",
       "by": "test",
       "kills": [
         "分份：同一种配置整摞落在同一份"
@@ -6579,7 +6579,7 @@
       "req": "harness",
       "why": "每发一摞只记一条 —— 一份领了一大摞也当只领了一条，接着还给它发，三份的条数差出一大截",
       "file": "scripts/check/jobs-rule.ts",
-      "find": "    loads[to] += pile.length",
+      "find": "    loads[to] += weight",
       "replace": "    loads[to] += 1",
       "by": "test",
       "kills": [
@@ -6591,8 +6591,8 @@
       "req": "harness",
       "why": "交回的不再照清单原顺序，而按摞的先后 —— 收尾报告与派工的先后跟清单对不上",
       "file": "scripts/check/jobs-rule.ts",
-      "find": "  return items.filter((_unused, i) => mine.has(i))",
-      "replace": "  return order.flatMap(o => o.pile.filter(i => mine.has(i))).map(i => items[i])",
+      "find": "  return items.filter((_unused, i) => shardAt[i] === index - 1)",
+      "replace": "  return items.map((_unused, i) => i).sort((a, b) => shardAt[a] - shardAt[b] || b - a).filter(i => shardAt[i] === index - 1).map(i => items[i])",
       "by": "test",
       "kills": [
         "分份：整份就是原清单"
