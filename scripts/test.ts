@@ -11748,7 +11748,8 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 按字符串排（adr < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
-    'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/observer-cert.ts', 'scripts/check/selfcheck.ts', 'scripts/check/skill.ts',
+    'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/observer-cert.ts', 'scripts/check/selfcheck.ts',
+    'scripts/check/shard-load.ts', 'scripts/check/shard-weights.ts', 'scripts/check/skill.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
