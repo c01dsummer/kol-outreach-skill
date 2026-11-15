@@ -25421,7 +25421,7 @@
       "req": "harness",
       "why": "JSON 那一路也进可调用的值：函数根本不写进 JSON，挂在上面的字段也算碰到",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (!entries && t.getCallSignatures().length > 0) return // JSON 不写可调用的值，挂在它上面的属性没被读\n",
+      "find": "      if (t.getCallSignatures().length > 0) return // 可调用的值：JSON 不写，深比较只认同一个函数，挂在上面的属性都没被读\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -25433,8 +25433,8 @@
       "req": "harness",
       "why": "JSON 那一路只在拆开之后看可调用：函数与对象交叉出来的值整体不写进 JSON，拆开后对象那一半的字段被算成碰到",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "if (!entries && t.getCallSignatures().length > 0) return",
-      "replace": "if (!entries && !t.isIntersection() && t.getCallSignatures().length > 0) return",
+      "find": "if (t.getCallSignatures().length > 0) return",
+      "replace": "if (!t.isIntersection() && t.getCallSignatures().length > 0) return",
       "by": "test",
       "kills": [
         "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
@@ -25459,6 +25459,54 @@
       "file": "scripts/check/field-use-rule.ts",
       "find": "const arr = entries ? [] : t.types.filter",
       "replace": "const arr = t.types.filter",
+      "by": "test",
+      "kills": [
+        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+      ]
+    },
+    {
+      "id": "M-H198-cm",
+      "req": "harness",
+      "why": "逐层深比较那一路照样进可调用的值：函数只按是不是同一个来比，挂在上面的字段算成碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (t.getCallSignatures().length > 0) return",
+      "replace": "if (!entries && t.getCallSignatures().length > 0) return",
+      "by": "test",
+      "kills": [
+        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+      ]
+    },
+    {
+      "id": "M-H198-cn",
+      "req": "harness",
+      "why": "整体比对把类原型上的方法与访问器也算进去：序列化与逐层深比较都只看自有属性，它们算成碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": ".filter(p => !p.declarations?.length || !p.declarations.every(d => ts.isClassLike(d.parent) && (ts.isMethodDeclaration(d) || ts.isAccessor(d))))",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+      ]
+    },
+    {
+      "id": "M-H198-co",
+      "req": "harness",
+      "why": "原型上的只认方法、不认访问器：get 出来的字段算成碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "(ts.isMethodDeclaration(d) || ts.isAccessor(d))",
+      "replace": "ts.isMethodDeclaration(d)",
+      "by": "test",
+      "kills": [
+        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+      ]
+    },
+    {
+      "id": "M-H198-cp",
+      "req": "harness",
+      "why": "原型上的只认访问器、不认方法：类方法算成碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "(ts.isMethodDeclaration(d) || ts.isAccessor(d))",
+      "replace": "ts.isAccessor(d)",
       "by": "test",
       "kills": [
         "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"

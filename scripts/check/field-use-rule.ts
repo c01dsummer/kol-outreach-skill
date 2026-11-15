@@ -252,13 +252,13 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       const toJSON = entries || !swap || !(t.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection)) ? undefined : t.getProperty('toJSON')
       const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures()
       if (replaced.length > 0) { mark(toJSON); for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries, false); return }
-      if (!entries && t.getCallSignatures().length > 0) return // JSON 不写可调用的值，挂在它上面的属性没被读
+      if (t.getCallSignatures().length > 0) return // 可调用的值：JSON 不写，深比较只认同一个函数，挂在上面的属性都没被读
       if (t.isIntersection()) { const arr = entries ? [] : t.types.filter(u => tc.isArrayType(u) || tc.isTupleType(u)); for (const u of arr.length > 0 ? arr : t.types) whole(u, seen, entries, swap); return } // JSON 只写数组元素
       if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
       if (!(t.flags & ts.TypeFlags.Object)) return
       if (fromLibrary(t) && entries && !/^(Weak|Promise$)/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)
       for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)
-      for (const p of t.getProperties()) {
+      for (const p of t.getProperties().filter(p => !p.declarations?.length || !p.declarations.every(d => ts.isClassLike(d.parent) && (ts.isMethodDeclaration(d) || ts.isAccessor(d))))) { // 类的方法与访问器在原型上，JSON 与深比较只看自有属性
         if (!entries && String(p.escapedName).startsWith('__@')) continue // 符号键的属性不进 JSON；deepStrictEqual 会比
         mark(p); whole(tc.getTypeOfSymbol(p), seen, entries)
       }
