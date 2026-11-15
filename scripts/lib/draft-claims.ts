@@ -177,7 +177,7 @@ const TIME_ZONES = 'pst|pdt|est|edt|cst|cdt|mst|mdt|cet|cest|gmt|utc|bst|ist|jst
  * 合并只会多标（出处里要有同一串才对上），不会漏标。都只在一行之内认，不跨行。
  */
 const LINKS: readonly RegExp[] = [
-  /\b[\w.+-]+@[\w-]+(?:\.[a-z][\w-]*)+/gi,                                        // 邮箱（4K@59.94fps 不是）
+  /\b[\w.+-]+@[\w-]+(?:\.[a-zA-Z][\w-]*)*\.[a-z][a-z0-9-]*\b/g,                    // 邮箱：后缀小写字母起头（4K@59.94fps、1080p@60fps.It 不是）
   /\bhttps?:\/\/\S+|\bwww\.\S+/gi,                                                  // 网址
   // 不带协议的网址：网址名里要有字母，后缀要小写（「$29.99.Shop now」「40 hours.Me and」是句号后漏了空格，不是网址）。
   /\b[\w-]*[a-zA-Z][\w-]*\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
@@ -188,10 +188,25 @@ const CLOCK = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\d{1,2}:\\d{2}(?:[ \\t]?(
 /** 一行里用空格、点、连字符、括号隔开的几组数字，合起来至少九位：多半是电话（415 555 0199、07700 900123、+44 (0)20 7946 0958），整串一条。 */
 const DIGIT_GROUPS = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\+?\\(?\\d{1,5}\\)?(?:(?:[ \\t]{1,2}|[.-]|(?<=\\)))\\(?\\d{1,6}\\)?){1,}(?![\\w%]|[.,]\\d)`, 'g')
 const groupKey = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ')
-/** 一串后面紧跟的单位词（贴写、空格或连字符隔开）；虚词不算，没有就是空。 */
-const unitAfter = (after: string): string => {
-  const w = /^[ \t-]?(%|[a-z]+)(?![\w'])/i.exec(after)?.[1]
-  return w === undefined || NOT_UNITS.has(w.toLowerCase()) ? '' : w === '%' ? '%' : foldUnit(w)
+/** 一个数后面的单位，按 NUMBER 的口径：%、度数、贴写、空格或连字符隔开（越过 +、plus、more 这几个词），虚词不算。 */
+function numberUnit(m: RegExpExecArray): string {
+  const [, , percent, degree, glued, spaced] = m
+  return percent !== undefined ? '%'
+    : degree !== undefined ? `°${degree.replace(/[°\s]/g, '').toLowerCase()}`
+      : glued !== undefined ? foldUnit(glued)
+        : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? foldUnit(spaced) : ''
+}
+/**
+ * 合成的一条（电话、钟点、斜杠日期）后面的单位：把最后一个数接上后面的文字，按普通数字的口径取，两套口径不分家。
+ * 币符写在后面的（1000$）算价钱。
+ */
+function unitAfter(group: string, after: string): string {
+  const last = /\d+(?:\.\d+)?$/.exec(group)?.[0]
+  if (last === undefined) return ''
+  const probe = last + after
+  if (new RegExp(`^(?:${PRICE_AFTER.source})`, 'i').test(probe)) return '$'
+  const m = new RegExp(`^(?:${NUMBER.source})`, 'i').exec(probe)
+  return m === null ? '' : numberUnit(m)
 }
 const isLong = (s: string) => (s.match(/\d/g) ?? []).length >= 9
 
@@ -259,10 +274,10 @@ export function claimsIn(text: string): Claim[] {
   }
   // 只藏网址、邮箱，最先认（链接里的日期不算）；日期、钟点、电话各合成一条，位数不够的一串数原样留下照常扫。
   for (const re of LINKS) mask(re, () => undefined)
-  mask(DATE, m => ({ text: m[0], key: `date:${m[0].toLowerCase().replace(/[\s,.]+/g, ' ')}` }))
+  mask(DATE, (m, after) => ({ text: m[0], key: `date:${m[0].toLowerCase().replace(/[\s,.]+/g, ' ')}:${unitAfter(m[0], after)}` }))
   // 合成的一条照原串比（分隔符、小数点都算），后面紧跟的单位也进比对：1:30 hours 对不上 1:30 minutes。
-  mask(CLOCK, (m, after) => ({ text: m[0], key: `time:${groupKey(m[0])}:${unitAfter(after)}` }))
-  mask(DIGIT_GROUPS, (m, after) => isLong(m[0]) ? { text: m[0], key: `digits:${groupKey(m[0])}:${unitAfter(after)}` } : 'keep')
+  mask(CLOCK, (m, after) => ({ text: m[0], key: `time:${groupKey(m[0])}:${unitAfter(m[0], after)}` }))
+  mask(DIGIT_GROUPS, (m, after) => isLong(m[0]) ? { text: m[0], key: `digits:${groupKey(m[0])}:${unitAfter(m[0], after)}` } : 'keep')
   // 承诺词先认走：「#1」里的 1、「5-star」里的 5 不另算一个数字。
   PROMISE_WORDS.forEach(([, stem], i) => {
     mask(PROMISE_RES[i], m => {
@@ -280,13 +295,9 @@ export function claimsIn(text: string): Claim[] {
   mask(PRICE_BEFORE, m => ({ text: m[0].trim(), key: `price:${scaled(m[1], m[2])}` }))
   mask(ALNUM, m => ({ text: m[0], key: `alnum:${m[0].toLowerCase().replace(/-/g, '')}` }))
   mask(NUMBER, m => {
-    const [, value, percent, degree, glued, spaced] = m
-    const unit = percent !== undefined ? '%'
-      : degree !== undefined ? `°${degree.replace(/[°\s]/g, '').toLowerCase()}`
-        : glued !== undefined ? foldUnit(glued)
-          : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? foldUnit(spaced) : ''
-    const text = unit === '' && spaced !== undefined ? value : m[0].trim()
-    return { text, key: `num:${numberValue(value)}:${unit}` }
+    const unit = numberUnit(m)
+    const text = unit === '' && m[5] !== undefined ? m[1] : m[0].trim()
+    return { text, key: `num:${numberValue(m[1])}:${unit}` }
   })
   // 兜底：上面哪条规则都没认走的数字（6.1x2.8、1.000.000、v1.2.3 里的 2.3）整串照列，不让它静默消失。
   // 比的是到最后一个数字为止的那一截：6.1x2.8-inch 与 6.1x2.8 inches、1920x1080px 与 1920x1080 算同一个（同型号串，不比单位）。
