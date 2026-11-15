@@ -835,6 +835,10 @@ suite('P2', '开发信占位符必须原样保留到产出物')
     eq('P2.b 真起 render：kol.xlsx 里每封草稿在自己那一行逐字相同（空占位符 {} 也在）', byHandle(sheetRows, xlsxHead), drafts)
     eq('P2.b 真起 render：report.html 里每张卡片自己的草稿块与草稿逐字相同（空占位符 {} 也在）',
       handles.map(h => preOf(read('report.html'), h)), drafts.map(htmlEsc))
+    // render 把名单写回任务目录的 creators.json（D30.e 点名的交付物，下一次 render 又从它读进来）
+    const saved = (() => { try { return JSON.parse(read('creators.json')) as { handle?: unknown; outreach_draft?: unknown }[] } catch { return [] } })()
+    eq('P2.b 真起 render：写回任务目录的 creators.json 里每封草稿逐字相同（空占位符 {} 也在）',
+      handles.map(h => (Array.isArray(saved) ? saved : []).find(c => c.handle === h)?.outreach_draft), drafts)
   } finally { rmSync(root, { recursive: true, force: true }) }
   criterion('P2.b')
 }
