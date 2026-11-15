@@ -5,7 +5,7 @@
  * 漏标的代价是一个编出来的数发出去；多标的代价是运营多看一眼，但噪音多了运营会整行跳过。所以：
  * - 只有产品资料（`kind=verified_product_fact` 的原文）能让一条说法过关；
  *   博主作品文字里找得到、产品资料里没有的，单独列成「只在博主作品里有」，不放过也不混进对不上的那一组。
- * - 机器能确定不是产品说法的形状（网址、邮箱、电话、序数词、钟点）不列；日期整串算一条。
+ * - 只藏网址和邮箱；电话、钟点、日期各整串算一条照列，不藏（藏错了就是漏标）。
  * - 对上的标准从严：写了单位就要同数同单位，价钱只认资料里标明是价钱的数，承诺词要整词对上、
  *   资料里那一句带否定（Not waterproof、Patent pending）不算出处。不做换算。
  *
@@ -171,42 +171,23 @@ const CURRENCY_SIGNS = '$€£¥₹'
 
 /** 机器能确定不是产品说法的形状：整段遮掉，不列也不当出处。 */
 const TIME_ZONES = 'pst|pdt|est|edt|cst|cdt|mst|mdt|cet|cest|gmt|utc|bst|ist|jst|aest|sgt|hkt'
-const WEEKDAYS = 'mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|today|tomorrow'
 /**
- * 噪音只排机器能确定的形状；拿不准的照列（带上下文让运营一眼看出是什么）。漏标比多标贵：
- * 猜得越宽，越容易把真的规格、比例、价钱当噪音藏掉。所有形状都只在一行之内认，不跨行。
- * 网址、邮箱最先遮（里面的日期、数字不算说法）。
+ * 只藏网址和邮箱（里面的日期、数字不算说法）；别的一概不藏。漏标比多标贵，而「猜哪些数字是噪音」每多猜一种写法，
+ * 就多一条把真的规格、比例、价钱藏掉的路。电话、钟点不藏，整串合成一条照列（带上下文，运营一眼看出是什么）：
+ * 合并只会多标（出处里要有同一串才对上），不会漏标。都只在一行之内认，不跨行。
  */
 const LINKS: readonly RegExp[] = [
-  /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+/gi,                                             // 邮箱
+  /\b[\w.+-]+@[\w-]+(?:\.[a-z][\w-]*)+/gi,                                        // 邮箱（4K@59.94fps 不是）
   /\bhttps?:\/\/\S+|\bwww\.\S+/gi,                                                  // 网址
   // 不带协议的网址：网址名里要有字母，后缀要小写（「$29.99.Shop now」「40 hours.Me and」是句号后漏了空格，不是网址）。
   /\b[\w-]*[a-zA-Z][\w-]*\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
 ]
-/** 钟点只认带确定标记的：后面跟 am、pm 或时区（3pm、10:30 PST、9:00-17:00 CET），或前面是星期几（Friday 9:30）。
- * 不带标记的「10:30」「9:00-17:00」「1:10」「1:10 to 1:20」分不清是钟点还是比例，照列。 */
-const CLOCK = `\\d{1,2}(?::\\d{2})?(?:[ \\t]?(?:-|to|until|till)[ \\t]?\\d{1,2}(?::\\d{2})?)?`
-const NOISE: readonly RegExp[] = [
-  new RegExp(`\\b${CLOCK}[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.|${TIME_ZONES})(?![a-z\\d])`, 'gi'),   // PM2.5 不是
-  new RegExp(`(?<=\\b(?:${WEEKDAYS})[ \\t])\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|until|till)[ \\t]?\\d{1,2}:\\d{2})?\\b`, 'gi'),
-  /\b\d+(?:st|nd|rd|th)\b/gi,                                                       // 序数词 2nd
-]
-/**
- * 电话只认确定的形状，合起来至少九位，都在一行之内，可带分机（x123、ext. 12）：
- * - 带「+」国际前缀的（+1 415 555 0199、+44 (0)20 7946 0958）；
- * - 区号带括号的（(415) 555-0199、1 (415) 555-0199）；
- * - 三三四位用同一个连字符或点隔开的（415-555-0199、1-800-555-0199），后面紧跟的不能是别的词（「250-500-1000 lumens」是规格）。
- * 空格隔开的（415 555 0199、020 7946 0958）分不清是电话还是一串规格（500 750 1000 ml），照列。
- */
-/** 三三四位那种电话后面可以接的词（分机、连词）；接别的词就当规格照列。 */
-const AFTER_PHONE = 'x\\d|ext\\b|or\\b|and\\b|to\\b|for\\b|anytime\\b|today\\b|now\\b'
-const PHONE_BODY = [
-  '\\+\\d{1,3}[ \\t.-]?(?:\\(0\\)[ \\t]?)?\\(?\\d{1,4}\\)?(?:[ \\t.-]\\d{2,5}){1,4}',
-  '(?:1[ \\t.-]?)?\\(\\d{3}\\)[ \\t]?\\d{3}[ \\t.-]\\d{4}',
-  `(?:1([.-]))?\\d{3}([.-])\\d{3}\\2\\d{4}(?![ \\t]?-?(?!${AFTER_PHONE})[a-z])`,
-].join('|')
-const PHONE = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(?:${PHONE_BODY})(?:[ \\t]?(?:x|ext\\.?)[ \\t]?\\d{1,5})?(?![\\w%]|[.,]\\d)`, 'gi')
-const isPhone = (s: string) => (s.match(/\d/g) ?? []).length >= 9
+/** 钟点整串一条：10:30、9:00-17:00、10:30 and 11:30、10:30 am PST、1:10 to 1:20（比例也是这个形状，照样列出）。 */
+const CLOCK = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|and|until|till)[ \\t]?\\d{1,2}:\\d{2})?` +
+  `(?:[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))?(?:[ \\t]?(?:${TIME_ZONES})\\b)?(?![\\w:])`, 'gi')
+/** 一行里用空格、点、连字符、括号隔开的几组数字，合起来至少九位：多半是电话（415 555 0199、07700 900123、+44 (0)20 7946 0958），整串一条。 */
+const DIGIT_GROUPS = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\+?\\(?\\d{1,5}\\)?(?:(?:[ \\t.-]{1,2}|(?<=\\)))\\(?\\d{1,6}\\)?){1,}(?![\\w%]|[.,]\\d)`, 'g')
+const isLong = (s: string) => (s.match(/\d/g) ?? []).length >= 9
 
 const MONTHS = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
 /** 日期整串算一条：11/20/2026、2026-11-20、March 15、March 15th、15 March 2026、15th March、the 20th of March。 */
@@ -215,7 +196,7 @@ const DATE = new RegExp(`\\b(?:\\d{1,2}/\\d{1,2}/\\d{2,4}|\\d{4}-\\d{1,2}-\\d{1,
 /** 价格：币符或币种在前（$29.99、$ 40、US$5、₹400、USD 40、CAD 40），或写在后面（40 dollars、50-dollar、40 USD、40$、40€）。 */
 const PRICE_BEFORE = new RegExp(`(?:US\\$|[${CURRENCY_SIGNS}][ \\t]?|\\b(?:usd|eur|gbp|cad|aud|inr)\\s?)(${DIGITS})(?:\\s?(k|m)\\b)?`, 'gi')
 // 币符写在后面只认贴着前一个数、又不贴着后一个数的（40$、129$ 40）；「2 $50」「59 $39」「129$40」里的 $ 归后面那个数。
-const PRICE_AFTER = new RegExp(`(?<![\\w.])(${DIGITS})(?:[ \\t-]?(?:${CURRENCY_WORDS})\\b|[${CURRENCY_SIGNS}](?!\\d))`, 'gi')
+const PRICE_AFTER = new RegExp(`(?<![\\w.])(${DIGITS})(?:[ \\t-]?(?:${CURRENCY_WORDS})\\b|[${CURRENCY_SIGNS}](?!\\d)|[ \\t][${CURRENCY_SIGNS}](?![ \\t]?\\d))`, 'gi')
 /** 拼写的数加钱或百分号：fifty dollars、a fifty-dollar card、thirty bucks、fifty per cent。 */
 const SPELLED_PRICE = new RegExp(`\\b(${SPELLED})[\\s-](?:${CURRENCY_WORDS})\\b`, 'gi')
 const SPELLED_PERCENT = new RegExp(`\\b(${SPELLED})[\\s-](?:percent|per cent)\\b`, 'gi')
@@ -246,7 +227,7 @@ const numberValue = (raw: string): string => {
 }
 
 /** 排版字符换成键盘上的写法（弯撇号换 '，各种连字符、短横换 -）；一个换一个，下标不变，前后文仍取草稿原文。 */
-const plain = (text: string): string => text.replace(/[’‘ʼ]/g, "'").replace(/[‐‑‒–—]/g, '-')
+const plain = (text: string): string => text.replace(/[’‘ʼ]/g, "'").replace(/[‐‑‒–]/g, '-').replace(/—/g, ' ')
 
 /** {…} 占位符：只认同一行、40 字以内的，套着写的（{{price}}）由里往外剥。剥掉的位置补空白，下标不变。 */
 function placeholders(text: string): { rest: string; unmatched: boolean } {
@@ -273,8 +254,8 @@ export function claimsIn(text: string): Claim[] {
   // 网址、邮箱最先（链接里的日期不算）；日期在序数词前（「March 15th」里的 15th 不能先被当序数词遮掉）。
   for (const re of LINKS) mask(re, () => undefined)
   mask(DATE, m => ({ text: m[0], key: `date:${m[0].toLowerCase().replace(/[\s,.]+/g, ' ')}` }))
-  for (const re of NOISE) mask(re, () => undefined)
-  mask(PHONE, m => isPhone(m[0]) ? undefined : 'keep')
+  mask(CLOCK, m => ({ text: m[0], key: `time:${m[0].toLowerCase().replace(/\s+/g, ' ')}` }))
+  mask(DIGIT_GROUPS, m => isLong(m[0]) ? { text: m[0], key: `digits:${m[0].replace(/\D/g, '')}` } : 'keep')
   // 承诺词先认走：「#1」里的 1、「5-star」里的 5 不另算一个数字。
   PROMISE_WORDS.forEach(([, stem], i) => {
     mask(PROMISE_RES[i], m => {
