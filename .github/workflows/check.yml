@@ -31,7 +31,7 @@ permissions:
 # 最后一步启动数闸门要变异一步与自检各写的那份计数，放在 check 那个 job 里，等前两种都绿了才跑。
 # 合起来跑的步骤、判红的条件与本地 `npm run check` 一样：哪一份红、哪一步红，这一跑就红。
 # 分份只在这里写：本地不写 MUTATE_SHARD，就是整份。
-# ⚠️ 这份文件钉死在 scripts/check/shard-load-rule.ts 的 WORKFLOW_PIN 里（ADR-203 第四节）：除了整行注释与空行，
+# ⚠️ 这份文件钉死在 scripts/check/shard-load-rule.ts 的 WORKFLOW_PIN 里（ADR-203 第八节）：除了整行注释与空行，
 # 改一个字都要在同一条 PR 里改那一份，否则检查链第三步的变异负载闸门红在第一处不一样的那一行。
 jobs:
   chain:

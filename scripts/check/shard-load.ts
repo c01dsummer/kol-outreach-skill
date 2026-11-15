@@ -4,7 +4,7 @@
  *
  * 读当前树的变异清单，照变异一步的分法（`jobs-rule.ts` 的 `shardPlan`，同一个键、同一份 `shard-weights.json`）算出每一份的验证者秒数；
  * 读 PR 基线（主干上是上一版）那份清单，按同一份秒数文件算出总秒数；从这条分支自己的提交信息末段读豁免；
- * 读 `.github/workflows/check.yml` 与 `package.json` 的 `check`，交 `workflowWiringFaults` 核接线（ADR-203 第四节）。
+ * 读 `.github/workflows/check.yml` 与 `package.json` 的 `check`，交 `workflowWiringFaults` 核接线（ADR-203 第八节）。
  * 交给 `shard-load-rule.ts` 的 `shardLoadGate`，照它交回的打、退出。判法全在那里，这里没有一条路把「读不到」变成「没超」。
  *
  * 「哪些提交算这条分支自己的、基线是哪一个」与体量闸门同一个判法（`size-rule.ts` 的 `resolveBaseline`，同样钉死 `GIT_CONFIG`）。

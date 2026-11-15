@@ -20,7 +20,7 @@
  * 读不到就红：主干上算不出、PR 基线的清单读不出来、秒数文件认不得，都不当成「没涨」。
  */
 
-/** CI 上变异一步分几份。`.github/workflows/check.yml` 里写死的几处与它对不对得上由 `workflowWiringFaults` 核（ADR-203 第四节） */
+/** CI 上变异一步分几份。`.github/workflows/check.yml` 里写死的几处与它对不对得上由 `workflowWiringFaults` 核（ADR-203 第八节） */
 export const SHARD_COUNT = 3
 /** CI 上每一份变异派几个 worker（ADR-200：4 核的 runner 上派 6 个）。与 `check.yml` 对得上由 `workflowWiringFaults` 核 */
 export const CI_MUTATE_JOBS = 6
@@ -187,7 +187,7 @@ export function growthWaivers(trailers: readonly string[]): string[] {
 }
 
 /**
- * `.github/workflows/check.yml` 钉死的样子（ADR-203 第四节）：整份去掉整行注释与空行之后，逐行就是这些。
+ * `.github/workflows/check.yml` 钉死的样子（ADR-203 第八节）：整份去掉整行注释与空行之后，逐行就是这些。
  * 份数、worker 数与 chain 那一串不写死，按 `SHARD_COUNT`、`CI_MUTATE_JOBS` 与 `package.json` 的 `check` 填（«N»、«LIST»、«JOBS»、«CHAIN»）。
  * **改工作流就在同一条 PR 里改这里** —— 闸门红在第一处不一样的那一行，评审看得见这里改了什么。
  */
@@ -369,7 +369,7 @@ export function pinnedWorkflow(chain: string): string[] {
 }
 
 /**
- * `check.yml` 的接线对不对得上（ADR-203 第四节；需求所有者在选择卡上选的「整份钉死」）：整份去掉整行注释与空行后，逐行与 `pinnedWorkflow` 相同。
+ * `check.yml` 的接线对不对得上（ADR-203 第八节；需求所有者在选择卡上选的「整份钉死」）：整份去掉整行注释与空行后，逐行与 `pinnedWorkflow` 相同。
  * **不从文字猜 YAML 的结构。** 先前两版都是找几行关键的字、再猜它们落在哪个 job、哪一步，评审一轮轮找到合法的 YAML 写法
  * （引号括起来的键、接到下一行的命令、块里的假记号、流式写法……）让它猜错、悄悄放行。逐字相同就没有可猜的：
  * 工作流里任何一处起作用的改动都红，改的人在同一条 PR 里改钉死的那份，评审看得见。最坏是误红。
