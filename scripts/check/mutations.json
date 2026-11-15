@@ -18795,6 +18795,234 @@
       ]
     },
     {
+      "id": "M-H203-bn",
+      "req": "harness",
+      "why": "顶层的 jobs: 有两个时不拦 —— 两份 jobs 里哪一份算数认不清，照第一份认就可能悄悄放行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (jobsAt.length !== 1) return",
+      "replace": "  if (jobsAt.length > 1) return",
+      "by": "test",
+      "kills": [
+        "接线：没有 jobs，说认不出"
+      ]
+    },
+    {
+      "id": "M-H203-bo",
+      "req": "harness",
+      "why": "一条记号出现几次都只要有就算 —— 变异那一步写两遍、其中一遍在别处被关掉也不报",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (hits.length !== 1) { faults.push",
+      "replace": "    if (hits.length === 0) { faults.push",
+      "by": "test",
+      "kills": [
+        "接线：变异那一步写了两遍，说出现了 2 次"
+      ]
+    },
+    {
+      "id": "M-H203-bp",
+      "req": "harness",
+      "why": "记号不问落在哪个 job —— 变异那一步挪进别的 job 也照样绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (jobOf[hits[0]] !== wanted) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": [
+        "接线：变异那个 job 改了名，说记号不在 mutate 那个 job 里"
+      ]
+    },
+    {
+      "id": "M-H203-bq",
+      "req": "harness",
+      "why": "不核 chain 那一行 —— 本地检查链加了一步、CI 上忘了加也绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (chain !== undefined) once(",
+      "replace": "  if (false) once(",
+      "by": "test",
+      "kills": [
+        "接线：check 那一串多了一步、chain 没跟上，说 chain 那一行出现 0 次"
+      ]
+    },
+    {
+      "id": "M-H203-br",
+      "req": "harness",
+      "why": "读不到 package.json 的 check 那一串时不说 —— chain 那一行就此不核还照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (checkScript === undefined) faults.push('读不到 package.json 的 check 那一串')",
+      "replace": "  if (checkScript === undefined) void 0",
+      "by": "test",
+      "kills": [
+        "接线：读不到 check 那一串，说读不到"
+      ]
+    },
+    {
+      "id": "M-H203-bs",
+      "req": "harness",
+      "why": "写到 MUTATE_JOBS 的行只在不止一行时没报少于一行 —— 反过来，多写的那一行不报",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (n !== 1) faults.push(`${what}行有",
+      "replace": "    if (n < 1) faults.push(`${what}行有",
+      "by": "test",
+      "kills": [
+        "接线：job 一级另写一行 MUTATE_JOBS，说写到它的有 2 行"
+      ]
+    },
+    {
+      "id": "M-H203-bt",
+      "req": "harness",
+      "why": "只数以 MUTATE_JOBS 开头且照原写法的行 —— job 一级另写一个值的那一行数不进去",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "['写到 MUTATE_JOBS 的', (t: string) => t.includes('MUTATE_JOBS')]",
+      "replace": "['写到 MUTATE_JOBS 的', (t: string) => t.startsWith(\"MUTATE_JOBS: '\")]",
+      "by": "test",
+      "kills": [
+        "接线：job 一级另写一行 MUTATE_JOBS，说写到它的有 2 行"
+      ]
+    },
+    {
+      "id": "M-H203-bu",
+      "req": "harness",
+      "why": "变异那一步只看 env 那两行，不管后面还挂了什么键 —— 挂一个 continue-on-error 照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "      && (after >= raw.length || indent(after) <= d))) faults.push",
+      "replace": "      )) faults.push",
+      "by": "test",
+      "kills": [
+        "接线：变异那一步的 env 后面再写 continue-on-error，说那一步不是恰好只带 env"
+      ]
+    },
+    {
+      "id": "M-H203-bv",
+      "req": "harness",
+      "why": "变异那一步的 env 里是哪两行不核 —— MUTATE_JOBS 挪到 job 一级、env 里换成别的变量也照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "env.join('\\n') === [shardLine, jobsLine].sort().join('\\n')",
+      "replace": "true",
+      "by": "test",
+      "kills": [
+        "接线：变异那一步的 env 只剩 MUTATE_SHARD 与别的、MUTATE_JOBS 挪到 job 一级，说那一步不是恰好只带 env"
+      ]
+    },
+    {
+      "id": "M-H203-bw",
+      "req": "harness",
+      "why": "chain 那一步后面挂的键不核 —— 挂一个 continue-on-error，检查链红了 CI 也照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "if (n < raw.length && indent(n) > indent(chainAt)) faults.push",
+      "replace": "if (false) faults.push",
+      "by": "test",
+      "kills": [
+        "接线：chain 那一步后面跟一个 continue-on-error，说 chain 那一步写了别的"
+      ]
+    },
+    {
+      "id": "M-H203-bx",
+      "req": "harness",
+      "why": "矩阵那一行不问是不是紧挨在 matrix: 底下",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (!(p >= 0 && text(p) === 'matrix:' && indent(p)",
+      "replace": "    if (!(p >= 0 && indent(p)",
+      "by": "test",
+      "kills": [
+        "接线：矩阵那一行不在 matrix 底下，说矩阵不是恰好一行"
+      ]
+    },
+    {
+      "id": "M-H203-by",
+      "req": "harness",
+      "why": "矩阵底下多写的键不核 —— 多一个维度、份数翻倍也照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "&& (n >= raw.length || indent(n) < indent(shardAt))))",
+      "replace": "))",
+      "by": "test",
+      "kills": [
+        "接线：矩阵下面再写一个键，说矩阵不是恰好一行"
+      ]
+    },
+    {
+      "id": "M-H203-bz",
+      "req": "harness",
+      "why": "只拦 exclude 不拦 include —— 别处 include 加进一份照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (/^(- )?(exclude|include)\\s*:/.test(t))",
+      "replace": "    if (/^(- )?(exclude)\\s*:/.test(t))",
+      "by": "test",
+      "kills": [
+        "接线：别的 job 写了 include，照样说写了 include"
+      ]
+    },
+    {
+      "id": "M-H203-ca",
+      "req": "harness",
+      "why": "别名只认锚点 & 不认 * —— 一个键的值写成别名、文字原地不动内容换掉也照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/:\\s+[&*][\\w-]+/.test(t)",
+      "replace": "/:\\s+&[\\w-]+/.test(t)",
+      "by": "test",
+      "kills": [
+        "接线：用了 YAML 别名，说用了别名"
+      ]
+    },
+    {
+      "id": "M-H203-cb",
+      "req": "harness",
+      "why": "一整步写成别名不拦",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "|| /^- [&*][\\w-]+/.test(t)) faults.push",
+      "replace": ") faults.push",
+      "by": "test",
+      "kills": [
+        "接线：一步写成别名，说用了别名"
+      ]
+    },
+    {
+      "id": "M-H203-cc",
+      "req": "harness",
+      "why": "合并键 <<: 不拦 —— 把一段并进来、文字原地不动",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (/^(- )?<<\\s*:/.test(t) || ",
+      "replace": "    if (",
+      "by": "test",
+      "kills": [
+        "接线：用了 YAML 合并，说用了合并"
+      ]
+    },
+    {
+      "id": "M-H203-cd",
+      "req": "harness",
+      "why": "只拦 if 不拦 continue-on-error —— 变异那个 job 红了也照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (/^(- )?(if|continue-on-error)\\s*:/.test(t)) {",
+      "replace": "    if (/^(- )?(if)\\s*:/.test(t)) {",
+      "by": "test",
+      "kills": [
+        "接线：变异那个 job 写 continue-on-error，说写在只报数的步骤以外"
+      ]
+    },
+    {
+      "id": "M-H203-ce",
+      "req": "harness",
+      "why": "哪一步都许写 if —— 编译那一步写 if: false 照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "      const quiet = s !== undefined && stepLines(s).some(",
+      "replace": "      const quiet = s !== undefined || stepLines(0).some(",
+      "by": "test",
+      "kills": [
+        "接线：编译那一步写 if: false，说写在只报数的步骤以外"
+      ]
+    },
+    {
+      "id": "M-H203-cf",
+      "req": "harness",
+      "why": "check 那个 job 的 if 写什么都放行 —— 写成 always() 时被取消的那一跑也起来",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "jobOf[i] === 'check' && t === 'if: ${{ !cancelled() }}' && indent(i) === 4",
+      "replace": "jobOf[i] === 'check' && indent(i) === 4",
+      "by": "test",
+      "kills": [
+        "接线：check 那个 job 的 if 改成 always，说写在只报数的步骤以外"
+      ]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",

@@ -1,9 +1,10 @@
 #!/usr/bin/env tsx
 /**
- * 变异负载闸门（ADR-203）—— 只看这次改了什么，不跑任何东西。还没接进检查链：入口与 `check.yml` 的接线核对另一条 PR 一起接（ADR-203 第四节）。
+ * 变异负载闸门（ADR-203）—— 检查链第三步，紧跟体量闸门：两道都只看这次改了什么，不跑任何东西。
  *
  * 读当前树的变异清单，照变异一步的分法（`jobs-rule.ts` 的 `shardPlan`，同一个键、同一份 `shard-weights.json`）算出每一份的验证者秒数；
- * 读 PR 基线（主干上是上一版）那份清单，按同一份秒数文件算出总秒数；从这条分支自己的提交信息末段读豁免。
+ * 读 PR 基线（主干上是上一版）那份清单，按同一份秒数文件算出总秒数；从这条分支自己的提交信息末段读豁免；
+ * 读 `.github/workflows/check.yml` 与 `package.json` 的 `check`，交 `workflowWiringFaults` 核接线（ADR-203 第四节）。
  * 交给 `shard-load-rule.ts` 的 `shardLoadGate`，照它交回的打、退出。判法全在那里，这里没有一条路把「读不到」变成「没超」。
  *
  * 「哪些提交算这条分支自己的、基线是哪一个」与体量闸门同一个判法（`size-rule.ts` 的 `resolveBaseline`，同样钉死 `GIT_CONFIG`）。
@@ -12,11 +13,12 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { shardKey, shardPlan } from './jobs-rule.js'
 import { executionRoutes } from './mutate-rule.js'
-import { SHARD_COUNT, SHARD_WEIGHTS_FILE, growthWaivers, pileWeigher, readWeights, shardLoadGate, type ShardLoadInput, type ShardWeights } from './shard-load-rule.js'
+import { SHARD_COUNT, SHARD_WEIGHTS_FILE, growthWaivers, pileWeigher, readWeights, shardLoadGate, workflowWiringFaults, type ShardLoadInput, type ShardWeights } from './shard-load-rule.js'
 import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
 import { trailerLines } from './trailer.js'
 
 const MUTATIONS = 'scripts/check/mutations.json'
+const WORKFLOW = '.github/workflows/check.yml'
 
 const tryGit = (...args: string[]): string | null => {
   try { return execFileSync('git', [...GIT_CONFIG, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).trim() } catch { return null }
@@ -71,7 +73,15 @@ const main = (): number => {
     if (!baseline.onTrunk) messages = baseline.commits.map(c => tryGit('log', '-1', '--format=%B', c) ?? '')
   }
 
-  const gate = shardLoadGate({ loads, base, trunk, waivers: growthWaivers(messages.flatMap(trailerLines)), wiring: [] })
+  // 接线：工作流或 package.json 读不到也算对不上，不当成没写错
+  let workflow: string | undefined
+  try { workflow = readFileSync(WORKFLOW, 'utf8') } catch { workflow = undefined }
+  const checkScript = ((): string | undefined => {
+    try { const s = (JSON.parse(readFileSync('package.json', 'utf8')) as { scripts?: Record<string, unknown> }).scripts?.check; return typeof s === 'string' ? s : undefined } catch { return undefined }
+  })()
+  const wiring = workflow === undefined ? [`读不到 ${WORKFLOW}`] : workflowWiringFaults(workflow, checkScript)
+
+  const gate = shardLoadGate({ loads, base, trunk, waivers: growthWaivers(messages.flatMap(trailerLines)), wiring })
   for (const line of gate.lines) console.log(line)
   if (defaulted > 0) console.log(`  其中 ${defaulted} 条变异的配置不在 ${SHARD_WEIGHTS_FILE} 里（新加或改了名的组、整跑的），按验证者的默认值估；多了就该重写秒数文件（ADR-203 第五节）`)
   return gate.red ? 1 : 0

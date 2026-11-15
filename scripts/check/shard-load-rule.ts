@@ -20,9 +20,9 @@
  * 读不到就红：主干上算不出、PR 基线的清单读不出来、秒数文件认不得，都不当成「没涨」。
  */
 
-/** CI 上变异一步分几份（`.github/workflows/check.yml` 里写死的几处与它对不对得上，另一条 PR 接；ADR-203 第四节） */
+/** CI 上变异一步分几份。`.github/workflows/check.yml` 里写死的几处与它对不对得上由 `workflowWiringFaults` 核（ADR-203 第四节） */
 export const SHARD_COUNT = 3
-/** CI 上每一份变异派几个 worker（ADR-200：4 核的 runner 上派 6 个）。闸门报接线对不上时说出它 */
+/** CI 上每一份变异派几个 worker（ADR-200：4 核的 runner 上派 6 个）。与 `check.yml` 对得上由 `workflowWiringFaults` 核 */
 export const CI_MUTATE_JOBS = 6
 
 /** 最重一份比平均值高多少就红 */
@@ -186,6 +186,104 @@ export function growthWaivers(trailers: readonly string[]): string[] {
   return reasons
 }
 
+/**
+ * `check.yml` 的接线对不对得上（ADR-203 第四节；需求所有者 2026-11-15 09:40Z 选的「新设计另开 PR」）。
+ *
+ * **不猜哪几行属于哪一步。** 先前逐行找文字、再猜它落在哪个 job，评审三轮各找到一种写法让它猜错、悄悄放行。这里改成：
+ * 1. 下面每一条「记号」在整份工作流里（去掉 `#` 起的注释）**恰好出现一次**，且落在指定的那个 job 里 ——
+ *    job 只认 `jobs:` 底下缩进两格的键（标准的块写法）；写法不标准、认不出是哪个 job 时算对不上；
+ * 2. 变异那一步、chain 那一步、分份矩阵各自**紧挨着**写，中间与后面不许夹别的键（变异那一步只许有 env 里那两行）；
+ * 3. 写到 `MUTATE_SHARD`、`MUTATE_JOBS` 的行、`matrix:` 与 `shard:` 的行，整份里各只许一行；
+ * 4. 任何地方出现 `exclude`／`include` 都红；YAML 的锚点、别名与 `<<:` 合并都红（它们能把一段搬到别处而文字不动）；
+ * 5. `if:` 与 `continue-on-error:` 只许出现在三种只报数的步骤里（`lscpu`、欠条点名提醒、墙钟对比）与 check 那个 job 的
+ *    `if: ${{ !cancelled() }}` —— 别处写一个，变异那几份或检查链就可能不跑、跑红了也不算红。
+ * 最坏是误红（以后真要多写一处这些写法时改这道核对），这几样对不上时不会悄悄放行。没核的照 ADR-203 第七节的欠条。
+ * `checkScript` 是 `package.json` 的 `check` 那一串，读不到（undefined）也算一处对不上。对得上交回 []。
+ */
+export function workflowWiringFaults(workflow: string, checkScript: string | undefined): string[] {
+  const raw = workflow.split('\n').map(l => l.replace(/\r$/, '').replace(/#.*$/, '').trimEnd())
+  const indent = (i: number): number => raw[i].length - raw[i].trimStart().length
+  const text = (i: number): string => raw[i].trim()
+  const faults: string[] = []
+  const jobsAt = raw.flatMap((l, i) => l === 'jobs:' ? [i] : [])
+  if (jobsAt.length !== 1) return [`顶层的「jobs:」有 ${jobsAt.length} 个（应恰好 1 个），认不出各步在哪个 job 里`]
+  // 每一行属于哪个 job：jobs: 之后、缩进两格的「名字:」开一个 job，回到顶层就出了 jobs
+  const jobOf: (string | undefined)[] = []
+  let job: string | undefined
+  raw.forEach((l, i) => {
+    if (i > jobsAt[0] && l !== '' && indent(i) === 0) job = undefined
+    else if (i > jobsAt[0] && /^ {2}[\w-]+:$/.test(l)) job = l.trim().slice(0, -1)
+    jobOf.push(i > jobsAt[0] ? job : undefined)
+  })
+  // 某一行所在的那一步：往上找同一个 job 里缩进比它浅、以「- 」开头的那一行；job 一级的键没有步骤
+  const stepOf = (i: number): number | undefined => {
+    for (let k = i; k > jobsAt[0] && jobOf[k] === jobOf[i]; k--) {
+      if (text(k).startsWith('- ') && (k === i || indent(k) < indent(i))) return indent(k) >= 6 ? k : undefined
+      if (raw[k] !== '' && indent(k) <= 4 && k !== i) return undefined
+    }
+    return undefined
+  }
+  const stepLines = (start: number): string[] => {
+    const out = [text(start)]
+    for (let k = start + 1; k < raw.length && (raw[k] === '' || indent(k) > indent(start)); k++) if (raw[k] !== '') out.push(text(k))
+    return out
+  }
+  const nextLive = (i: number): number => { let k = i + 1; while (k < raw.length && raw[k] === '') k++; return k }
+  const prevLive = (i: number): number => { let k = i - 1; while (k >= 0 && raw[k] === '') k--; return k }
+
+  const list = Array.from({ length: SHARD_COUNT }, (_unused, i) => i + 1).join(', ')
+  const shardLine = `MUTATE_SHARD: \${{ matrix.shard }}/${SHARD_COUNT}`, jobsLine = `MUTATE_JOBS: '${CI_MUTATE_JOBS}'`
+  const chain = checkScript?.replace(' && npm run mutate', '').replace(' && npm run launches', '')
+  if (checkScript === undefined) faults.push('读不到 package.json 的 check 那一串')
+  const at = new Map<string, number>()
+  const once = (marker: string, wanted: string): void => {
+    const hits = raw.flatMap((_l, i) => text(i) === marker ? [i] : [])
+    if (hits.length !== 1) { faults.push(`「${marker}」出现了 ${hits.length} 次（应恰好 1 次）`); return }
+    if (jobOf[hits[0]] !== wanted) { faults.push(`「${marker}」不在 ${wanted} 那个 job 里`); return }
+    at.set(marker, hits[0])
+  }
+  for (const m of ['- run: npm run mutate', `shard: [${list}]`, shardLine, jobsLine, 'name: mutation-launches-${{ matrix.shard }}',
+    `path: output/mutation-launches/launches-\${{ matrix.shard }}-of-${SHARD_COUNT}.json`]) once(m, 'mutate')
+  if (chain !== undefined) once(`- run: ${chain}`, 'chain')
+  for (const m of ['needs: [chain, mutate]', 'CHAIN: ${{ needs.chain.result }}', 'MUTATE: ${{ needs.mutate.result }}',
+    '[ "$CHAIN" = success ] && [ "$MUTATE" = success ]', 'pattern: mutation-launches-*', '- run: npm run launches']) once(m, 'check')
+
+  for (const [what, hit] of [['写到 MUTATE_SHARD 的', (t: string) => t.includes('MUTATE_SHARD')], ['写到 MUTATE_JOBS 的', (t: string) => t.includes('MUTATE_JOBS')],
+    ['「matrix:」', (t: string) => /^(- )?matrix\s*:/.test(t)], ['「shard:」', (t: string) => /^(- )?shard\s*:/.test(t)]] as const) {
+    const n = raw.filter((_l, i) => hit(text(i))).length
+    if (n !== 1) faults.push(`${what}行有 ${n} 行（应只有 1 行）`)
+  }
+  // 紧挨着：变异那一步下面恰是 env 与那两行，再往下就是下一步；chain 那一步与矩阵那一行后面不再有同一段的键
+  const mutate = at.get('- run: npm run mutate')
+  if (mutate !== undefined) {
+    const d = indent(mutate), e = nextLive(mutate), a = nextLive(e), b = nextLive(a), after = nextLive(b)
+    const env = [a, b].filter(k => k < raw.length && indent(k) === d + 4).map(text).sort()
+    if (!(e < raw.length && text(e) === 'env:' && indent(e) === d + 2 && env.join('\n') === [shardLine, jobsLine].sort().join('\n')
+      && (after >= raw.length || indent(after) <= d))) faults.push('「- run: npm run mutate」那一步不是恰好只带 env 里那两行')
+  }
+  const chainAt = chain === undefined ? undefined : at.get(`- run: ${chain}`)
+  if (chainAt !== undefined) { const n = nextLive(chainAt); if (n < raw.length && indent(n) > indent(chainAt)) faults.push('chain 那一步除了 run 还写了别的') }
+  const shardAt = at.get(`shard: [${list}]`)
+  if (shardAt !== undefined) {
+    const p = prevLive(shardAt), n = nextLive(shardAt)
+    if (!(p >= 0 && text(p) === 'matrix:' && indent(p) === indent(shardAt) - 2 && (n >= raw.length || indent(n) < indent(shardAt))))
+      faults.push(`矩阵不是恰好一行「shard: [${list}]」`)
+  }
+
+  raw.forEach((_l, i) => {
+    const t = text(i)
+    if (/^(- )?(exclude|include)\s*:/.test(t)) faults.push(`第 ${i + 1} 行写了 ${t.replace(/^- /, '').split(':')[0]}（矩阵剔掉或加进某一份）`)
+    if (/^(- )?<<\s*:/.test(t) || /:\s+[&*][\w-]+/.test(t) || /^- [&*][\w-]+/.test(t)) faults.push(`第 ${i + 1} 行用了 YAML 锚点、别名或合并`)
+    if (/^(- )?(if|continue-on-error)\s*:/.test(t)) {
+      const s = stepOf(i)
+      const quiet = s !== undefined && stepLines(s).some(l => ['- run: lscpu', 'run: lscpu', 'run: npm run -s debt-touch', '- name: 墙钟对比（只报数）'].includes(l))
+      const checkJob = s === undefined && jobOf[i] === 'check' && t === 'if: ${{ !cancelled() }}' && indent(i) === 4
+      if (!quiet && !checkJob) faults.push(`第 ${i + 1} 行「${t}」写在只报数的步骤以外（${jobOf[i] ?? '不在任何 job'} 那个 job 里）`)
+    }
+  })
+  return faults
+}
+
 /** 闸门要的量。`trunk` 同启动数闸门：在不在主干上，或者问不出来 */
 export interface ShardLoadInput {
   /** 每一份的验证者秒数（`shardPlan` 交回的 `loads`），按份的编号排 */
@@ -195,7 +293,7 @@ export interface ShardLoadInput {
   readonly trunk: { readonly onTrunk: boolean } | { readonly unknown: string }
   /** 这条分支自己的提交里 `growthWaivers` 读出来的理由 */
   readonly waivers: readonly string[]
-  /** `check.yml` 接线对不上的几处（核对接线的那一半另一条 PR 接；本条的入口交 []） */
+  /** `workflowWiringFaults` 交回的：`check.yml` 接线对不上的几处 */
   readonly wiring: readonly string[]
 }
 export interface ShardLoadGate { readonly red: boolean; readonly lines: readonly string[] }
