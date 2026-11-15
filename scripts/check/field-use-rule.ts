@@ -18,8 +18,8 @@
  *    加了字段、期望值没跟着改，整体比对自己就会失败。
  *    另有一条按名字的兜底：验证者自己重抄了一份类型（`await import(…) as unknown as { … }` 的黑盒写法），
  *    读到的声明落在那份重抄的类型里；这时只要这个验证者 import 了字段所在的那个文件、读的名字相同，也算。
- * 3. **哪些是「新增」、红不红**（`fieldVerdict`）：现在有、基线（`size-rule.ts` 的 `resolveBaseline` 定的起点）
- *    上没有这个名字的字段；没用到、又没有具名豁免的，红。豁免写在字段声明前面独占几行的注释里、或那一行行尾的注释里：
+ * 3. **哪些是「新增」、红不红**（`fieldVerdict`）：名字的处数比基线（`size-rule.ts` 的 `resolveBaseline` 定的起点）
+ *    上多的（撞名照样数得出来）；不是每处都用到、又没有具名豁免的，红。豁免写在字段声明前面独占几行的注释里、或那一行行尾的注释里：
  *    `字段不入断言：<理由>`，理由必填；写了标记没写理由的照样红。HEAD 在主干上只报数（入口管）。
  *
  * ⚠️ 证不了的（ADR-198 第三节）：「碰到」不等于「断言了」—— 只拿来搭场景的一次读取也算；
@@ -277,7 +277,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         const name = literalName(ts, n.propertyName ?? n.name)
         if (name !== undefined) mark(tc.getTypeAtLocation(n.parent).getProperty(name))
       } else if ((ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) && ts.isObjectLiteralExpression(n.parent)) {
-        const contextual = ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent ? tc.getTypeAtLocation(n.parent.parent.right) : tc.getContextualType(n.parent) // 解构赋值：键读的是右边
+        const contextual = ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent && n.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken ? tc.getTypeAtLocation(n.parent.parent.right) : tc.getContextualType(n.parent) // 解构赋值：键读的是右边
         const name = literalName(ts, n.name)
         if (contextual !== undefined && name !== undefined)
           for (const t of contextual.isUnion() ? contextual.types : [contextual]) mark(t.getProperty(name))
@@ -315,7 +315,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
 export const WHOLE_COMPARE: ReadonlySet<string> = new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])
 
 export interface FieldVerdict {
-  /** 现在有、基线上没有这个名字的，按 `key` 排 */
+  /** 这个名字的处数比基线多的（基线上没有就是 0 处），按 `key` 排 */
   readonly fresh: readonly Field[]
   /** 新增里没用到、没有豁免的 */
   readonly unused: readonly Field[]
@@ -327,21 +327,21 @@ export interface FieldVerdict {
 }
 
 /**
- * 新增 = `now` 里有、`base` 里没有这个 `key` 的字段。新增里没用到的：有成立的豁免进 `waived`，否则进 `unused`。
- * 不成立的豁免（标记后面空着）只看新增的 —— 旧字段上的不归这道闸门管。`unused` 或 `unjustified` 非空就红。
- * 同一个 `key` 出现多次（判别联合的不同成员里同名同判别值，少见）按一个算：任一处用到就算用到；任一处写了空理由的豁免就算不成立。
+ * 名字可能撞（重载、同判别值的联合成员……写法列不完），所以按处数比：`base` 每处一个名字，`now` 里这个名字的处数比它多就算新增，
+ * 而且要每一处都用到才算用到 —— 撞了名最坏是多报红，不会漏。新增里没用到的：有成立的豁免进 `waived`，否则进 `unused`。
+ * 不成立的豁免（标记后面空着）只看新增的；任一处写了空理由就算不成立。`unused` 或 `unjustified` 非空就红。
  */
 export function fieldVerdict(now: readonly Field[], base: readonly string[]): FieldVerdict {
-  const before = new Set(base)
+  const tally = (keys: readonly string[]) => keys.reduce((m, k) => m.set(k, (m.get(k) ?? 0) + 1), new Map<string, number>()), before = tally(base), after = tally(now.map(f => f.key))
   const merged = new Map<string, Field>()
   for (const f of now) {
     const had = merged.get(f.key)
     if (had === undefined) { merged.set(f.key, f); continue }
     // 两处里有一处写了空理由，合起来就是空理由（不成立的豁免不让另一处的理由盖掉，先后无关）
     const waiver = had.waiver === '' || f.waiver === '' ? '' : had.waiver ?? f.waiver
-    merged.set(f.key, { ...had, used: had.used || f.used, ...(waiver === undefined ? {} : { waiver }) })
+    merged.set(f.key, { ...had, used: had.used && f.used, ...(waiver === undefined ? {} : { waiver }) })
   }
-  const fresh = [...merged.values()].filter(f => !before.has(f.key)).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+  const fresh = [...merged.values()].filter(f => after.get(f.key)! > (before.get(f.key) ?? 0)).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
   const unjustified = fresh.filter(f => f.waiver !== undefined && f.waiver.length === 0)
   const idle = fresh.filter(f => !f.used)
   const waived = idle.filter(f => f.waiver !== undefined && f.waiver.length > 0)

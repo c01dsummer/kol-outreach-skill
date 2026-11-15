@@ -25051,8 +25051,8 @@
       "req": "harness",
       "why": "不问基线：主干上早就有、本来没人碰的字段全算新增，任何 PR 都红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "const fresh = [...merged.values()].filter(f => !before.has(f.key))",
-      "replace": "const fresh = [...merged.values()]",
+      "find": ".filter(f => after.get(f.key)! > (before.get(f.key) ?? 0))",
+      "replace": "",
       "by": "test",
       "kills": [
         "字段闸门：基线上已有的字段不归它管，没人碰也不红"
@@ -25073,13 +25073,14 @@
     {
       "id": "M-H198-m",
       "req": "harness",
-      "why": "同名的几处只看第一处：判别值所在的属性一个成员用到了，另一个成员上的那条照样报没人碰",
+      "why": "同名的几处一处用到就算全用到：重载里新加的那处没人碰，测试只读了旧的那处，闸门放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "used: had.used || f.used",
-      "replace": "used: had.used",
+      "find": "used: had.used && f.used",
+      "replace": "used: had.used || f.used",
       "by": "test",
       "kills": [
-        "字段闸门：同名的两处有一处用到就算用到"
+        "字段闸门：同名的几处要每一处都用到才算用到",
+        "字段闸门：重载里另一个签名也加上同名字段，名字撞上了，按处数多出来报新增；测试只读了旧的那处，照样红"
       ]
     },
     {
@@ -25795,7 +25796,7 @@
       "req": "harness",
       "why": "解构赋值的键也按左边的上下文类型找：右边那个值的字段被读了却算没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent ?",
+      "find": "ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent && n.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken ?",
       "replace": "false ?",
       "by": "test",
       "kills": [
@@ -25968,6 +25969,31 @@
       "by": "test",
       "kills": [
         "字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段"
+      ]
+    },
+    {
+      "id": "M-H198-de",
+      "req": "harness",
+      "why": "不看运算符：`{ added: 0 } instanceof ctor()` 也按右边的类型找键，把构造器上没人读的字段记成读到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " && n.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：instanceof 左边的对象字面量不算读到右边构造器上的字段"
+      ]
+    },
+    {
+      "id": "M-H198-df",
+      "req": "harness",
+      "why": "只看基线上有没有这个名字、不数处数：重载里第二个签名加了同名字段，名字撞上了，当成旧字段不报",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "after.get(f.key)! > (before.get(f.key) ?? 0)",
+      "replace": "!before.has(f.key)",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的处数比基线多就按新增报，处数没变不报",
+        "字段闸门：重载里另一个签名也加上同名字段，名字撞上了，按处数多出来报新增；测试只读了旧的那处，照样红"
       ]
     },
     {

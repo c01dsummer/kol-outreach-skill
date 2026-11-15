@@ -15024,7 +15024,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段闸门：只新增一个空理由的豁免也红', [onlyBare.unused.length, onlyBare.unjustified.map(f => f.key), onlyBare.red], [0, ['scripts/check/a.ts#Quiet.bare'], true])
   const dup = (used: boolean) => ({ key: 'k', file: 'f', line: 1, via: 'v', used })
   eq('字段闸门：按名字排，不按找到的先后', fieldVerdict([{ ...dup(false), key: 'b' }, { ...dup(false), key: 'a' }], []).unused.map(f => f.key), ['a', 'b'])
-  eq('字段闸门：同名的两处有一处用到就算用到', fieldVerdict([dup(false), dup(true)], []).unused.length, 0)
+  eq('字段闸门：同名的几处要每一处都用到才算用到', [fieldVerdict([dup(false), dup(true)], []).unused.length, fieldVerdict([dup(true), dup(true)], []).unused.length], [1, 0])
+  eq('字段闸门：同名的处数比基线多就按新增报，处数没变不报', [fieldVerdict([dup(false), dup(true)], ['k']).fresh.length, fieldVerdict([dup(false), dup(true)], ['k', 'k']).fresh.length], [1, 0])
   eq('字段闸门：同名的两处只一处写了豁免，照样算豁免', fieldVerdict([dup(false), { ...dup(false), waiver: '子进程' }], []).waived.length, 1)
   eq('字段闸门：用到了的新字段写了空理由的豁免，也算不成立', fieldVerdict([{ ...dup(true), waiver: '' }], []).unjustified.length, 1)
   eq('字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红',
@@ -15033,7 +15034,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：交回的每一项带着它所在的文件', toy.find(f => f.key === 'scripts/check/c.ts#lonely.bb')?.file, 'scripts/check/c.ts')
 
   // 第二个玩具：映射与索引签名、别的整体比对名字、只经动态或只经静态 import 的兜底、注释里的豁免
-  const more = fieldToy(files => Object.assign(files, {
+  const moreFiles = (files: Record<string, string>) => Object.assign(files, {
     'scripts/lib/d.ts': 'export interface LibShape { libOnly: number }',
     'scripts/check/f.ts': [
       "import type { LibShape } from '../lib/d.js'",
@@ -15119,6 +15120,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function assigned(): { srcA: number; srcB: number; srcC: number } { return { srcA: 1, srcB: 2, srcC: 3 } }',
       'export function maybe(): { viaOpt: number; viaOpt2: number } | undefined { return { viaOpt: 1, viaOpt2: 2 } }',
       'export function keyed(): { viaConst: number; viaU1: number; viaU2: number; [symKey]: number; 7: number; viaNot: number } { return { viaConst: 1, viaU1: 2, viaU2: 3, [symKey]: 4, 7: 5, viaNot: 6 } }',
+      'export function pick(n: 0): { value: number }', 'export function pick(n: 1): {}', 'export function pick(n: number): { value?: number } { return {} }',
+      'export function ctor(): { new(): object; added: number } { return Object.assign(class {}, { added: 1 }) }',
       "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
     ].join('\n'),
     'scripts/check/n.ts': 'export function nOnly(): { extless: number } { return { extless: 1 } }',
@@ -15144,6 +15147,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "const keyedV = [kd[kc], kd[ku], kd[mm.symKey], kd[kn], mm.maybe()?.['viaOpt'], mm.maybe()?.[kc.length > 0 ? 'viaOpt2' : 'viaOpt2']]",
       'const selfJs = JSON.stringify(mm.selfJson()) + JSON.stringify(mm.chained()) + JSON.stringify(mm.firstThen()) + JSON.stringify(mm.wrapFirst()) + JSON.stringify(mm.withFn()) + JSON.stringify(mm.selfChild()) + JSON.stringify(mm.withFn9()) + JSON.stringify(mm.arrPlus()); deepStrictEqual(mm.arrPlusDeep(), Object.assign([1], { added11: 2 })); JSON.stringify(mm.fnList()); JSON.stringify(mm.ctorList()); JSON.stringify(mm.iter()); const r12 = mm.withFn12(); deepStrictEqual(r12, { fn12: r12.fn12 }); const p13 = JSON.stringify(mm.protoed()); deepStrictEqual(mm.protoed(), new mm.Proto13()); deepStrictEqual(mm.weak(), new WeakMap()); deepStrictEqual(mm.promised(), Promise.resolve({}))',
       'let ga = 0; let srcB = 0; ({ srcA: ga, srcB } = mm.assigned())',
+      'const picked = mm.pick(0).value; const notInstance = { added: 0 } instanceof mm.ctor()',
       "const r16: import('./m.js').R16 = mm.constrained({ kept16: 1, added16: 2 }); const viaLiteral = mm.constrained({ kept16: 1, added16: 2 }).added16; r16.kept16",
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
@@ -15164,7 +15168,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "const m = await import('../check/n') as unknown as { nOnly: () => { extless: number } }",
       'export const v = m.nOnly().extless',
     ].join('\n'),
-  }))
+  })
+  const more = fieldToy(moreFiles)
   const moreOf = (k: string) => more.find(f => f.key === `scripts/check/${k}`)
   eq('字段：Readonly 这类映射、Record 与索引签名、交叉都展开；返回类型声明在 lib 下的不算',
     ['f.ts#Base.kept', 'f.ts#Base.hiddenR', 'f.ts#rec.inRec', 'f.ts#indexed.inIdx', 'f.ts#both.left', 'f.ts#both.right'].map(k => moreOf(k) !== undefined)
@@ -15224,6 +15229,11 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段闸门：无名元组的成员按位置各有名字，给另一个成员加同名字段，按新增报',
     fieldVerdict(moved.filter(f => f.file === 'scripts/check/t.ts'), more.filter(f => f.file === 'scripts/check/t.ts').map(f => f.key)).fresh.map(f => f.key),
     ['scripts/check/t.ts#pair.[1].value'])
+  const grown = fieldToy(files => { moreFiles(files); files['scripts/check/m.ts'] = files['scripts/check/m.ts'].replace('export function pick(n: 1): {}', 'export function pick(n: 1): { value: number }') })
+  const pickOf = (all: typeof more) => all.filter(f => f.key === 'scripts/check/m.ts#pick.value')
+  eq('字段闸门：重载里另一个签名也加上同名字段，名字撞上了，按处数多出来报新增；测试只读了旧的那处，照样红',
+    [pickOf(more).length, pickOf(grown).length, fieldVerdict(pickOf(grown), pickOf(more).map(f => f.key)).unused.map(f => f.key)], [1, 2, ['scripts/check/m.ts#pick.value']])
+  eq('字段：instanceof 左边的对象字面量不算读到右边构造器上的字段', moreOf('m.ts#ctor.added')?.used, false)
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
   eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),
