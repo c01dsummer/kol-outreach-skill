@@ -11778,7 +11778,19 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
     && pinned.includes("          MUTATE_JOBS: '6'") && pinned.includes('      - run: npm run a && npm run shard-load && npm run b')
     && pinned.includes('          path: output/mutation-launches/launches-${{ matrix.shard }}-of-3.json') && !pinned.some(l => l.includes('«')))
   eq('接线：与钉死的样子相同（夹着整行注释与空行），一处都不报', faults(wf), [])
-  eq('接线：行尾多了空白、换行写成 CRLF，不报', faults(wf.replace(/\n/g, '  \r\n')), [])
+  eq('接线：换行写成 CRLF，不报', faults(wf.replace(/\n/g, '\r\n')), [])
+  ok('接线：行尾多了空白，红', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]  \n'), 'needs: [chain, mutate]'))
+  // 空格、tab 与换行以外的空白：去注释时会被当成空白吃掉，YAML 与 shell 却当真 —— 全角空格起头的「注释」其实接在上一行命令后面
+  const oddAt = (ch: string, where: string) => says(swap('    needs: [chain, mutate]\n', `    needs: [chain, mutate]\n${where}`), '以外的空白', `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`)
+  ok('接线：全角空格起头的注释行，红', oddAt('　', '          　# || true\n'))
+  ok('接线：不换行空格起头的注释行，红', oddAt(' ', '           # || true\n'))
+  ok('接线：注释里夹一个单独的 CR（YAML 当换行），红', oddAt('\r', '    # x\r    continue-on-error: true\n'))
+  ok('接线：注释里夹一个 U+0085（YAML 1.1 当换行），红', oddAt('\u0085', '    # x\u0085    continue-on-error: true\n'))
+  ok('接线：注释里夹一个 U+2028，红', oddAt(' ', '    # x     continue-on-error: true\n'))
+  ok('接线：tab 缩进的注释行不算注释，红', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n\t# x\n')))
+  const cont = wf.split('\n').find(l => l.endsWith('\\'))!
+  ok('接线：行尾「\\」后面插一行注释，红', says(swap(`${cont}\n`, `${cont}\n          # x\n`), '接在上一行行尾'))
+  ok('接线：行尾「\\」后面插一个空行，红', says(swap(`${cont}\n`, `${cont}\n\n`), '接在上一行行尾'))
   eq('接线：多加几行整行注释，不报', faults(swap('    needs: [chain, mutate]\n', '    # 等前两种\n    needs: [chain, mutate]\n      # 块里的 shell 注释\n')), [])
   eq('接线：读不到 check 那一串，说读不到', workflowWiringFaults(wf, undefined), ['读不到 package.json 的 check 那一串'])
   ok('接线：check 那一串多了一步、chain 没跟上，红在 chain 那一行', faults(wf, 'npm run a && npm run shard-load && npm run c && npm run mutate && npm run b && npm run launches')

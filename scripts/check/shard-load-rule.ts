@@ -187,7 +187,7 @@ export function growthWaivers(trailers: readonly string[]): string[] {
 }
 
 /**
- * `.github/workflows/check.yml` 钉死的样子（ADR-203 第四节）：整份去掉整行注释与空行、每行去掉行尾空白之后，逐行就是这些。
+ * `.github/workflows/check.yml` 钉死的样子（ADR-203 第四节）：整份去掉整行注释与空行之后，逐行就是这些。
  * 份数、worker 数与 chain 那一串不写死，按 `SHARD_COUNT`、`CI_MUTATE_JOBS` 与 `package.json` 的 `check` 填（«N»、«LIST»、«JOBS»、«CHAIN»）。
  * **改工作流就在同一条 PR 里改这里** —— 闸门红在第一处不一样的那一行，评审看得见这里改了什么。
  */
@@ -373,14 +373,26 @@ export function pinnedWorkflow(chain: string): string[] {
  * **不从文字猜 YAML 的结构。** 先前两版都是找几行关键的字、再猜它们落在哪个 job、哪一步，评审一轮轮找到合法的 YAML 写法
  * （引号括起来的键、接到下一行的命令、块里的假记号、流式写法……）让它猜错、悄悄放行。逐字相同就没有可猜的：
  * 工作流里任何一处起作用的改动都红，改的人在同一条 PR 里改钉死的那份，评审看得见。最坏是误红。
- * 整行注释（去掉开头空白后以 `#` 起头的行）与空行不比：块里的这种行是 shell 注释，不起作用；行内注释照样比。
+ * 整行注释（空格缩进之后以 `#` 起头的行）与空行（空的或全是空格）不比：块里的这种行是 shell 注释，不起作用；行内注释、行尾空白照样比。
+ * 空格、tab 与换行以外的空白（单独的 `\r`、U+0085、U+2028、全角空格……）出现在哪里都红；注释或空行接在行尾 `\` 后面也红。
  * `checkScript` 是 `package.json` 的 `check` 那一串，读不到（undefined）也算对不上。对得上交回 []。
  */
 export function workflowWiringFaults(workflow: string, checkScript: string | undefined): string[] {
   if (checkScript === undefined) return ['读不到 package.json 的 check 那一串']
   const want = pinnedWorkflow(checkScript.replace(' && npm run mutate', '').replace(' && npm run launches', ''))
-  const got = workflow.split('\n').map((line, i) => ({ n: i + 1, text: line.trimEnd() }))
-    .filter(l => l.text !== '' && !l.text.trimStart().startsWith('#'))
+  // 换行只认 \n 与 \r\n，空白只认空格与 tab：单独的 \r、U+0085、U+2028、全角空格、不换行空格……YAML 或 shell 会当真，
+  // 去注释、去空行时却可能被当成空白或换行吃掉，一律红（最坏是误红）
+  const text = workflow.replace(/\r\n/g, '\n'), odd = /[^\S \t\n]|\u0085/.exec(text)
+  if (odd !== null) {
+    const n = text.slice(0, odd.index).split('\n').length, code = odd[0].codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')
+    return [`第 ${n} 行有空格、tab 与换行以外的空白（U+${code}），去掉它再比`]
+  }
+  // 只有以空格缩进、# 起头的行算整行注释，只有空的或全是空格的行算空行；接在行尾「\」后面的不算 —— 那里一行注释或空行会改掉 shell 命令
+  const raw = text.split('\n'), got: { n: number; text: string }[] = []
+  for (let i = 0; i < raw.length; i++) {
+    if (!/^ *(#|$)/.test(raw[i])) { got.push({ n: i + 1, text: raw[i] }); continue }
+    if (i > 0 && got.at(-1)?.n === i && raw[i - 1].endsWith('\\')) return [`第 ${i + 1} 行是注释或空行，却接在上一行行尾的「\\」后面（shell 会把它连进命令）`]
+  }
   for (let i = 0; i < Math.max(want.length, got.length); i++) {
     if (got[i]?.text === want[i]) continue
     const at = got[i] === undefined ? '文件已经到头' : `第 ${got[i].n} 行是「${got[i].text.trim()}」`
