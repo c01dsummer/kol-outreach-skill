@@ -171,13 +171,17 @@ const ENDORSED = 'endorsed:'
  */
 const NOT_ABBREV = String.raw`(?<!\p{L}\.\p{L}|(?:^|[^\p{L}])(?:Dr|Mr|Mrs|Ms|Jr|Sr|St|vs|etc|Inc|Ltd|Co|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec))`
 const CLAUSE_END = new RegExp(`${NOT_ABBREV}[.;!?\\n]+(?:\\s|$)|[;!?\\n]`, 'u')
-const SENTENCE_END = new RegExp(`${NOT_ABBREV}[.;!?](?=\\s|$)|\\n`, 'gu')
-/** 认证类那一句在资料里要原样出现（空格、连字符、单复数、大小写不计）。 */
-const verbatim = (text: string): RegExp => new RegExp(`(?<![\\p{L}\\d_-])${literalStem(text)}(?![\\p{L}\\d_])`, 'giu')
+const SENTENCE_END = new RegExp(`${NOT_ABBREV}[.;!?]+(?=\\s|$)|\\n`, 'gu')
+/**
+ * 认证类那一句比对用的写法：只留字母和数字组成的词，小写，每个词去掉词尾的 s（不去 ss），词之间一个空格，首尾各补一个空格。
+ * 这样空格、连字符、标点、列表符号、表情、大小写、单复数都不计；比的时候看资料那一句折好的写法里有没有整段，不拼正则（长句也不会让正则溢出）。
+ */
+const fold = (text: string): string =>
+  ` ${(text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).map(w => w.length > 3 ? w.replace(/(?<!s)s$/, '') : w).join(' ')} `
 /** 认证词左边紧挨着、但不说明是谁认可的词：We tested it、Once approved、Highly recommended 不算认证说法。 */
 const NOT_WHO = /^(?:our|your|their|its|it|it's|this|that|these|those|we|we're|you|you're|they|they're|i|i'm|is|are|was|were|be|been|being|has|have|had|and|or|but|with|for|of|to|in|on|at|as|the|a|an|by|so|also|both|all|every|each|fully|totally|highly|now|just|still|once|my|hi|hey|plus|not|if|when|get|gets|got|i've|we've|you've|they've|i'd|we'd|you'd|would|could|should|can|can't|cannot|will|really|definitely|strongly|personally|she|he|who|which)$/i
-/** by 后面、认证词后面紧跟的这些词说的是收信人或我们自己，不是认证方（approved by you、Sarah recommended you）。 */
-const PRONOUN = /^(?:you|your|yours|me|my|us|our|ours|it|its|this|that|them|their|him|her|everyone|anyone)$/i
+/** 认证词后面、by 后面紧跟的这些词说的是收信人（approved by you、Sarah recommended you）；Vets recommend it 照核。 */
+const PRONOUN = /^(?:you|your|yours|me|my)$/i
 /** 主语是这些时说的是自己做的事（I tested Whirl Go、we cleared Friday），不是认证。 */
 const SUBJECT = /^(?:i|we|you|they|he|she|i've|we've|you've|they've|i'd|we'd|you'd|i'll|we'll|you'll)$/i
 const WORD = String.raw`[\p{L}\d](?:[\p{L}\d'®™-]|\.(?=[\p{L}\d]))*`
@@ -289,7 +293,7 @@ const LEFTOVER = /[\w.,/+-]*\d([a-z]*(?:[-/][a-z]+)*)/gi
 const ALNUM = /(?<![\w-])[a-z]+-?\d[a-z0-9]*\b/gi
 
 /** `key` 是归一后用来比的样子；承诺词另带去出处里找的写法。 */
-export interface Claim { text: string; key: string; at: number; stem?: RegExp }
+export interface Claim { text: string; key: string; at: number; stem?: RegExp; folded?: string }
 
 const numberValue = (raw: string): string => {
   const n = Number(raw.replace(/,/g, ''))
@@ -336,7 +340,7 @@ export function claimsIn(text: string): Claim[] {
   // 整句从没遮过的原文里取（前面的规则已经遮掉的字照样算在句子里）。
   const endorsed = (m: RegExpExecArray, after: string, before: string) => {
     const { at, text } = sentenceAt(unmasked, spans, before.length)
-    return { at, text, key: ENDORSED + text.toLowerCase(), stem: verbatim(text) }
+    return { at, text, key: ENDORSED + text.toLowerCase(), folded: fold(text) }
   }
   mask(ENDORSE, (m, after, before) => endorsing(before, after) ? endorsed(m, after, before) : 'keep')
   // 承诺词先认走：「#1」里的 1、「5-star」里的 5 不另算一个数字。
@@ -379,7 +383,11 @@ const scaled = (raw: string, suffix: string | undefined): string => {
 }
 
 /** 出处那一边：比对用的键、每个数在出处里出现过的单位，和拆成句子的原文（承诺词按句查否定）。 */
-interface Source { keys: ReadonlySet<string>; values: ReadonlyMap<string, ReadonlySet<string>>; clauses: readonly string[] }
+interface Source {
+  keys: ReadonlySet<string>; values: ReadonlyMap<string, ReadonlySet<string>>; clauses: readonly string[]
+  /** 与 clauses 一一对应：认证类比对用的折法，和这一句是否不能给认证类作保（否定、还没拿到、说别家）。 */
+  folded: readonly string[]; notForEndorsed: readonly boolean[]
+}
 
 function sourceOf(texts: readonly string[]): Source {
   const keys = new Set<string>()
@@ -398,7 +406,9 @@ function sourceOf(texts: readonly string[]): Source {
   const noQuestions = (t: string) => (t.match(/[^.;!?\n]+[.;!?\n]*|[.;!?\n]+/g) ?? []).map(p => p.includes('?') ? ' ' : p).join('')
   const clauses = texts.flatMap(t => noQuestions(placeholders(plain(t)).rest).split(CLAUSE_END))
     .filter(s => s.trim() !== '')
-  return { keys, values, clauses }
+  const folded = clauses.map(fold)
+  const notForEndorsed = clauses.map(c => { const rest = withoutPromises(c); return NEGATION.test(rest) || NOT_YET.test(rest) })
+  return { keys, values, clauses, folded, notForEndorsed }
 }
 
 /**
@@ -409,13 +419,15 @@ function sourceOf(texts: readonly string[]): Source {
  *   认证类那一整句要在出处某一句里原样出现，那一句还不能是还没拿到、已失效或说别家。
  */
 function sourced(claim: Claim, source: Source): boolean {
+  const folded = claim.folded
+  if (folded !== undefined) return folded.trim() !== '' && source.folded.some((f, i) => !source.notForEndorsed[i] && f.includes(folded))
   if (claim.stem !== undefined) {
     const stem = claim.stem
     return source.clauses.some(clause => {
       stem.lastIndex = 0
       if (!stem.test(clause)) return false
       const rest = withoutPromises(clause)
-      return !NEGATION.test(rest) && !(claim.key.startsWith(ENDORSED) && NOT_YET.test(rest))
+      return !NEGATION.test(rest)
     })
   }
   if (source.keys.has(claim.key)) return true
@@ -429,6 +441,12 @@ export interface Flagged { text: string; context: string }
 
 /** 前后各取三个词，不跨行；没有前后词时 context 就是原写法本身。 */
 function withContext(draft: string, claim: Claim): Flagged {
+  // 认证类那一条本身就是一整句，不再带前后词。
+  if (claim.folded !== undefined) {
+    // 超长的一句（一行几千字没有句号）只显示头尾，中间写省略号。
+    const text = claim.text.length > 500 ? `${claim.text.slice(0, 360)}…${claim.text.slice(-100)}` : claim.text
+    return { text, context: text }
+  }
   const lineStart = draft.lastIndexOf('\n', claim.at - 1) + 1
   const next = draft.indexOf('\n', claim.at)
   const lineEnd = next === -1 ? draft.length : next

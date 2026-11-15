@@ -1134,6 +1134,13 @@ suite('P2', '开发信草稿里带认证说法的那一句要在产品资料里�
       ['FDA approved', 'NSF certified', 'UL listed', 'Patented'], []],
     ['表外的认证词说明了是谁时才核：引号里的名字、include、冒号后面；机构名、皮肤科医生、单写的 CE、UL 都核整句', '"Vet" recommended. Approvals include Health Canada. Approved: Health Canada. Our recommended picks. Loved by dermatologists. Meets CE and UL standards.',
       ['x'], [], ['"Vet" recommended', 'Approvals include Health Canada', 'Approved: Health Canada', 'Loved by dermatologists', 'Meets CE and UL standards'], []],
+    ['说明了是谁、后面跟 it、this、our 的照核整句', 'Pediatricians recommend it. Vets recommend this for senior dogs. Nutritionists recommend our blender. Health Canada approved it last year.',
+      ['x'], [], ['Pediatricians recommend it', 'Vets recommend this for senior dogs', 'Nutritionists recommend our blender', 'Health Canada approved it last year'], []],
+    ['照抄时列表符号、表情、引号、括号、连打的标点、句中的单复数都不计；换行后以认证词起头的那句照样对上', '✅ NSF certified\n• "NSF certified."\n(NSF certified!!) 🎉\nAwards from Wired.\nHi,\nCertified by NSF.',
+      ['NSF certified.', 'Award from Wired.', 'Certified by NSF.'], [], [], []],
+    ['一行几千字没有句号的认证句不出错，只显示头尾', 'Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved.', ['Capacity 400 mL'], [],
+      [('Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved').slice(9, 369) + '…' + ('we love your videos and '.repeat(400) + 'it is FDA approved').slice(-100)], []],
+    ['比整句时词的边界照算：Untested by SGS 不给 Tested by SGS 作保', 'Tested by SGS.', ['Untested by SGS.'], [], ['Tested by SGS'], []],
     ['说的是收信人或自己做的事不算认证说法', 'I tested Whirl Go myself. Sarah recommended you. Content is approved by you before posting. We cleared Friday for a call.', ['x'], [], [], []],
   ]
   const texts = (draft: string, facts: string[], posts: string[]) => {
