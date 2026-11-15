@@ -18267,6 +18267,86 @@
       "kills": ["准入读物入口：没有硬退出的调用，拒收时打出的那几百行不会被截掉"]
     },
     {
+      "id": "M-H202-bj",
+      "req": "harness",
+      "why": "测试脚本也当入口 —— 包里多出一份测试的 import，写测试的上下文读到了现有测试引用了什么",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "if (m[1] !== 'test') found.add",
+      "replace": "found.add",
+      "by": "test",
+      "kills": ["准入读物入口：检查链 scripts/check/ 下的、测试 scripts/test.ts 都不算入口"]
+    },
+    {
+      "id": "M-H202-bk",
+      "req": "harness",
+      "why": "入口按命令出现的先后排、不排序 —— 同一个仓库换个命令顺序，包里的文件清单就变",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "return [...found].sort()",
+      "replace": "return [...found]",
+      "by": "test",
+      "kills": ["准入读物入口：命令里指到 scripts/ 下一层的 .ts 是入口，去重、排序"]
+    },
+    {
+      "id": "M-H202-bl",
+      "req": "harness",
+      "why": "别的目录下的 scripts/ 也当入口 —— 指到 vendor/scripts/ 的命令被收成本仓库的入口",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "(?<![\\w./-])scripts",
+      "replace": "scripts",
+      "by": "test",
+      "kills": ["准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算"]
+    },
+    {
+      "id": "M-H202-bm",
+      "req": "harness",
+      "why": ".ts 后面还连着字也当入口 —— 指到 .tsx 或备份文件的命令被收成入口",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "\\.ts(?![\\w/.-])",
+      "replace": "\\.ts",
+      "by": "test",
+      "kills": ["准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算"]
+    },
+    {
+      "id": "M-H202-bn",
+      "req": "harness",
+      "why": "命令不是字符串时照样去匹配 —— package.json 里有一项写成了数字，整个入口就出错",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "if (typeof command !== 'string') continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["准入读物入口：命令不是字符串的那一项跳过，别的照认"]
+    },
+    {
+      "id": "M-H202-bo",
+      "req": "harness",
+      "why": "入口那一份把所有 import 都抄进包 —— 检查链与第三方包引用了什么也让写测试的上下文看见",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "return sources.some(s => target.startsWith(`${s}/`))",
+      "replace": "return target !== undefined",
+      "by": "test",
+      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包的 import 都不抄"]
+    },
+    {
+      "id": "M-H202-bp",
+      "req": "harness",
+      "why": "名字以源目录名开头的别的目录也当源目录 —— 那里的 import 也抄进包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "target.startsWith(`${s}/`)",
+      "replace": "target.startsWith(s)",
+      "by": "test",
+      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包的 import 都不抄"]
+    },
+    {
+      "id": "M-H202-bq",
+      "req": "harness",
+      "why": "入口那一份把入口的全部语句都带进包 —— 写测试的上下文读到了入口的代码",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "file.statements.filter(ts.isImportDeclaration).filter",
+      "replace": "file.statements.filter",
+      "by": "test",
+      "kills": ["准入读物入口那一份：只抄指到源目录的 import 原文，按原先后，末尾 export {}"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",

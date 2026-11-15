@@ -25,7 +25,7 @@ import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import { briefSheet, declarationFindings, insideRoot, requirementSheet } from './admission-rule.js'
+import { briefSheet, declarationFindings, entryScripts, entrySheet, insideRoot, requirementSheet } from './admission-rule.js'
 import { duplicateIds } from './attribution-rule.js'
 import { GIT_CONFIG } from './size-rule.js'
 import { adrIdsIn, rootProblems, validateRegistry } from './spec-rule.js'
@@ -158,7 +158,15 @@ function main(): number {
     return 1
   }
 
-  const findings = [...signatures].flatMap(([f, text]) => declarationFindings(text).map(x => `${f}：${x}`))
+  // 入口脚本不导出函数，签名里没有它们：只留它们从两个源目录 import 了哪些导出，写测试的人才知道入口走哪个函数、
+  // 读名单用的是哪一个（ADR-206 第五节）。抄哪几行由 entrySheet 判定
+  const entries = entryScripts(readJson('package.json'))
+  const absentEntries = entries.filter(f => !existsSync(f) || !statSync(f).isFile())
+  if (absentEntries.length > 0) return refuse(`package.json 里的命令指到不存在的入口：${absentEntries.join('、')}`)
+  const entrySheets = new Map<string, string>()
+  for (const f of entries) entrySheets.set(f.replace(/\.ts$/, '.d.ts'), entrySheet(f, readFileSync(f, 'utf8'), SOURCES))
+
+  const findings = [...signatures, ...entrySheets].flatMap(([f, text]) => declarationFindings(text).map(x => `${f}：${x}`))
   const leaks = brief.leaks.map(l => `${l.id} 的「违反了什么」夹带实现原文：${l.leak}`)
   if (findings.length + leaks.length > 0) {
     console.error(`✗ 准入读物包：扫出 ${findings.length + leaks.length} 处实现，不出包`)
@@ -171,6 +179,7 @@ function main(): number {
   const files = new Map<string, Buffer>([
     [`01-需求-${id}.md`, Buffer.from(sheet.text)],
     ...sigs.map(([f, t]): [string, Buffer] => [`02-签名/${f}`, Buffer.from(t)]),
+    ...[...entrySheets].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([f, t]): [string, Buffer] => [`02-签名/${f}`, Buffer.from(t)]),
     ...docs.map((f): [string, Buffer] => [`03-对外文档/${f}`, readFileSync(f)]),
     ['04-变异集-违反了什么.md', Buffer.from(brief.text)],
   ])
@@ -193,6 +202,7 @@ function main(): number {
     '| 文件 | SHA256 |', '|---|---|',
     ...[...files].map(([f, b]) => `| \`${f}\` | \`${sha(b)}\` |`), '',
     '不在包里的：函数体、测试、决策记录、变异的代码原文。', '',
+    '入口脚本（`package.json` 里命令指到的 `scripts/*.ts`）不导出函数：`02-签名/` 里它们那一份只有从源目录 import 的那几行，看得出入口走哪个函数，看不出怎么走。', '',
     '机器核过的：签名逐份扫过，只扫了三种 —— `函数体`、`不是声明的语句`、`初始值不是字面量`；变异说明里没有认得出的实现原文（同 `mutate --brief` 的判据）。'
       + '参数默认值、`export default` 后面的表达式之类别的形状不扫：声明产出里本来不出现它们（ADR-202 第十五节）。', '',
     '没核的：签名上的注释与对外文档原样带进来，里面有没有实现原文没有机器核（ADR-202 第三节）。', '',
@@ -209,7 +219,7 @@ function main(): number {
     console.error(`✗ 准入读物包：写到一半出错，${out} 里留下了上面列出的那几个文件 —— 删掉整个目录再出（${e instanceof Error ? e.message : String(e)}）`)
     return 2
   }
-  console.log(`✓ 准入读物包 · ${id} → ${out}：共 ${all.size} 个文件（清单 1 · 需求单 1 · 签名 ${sigs.length} · 对外文档 ${docs.length} · 变异说明 1）`)
+  console.log(`✓ 准入读物包 · ${id} → ${out}：共 ${all.size} 个文件（清单 1 · 需求单 1 · 签名 ${sigs.length} · 入口 ${entrySheets.size} · 对外文档 ${docs.length} · 变异说明 1）`)
   return 0
 }
 

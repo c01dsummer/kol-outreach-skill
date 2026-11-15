@@ -250,7 +250,14 @@ const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: rea
 /** `facts`：任务里已证实的产品事实原文（P2.c）；缺席或空数组都是「没有可对的」：作品文字对不上的说法全列出来，前面写明没有可对的。 */
 export interface HtmlOutputOptions extends ReviewOutputOptions { filters?: 'dual'; facts?: readonly string[] }
 
-/** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
+/**
+ * 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档
+ *
+ * `meta` 是 render 写的 meta.json 那一份（业务字段见 output-format.md「meta.json」）。
+ * 除业务字段外**必须带费用那几个字段**：`cost_status`、`cost_scope`、`cost_problems`（数组）、`cost_basis`、
+ * `cost_estimate_usd`、`budget_usd`、`cost_http_200_usd`、`cost_unknown_result_usd`、`cost_pending_usd`，
+ * 形状同 `budget.ts` 的 `CostView`；缺了 `cost_problems` 会抛。
+ */
 export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOptions = {}): string {
   const displayed = options.mode === 'review' ? sortForReviewOutput(creators) : creators
   const dual = options.mode === 'review' && options.filters === 'dual'
