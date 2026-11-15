@@ -163,13 +163,46 @@ const literalStem = (word: string): string => word.toLowerCase().replace(/[- ]/g
 const NOT_PROMISE = /^(?:feel|stress|worry|hassle|commitment|obligation|string|strings|care|toll)[- ]?free$/i
 
 /**
- * 承诺词紧挨着的修饰词（CE certified 的 CE、approved by the FDA 的 approved、certified by TÜV 的 TÜV）一起算进这条说法，
- * 资料同一句里也要写到：只认承诺词这一个词，资料里别家的认证、别的批文都会给它当出处。左边只看紧挨的一个词，
- * 「X by the」这样的取 X；右边只看「by (the) X」。FILLER 里的代词、系动词、程度副词不算修饰词；漏进表外的词只会多标。
+ * 「谁认证、谁批准」：认证、批准、注册、检测、推荐这类说法连同机构名一起比（CE certified、approved by the FDA、NSF-certified、
+ * FDA approval、certified by SGS and TÜV），资料同一句里要有同一类说法和这几个机构名；只比一个 certified，别家的认证会给它当出处。
+ * 机构名取说法左边紧挨着的一串（空格或连字符隔开，可用 and 连）和右边「by / from / to / under (the) …」后面的一串：
+ * 大写起头、全大写或下表里的机构词。紧挨着的承诺词也一起比（certified organic）。waterproof、vegan 这类属性词不取机构名，照原词比。
  */
-const LEFT_MATE = /(?<![\p{L}\d_'-])(?<!\d\S*\s+)(\p{L}[\p{L}'-]*)(?: by(?: the| an?)?)? +$/iu
-const RIGHT_MATE = /^ +by(?: the| an?)? +(\p{L}[\p{L}'-]*)/iu
-const FILLER = /^(?:our|your|their|its|it|it's|this|that|these|those|we|you|they|is|are|was|were|be|been|being|am|and|or|but|with|for|of|to|in|on|at|as|the|a|an|by|so|also|both|very|super|really|truly|fully|totally|completely|entirely|100%|now|just|even|still|always|stays?|remains?|keeps?|comes?|made|has|have|get|gets|feel|feels|look|looks|naturally|actually|literally|plus|while|than|from|into|my|his|her|i|i'm|we're|you're|they're|won|win|wins|had|got|offer|offers|offering|include|includes|including|provide|provides)$/i
+const ENDORSE = /(?<![\p{L}\d_])(?:certif(?:y|ied|ication|ications|icate|icates)|approv(?:e|ed|al|als)|clear(?:ed|ance)|regist(?:ered|ration)|listed|complian(?:t|ce)|tested|recommend(?:ed|s)?|endorse(?:d|ment|ments)?|proven|accredit(?:ed|ation)|award(?:ed|s)?|patent(?:ed|s)?)(?![\p{L}\d_])/giu
+const FAMILIES: ReadonlyArray<readonly [RegExp, string]> = [[/^certif/i, 'certif\\w*'], [/^approv/i, 'approv\\w*'], [/^clear/i, 'clear(?:ed|ance)'],
+  [/^regist/i, 'regist\\w*'], [/^listed/i, 'list(?:ed|ing)'], [/^complian/i, 'complian\\w*'], [/^tested/i, 'test(?:ed|ing)'],
+  [/^recommend/i, 'recommend\\w*'], [/^endorse/i, 'endorse\\w*'], [/^proven/i, 'prov(?:en|ed)'], [/^accredit/i, 'accredit\\w*'], [/^award/i, 'award\\w*'], [/^patent/i, 'patent\\w*']]
+const AGENCY = /^(?:fda|usda|ce|ul|fcc|iso|nsf|sgs|tüv|tuv|etl|csa|epa|bpi|gots|ecocert|intertek|dermatologists?|doctors?|pediatricians?|dentists?|vets?|veterinarians?|experts?|lab|clinically)$/i
+/** 大写起头、但只是句首代词、连词这类的词不算机构名。 */
+const NOT_ORG = /^(?:our|your|their|its|it|this|that|these|those|we|you|they|is|are|was|were|be|and|or|but|with|for|of|to|in|on|at|as|the|a|an|by|so|also|both|all|every|each|fully|totally|now|just|i|my|hi|hey|plus|won|win|wins|has|have|had|got|get|gets|earned|received|passed|meets?|officially|proudly|independently|new)$/i
+const orgWord = (w: string): boolean => w !== '' && !NOT_ORG.test(w) && (AGENCY.test(w) || /^[\p{Lu}\d]/u.test(w))
+const isPromise = (w: string): boolean => PROMISE_FULL.some(re => re.test(w))
+const wordRe = (w: string): RegExp => new RegExp(`(?<![\\p{L}\\d_])${[...mateKey(w)].map(ch => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[.\\s-]?')}\\.?(?:e?s)?(?:['’]s)?(?![\\p{L}\\d_])`, 'iu')
+
+/** 一个认证类说法的机构名与紧挨的承诺词；before、after 是它左右同一句里的文字。 */
+function endorsers(word: string, before: string, after: string, clause: string, wide: boolean): { mates: string[]; left: number; right: number } {
+  const mates: string[] = []
+  let left = before.length, right = 0, rest = before
+  for (let t; mates.length < 4 && (t = /([^\s.,;:!?()"-]+)( and | & | |-)$/u.exec(rest)) !== null; rest = rest.slice(0, t.index)) {
+    const w = t[1].replace(/['’]s$/, '')
+    if (!orgWord(w) && !(mates.length === 0 && t[2].length === 1 && isPromise(w))) break
+    mates.push(w); left = t.index
+  }
+  const prep = /^ ?(?:\(? ?(?:by|from|to|under|with|through|per):? +|\( ?)(?:(?:the|a|an|both) +)*/i.exec(after)
+  for (let at = prep?.[0].length ?? 0, t; prep !== null && (t = /^(?: and | & | |-)?((?:\p{L}\.){2,}|[^\s.,;:!?()"]+)/u.exec(after.slice(at))) !== null; at += t[0].length) {
+    const w = t[1].replace(/['’]s$/, '')
+    if (!orgWord(w)) break
+    mates.push(w); right = at + t[0].length
+  }
+  const next = /^[ -]([^\s.,;:!?()]+)/.exec(after)
+  if (right === 0 && next !== null && isPromise(next[1])) { mates.push(next[1]); right = next[0].length }
+  // 信里紧挨着没有机构名时，同一句里说法前面认得的机构名（FDA、NSF、TÜV…）都算：The FDA has approved it。资料一侧不这样放宽。
+  if (mates.length === 0 && wide) for (const w of clause.match(/[\p{L}-]+/gu) ?? []) if (AGENCY.test(w) && !/^(?:lab|experts?|clinically)$/i.test(w)) mates.push(w)
+  const seen = new Set([mateKey(word)])
+  return { mates: mates.filter(w => !seen.has(mateKey(w)) && seen.add(mateKey(w)) !== undefined), left, right }
+}
+/** 机构名比对的样子：小写，去掉点、连字符、空格和词尾的复数 s（U.S. 与 US、dermatologists 与 dermatologist 同一个）。 */
+const mateKey = (w: string): string => w.toLowerCase().replace(/['’]s$|[.\s-]/g, '').replace(/(?<=\p{L}{3})(?<!s)s$/u, '')
 
 /** 一句话里的否定：资料里这一句是否定说法时，不给草稿里同一个承诺词当出处。 */
 const NEGATION = /(?<![a-z])(?:no|not|non|never|neither|nor|none|without|pending|void|cannot|except|unless|expired|hardly|exclud(?:e|es|ed|ing)|exclusions?|isn't|aren't|doesn't|don't|won't)(?![a-z])|n't(?![a-z])/i
@@ -264,7 +297,7 @@ function placeholders(text: string): { rest: string; unmatched: boolean } {
 }
 
 /** 把一段文字拆成可比的说法；草稿与出处走同一个函数，归一口径才一致。 */
-export function claimsIn(text: string): Claim[] {
+export function claimsIn(text: string, draft = true): Claim[] {
   const out: Claim[] = []
   let rest = placeholders(plain(text)).rest
   // take 返回 'keep' 时这一段原样留下给后面的规则；返回 undefined 时遮掉、不算说法。
@@ -286,19 +319,30 @@ export function claimsIn(text: string): Claim[] {
   // 合成的一条照原串比（分隔符、小数点都算），后面紧跟的单位也进比对：1:30 hours 对不上 1:30 minutes。
   mask(CLOCK, (m, after) => ({ text: m[0], key: `time:${groupKey(m[0])}:${unitAfter(m[0], after)}` }))
   mask(DIGIT_GROUPS, (m, after) => isLong(m[0]) ? { text: m[0], key: `digits:${groupKey(m[0])}:${unitAfter(m[0], after)}` } : 'keep')
+  // 认证类说法连同机构名先认，整截遮掉：机构名、紧挨的承诺词已经算在这一条里，不另列。
+  const spans: Array<readonly [number, number]> = []
+  mask(ENDORSE, (m, after, before) => {
+    const lhs = before.slice(-80), prevEnd = (spans.at(-1)?.[1] ?? 0) - (before.length - lhs.length)
+    const cut = Math.max(0, prevEnd, ...['.', ';', '!', '?', '\n', '(', ')', ','].map(ch => lhs.lastIndexOf(ch) + 1))
+    const rhs = after.slice(0, 80).split(/(?<!(?:^|[^\p{L}])\p{L})[.;!?](?:\s|$)|\n/u)[0]
+    const sentence = lhs.slice(Math.max(...['. ', ';', '!', '?', '\n'].map(ch => lhs.lastIndexOf(ch))) + 1)
+    const { mates, left, right } = endorsers(m[0], lhs.slice(cut), rhs, sentence, draft)
+    if (mates.length === 0) return 'keep'
+    const kind = FAMILIES.findIndex(([re]) => re.test(m[0])), family = FAMILIES[kind][1]
+    const start = before.length - (lhs.length - cut - left)
+    spans.push([start, before.length + m[0].length + right])
+    return { at: start, text: before.slice(start) + m[0] + rhs.slice(0, right), key: `endorse:${kind}:${mates.map(mateKey).sort().join(' ')}`,
+      stem: new RegExp(`(?<![\\p{L}\\d_])(?:${family})`, 'giu'), with: mates.map(wordRe) }
+  })
+  let blanked = '', pos = 0
+  for (const [a, b] of spans) { const from = Math.max(a, pos); if (b > from) { blanked += rest.slice(pos, from) + ' '.repeat(b - from); pos = b } }
+  rest = blanked + rest.slice(pos)
   // 承诺词先认走：「#1」里的 1、「5-star」里的 5 不另算一个数字。
   PROMISE_WORDS.forEach(([, stem], i) => {
-    mask(PROMISE_RES[i], (m, after, before) => {
+    mask(PROMISE_RES[i], m => {
       if (NOT_PROMISE.test(m[0])) return undefined
       const source = stem === '__SAME__' ? literalStem(m[0]) : stem
-      const left = LEFT_MATE.exec(before.slice(-60)), right = RIGHT_MATE.exec(after.slice(0, 60))
-      const mate = (w: string | undefined): w is string => w !== undefined && !FILLER.test(w) && !PROMISE_FULL.some(re => re.test(w))
-      const mates = [left?.[1], right?.[1]].filter(mate)
-      const start = mate(left?.[1]) ? before.length - left![0].length : before.length
-      const end = before.length + m[0].length + (mate(right?.[1]) ? right![0].length : 0)
-      const whole = before + m[0] + after
-      return { at: start, text: whole.slice(start, end), key: `word:${[m[0], ...mates].join(' ').toLowerCase()}`,
-        stem: new RegExp(`(?<!\\w)(?:${source})(?!\\w)`, 'gi'), with: mates.map(w => new RegExp(`(?<![\\p{L}\\d_])${literalStem(w)}(?![\\p{L}\\d_])`, 'iu')) }
+      return { text: m[0], key: `word:${m[0].toLowerCase()}`, stem: new RegExp(`(?<!\\w)(?:${source})(?!\\w)`, 'gi') }
     })
   })
   mask(SPELLED_PRICE, m => withValue(m, spelledValue(m[1]), v => `price:${v}`))
@@ -331,13 +375,13 @@ const scaled = (raw: string, suffix: string | undefined): string => {
 }
 
 /** 出处那一边：比对用的键、每个数在出处里出现过的单位，和拆成句子的原文（承诺词按句查否定）。 */
-interface Source { keys: ReadonlySet<string>; values: ReadonlyMap<string, ReadonlySet<string>>; clauses: readonly string[] }
+interface Source { keys: ReadonlySet<string>; values: ReadonlyMap<string, ReadonlySet<string>>; clauses: readonly string[]; endorsed: readonly string[] }
 
 function sourceOf(texts: readonly string[]): Source {
   const keys = new Set<string>()
   const values = new Map<string, Set<string>>()
   for (const text of texts) {
-    for (const c of claimsIn(text)) {
+    for (const c of claimsIn(text, false)) {
       keys.add(c.key)
       const [kind, value, unit] = c.key.split(':')
       if (kind !== 'num' && kind !== 'price') continue
@@ -346,7 +390,7 @@ function sourceOf(texts: readonly string[]): Source {
     }
   }
   const clauses = texts.flatMap(t => placeholders(plain(t)).rest.split(/[.;!?\n]+(?:\s|$)|[;!?\n]/)).filter(s => s.trim() !== '')
-  return { keys, values, clauses }
+  return { keys, values, clauses, endorsed: [...keys].filter(k => k.startsWith('endorse:')) }
 }
 
 /**
@@ -358,6 +402,12 @@ function sourceOf(texts: readonly string[]): Source {
 function sourced(claim: Claim, source: Source): boolean {
   if (claim.stem !== undefined) {
     const stem = claim.stem
+    // 认证类：资料里要有同一类说法、机构名包含信里写的全部（资料 FDA registered 不给信里 FDA certified 当出处）。
+    if (claim.key.startsWith('endorse:')) {
+      const [, kind, mates] = claim.key.split(':')
+      const ok = source.endorsed.some(k => { const [, kk, ms] = k.split(':'); return kk === kind && mates.split(' ').every(w => ms.split(' ').includes(w)) })
+      if (!ok) return false
+    }
     return source.clauses.some(clause => {
       stem.lastIndex = 0
       if (!stem.test(clause) || !(claim.with ?? []).every(w => w.test(clause))) return false
