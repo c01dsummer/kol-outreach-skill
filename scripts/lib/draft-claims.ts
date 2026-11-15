@@ -169,7 +169,7 @@ const DIGITS = '(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)'
 const CURRENCY_WORDS = 'dollars?|bucks|usd|eur|euros?|gbp|cad|aud|inr'
 const CURRENCY_SIGNS = '$€£¥₹'
 
-/** 机器能确定不是产品说法的形状：整段遮掉，不列也不当出处。 */
+/** 钟点后面认的时区缩写。 */
 const TIME_ZONES = 'pst|pdt|est|edt|cst|cdt|mst|mdt|cet|cest|gmt|utc|bst|ist|jst|aest|sgt|hkt'
 /**
  * 只藏网址和邮箱（里面的日期、数字不算说法）；别的一概不藏。漏标比多标贵，而「猜哪些数字是噪音」每多猜一种写法，
@@ -186,7 +186,13 @@ const LINKS: readonly RegExp[] = [
 const CLOCK = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|and|until|till)[ \\t]?\\d{1,2}:\\d{2})?` +
   `(?:[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))?(?:[ \\t]?(?:${TIME_ZONES})\\b)?(?![\\w:])`, 'gi')
 /** 一行里用空格、点、连字符、括号隔开的几组数字，合起来至少九位：多半是电话（415 555 0199、07700 900123、+44 (0)20 7946 0958），整串一条。 */
-const DIGIT_GROUPS = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\+?\\(?\\d{1,5}\\)?(?:(?:[ \\t.-]{1,2}|(?<=\\)))\\(?\\d{1,6}\\)?){1,}(?![\\w%]|[.,]\\d)`, 'g')
+const DIGIT_GROUPS = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\+?\\(?\\d{1,5}\\)?(?:(?:[ \\t]{1,2}|[.-]|(?<=\\)))\\(?\\d{1,6}\\)?){1,}(?![\\w%]|[.,]\\d)`, 'g')
+const groupKey = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ')
+/** 一串后面紧跟的单位词（贴写、空格或连字符隔开）；虚词不算，没有就是空。 */
+const unitAfter = (after: string): string => {
+  const w = /^[ \t-]?(%|[a-z]+)(?![\w'])/i.exec(after)?.[1]
+  return w === undefined || NOT_UNITS.has(w.toLowerCase()) ? '' : w === '%' ? '%' : foldUnit(w)
+}
 const isLong = (s: string) => (s.match(/\d/g) ?? []).length >= 9
 
 const MONTHS = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
@@ -227,7 +233,7 @@ const numberValue = (raw: string): string => {
 }
 
 /** 排版字符换成键盘上的写法（弯撇号换 '，各种连字符、短横换 -）；一个换一个，下标不变，前后文仍取草稿原文。 */
-const plain = (text: string): string => text.replace(/[’‘ʼ]/g, "'").replace(/[‐‑‒–]/g, '-').replace(/—/g, ' ')
+const plain = (text: string): string => text.replace(/[’‘ʼ]/g, "'").replace(/[‐‑‒–]/g, '-').replace(/(?<=\w)—/g, ' ').replace(/—/g, '-')
 
 /** {…} 占位符：只认同一行、40 字以内的，套着写的（{{price}}）由里往外剥。剥掉的位置补空白，下标不变。 */
 function placeholders(text: string): { rest: string; unmatched: boolean } {
@@ -241,21 +247,22 @@ export function claimsIn(text: string): Claim[] {
   const out: Claim[] = []
   let rest = placeholders(plain(text)).rest
   // take 返回 'keep' 时这一段原样留下给后面的规则；返回 undefined 时遮掉、不算说法。
-  const mask = (re: RegExp, take: (m: RegExpExecArray) => Omit<Claim, 'at'> | undefined | 'keep') => {
+  // after 是这一段后面紧跟的文字，合成一条的电话、钟点拿它取单位。
+  const mask = (re: RegExp, take: (m: RegExpExecArray, after: string) => Omit<Claim, 'at'> | undefined | 'keep') => {
     rest = rest.replace(re, (...args) => {
       const m = args.slice(0, -2) as unknown as RegExpExecArray
-      const claim = take(m)
+      const claim = take(m, (args.at(-1) as string).slice((args.at(-2) as number) + m[0].length))
       if (claim === 'keep') return m[0]
       if (claim !== undefined) out.push({ ...claim, at: args.at(-2) as number })
       return ' '.repeat(m[0].length)
     })
   }
-  // 先遮掉确定不是产品说法的形状；位数不够的「电话」原样留下照常扫。
-  // 网址、邮箱最先（链接里的日期不算）；日期在序数词前（「March 15th」里的 15th 不能先被当序数词遮掉）。
+  // 只藏网址、邮箱，最先认（链接里的日期不算）；日期、钟点、电话各合成一条，位数不够的一串数原样留下照常扫。
   for (const re of LINKS) mask(re, () => undefined)
   mask(DATE, m => ({ text: m[0], key: `date:${m[0].toLowerCase().replace(/[\s,.]+/g, ' ')}` }))
-  mask(CLOCK, m => ({ text: m[0], key: `time:${m[0].toLowerCase().replace(/\s+/g, ' ')}` }))
-  mask(DIGIT_GROUPS, m => isLong(m[0]) ? { text: m[0], key: `digits:${m[0].replace(/\D/g, '')}` } : 'keep')
+  // 合成的一条照原串比（分隔符、小数点都算），后面紧跟的单位也进比对：1:30 hours 对不上 1:30 minutes。
+  mask(CLOCK, (m, after) => ({ text: m[0], key: `time:${groupKey(m[0])}:${unitAfter(after)}` }))
+  mask(DIGIT_GROUPS, (m, after) => isLong(m[0]) ? { text: m[0], key: `digits:${groupKey(m[0])}:${unitAfter(after)}` } : 'keep')
   // 承诺词先认走：「#1」里的 1、「5-star」里的 5 不另算一个数字。
   PROMISE_WORDS.forEach(([, stem], i) => {
     mask(PROMISE_RES[i], m => {
