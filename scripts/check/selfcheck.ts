@@ -1050,7 +1050,7 @@ group('cost-input', [], () => {
     const result = runBoth('collect 新建任务给了比默认小的 --budget', [S('collect.ts'), '--config', cfg, '--budget', '0.003'],
       cwd, { status: 3, soft: [0, 4] }, costEnv(log))
     if (result.ok) named('新建任务的 --budget 比默认 $2 小时就是总上限，不打默认说明',
-      costViewMatches(summaryOf(result.stdout), { budget_usd: 0.003, cost_scope: 'task', cost_status: 'known' })
+      result.status === 3 && costViewMatches(summaryOf(result.stdout), { budget_usd: 0.003, cost_scope: 'task', cost_status: 'known' })
         && !/默认/.test(result.stderr) && fetchAttempts(log).length > 0,
       `${result.stdout}\n${result.stderr}`)
     criterion('D13.u')

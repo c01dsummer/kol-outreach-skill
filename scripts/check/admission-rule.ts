@@ -167,7 +167,7 @@ export function entryScripts(pkg: unknown): string[] {
   const found = new Set<string>()
   for (const command of Object.values(scripts)) {
     if (typeof command !== 'string') continue
-    for (const m of command.matchAll(/(?<![\w./-])scripts\/([\w.-]+)\.ts(?![\w/.-])/g))
+    for (const m of command.matchAll(/(?<![\w./-])(?:\.\/)?scripts\/([\w.-]+)\.ts(?![\w/.-])/g))
       if (m[1] !== 'test') found.add(`scripts/${m[1]}.ts`)
   }
   return [...found].sort()
@@ -182,7 +182,8 @@ export function entrySheet(path: string, text: string, sources: readonly string[
   const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true)
   const kept = file.statements.filter(ts.isImportDeclaration).filter(d => {
     const spec = ts.isStringLiteral(d.moduleSpecifier) ? d.moduleSpecifier.text : ''
-    // 非相对的（`node:fs`、第三方包）拼出来落不到源目录下，自然不收
+    // 非相对的（`node:fs`、第三方包，连 `lib/a.js` 这种看着像路径的包名）不收：只有 `./`、`../` 开头的才按路径拼
+    if (!spec.startsWith('./') && !spec.startsWith('../')) return false
     const target = posix.join(posix.dirname(path), spec)
     return sources.some(s => target.startsWith(`${s}/`))
   }).map(d => d.getText(file))

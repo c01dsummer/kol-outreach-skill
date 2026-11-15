@@ -13374,11 +13374,14 @@ eq('准入读物入口：一条命令里点了两个入口，两个都算', entr
 eq('准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算', entries({ scripts: {
   x: 'tsx vendor/scripts/a.ts', y: 'tsx scripts/b.tsx', z: 'tsx scripts/c.ts.bak', w: 'tsx xscripts/d.ts', v: 'tsx my-scripts/e.ts',
 } }), [])
+eq('准入读物入口：带 ./ 的写法也算入口，../ 指到仓库外的不算', entries({ scripts: {
+  dot: 'tsx ./scripts/render.ts', up: 'tsx ../scripts/up.ts',
+} }), ['scripts/render.ts'])
 eq('准入读物入口：命令不是字符串的那一项跳过，别的照认', entries({ scripts: { bad: 7, ok: 'tsx scripts/a.ts' } }), ['scripts/a.ts'])
 eq('准入读物入口：package.json 读不出、不是对象、没有 scripts 或 scripts 不是对象时没有入口',
   [entries(undefined), entries(null), entries('x'), entries({}), entries({ scripts: 'tsx scripts/a.ts' })], [[], [], [], [], []])
 // 入口那一份：只抄指到源目录的 import 原文。import 的路径放进变量再拼（同 selfcheck 那一组，ADR-202 第十七节）
-const libA = './lib/a.js', provB = './providers/b.js', checkC = './check/c.js', libxD = './libx/d.js', backE = './check/../lib/e.js'
+const bareLib = 'lib/a.js', libA = './lib/a.js', provB = './providers/b.js', checkC = './check/c.js', libxD = './libx/d.js', backE = './check/../lib/e.js'
 const entryText = [`import { a } from '${libA}'`, `import type { B } from '${provB}'`, `import { c } from '${checkC}'`,
   `import { d } from '${libxD}'`, `import { e } from '${backE}'`, "import { readFileSync } from 'node:fs'",
   "import ts from 'typescript'", 'const x = a(c())', 'function run() { return d(e) }', 'run()'].join('\n')
@@ -13390,8 +13393,8 @@ eq('准入读物入口那一份：import 上方与行尾的注释不随它进包
   sheetOf(['// 这里读名单走 a，内部细节写在注释里', `import { a } from '${libA}' // 行尾的说明`].join('\n')), [
   '// 入口 scripts/run.ts：不导出函数。下面只是它从 scripts/lib、scripts/providers 引用的导出（import 原文），不是它的代码；import 了不等于每个都用到。',
   `import { a } from '${libA}'`, 'export {};', ''].join('\n'))
-eq('准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包的 import 都不抄', [checkC, libxD, 'node:fs', 'typescript']
-  .map(spec => sheetOf(`import { z } from '${spec}'`)), [checkC, libxD, 'node:fs', 'typescript'].map(() => [
+eq('准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包（连看着像源目录路径的包名）的 import 都不抄', [checkC, libxD, 'node:fs', 'typescript', bareLib]
+  .map(spec => sheetOf(`import { z } from '${spec}'`)), [checkC, libxD, 'node:fs', 'typescript', bareLib].map(() => [
   '// 入口 scripts/run.ts：不导出函数。下面只是它从 scripts/lib、scripts/providers 引用的导出（import 原文），不是它的代码；import 了不等于每个都用到。',
   'export {};', ''].join('\n')))
 })

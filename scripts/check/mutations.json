@@ -18292,8 +18292,8 @@
       "req": "harness",
       "why": "别的目录下的 scripts/ 也当入口 —— 指到 vendor/scripts/ 的命令被收成本仓库的入口",
       "file": "scripts/check/admission-rule.ts",
-      "find": "(?<![\\w./-])scripts",
-      "replace": "scripts",
+      "find": "(?<![\\w./-])(?:\\.\\/)?scripts",
+      "replace": "(?:\\.\\/)?scripts",
       "by": "test",
       "kills": ["准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算"]
     },
@@ -18362,10 +18362,30 @@
       "req": "harness",
       "why": "名字以 scripts 结尾的别的目录也当入口所在 —— 指到 xscripts/ 的命令被收成本仓库的入口",
       "file": "scripts/check/admission-rule.ts",
-      "find": "(?<![\\w./-])scripts",
-      "replace": "(?<![./-])scripts",
+      "find": "(?<![\\w./-])(?:\\.\\/)?scripts",
+      "replace": "(?<![./-])(?:\\.\\/)?scripts",
       "by": "test",
       "kills": ["准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算"]
+    },
+    {
+      "id": "M-H202-bt",
+      "req": "harness",
+      "why": "带 ./ 的命令写法不当入口 —— tsx ./scripts/render.ts 指到的入口没有那一份，准入照样放行",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "(?:\\.\\/)?scripts",
+      "replace": "scripts",
+      "by": "test",
+      "kills": ["准入读物入口：带 ./ 的写法也算入口，../ 指到仓库外的不算"]
+    },
+    {
+      "id": "M-H202-bu",
+      "req": "harness",
+      "why": "非相对的 import 也按路径拼 —— 名叫 lib/a.js 的第三方包被拼成 scripts/lib/a.js，抄进入口那一份",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "if (!spec.startsWith('./') && !spec.startsWith('../')) return false",
+      "replace": "if (spec === '') return false",
+      "by": "test",
+      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包（连看着像源目录路径的包名）的 import 都不抄"]
     },
     {
       "id": "M-H203-a",

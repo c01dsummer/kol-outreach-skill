@@ -189,10 +189,10 @@ function main(): number {
     catch { return undefined }
   }
   const head = git('rev-parse', 'HEAD')
-  // 只问进包的那几样输入，未跟踪的逐个列、被忽略的也列：用户配置里 status.showUntrackedFiles=no、或输入被 .gitignore 挡着时，
+  // 只问进包的那几样输入（含 package.json 与入口脚本：入口那一份从它们抄，#489 上 CodeRabbit），未跟踪的逐个列、被忽略的也列：用户配置里 status.showUntrackedFiles=no、或输入被 .gitignore 挡着时，
   // 光一句 git status 会说「干净」而包里装着没提交的东西（#484 上 CodeRabbit 第一轮）
   const status = head === undefined ? undefined
-    : git('status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', REGISTRY, CATALOG, ADR_DIR, ...SOURCES, DOCS)
+    : git('status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', REGISTRY, CATALOG, ADR_DIR, ...SOURCES, DOCS, 'package.json', ...entries)
   const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex')
   const manifest = [
     `# 准入读物包 · ${id}`, '',
