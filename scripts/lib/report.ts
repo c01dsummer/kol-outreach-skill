@@ -256,7 +256,7 @@ export interface HtmlOutputOptions extends ReviewOutputOptions { filters?: 'dual
  * `meta` 是 render 写的 meta.json 那一份（业务字段见 output-format.md「meta.json」）。
  * 除业务字段外**必须带费用那几个字段**：`cost_status`、`cost_scope`、`cost_problems`（数组）、`cost_basis`、
  * `cost_estimate_usd`、`budget_usd`、`cost_http_200_usd`、`cost_unknown_result_usd`、`cost_pending_usd`，
- * 形状同 `budget.ts` 的 `CostView`；缺了 `cost_problems` 会抛。
+ * 各字段的类型同 `budget.ts` 的 `CostView` 里同名的那一项（报告只读这九个）；缺了 `cost_problems` 会抛。
  */
 export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOptions = {}): string {
   const displayed = options.mode === 'review' ? sortForReviewOutput(creators) : creators

@@ -7707,7 +7707,7 @@ group('admission-entry', [], () => {
       sheet.includes(`import { f } from '${libSpec}'`) && !sheet.includes(checkSpec) && !sheet.includes('answer') && !sheet.includes('console'),
       sheet || listing(entryPkg).join('\n'))
     named('admission 只给命令指到的入口出那一份：scripts/entry.ts 不在命令里、scripts/test.ts 与检查链不算',
-      isDeepStrictEqual(listing(join(entryPkg, '02-签名', 'scripts')).filter(p => !p.includes('/')), ['run.d.ts']),
+      isDeepStrictEqual(listing(join(entryPkg, '02-签名', 'scripts')).filter(p => !p.startsWith('lib/') && !p.startsWith('providers/')), ['run.d.ts']),
       listing(join(entryPkg, '02-签名', 'scripts')).join('\n'))
     const entryOut = withEntry.stdout.split('\n').filter(l => l !== '')
     named('admission 末行汇总里单列入口的个数', (entryOut[entryOut.length - 1] ?? '').includes('签名 3 · 入口 1 · 对外文档 2'), withEntry.stdout)
