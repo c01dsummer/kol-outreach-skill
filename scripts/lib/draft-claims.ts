@@ -65,10 +65,7 @@ const SMALL: Record<string, number> = Object.fromEntries([
 ])
 const SCALES: Record<string, number> = { hundred: 100, thousand: 1000, million: 1000000 }
 
-/**
- * 一串拼写数字的值：「twenty five」「twenty-five」= 25，「two hundred」= 200，「a thousand」= 1000，「a dozen」= 12。
- * 读不成一个数时返回 undefined。
- */
+/** 一串拼写数字的值：「twenty five」「twenty-five」= 25，「two hundred」= 200，「a dozen」= 12；读不成一个数时返回 undefined。 */
 function spelledValue(phrase: string): number | undefined {
   const words = phrase.toLowerCase().split(/[\s-]+/).filter(w => w !== '' && w !== 'and')
   let total = 0, current = 0, seen = false
@@ -186,10 +183,8 @@ const LINKS: readonly RegExp[] = [
   // 不带协议的网址：网址名里要有字母，后缀要小写（「$29.99.Shop now」「40 hours.Me and」是句号后漏了空格，不是网址）。
   /\b[\w-]*[a-zA-Z][\w-]*\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
 ]
-/**
- * 钟点只认带确定标记的：后面跟 am、pm 或时区（3pm、10:30 am、10:30 PST、9:00-17:00 CET），前面是星期几（Friday 9:30）。
- * 不带标记的「10:30」「9:00-17:00」「1:10」「1:10 to 1:20」分不清是钟点还是比例，照列。
- */
+/** 钟点只认带确定标记的：后面跟 am、pm 或时区（3pm、10:30 PST、9:00-17:00 CET），或前面是星期几（Friday 9:30）。
+ * 不带标记的「10:30」「9:00-17:00」「1:10」「1:10 to 1:20」分不清是钟点还是比例，照列。 */
 const CLOCK = `\\d{1,2}(?::\\d{2})?(?:[ \\t]?(?:-|to|until|till)[ \\t]?\\d{1,2}(?::\\d{2})?)?`
 const NOISE: readonly RegExp[] = [
   new RegExp(`\\b${CLOCK}[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.|${TIME_ZONES})(?![a-z\\d])`, 'gi'),   // PM2.5 不是
@@ -236,10 +231,8 @@ const PERCENT_WORDS = '%|percent\\b|per cent\\b|pct\\b'
  * 负号只在前面不是字母、数字、点时才算数的一部分：「-20」是负数，「3-5 years」「COVID-19」里的不是。
  */
 const NUMBER = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(-?${DIGITS})(?:\\s?\\+|[\\s-]plus)?(?:(\\s?(?:${PERCENT_WORDS}))|(°\\s?[cf]\\b)|([a-z]+(?![\\w]))|(?:[\\s-](?:(?:more|extra|additional|full|whole|total|or more|plus)\\s+)?([a-z]+(?![\\w'])))?)(?!\\w|\\.\\d)`, 'gi')
-/**
- * 兜底用：前面各条都没认走、仍带数字的一串（连着的字母、数字、点、逗号、连字符、斜杠），去掉末尾的标点；紧跟的字母后缀（px、-inch）列出来但不进比对。
- * 数字起头的混合串（1920x1080、5V2A、3in1、1080p60、6.1x2.8）和点分日期（20.11.2026）都靠它整串列、整串对。
- */
+/** 兜底：前面各条都没认走、仍带数字的一串整串列（1920x1080、5V2A、6.1x2.8、20.11.2026），不带末尾标点；
+ * 紧跟的字母后缀（px、-inch）列出来但不进比对。 */
 const LEFTOVER = /[\w.,/+-]*\d([a-z]*(?:[-/][a-z]+)*)/gi
 /** 型号串：字母起头又含数字的整词（IPX7、Qi2、H13、IPX-7）；「1-on-1」里的 on-1 不算。 */
 const ALNUM = /(?<![\w-])[a-z]+-?\d[a-z0-9]*\b/gi
@@ -252,10 +245,7 @@ const numberValue = (raw: string): string => {
   return Number.isFinite(n) ? String(n) : raw
 }
 
-/**
- * 排版字符换成键盘上的写法：弯撇号 ’ ‘ 换成 '，几种连字符和短横换成 -（BPA‑free、world’s first、isn’t）。
- * 一个字符换一个字符，下标不变，前后文仍取草稿原文。
- */
+/** 排版字符换成键盘上的写法（弯撇号换 '，各种连字符、短横换 -）；一个换一个，下标不变，前后文仍取草稿原文。 */
 const plain = (text: string): string => text.replace(/[’‘ʼ]/g, "'").replace(/[‐‑‒–—]/g, '-')
 
 /** {…} 占位符：只认同一行、40 字以内的，套着写的（{{price}}）由里往外剥。剥掉的位置补空白，下标不变。 */
