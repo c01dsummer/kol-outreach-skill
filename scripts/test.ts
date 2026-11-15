@@ -14900,8 +14900,13 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       '  spaced: number // 字段不入断言：   ',
       "  marked: '// 字段不入断言：字符串里的不算'",
       '  plain: number',
+      '  /**',
+      '   * 字段不入断言：',
+      '   *',
+      '   */',
+      '  starred: number',
       '}',
-      "export function waivers(): W { return { block: 1, spaced: 2, marked: '// 字段不入断言：字符串里的不算', plain: 3 } }",
+      "export function waivers(): W { return { block: 1, spaced: 2, marked: '// 字段不入断言：字符串里的不算', plain: 3, starred: 4 } }",
       'export function copied(): { cp: number } { return { cp: 1 } }',
       'export function mapped(): Map<string, { inMap: number }> { return new Map() }',
       'export function jsonMap(): Map<string, { viaJson: number }> { return new Map() }',
@@ -14910,6 +14915,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       '  return { onlySet: 1, onlyIdx: 2, bumped: 3, paren: 4, spread: 5, inObj: 6, looped: 7, inc: 8, inArr: 9, rest: {}, iter: [], asserted: 10, angle: 11 } }',
     ].join('\n'),
     'scripts/check/u.ts': "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const } }",
+    'scripts/check/t.ts': 'export function pair(): [{ value: number }, {}] { return [{ value: 1 }, {}] }',
     'scripts/check/g.ts': 'export function gOnly(): { gg: number } { return { gg: 1 } }',
     'scripts/check/h.ts': 'export function hz(): { other: number } { return { other: 1 } }',
     'scripts/check/k.ts': 'export function kOnly(): { kk: number } { return { kk: 1 } }\nexport function table(): Record<string, { tcp: number }> { return {} }',
@@ -15052,17 +15058,21 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：按名字兜底认不带扩展名的 import（照程序自己的解析）', moreOf('n.ts#nOnly.extless')?.used, true)
   eq('字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到',
     ['0', '1', 'lit', 'dlit'].map(k => moreOf(`m.ts#numeric.${k}`)?.used), [true, true, true, true])
-  eq('字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段',
-    ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined])
+  eq('字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段',
+    ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain', 'f.ts#W.starred'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined, ''])
 
   const moved = fieldToy(files => {
     files['scripts/check/a.ts'] = `export function first(): Row[] { return [] }\n${files['scripts/check/a.ts']}`
     files['scripts/check/u.ts'] = "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const, value: 2 } }"
+    files['scripts/check/t.ts'] = 'export function pair(): [{ value: number }, { value: number }] { return [{ value: 1 }, { value: 2 }] }'
   })
   ok('字段：多一个函数走到旧字段，旧字段的名字不变', toy.every(f => moved.some(g => g.key === f.key)))
   eq('字段闸门：推断出来的判别联合，给另一个成员也加上同名字段，按新增报',
     fieldVerdict(moved.filter(f => f.file === 'scripts/check/u.ts'), more.filter(f => f.file === 'scripts/check/u.ts').map(f => f.key)).fresh.map(f => f.key),
     ['scripts/check/u.ts#choose.{kind=b}.value'])
+  eq('字段闸门：无名元组的成员按位置各有名字，给另一个成员加同名字段，按新增报',
+    fieldVerdict(moved.filter(f => f.file === 'scripts/check/t.ts'), more.filter(f => f.file === 'scripts/check/t.ts').map(f => f.key)).fresh.map(f => f.key),
+    ['scripts/check/t.ts#pair.[1].value'])
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
   eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),

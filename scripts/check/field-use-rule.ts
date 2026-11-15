@@ -101,6 +101,7 @@ function writeOnly(ts: typeof Ts, e: Ts.Expression): boolean {
 function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declaration): string {
   const parts: string[] = []
   for (let n: Ts.Node | undefined = decl; n !== undefined && !ts.isSourceFile(n); n = n.parent) {
+    if (n.parent !== undefined && ts.isTupleTypeNode(n.parent)) parts.push(`[${n.parent.elements.indexOf(n as Ts.TypeNode)}]`) // 无名元组成员按位置分开
     if (ts.isObjectLiteralExpression(n)) {
       for (const m of n.properties) {
         if (m === decl || !ts.isPropertyAssignment(m) || !(ts.isIdentifier(m.name) || ts.isStringLiteral(m.name))) continue
@@ -141,7 +142,7 @@ function waiverOf(ts: typeof Ts, decl: Ts.Declaration): string | undefined {
   for (const r of comments) {
     const comment = text.slice(r.pos, r.end)
     const at = comment.indexOf(FIELD_WAIVER)
-    if (at >= 0) return comment.slice(at + FIELD_WAIVER.length).replace(/\*\/$/, '').trim()
+    if (at >= 0) return comment.slice(at + FIELD_WAIVER.length).replace(/\*\/$/, '').replace(/^\s*\*+/gm, '').trim()
   }
   return undefined
 }

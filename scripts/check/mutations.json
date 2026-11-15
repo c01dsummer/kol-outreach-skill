@@ -24623,7 +24623,7 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段"
+        "字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段"
       ]
     },
     {
@@ -24823,11 +24823,11 @@
       "req": "harness",
       "why": "理由不去首尾空白：只写了几个空格的豁免被当成有理由放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": ".replace(/\\*\\/$/, '').trim()",
-      "replace": ".replace(/\\*\\/$/, '')",
+      "find": ".replace(/^\\s*\\*+/gm, '').trim()",
+      "replace": ".replace(/^\\s*\\*+/gm, '')",
       "by": "test",
       "kills": [
-        "字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段"
+        "字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段"
       ]
     },
     {
@@ -25416,6 +25416,30 @@
       "by": "test",
       "kills": [
         "字段：返回类型是类型参数的按约束找字段；按约束类型读到的算，经实参字面量读到的不算（宁可多报红）"
+      ]
+    },
+    {
+      "id": "M-H198-dc",
+      "req": "harness",
+      "why": "无名元组的成员不按位置分开：给另一个成员加同名字段，被当成基线上已有的而放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    if (n.parent !== undefined && ts.isTupleTypeNode(n.parent)) parts.push(`[${n.parent.elements.indexOf(n as Ts.TypeNode)}]`) // 无名元组成员按位置分开\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段闸门：无名元组的成员按位置各有名字，给另一个成员加同名字段，按新增报"
+      ]
+    },
+    {
+      "id": "M-H198-dd",
+      "req": "harness",
+      "why": "多行注释行首的星号算进理由：只写了标记、没写理由的豁免被当成成立",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": ".replace(/^\\s*\\*+/gm, '')",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段"
       ]
     },
     {
