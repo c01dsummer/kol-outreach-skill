@@ -1,5 +1,5 @@
 /**
- * 零请求观察器的运行器（KOL-21）：认证外层断网、在认证过的沙箱里起真实入口、收证据、交给 `observer-rule.ts` 判。
+ * 零请求观察器的运行器：认证外层断网、在认证过的沙箱里起真实入口、收证据、交给 `observer-rule.ts` 判。
  *
  * 入口一律用参数数组起、不经 shell：`bwrap <布局> -- <node> --import <tsx 加载器> --import <observer-preload.ts> <入口> <参数>`。
  * 环境从空表起（`observerEnv`），不继承调用方的任何变量；沙箱的根是空的，只照搬系统目录、node 与仓库里入口要读的四样，

@@ -2621,7 +2621,7 @@ suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不
   }
 }
 })
-// KOL-21 D4a：D4.s 的独立认领（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
+// 独立黑盒测试包的 D4.s 认领：（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
 // 读不出而中止、没给 --ignore-memory），经接线（`scripts/independent-blackbox-tests-wiring.ts`，登了 GAP-24c）跑一遍；冻结用例自己按字节比
 // 运行前后的 memory/creators.json，这里只读回结论，不改断言、不改冻结字节。
 // 认领看字节比那一项，D4.s 说的就是它：它判 pass，而且这一例没有一项判红、设施故障或夹具失格。同一例里待语义复核、资格待定的项
@@ -2658,7 +2658,7 @@ await group('d4s-independent-claim', () => {
   } finally { scRmSync(root, { recursive: true, force: true }) }
   criterion('D4.s')
 })
-// KOL-21 D4b：D4.t 的独立认领（还 ADR-185 第 212 行；记录在 ADR-185 末尾）。冻结单 F 节是不读实现的作者照需求所有者的选择补的两例，
+// 独立黑盒测试包的 D4.t 认领：（还 ADR-185 第 212 行；记录在 ADR-185 末尾）。冻结单 F 节是不读实现的作者照需求所有者的选择补的两例，
 // 需求所有者逐字确认后嵌回：G3-19（空名单）与 G3-19N（F-G6 的两人），都是 render 加 --ignore-memory、记忆文件放一份结构不对的。
 // 经接线跑一遍，只读回冻结用例自己的结论，不改断言、不改冻结字节。
 // 两例各要三项判过：退出码（照 D4.f 出了名单、没中止）、MEM-READ（入口确实读过那份文件，字节比才不是空的）、字节比（D4.t 原文）；
@@ -8779,7 +8779,7 @@ ok('维护-GROUPS与调用顺序不一致不得放行', maintenanceThrows(() => 
 }
 
 {
-  // KOL-32 / ADR-120 第 74 行：维护报告按新增、删除、改配置分组，摘要在前、完整清单在后。
+  // ADR-120 第 74 行：维护报告按新增、删除、改配置分组，摘要在前、完整清单在后。
   // 对照夹具含三类变化、四种变化种类各至少一条（各种类条数互不相同）、一条完全没变的，外加一份验证者布局变化；
   // 另一份是全无变化。期望全部手写，不调报告去算期望。
   type ReportRoute = { id: string; by: string; only?: readonly string[]; executes: readonly string[] };
@@ -11569,8 +11569,8 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
-  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；KOL-21 加了零请求观察器的认证入口（自检组 observer-cert-entry 起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾 KOL-21 观察器一节）＋ anchors.ts（ADR-70 末尾「变异残留」第三片，自检组 anchor-residue-entry 起它），
+  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；零请求观察器那一片加了认证入口（自检组 observer-cert-entry 起它）。
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾零请求观察器那一节）＋ anchors.ts（ADR-70 末尾「变异残留」第三片，自检组 anchor-residue-entry 起它），
   // 按字符串排（adr < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
@@ -17673,7 +17673,7 @@ await group('u9-review-output', () => {
 
 })
 
-// KOL-21 R 片：U9 × P1 交点的独立认领（ADR-183 第 96 行；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
+// 独立黑盒测试包 R 片：U9 × P1 交点的独立认领（ADR-183 第 96 行；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
 // 这一组只用独立测试包里冻结了的粉丝三档用例 —— 排序函数层 G5-01…03、名单层 G6-01…03（真实 render 入口）—— 经接线
 // （`scripts/independent-blackbox-tests-wiring.ts`）跑一遍，冻结用例自己判，这里只读回结论，不改断言、不改冻结字节。
 // 判过的意思是那一例的结论是 pass、而且每一项都是 pass：附条件、待复核、不判、失格的都认不下。
@@ -20990,7 +20990,7 @@ await group('h-worker-output-reclaim', async () => {
   }
 })
 
-// ---- 零请求观察器（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）：判定、预加载、运行器各一组 ----
+// ---- 零请求观察器（ADR-70 末尾讲零请求观察器与外层断网的那一节）：判定、预加载、运行器各一组 ----
 // 期望值照那一节「对作者公开的协议」与下面手写的事实推，没有拿观察器跑出来的东西回填
 await group('h-observer-rule', () => {
   harness('零请求观察器的判定：响应脚本、事件读回、一次观察归哪一档、零请求四档、断网认证、白名单环境与沙箱参数')

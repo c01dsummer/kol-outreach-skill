@@ -281,3 +281,5 @@ D13.v / D13.w 的现行全文在 `docs/requirements.json`；两条合起来承�
 本记录第 221、223、225 行（C、D、F，行号按 `ada3b96`）不由本块还上，原欠条与重启条件不变。
 
 **同步范围。** 本普通变更涉及 `docs/requirements.json`、由工具生成的 `docs/SPEC.md` 与 content_hash、本块、`scripts/test.ts`、`scripts/check/mutations.json`；`scripts/check/launches.json` 由执行方在跑过完整 `npm run mutate` 的树上以 `npm run launches -- --write` 写回。标题不变、不新增 ADR 索引行；头部已有历史指针保持，未另加指针，因为本块可按时间线在末尾读取。按 `docs/SYNC.md` 逐项核对，`skill/` 的新建缺席明示与已确认预算不重复问、`README.md` 的红线与续跑总上限、`docs/ARCHITECTURE.md` 的 stdout/stderr 分工及写盘/请求契约、SPEC 两节手写内容、`docs/CONVENTIONS.md` 第 7 条均没有相反承诺。ADR-03 的超限续跑与 ADR-108 的缺席默认及已确认新账契约未被本次拆分或补清推翻，不重复追加更正；C 保留独立去向。完整检查链与启动数写回的实际结果由执行方完成后记录，不以测试认领记录预报全套验证通过。
+
+> ⚠️ 更正（2026-11-15）：本条第 120、193、272 行那几张欠条的重启条件里写的是外部任务工具的工单号，要知道响没响得去仓库外查。换成仓库里能核的说法、照主干写明的现状，见 ADR-204 第三节；号在仓库里指的是哪件事，见 ADR-204 第二节的对照表。本块只换说法，不改那几张的状态。

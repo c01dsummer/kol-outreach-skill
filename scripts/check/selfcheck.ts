@@ -3830,14 +3830,14 @@ group('refunded-402-not-recorded-paid', [], () => {
   }
 })
 
-// ---- KOL-105：profile 补全阶段遇 TikHub 402 立即停，以 stopped=error 收尾（退出码原为 1，ADR-193 起为 5） ----
+// ---- profile 补全阶段遇 TikHub 402 立即停，以 stopped=error 收尾（退出码原为 1，ADR-193 起为 5） ----
 group('profile-402-stop', [], () => {
   // 改前（主干 0917a2f 实测，与卡片「复现步骤与实测结果」一致）：profile 端点回 402 时只计作那个人补全失败，
   // 接着为其余待补的人照发请求，收尾仍是 done／target、退 0。先于修补写成，看过它对着未修的代码红。
   //
   // 期待值的出处（没读 collect.ts 补全函数与 main 的函数体，也没把实现打印的值抄进来）：
   //  · skill/references/providers/tikhub.md「错误处理」402 那一行：「**停止**，告诉用户去充值，不要重试」。
-  //    KOL-105 卡片「修复范围」定修法：profile 补全阶段的 402 与搜索阶段同一种收尾 —— stdout 照常有汇总 JSON，
+  //    修法照需求所有者定的修复范围（D6.ab）：profile 补全阶段的 402 与搜索阶段同一种收尾 —— stdout 照常有汇总 JSON，
   //    `stopped` 为 `error`、`error` 为 402 的提示、退出码 1；第一个 402 之后不再发任何请求（同一人的 IG V2 降级、
   //    其余待补的人都不发）；非 402 的单人失败照旧计数、接着补其余的人，不扩大成「任何错误都停」。
   //  · 402 的提示原文是 scripts/providers/tikhub.ts 遇 402 抛出的那一句（卡片「代码位置」转述）；卡片「其余 402
@@ -4039,11 +4039,11 @@ group('profile-402-stop', [], () => {
       mix.sum?.profile_failed === 1, how(mix))
     named('profile 补全先 404 后 402 收尾时，续跑提示把 404 那人、402 那人与之后没请求的人都算作待补 profile',
       pending(mix, 3), `应说还有 3 个人的 profile、且不说续跑不产生新的请求；stderr 末几行 ${stderrTail(mix.stderr)}`)
-    // KOL-108 第 1 条：补全循环被 402 打断时，「N 人补全失败」那一行也照打，与汇总的 profile_failed 对得上
+    // 402 收尾修复第 1 件：补全循环被 402 打断时，「N 人补全失败」那一行也照打，与汇总的 profile_failed 对得上
     named('collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上',
       /1 人补全失败/.test(mix.stderr) && mix.sum?.profile_failed === 1, `stderr 末几行 ${stderrTail(mix.stderr)}`)
   }
-  // ⑨ KOL-108 卡 11-01 追加段：补 profile 的单人 catch 重抛费用错误（CostError）时，「N 人补全失败」那一行也照打。
+  // ⑨ 402 收尾修复 11-01 追加的那一段：补 profile 的单人 catch 重抛费用错误（CostError）时，「N 人补全失败」那一行也照打。
   // 造法：TikTok profile 每一次都回 404（三人逐个失败），再用测试观察的保存失败注入（kol-test-observer/v1，
   // skill/references/output-format.md「测试观察用的记录文件与保存失败注入」）让第 K 次预留保存（保存点 SP-R）失败 ——
   // 预算把它记成保存费用失败、以费用错误抛出，正落在补 profile 那一处单人 catch 的重抛那一支。
@@ -10771,7 +10771,7 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
     fileText(join(late.taskDir, 'creators.json')) === lateList && fileText(join(late.taskDir, manualName)) === lateManual &&
     fileText(join(late.taskDir, agentName)) === lateAgent && isDeepStrictEqual(jsonFile(join(late.taskDir, agentName))?.rounds, lateRounds) &&
     !existsSync(join(late.taskDir, 'kol.csv')) && !existsSync(join(late.cwd, 'memory', 'creators.json')), '已付费证据丢失或冲突仍交付')
-  // KOL-108 第 2 条：收尾投影抛评审输入错误（退 2）时，stdout 不出汇总（ADR-193 第一节）
+  // 402 收尾修复第 2 件：收尾投影抛评审输入错误（退 2）时，stdout 不出汇总（ADR-193 第一节）
   named('collect 收尾投影发现评审输入冲突以退出码 2 结束，stdout 不出汇总',
     lr.ok && lr.status === 2 && lr.stdout.trim() === '', `退出=${lr.status}，stdout=${lr.stdout.slice(0, 200)}`)
 
@@ -10792,7 +10792,7 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
   reviewCliEntryCompleted.exit = true
 })
 
-// KOL-108 第 2 条：收尾那一路（冻结候选、投影、保存评审正本、写名单）抛出时不出汇总，退出码按评审输入 2、
+// 402 收尾修复第 2 件：收尾那一路（冻结候选、投影、保存评审正本、写名单）抛出时不出汇总，退出码按评审输入 2、
 // 保存失败 6 分（ADR-193 第一节）。上一组的只读正本在开跑前那次保存就失败；这里让开跑前没有可存的变化
 // （正本已冻着名单里的人），只有收尾冻结累加器里多出来的那人时才真去写，失败才落在收尾。
 group('review-cli-entry-collect-wrapup', ['review-cli-entry-positive'], () => {
@@ -12084,7 +12084,7 @@ group('sender-entry', [], () => {
   criterion('D30.h')
 })
 
-// ---- 零请求观察器的认证入口（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）----
+// ---- 零请求观察器的认证入口（ADR-70 末尾讲零请求观察器与外层断网的那一节）----
 // 在临时目录里真起一遍认证入口，验的是接线：跑得完，汇总与退出码对得上，列出的证据都在、SHA256 对得上。这一跑**不是认证**。
 // 断网起不起得来随机器：另起一个最小的 bwrap 断网问一句，起得来就要认证成立、逐项成立；起不来就要认证不成立、
 // 一个入口也不起、以 1 退出 —— 两种都判，不跳过。期望的项数照认证入口的设计手数：断网 1、四个入口各两条、设施故障 10
