@@ -54,13 +54,14 @@ import {
   type Ran, type CostBaseline, type CostCombination, type CostIdentity, type CostMutation,
   BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines,
   configurationCost, configurationCostLines, configurationKey, costObservation,
-  groupShot, handNext, hardStopPlan, jobsRunDir, jobsWanted, missingVerdicts, shardOf, shardWanted,
+  groupShot, handNext, hardStopPlan, jobsRunDir, jobsWanted, missingVerdicts, shardKey, shardOf, shardWanted,
   noStdio, ownGroup, reportLine, staleRunDirs, verifierBill, workerCopyList, workerLine,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
+import { SHARD_WEIGHTS_FILE, pileWeigher, readWeights, type ShardWeights } from './shard-load-rule.js'
 import { asTsx, prebuildOne, prebuiltCommand } from './prebuilt.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import {
@@ -977,9 +978,18 @@ if (shard === undefined) {
     '  跑整份请把它去掉，不要写一个读不出来的值；未施加任何变异。')
 }
 // 同一种子集配置的整摞落在同一份里（ADR-200），这一份只跑自己那几种配置的基线；整跑的没有子集基线，各自成一摞
-const mine = shardOf(muts, m => { const only = onlyFor(m); return only === undefined ? undefined : JSON.stringify([m.by, [...only].sort()]) },
-  shard.index, shard.count)
+// 按实测秒数分（ADR-203）：每摞的秒数取 `shard-weights.json`，与负载闸门（`npm run shard-load`）量的是同一个分法。
+// 只分一份时用不着秒数，也就不读那个文件；要分时读不出来就不跑 —— 不拿一个猜的数分
 const sharded = shard.count > 1
+let weights: ShardWeights | undefined
+if (sharded) {
+  let read: ReturnType<typeof readWeights>
+  try { read = readWeights(JSON.parse(readFileSync(SHARD_WEIGHTS_FILE, 'utf8'))) } catch (e) { read = { fault: e instanceof Error ? e.message : String(e) } }
+  if ('fault' in read) exitWith(1, `✗ 变异测试：要分份却读不出 ${SHARD_WEIGHTS_FILE}（${read.fault}）\n`, '  未施加任何变异。')
+  else weights = read.weights
+}
+const mine = shardOf(muts, m => shardKey(m.by, onlyFor(m)),
+  weights === undefined ? (_key, pile) => pile.length : pileWeigher(weights), shard.index, shard.count)
 const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), mine.length)
 if (jobs === undefined) {
   exitWith(1, '✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n',
