@@ -179,17 +179,17 @@ const SENTENCE_END = new RegExp(`${NOT_ABBREV}[.;!?]+(?=\\s|$)|\\n`, 'gu')
  */
 const HYPHEN_START = '\u0001'
 function fold(text: string): string {
+  const lower = text.toLowerCase()   // 下标都在小写后的串上取（İ 小写后会多一位）
   let out = ' ', end = -1
-  for (const t of text.toLowerCase().matchAll(/\p{L}+|\p{N}+/gu)) {
-    if (end >= 0) out += /^[^\s]*-[^\s]*$/.test(text.slice(end, t.index)) && t.index > end ? HYPHEN_START : ' '
-    out += t[0].length > 3 && /^\p{L}/u.test(t[0]) ? t[0].replace(/(?<!s)s$/, '') : t[0]
+  for (const t of lower.matchAll(/\p{L}+|\p{N}+/gu)) {
+    if (end >= 0) out += /^[^\s]*-[^\s]*$/.test(lower.slice(end, t.index)) ? HYPHEN_START : ' '
+    out += t[0].length > 3 ? t[0].replace(/(?<!s)s$/, '') : t[0]
     end = t.index + t[0].length
   }
   return out + ' '
 }
-/** 资料那一句（带 \u0001 记号）里有没有草稿那一句：整段出现，且开头那个词不是紧跟在连字符后面。 */
-function contains(source: string, draft: string): boolean {
-  const plain = source.replaceAll(HYPHEN_START, ' ')
+/** 资料那一句（带 \u0001 记号的 source，与去掉记号的 plain）里有没有草稿那一句：整段出现，且开头那个词不是紧跟在连字符后面。 */
+function contains(source: string, plain: string, draft: string): boolean {
   for (let at = plain.indexOf(draft); at >= 0; at = plain.indexOf(draft, at + 1)) if (source[at] !== HYPHEN_START) return true
   return false
 }
@@ -197,8 +197,10 @@ function contains(source: string, draft: string): boolean {
 const NOT_WHO = /^(?:our|your|their|its|it|it's|this|that|these|those|we|we're|you|you're|they|they're|i|i'm|is|are|was|were|be|been|being|has|have|had|and|or|but|with|for|of|to|in|on|at|as|the|a|an|by|so|also|both|all|every|each|fully|totally|highly|now|just|still|once|my|hi|hey|plus|not|if|when|get|gets|got|i've|we've|you've|they've|i'd|we'd|you'd|would|could|should|can|can't|cannot|will|really|definitely|strongly|personally|she|he|who|which)$/i
 /** 认证词后面、by 后面紧跟的这些词说的是收信人（approved by you、Sarah recommended you）；Vets recommend it 照核。 */
 const PRONOUN = /^(?:you|your|yours|me|my)$/i
-/** by、with、to 后面是这些词时说的是收信人或我们自己（approved by our team、cleared with us、recommended to anyone）。 */
-const BY_US = /^(?:you|your|yours|me|my|us|our|ours|their|them|anyone|everyone)$/i
+/** by、with、to 后面是这些小写的词时说的是收信人或我们自己（approved by us、recommended to anyone）；大写的 US 是美国，照核。 */
+const BY_US = /^(?:you|your|yours|me|my|us|anyone|everyone)$/
+/** by 我们或他们的团队（approved by our legal team、cleared with their brand team）说的是合作流程；by our doctors、by their health agency 照核。 */
+const OUR_TEAM = /^(?:\s[\p{L}-]+){0,3}\s(?:by|with|to)\s(?:our|their)\s(?:[\p{L}-]+\s)?(?:team|staff|legal|marketing|brand|editors?|managers?)\b/iu
 /** 主语是这些时说的是自己做的事（I tested Whirl Go、we cleared Friday），不是认证。 */
 const SUBJECT = /^(?:i|we|you|they|he|she|i've|we've|you've|they've|i'd|we'd|you'd|i'll|we'll|you'll)$/i
 const WORD = String.raw`[\p{L}\d](?:[\p{L}\d'®™-]|\.(?=[\p{L}\d]))*`
@@ -215,7 +217,7 @@ function endorsing(before: string, after: string): boolean {
   if (left !== undefined && (!NOT_WHO.test(left) || /^\p{Lu}{2,}$/u.test(left))) return true
   if (/^\s?[:(]/u.test(after)) return true
   const by = BY.exec(after)
-  if (by !== null) return !BY_US.test(by[1] ?? by[2])
+  if (by !== null) return !BY_US.test(by[1] ?? by[2]) && !OUR_TEAM.test(after)
   return next !== undefined && /^\p{Lu}/u.test(next) && !(left !== undefined && SUBJECT.test(left))
 }
 /** 一段文字里每一句的起止（按 SENTENCE_END 切，一遍走完）；认证词所在的那一句用二分查找取。 */
@@ -407,7 +409,7 @@ const scaled = (raw: string, suffix: string | undefined): string => {
 interface Source {
   keys: ReadonlySet<string>; values: ReadonlyMap<string, ReadonlySet<string>>; clauses: readonly string[]
   /** 与 clauses 一一对应：认证类比对用的折法，和这一句是否不能给认证类作保（否定、还没拿到、说别家）。 */
-  folded: readonly string[]; notForEndorsed: readonly boolean[]
+  folded: readonly string[]; plainFolded: readonly string[]; notForEndorsed: readonly boolean[]
 }
 
 function sourceOf(texts: readonly string[]): Source {
@@ -428,8 +430,9 @@ function sourceOf(texts: readonly string[]): Source {
   const clauses = texts.flatMap(t => noQuestions(placeholders(plain(t)).rest).split(CLAUSE_END))
     .filter(s => s.trim() !== '')
   const folded = clauses.map(fold)
+  const plainFolded = folded.map(f => f.replaceAll(HYPHEN_START, ' '))
   const notForEndorsed = clauses.map(c => { const rest = withoutPromises(c); return NEGATION.test(rest) || NOT_YET.test(rest) })
-  return { keys, values, clauses, folded, notForEndorsed }
+  return { keys, values, clauses, folded, plainFolded, notForEndorsed }
 }
 
 /**
@@ -441,7 +444,7 @@ function sourceOf(texts: readonly string[]): Source {
  */
 function sourced(claim: Claim, source: Source): boolean {
   const folded = claim.folded
-  if (folded !== undefined) return folded.trim() !== '' && source.folded.some((f, i) => !source.notForEndorsed[i] && contains(f, folded))
+  if (folded !== undefined) return folded.trim() !== '' && source.folded.some((f, i) => !source.notForEndorsed[i] && contains(f, source.plainFolded[i], folded))
   if (claim.stem !== undefined) {
     const stem = claim.stem
     return source.clauses.some(clause => {

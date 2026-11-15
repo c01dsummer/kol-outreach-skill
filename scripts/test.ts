@@ -1148,6 +1148,12 @@ suite('P2', '开发信草稿里带认证说法的那一句要在产品资料里�
     ['数与单位、字母与数字贴写分写都算同一句，句里的数不同就对不上', 'FDA approved 400 mL jar. IPX-7 certified. FDA approved 500 mL jar.',
       ['FDA approved 400ml jar.', 'IPX7 certified.'], [], ['FDA approved 500 mL jar', '500 mL'], []],
     ['资料按句判否定：同一条资料里另一句不带否定，也不给被否定的那句作保', 'CE certified.', ['Not CE certified. FDA approved.'], [], ['CE certified'], []],
+    ['by 后面大写的 US 是美国、our 后面跟第三方的照核；by our legal team 这类合作流程不核', 'It is approved by US regulators. Approved by our doctors. Approved by their national health agency. Content is approved by our legal team before it goes live. Cleared with their brand team.',
+      ['x'], [], ['It is approved by US regulators', 'Approved by our doctors', 'Approved by their national health agency'], []],
+    ['资料一句里同一段出现两次时，有一处不是紧跟连字符就对上；İ 这类字母不让连字符记号错位', 'Certified to CE standards. Approved by the FDA.',
+      ['Self-certified to CE standards and Certified to CE standards.', 'İstanbul Pre-approved by the FDA.'], [], ['Approved by the FDA'], []],
+    ['超长句截头尾按字符切，表情不切成半个', 'FDA approved ' + '😀'.repeat(600) + '.', ['x'], [],
+      [Array.from('FDA approved ' + '😀'.repeat(600)).slice(0, 360).join('') + '…' + Array.from('😀'.repeat(600)).slice(-100).join('')], []],
     ['说的是收信人或自己做的事不算认证说法', 'I tested Whirl Go myself. Sarah recommended you. Content is approved by you before posting. We cleared Friday for a call.', ['x'], [], [], []],
   ]
   const texts = (draft: string, facts: string[], posts: string[]) => {
