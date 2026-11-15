@@ -18348,6 +18348,26 @@
       "kills": ["准入读物入口那一份：只抄指到源目录的 import 原文，按原先后，末尾 export {}"]
     },
     {
+      "id": "M-H202-br",
+      "req": "harness",
+      "why": "入口那一份连 import 上方与行尾的注释一起抄 —— 注释里写的实现细节随它进了包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": ".map(d => d.getText(file))",
+      "replace": ".map(d => d.getFullText(file).trim())",
+      "by": "test",
+      "kills": ["准入读物入口那一份：import 上方与行尾的注释不随它进包，只抄 import 语句本身"]
+    },
+    {
+      "id": "M-H202-bs",
+      "req": "harness",
+      "why": "名字以 scripts 结尾的别的目录也当入口所在 —— 指到 xscripts/ 的命令被收成本仓库的入口",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "(?<![\\w./-])scripts",
+      "replace": "(?<![./-])scripts",
+      "by": "test",
+      "kills": ["准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
@@ -22806,6 +22826,16 @@
       "kills": [
         "独立黑盒测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格"
       ]
+    },
+    {
+      "id": "M-D13-ai",
+      "req": "D13.u",
+      "why": "collect 以 --config 新建任务时把 --budget 与默认 $2（或配置里的上限）取大 —— 用户给的比默认小的总预算被无视，照默认花钱",
+      "file": "scripts/collect.ts",
+      "find": "    if (replacementLimit !== undefined) freshLimit = replacementLimit\n",
+      "replace": "    if (replacementLimit !== undefined) freshLimit = replacementLimit > freshLimit ? replacementLimit : freshLimit\n",
+      "by": "selfcheck",
+      "kills": ["新建任务的 --budget 比默认 $2 小时就是总上限，不打默认说明"]
     },
     {
       "id": "M-D13-ah",

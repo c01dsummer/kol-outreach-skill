@@ -1040,6 +1040,21 @@ group('cost-input', [], () => {
         && /默认/.test(result.stderr) && /任务|进程/.test(result.stderr) && fetchAttempts(log).length > 0,
       `${entry}: ${result.stdout}\n${result.stderr}`)
   }
+  // 新建任务给了 --budget 就是总上限本身，比默认 $2 小也一样 —— 不与默认取大（ADR-208 复核 B1：只用比默认大的值验分不出「替换」与「取大」）
+  {
+    const cwd = join(tmp, 'small-budget-collect')
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
+    writeFileSync(cfg, JSON.stringify({ product: 'smallbudget', market: 'US', target_count: 1,
+      tasks: [{ keyword: 'small', dimension: 'category', platform: 'tiktok' }] }))
+    const result = runBoth('collect 新建任务给了比默认小的 --budget', [S('collect.ts'), '--config', cfg, '--budget', '0.003'],
+      cwd, { status: 3, soft: [0, 4] }, costEnv(log))
+    if (result.ok) named('新建任务的 --budget 比默认 $2 小时就是总上限，不打默认说明',
+      costViewMatches(summaryOf(result.stdout), { budget_usd: 0.003, cost_scope: 'task', cost_status: 'known' })
+        && !/默认/.test(result.stderr) && fetchAttempts(log).length > 0,
+      `${result.stdout}\n${result.stderr}`)
+    criterion('D13.u')
+  }
 
   // 只给这两个子进程固定时间，保证同配置得到同一目录名。没有修改系统时钟。
   const collision = join(tmp, 'cost-collision')
@@ -7697,7 +7712,8 @@ group('admission-entry', [], () => {
   writeFileSync(join(entryTree, 'scripts', 'run.ts'), `import { f } from '${libSpec}'\nimport { tool } from '${checkSpec}'\n`
     + 'const answer = f(1) + tool()\nconsole.log(answer)\n', 'utf8')
   writeFileSync(join(entryTree, 'package.json'), JSON.stringify({ scripts: {
-    run: 'tsx scripts/run.ts', test: 'tsx scripts/test.ts', tool: 'tsx scripts/check/tool.ts' } }), 'utf8')
+    run: 'tsx scripts/run.ts', also: 'tsx scripts/also.ts', test: 'tsx scripts/test.ts', tool: 'tsx scripts/check/tool.ts' } }), 'utf8')
+  writeFileSync(join(entryTree, 'scripts', 'also.ts'), `import { f } from '${libSpec}'\nf(2)\n`, 'utf8')
   const entryPkg = join(tmp, 'admission-pkg-entry')
   const withEntry = runToolBoth('admission 有入口脚本的树出包即以退出码 0 结束', 'admission', ['P1', entryPkg], entryTree)
   if (withEntry.ok) {
@@ -7707,12 +7723,12 @@ group('admission-entry', [], () => {
       sheet.includes(`import { f } from '${libSpec}'`) && !sheet.includes(checkSpec) && !sheet.includes('answer') && !sheet.includes('console'),
       sheet || listing(entryPkg).join('\n'))
     named('admission 只给命令指到的入口出那一份：scripts/entry.ts 不在命令里、scripts/test.ts 与检查链不算',
-      isDeepStrictEqual(listing(join(entryPkg, '02-签名', 'scripts')).filter(p => !p.startsWith('lib/') && !p.startsWith('providers/')), ['run.d.ts']),
+      isDeepStrictEqual(listing(join(entryPkg, '02-签名', 'scripts')).filter(p => !p.startsWith('lib/') && !p.startsWith('providers/')), ['also.d.ts', 'run.d.ts']),
       listing(join(entryPkg, '02-签名', 'scripts')).join('\n'))
     const entryOut = withEntry.stdout.split('\n').filter(l => l !== '')
-    named('admission 末行汇总里单列入口的个数', (entryOut[entryOut.length - 1] ?? '').includes('签名 3 · 入口 1 · 对外文档 2'), withEntry.stdout)
+    named('admission 末行汇总里单列入口的个数', (entryOut[entryOut.length - 1] ?? '').includes('签名 3 · 入口 2 · 对外文档 2'), withEntry.stdout)
     const entryManifest = existsSync(join(entryPkg, '00-清单.md')) ? readFileSync(join(entryPkg, '00-清单.md'), 'utf8') : ''
-    named('admission 清单列出入口那一份、说它只有 import', entryManifest.includes('| `02-签名/scripts/run.d.ts` |') && entryManifest.includes('入口脚本'),
+    named('admission 清单列出入口那一份、说它只有 import', entryManifest.includes('| `02-签名/scripts/run.d.ts` |') && entryManifest.includes('| `02-签名/scripts/also.d.ts` |') && entryManifest.includes('入口脚本'),
       entryManifest)
   }
   // 命令指到不存在的入口：不出包、以 2 退出、点出是哪一个
