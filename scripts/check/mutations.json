@@ -11044,7 +11044,7 @@
       "why": "拒绝坏任务之前已经把当前名单写入跨任务推荐记忆",
       "file": "scripts/render.ts",
       "find": "if (badTasks.length) {",
-      "replace": "if (badTasks.length) {\n  recordRecommendations(loadCreators(dir), state.product, taskId(dir))",
+      "replace": "if (badTasks.length) {\n  recordRecommendations((await import('./lib/task.js')).loadCreators(dir), state.product, taskId(dir))",
       "by": "selfcheck",
       "kills": [
         "render 输入：坏任务不改任何已有文件，也不创建名单交付物或记忆"
