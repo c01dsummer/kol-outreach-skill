@@ -14832,7 +14832,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function withToJSON(): { hidden: number; toJSON(): Shown } { return { hidden: 1, toJSON() { return { shown: 2 } } } }',
       'export function withSym(): { plain: number; [Symbol.iterator]: number } { return { plain: 1, [Symbol.iterator]: 2 } }',
       'export function filtered(): { kept: number; dropped: number } { return { kept: 1, dropped: 2 } }',
-      'export function nulled(): { spaced: number } { return { spaced: 1 } }',
+      'export function nulled(): { spaced: number } | undefined { return { spaced: 1 } }',
       'export function undef(): { spaced2: number } { return { spaced2: 1 } }',
       'export function crossed(): { hidden2: number } & { toJSON(): {} } { return { hidden2: 1, toJSON: () => ({}) } }',
       'export function crossedDeep(): { deep2: number } & { toJSON(): {} } { return { deep2: 1, toJSON: () => ({}) } }',
@@ -14850,6 +14850,11 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function withFn12(): { fn12: Fn12 } { return { fn12: Object.assign(() => {}, { added12: 1 }) } }',
       'export class Proto13 { own13 = 1; get added13() { return 1 } method13() { return 2 } }',
       'export function protoed(): Proto13 { return new Proto13() }',
+      'export interface Fn14 { (): void; added14: number }',
+      'export function fnList(): Fn14[] { return [] }',
+      'export interface Ctor15 { new (): object; added15: number }',
+      'export function ctorList(): Ctor15[] { return [] }',
+      'export function iter(): IteratorResult<{ inIter: number }> { return { done: true, value: undefined } }',
       'export interface Wire8 { other8: number }',
       'export function wire8(): Wire8 { return { other8: 0 } }',
       'export interface Inner8 { kept8: number; child8?: Inner8; toJSON(): Wire8 }',
@@ -14887,7 +14892,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'const crossedJs = JSON.stringify(mm.crossed()); deepStrictEqual(mm.crossedDeep(), {})',
       "const kc = 'viaConst' as const; const ku = (kc.length > 3 ? 'viaU1' : 'viaU2') as 'viaU1' | 'viaU2'; const kn = 7 as const; const kd = mm.keyed()",
       "const keyedV = [kd[kc], kd[ku], kd[mm.symKey], kd[kn], mm.maybe()?.['viaOpt'], mm.maybe()?.[kc.length > 0 ? 'viaOpt2' : 'viaOpt2']]",
-      'const selfJs = JSON.stringify(mm.selfJson()) + JSON.stringify(mm.chained()) + JSON.stringify(mm.firstThen()) + JSON.stringify(mm.wrapFirst()) + JSON.stringify(mm.withFn()) + JSON.stringify(mm.selfChild()) + JSON.stringify(mm.withFn9()) + JSON.stringify(mm.arrPlus()); deepStrictEqual(mm.arrPlusDeep(), Object.assign([1], { added11: 2 })); const r12 = mm.withFn12(); deepStrictEqual(r12, { fn12: r12.fn12 }); const p13 = JSON.stringify(mm.protoed()); deepStrictEqual(mm.protoed(), new mm.Proto13()); deepStrictEqual(mm.weak(), new WeakMap()); deepStrictEqual(mm.promised(), Promise.resolve({}))',
+      'const selfJs = JSON.stringify(mm.selfJson()) + JSON.stringify(mm.chained()) + JSON.stringify(mm.firstThen()) + JSON.stringify(mm.wrapFirst()) + JSON.stringify(mm.withFn()) + JSON.stringify(mm.selfChild()) + JSON.stringify(mm.withFn9()) + JSON.stringify(mm.arrPlus()); deepStrictEqual(mm.arrPlusDeep(), Object.assign([1], { added11: 2 })); JSON.stringify(mm.fnList()); JSON.stringify(mm.ctorList()); JSON.stringify(mm.iter()); const r12 = mm.withFn12(); deepStrictEqual(r12, { fn12: r12.fn12 }); const p13 = JSON.stringify(mm.protoed()); deepStrictEqual(mm.protoed(), new mm.Proto13()); deepStrictEqual(mm.weak(), new WeakMap()); deepStrictEqual(mm.promised(), Promise.resolve({}))',
       'let ga = 0; let srcB = 0; ({ srcA: ga, srcB } = mm.assigned())',
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
@@ -14917,7 +14922,10 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算',
     ['f.ts#Base.kept', 'f.ts#Base.renamedR', 'f.ts#CU.{kind=b}.cb', 'f.ts#CU.{kind=a}.ca', 'f.ts#Base.hiddenR'].map(k => moreOf(k)?.used), [true, true, true, false, false])
   eq('字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认', ['f.ts#copied.cp', 'g.ts#gOnly.gg', 'k.ts#kOnly.kk'].map(k => moreOf(k)?.used), [true, true, true])
-  eq('字段：整体比对穿过 Map 取里面的字段只认 deepStrictEqual；JSON 那一路把 Map 写成 {}，里面的不算', [moreOf('f.ts#mapped.inMap')?.used, moreOf('f.ts#jsonMap.viaJson')?.used], [true, false])
+  eq('字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算',
+    ['f.ts#mapped.inMap', 'f.ts#jsonMap.viaJson', 'm.ts#withToJSON.hidden', 'm.ts#Shown.shown', 'm.ts#withToJSON.toJSON', 'm.ts#withSym.[Symbol.iterator]', 'm.ts#filtered.dropped', 'm.ts#crossed.hidden2', 'm.ts#crossedDeep.deep2', 'm.ts#Self.kept3', 'm.ts#Inner.kept4', 'm.ts#chained.nested4', 'm.ts#In5.kept5', 'm.ts#In6.kept6', 'm.ts#Wire8.other8', 'm.ts#weak.weakVal', 'm.ts#promised.pendingVal', 'm.ts#withFn.fn7', 'm.ts#Fn7.added7', 'm.ts#withFn9.fn9', 'm.ts#Fn9.added9', 'm.ts#arrPlus.added10', 'm.ts#arrPlusDeep.added11', 'm.ts#Fn12.added12', 'm.ts#Proto13.own13', 'm.ts#Proto13.added13', 'm.ts#Proto13.method13', 'm.ts#Fn14.added14', 'm.ts#Ctor15.added15', 'm.ts#iter.inIter', 'm.ts#withSym.plain', 'm.ts#nulled.spaced', 'm.ts#undef.spaced2', 'm.ts#withFn12.fn12'].map(k => moreOf(k)?.used), [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, true, true, true])
+  eq('字段：解构赋值的键读的是右边的字段（含改名），没解构的不算',
+    ['assigned.srcA', 'assigned.srcB', 'assigned.srcC'].map(k => moreOf(`m.ts#${k}`)?.used), [true, true, false])
   eq('字段：按名字兜底只认重抄的那份类型，本文件别的同名属性不算', moreOf('h.ts#hz.other')?.used, false)
   eq('字段：按名字兜底时重抄的类型也穿过索引签名（Record 里的字段）', moreOf('k.ts#table.tcp')?.used, true)
   eq('字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]',
@@ -14941,22 +14949,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：推断出来的判别值带分隔符时同样写成带引号的一段',
     more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#oddInferred.') && f.key.endsWith('.y')).map(f => f.key).sort(),
     ['scripts/check/m.ts#oddInferred.{kind="a}.z.{kind=b"}.y', 'scripts/check/m.ts#oddInferred.{kind=a}.z.{kind=b}.y'])
-  eq('字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算',
-    ['withToJSON.hidden', 'Shown.shown', 'withSym.plain', 'withSym.[Symbol.iterator]', 'filtered.dropped', 'nulled.spaced', 'undef.spaced2'].map(k => moreOf(`m.ts#${k}`)?.used),
-    [false, true, true, false, false, true, true])
-  eq('字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性',
-    ['crossed.hidden2', 'crossedDeep.deep2'].map(k => moreOf(`m.ts#${k}`)?.used), [false, true])
   eq('字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算',
     ['keyed.viaConst', 'keyed.viaU1', 'keyed.viaU2', 'keyed.[symKey]', 'keyed.7', 'keyed.viaNot', 'maybe.viaOpt', 'maybe.viaOpt2'].map(k => moreOf(`m.ts#${k}`)?.used),
     [true, true, true, true, true, false, true, true])
-  eq('字段：toJSON 返回自己的照常序列化；WeakMap 这类弱引用容器深比较也进不去；解构赋值的键读的是右边的字段（含改名），没解构的不算',
-    ['Self.kept3', 'weak.weakVal', 'assigned.srcA', 'assigned.srcB', 'assigned.srcC'].map(k => moreOf(`m.ts#${k}`)?.used), [true, false, true, true, false])
-  eq('字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算',
-    ['In5.kept5', 'In6.kept6', 'Wire8.other8', 'withToJSON.toJSON', 'withFn.fn7', 'Fn7.added7', 'withFn9.fn9', 'Fn9.added9', 'arrPlus.added10', 'arrPlusDeep.added11', 'withFn12.fn12', 'Fn12.added12', 'Proto13.own13', 'Proto13.added13', 'Proto13.method13'].map(k => moreOf(`m.ts#${k}`)?.used), [true, true, true, true, true, false, true, false, false, true, true, false, true, false, false])
-  eq('字段：深比较不进 WeakMap 这类弱引用容器，也不等 Promise 兑现',
-    ['weak.weakVal', 'promised.pendingVal'].map(k => moreOf(`m.ts#${k}`)?.used), [false, false])
-  eq('字段：同一位置只换一次 toJSON —— 换来的值自己的 toJSON 不再调用，照原样序列化',
-    ['Inner.kept4', 'chained.nested4'].map(k => moreOf(`m.ts#${k}`)?.used), [true, false])
   eq('字段：按名字兜底认不带扩展名的 import（照程序自己的解析）', moreOf('n.ts#nOnly.extless')?.used, true)
   eq('字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到',
     ['0', '1', 'lit', 'dlit'].map(k => moreOf(`m.ts#numeric.${k}`)?.used), [true, true, true, true])

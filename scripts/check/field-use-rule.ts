@@ -243,24 +243,22 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         if (copied.has(d)) names.add(s!.name)
       }
     }
-    // entries：比对时会不会进到 Map/Set/Promise 这类库泛型里面。只有 deepStrictEqual 会；
-    // eq、assert、stringify 与规整函数走 JSON 那一路，Map/Set 成了 {}，里面的字段没被比
-    const whole = (t: Ts.Type, seen: Map<Ts.Type, boolean[]>, entries: boolean, swap = true): void => { // swap：这个位置还没被 toJSON 换过
-      const was = seen.get(t) ?? []; if (was.includes(swap)) return; seen.set(t, [...was, swap]) // 换过与没换过的位置各走一次
-      if (t.isUnion()) { for (const u of t.types) whole(u, seen, entries, swap); return }
-      // JSON 那一路：有可调用的 toJSON 时序列化的是它的返回值，原来的属性一个也没被读；交叉类型先整体看再拆
-      const toJSON = entries || !swap || !(t.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection)) ? undefined : t.getProperty('toJSON')
-      const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures()
-      if (replaced.length > 0) { mark(toJSON); for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries, false); return }
-      if (t.getCallSignatures().length > 0) return // 可调用的值：JSON 不写，深比较只认同一个函数，挂在上面的属性都没被读
-      if (t.isIntersection()) { const arr = entries ? [] : t.types.filter(u => tc.isArrayType(u) || tc.isTupleType(u)); for (const u of arr.length > 0 ? arr : t.types) whole(u, seen, entries, swap); return } // JSON 只写数组元素
-      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
-      if (!(t.flags & ts.TypeFlags.Object)) return
-      if (fromLibrary(t) && entries && !/^(Weak|Promise$)/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)
-      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)
-      for (const p of t.getProperties().filter(p => !p.declarations?.length || !p.declarations.every(d => ts.isClassLike(d.parent) && (ts.isMethodDeclaration(d) || ts.isAccessor(d))))) { // 类的方法与访问器在原型上，JSON 与深比较只看自有属性
-        if (!entries && String(p.escapedName).startsWith('__@')) continue // 符号键的属性不进 JSON；deepStrictEqual 会比
-        mark(p); whole(tc.getTypeOfSymbol(p), seen, entries)
+    // 整体比对只认纯数据：普通对象（含全由普通对象交叉出来的）、映射类型、数组、元组往下走，挂着的字段算碰到；
+    // 类实例、可调用的、带 toJSON 的、库里的类型（Map/Set/Promise/Date…）在哪儿都停下，里面不算碰到。
+    // JSON 与逐层深比较对这些各有各的规矩，宁可多报红（写豁免放行），不放过没读到的字段
+    const plain = (t: Ts.Type): boolean => t.isIntersection() ? t.types.every(plain) : (t.flags & ts.TypeFlags.Object) !== 0
+      && (((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped) !== 0 || !fromLibrary(t)) && !((t.symbol?.flags ?? 0) & ts.SymbolFlags.Class)
+      && t.getCallSignatures().length === 0 && t.getConstructSignatures().length === 0 && t.getProperty('toJSON') === undefined
+    const whole = (t: Ts.Type, seen: Set<Ts.Type>): void => {
+      if (seen.has(t)) return; seen.add(t)
+      if (t.isUnion()) { for (const u of t.types) whole(u, seen); return }
+      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen); return }
+      if (!plain(t)) return
+      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen)
+      for (const p of t.getProperties()) {
+        const pt = tc.getTypeOfSymbol(p)
+        if (String(p.escapedName).startsWith('__@') || tc.getNonNullableType(pt).getCallSignatures().length > 0) continue // 符号键、函数值：两路各有各的读法，不算
+        mark(p); whole(pt, seen)
       }
     }
     // 下标读的键按类型认：字面量（常量、联合字面量）与 unique symbol 都换成属性的转义名，再到被索引对象的类型上找
@@ -288,7 +286,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         // JSON.stringify 带了 replacer：留下哪些字段由它定，不算整体比对
         const second = n.arguments[1]
         const filtered = callee === 'stringify' && second !== undefined && second.kind !== ts.SyntaxKind.NullKeyword && !(ts.isIdentifier(second) && second.text === 'undefined')
-        if ((WHOLE_COMPARE.has(callee) && !filtered) || opaque) for (const a of n.arguments) whole(tc.getTypeAtLocation(a), new Map(), callee === 'deepStrictEqual')
+        if ((WHOLE_COMPARE.has(callee) && !filtered) || opaque) for (const a of n.arguments) whole(tc.getTypeAtLocation(a), new Set())
       }
       ts.forEachChild(n, visit)
     }

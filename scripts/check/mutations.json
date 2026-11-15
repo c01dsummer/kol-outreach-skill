@@ -24495,7 +24495,7 @@
       "req": "harness",
       "why": "整体比对只算最外一层：嵌在数组、对象里的字段被报成没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "        mark(p); whole(tc.getTypeOfSymbol(p), seen, entries)\n",
+      "find": "        mark(p); whole(pt, seen)\n",
       "replace": "        mark(p)\n",
       "by": "test",
       "kills": [
@@ -24627,23 +24627,11 @@
       "req": "harness",
       "why": "整体比对不穿索引签名：Record 里的字段交给比对函数也算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)\n",
+      "find": "      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen)\n",
       "replace": "",
       "by": "test",
       "kills": [
         "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
-      ]
-    },
-    {
-      "id": "M-H198-v",
-      "req": "harness",
-      "why": "整体比对不穿库里的泛型：装在 Map 里交给逐项比对的字段算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (fromLibrary(t) && entries && !/^(Weak|Promise$)/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：整体比对穿过 Map 取里面的字段只认 deepStrictEqual；JSON 那一路把 Map 写成 {}，里面的不算"
       ]
     },
     {
@@ -24824,18 +24812,6 @@
       "by": "test",
       "kills": [
         "字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段"
-      ]
-    },
-    {
-      "id": "M-H198-al",
-      "req": "harness",
-      "why": "整体比对不分比法都进到 Map/Set 里面：JSON 那一路比成 {} 的字段被当成碰过",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "new Map(), callee === 'deepStrictEqual')",
-      "replace": "new Map(), true)",
-      "by": "test",
-      "kills": [
-        "字段：整体比对穿过 Map 取里面的字段只认 deepStrictEqual；JSON 那一路把 Map 写成 {}，里面的不算"
       ]
     },
     {
@@ -25175,43 +25151,6 @@
       ]
     },
     {
-      "id": "M-H198-bo",
-      "req": "harness",
-      "why": "整体比对走 JSON 时不看 toJSON：序列化时被 toJSON 换掉、根本没被读的字段也算碰到",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const toJSON = entries ||",
-      "replace": "const toJSON = true ||",
-      "by": "test",
-      "kills": [
-        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算",
-        "字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性"
-      ]
-    },
-    {
-      "id": "M-H198-bp",
-      "req": "harness",
-      "why": "有 toJSON 时连它的返回值也不比：toJSON 交出去、真被序列化比对了的字段误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries, false); return }",
-      "replace": "return }",
-      "by": "test",
-      "kills": [
-        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
-      ]
-    },
-    {
-      "id": "M-H198-bq",
-      "req": "harness",
-      "why": "整体比对走 JSON 时符号键的属性也算碰到：JSON 根本不序列化它，没人碰也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "        if (!entries && String(p.escapedName).startsWith('__@')) continue // 符号键的属性不进 JSON；deepStrictEqual 会比\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
-      ]
-    },
-    {
       "id": "M-H198-br",
       "req": "harness",
       "why": "带 replacer 的 JSON.stringify 也当整体比对：被 replacer 滤掉的字段没人碰也放行",
@@ -25220,7 +25159,7 @@
       "replace": "const filtered = false && callee === 'stringify'",
       "by": "test",
       "kills": [
-        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
@@ -25232,7 +25171,7 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
@@ -25244,43 +25183,7 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
-      ]
-    },
-    {
-      "id": "M-H198-bu",
-      "req": "harness",
-      "why": "交叉类型不先整体找 toJSON：交叉的一侧给了 toJSON 时，另一侧没被序列化的字段也算碰到",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "(ts.TypeFlags.Object | ts.TypeFlags.Intersection)",
-      "replace": "ts.TypeFlags.Object",
-      "by": "test",
-      "kills": [
-        "字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性"
-      ]
-    },
-    {
-      "id": "M-H198-bv",
-      "req": "harness",
-      "why": "交叉类型在看 toJSON 之前就拆开：每一侧单独看不到 toJSON，被换掉的字段也算碰到",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (t.isUnion()) {",
-      "replace": "if (t.isUnion() || t.isIntersection()) {",
-      "by": "test",
-      "kills": [
-        "字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性"
-      ]
-    },
-    {
-      "id": "M-H198-bw",
-      "req": "harness",
-      "why": "逐层深比较的那一路也认 toJSON：它并不调用 toJSON，原来的属性其实被比到了，却算没碰",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const toJSON = entries ||",
-      "replace": "const toJSON = false ||",
-      "by": "test",
-      "kills": [
-        "字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性"
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
@@ -25344,31 +25247,6 @@
       ]
     },
     {
-      "id": "M-H198-cc",
-      "req": "harness",
-      "why": "走过的类型不分换没换过 toJSON：换来的值撞上已走过的同一类型就停，照原样写出的字段算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (was.includes(swap)) return",
-      "replace": "if (was.length > 0) return",
-      "by": "test",
-      "kills": [
-        "字段：toJSON 返回自己的照常序列化；WeakMap 这类弱引用容器深比较也进不去；解构赋值的键读的是右边的字段（含改名），没解构的不算",
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
-      ]
-    },
-    {
-      "id": "M-H198-cd",
-      "req": "harness",
-      "why": "弱引用容器也当成深比较进得去：它的条目根本不比，里面的字段也算碰到",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " && !/^(Weak|Promise$)/.test(t.symbol.name)",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：toJSON 返回自己的照常序列化；WeakMap 这类弱引用容器深比较也进不去；解构赋值的键读的是右边的字段（含改名），没解构的不算"
-      ]
-    },
-    {
       "id": "M-H198-ce",
       "req": "harness",
       "why": "解构赋值的键也按左边的上下文类型找：右边那个值的字段被读了却算没碰，误红",
@@ -25377,139 +25255,139 @@
       "replace": "false ?",
       "by": "test",
       "kills": [
-        "字段：toJSON 返回自己的照常序列化；WeakMap 这类弱引用容器深比较也进不去；解构赋值的键读的是右边的字段（含改名），没解构的不算"
+        "字段：解构赋值的键读的是右边的字段（含改名），没解构的不算"
       ]
     },
     {
-      "id": "M-H198-cf",
+      "id": "M-H198-cq",
       "req": "harness",
-      "why": "toJSON 换来的值又按它自己的 toJSON 再换一次：真正写出去的字段算没人碰，误红",
+      "why": "类实例也往里走：深比较只看自有字段、JSON 只看可枚举的，原型上的成员没人读也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "whole(tc.getReturnTypeOfSignature(sig), seen, entries, false)",
-      "replace": "whole(tc.getReturnTypeOfSignature(sig), seen, entries, true)",
-      "by": "test",
-      "kills": [
-        "字段：同一位置只换一次 toJSON —— 换来的值自己的 toJSON 不再调用，照原样序列化"
-      ]
-    },
-    {
-      "id": "M-H198-cg",
-      "req": "harness",
-      "why": "深比较也当成会等 Promise 兑现再比：兑现值里的字段根本没比，也算碰到",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "/^(Weak|Promise$)/",
-      "replace": "/^Weak/",
-      "by": "test",
-      "kills": [
-        "字段：深比较不进 WeakMap 这类弱引用容器，也不等 Promise 兑现"
-      ]
-    },
-    {
-      "id": "M-H198-ch",
-      "req": "harness",
-      "why": "被调用的 toJSON 本身不算碰到：序列化确实调用了它，却算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "mark(toJSON); ",
+      "find": " && !((t.symbol?.flags ?? 0) & ts.SymbolFlags.Class)",
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
-      "id": "M-H198-ci",
+      "id": "M-H198-cr",
       "req": "harness",
-      "why": "JSON 那一路也进可调用的值：函数根本不写进 JSON，挂在上面的字段也算碰到",
+      "why": "可调用的值也往里走：挂在函数上的字段两路都不比，没人读也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (t.getCallSignatures().length > 0) return // 可调用的值：JSON 不写，深比较只认同一个函数，挂在上面的属性都没被读\n",
+      "find": "      && t.getCallSignatures().length === 0 && t.getConstructSignatures().length === 0",
+      "replace": "      && t.getConstructSignatures().length === 0",
+      "by": "test",
+      "kills": [
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
+      ]
+    },
+    {
+      "id": "M-H198-cs",
+      "req": "harness",
+      "why": "可构造的值也往里走：挂在构造器上的字段两路都不比，没人读也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " && t.getConstructSignatures().length === 0 && t.getProperty",
+      "replace": " && t.getProperty",
+      "by": "test",
+      "kills": [
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
+      ]
+    },
+    {
+      "id": "M-H198-ct",
+      "req": "harness",
+      "why": "带 toJSON 的也往里走：序列化只认它的返回值，原样字段没人读也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " && t.getProperty('toJSON') === undefined",
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
-      "id": "M-H198-cj",
+      "id": "M-H198-cu",
       "req": "harness",
-      "why": "JSON 那一路只在拆开之后看可调用：函数与对象交叉出来的值整体不写进 JSON，拆开后对象那一半的字段被算成碰到",
+      "why": "库里的类型也往里走：Map、Promise、迭代结果里的字段两路都看不到，没人读也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "if (t.getCallSignatures().length > 0) return",
-      "replace": "if (!t.isIntersection() && t.getCallSignatures().length > 0) return",
+      "find": "|| !fromLibrary(t))",
+      "replace": "|| true)",
       "by": "test",
       "kills": [
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
-      "id": "M-H198-ck",
+      "id": "M-H198-cv",
       "req": "harness",
-      "why": "JSON 那一路拆数组与对象的交叉时连对象那一半也进：JSON 只写数组元素，挂在数组上的别的字段算成碰到",
+      "why": "映射类型也当库里的类型停下：Partial、Record 这类普通数据被整体比对了也报没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "for (const u of arr.length > 0 ? arr : t.types)",
-      "replace": "for (const u of t.types)",
+      "find": "(((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped) !== 0 || !fromLibrary(t))",
+      "replace": "(!fromLibrary(t))",
       "by": "test",
       "kills": [
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
       ]
     },
     {
-      "id": "M-H198-cl",
+      "id": "M-H198-cw",
       "req": "harness",
-      "why": "逐层深比较那一路也只看数组元素：深比较会比数组上挂的别的字段，这些字段算没人碰，误红",
+      "why": "交叉类型只要有一块是纯数据就往里走：和数组、函数交叉出来的字段没人读也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "const arr = entries ? [] : t.types.filter",
-      "replace": "const arr = t.types.filter",
+      "find": "t.types.every(plain)",
+      "replace": "t.types.some(plain)",
       "by": "test",
       "kills": [
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
-      "id": "M-H198-cm",
+      "id": "M-H198-cx",
       "req": "harness",
-      "why": "逐层深比较那一路照样进可调用的值：函数只按是不是同一个来比，挂在上面的字段算成碰到",
+      "why": "符号键的字段也算整体比对碰到：两路都不比它，没人读也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "if (t.getCallSignatures().length > 0) return",
-      "replace": "if (!entries && t.getCallSignatures().length > 0) return",
-      "by": "test",
-      "kills": [
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
-      ]
-    },
-    {
-      "id": "M-H198-cn",
-      "req": "harness",
-      "why": "整体比对把类原型上的方法与访问器也算进去：序列化与逐层深比较都只看自有属性，它们算成碰到",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": ".filter(p => !p.declarations?.length || !p.declarations.every(d => ts.isClassLike(d.parent) && (ts.isMethodDeclaration(d) || ts.isAccessor(d))))",
+      "find": "String(p.escapedName).startsWith('__@') || ",
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
-      "id": "M-H198-co",
+      "id": "M-H198-cy",
       "req": "harness",
-      "why": "原型上的只认方法、不认访问器：get 出来的字段算成碰到",
+      "why": "函数值的字段也算整体比对碰到：深比较只比引用、JSON 直接丢掉，没人读也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "(ts.isMethodDeclaration(d) || ts.isAccessor(d))",
-      "replace": "ts.isMethodDeclaration(d)",
+      "find": " || tc.getNonNullableType(pt).getCallSignatures().length > 0",
+      "replace": "",
       "by": "test",
       "kills": [
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
-      "id": "M-H198-cp",
+      "id": "M-H198-cz",
       "req": "harness",
-      "why": "原型上的只认访问器、不认方法：类方法算成碰到",
+      "why": "整体比对不进数组：数组里元素的字段被比对了也报没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "(ts.isMethodDeclaration(d) || ts.isAccessor(d))",
-      "replace": "ts.isAccessor(d)",
+      "find": "      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen); return }\n",
+      "replace": "",
       "by": "test",
       "kills": [
-        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+        "字段：整个值交给 eq，逐层都算用到"
+      ]
+    },
+    {
+      "id": "M-H198-da",
+      "req": "harness",
+      "why": "整体比对不拆联合：可能为空的字段被比对了也报没碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "      if (t.isUnion()) { for (const u of t.types) whole(u, seen); return }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
