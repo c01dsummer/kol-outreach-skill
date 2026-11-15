@@ -7711,8 +7711,9 @@ group('admission-entry', [], () => {
   const libSpec = './lib/calc.js', checkSpec = './check/tool.js'
   writeFileSync(join(entryTree, 'scripts', 'run.ts'), `import { f } from '${libSpec}'\nimport { tool } from '${checkSpec}'\n`
     + 'const answer = f(1) + tool()\nconsole.log(answer)\n', 'utf8')
+  // also 那一条写成带 ./ 的形式：这种写法也要出那一份（#489 上 CodeRabbit 第一轮，接线由这里实跑验）
   writeFileSync(join(entryTree, 'package.json'), JSON.stringify({ scripts: {
-    run: 'tsx scripts/run.ts', also: 'tsx scripts/also.ts', test: 'tsx scripts/test.ts', tool: 'tsx scripts/check/tool.ts' } }), 'utf8')
+    run: 'tsx scripts/run.ts', also: 'tsx ./scripts/also.ts', test: 'tsx scripts/test.ts', tool: 'tsx scripts/check/tool.ts' } }), 'utf8')
   writeFileSync(join(entryTree, 'scripts', 'also.ts'), `import { f } from '${libSpec}'\nf(2)\n`, 'utf8')
   const entryPkg = join(tmp, 'admission-pkg-entry')
   const withEntry = runToolBoth('admission 有入口脚本的树出包即以退出码 0 结束', 'admission', ['P1', entryPkg], entryTree)
