@@ -15026,7 +15026,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段闸门：按名字排，不按找到的先后', fieldVerdict([{ ...dup(false), key: 'b' }, { ...dup(false), key: 'a' }], []).unused.map(f => f.key), ['a', 'b'])
   eq('字段闸门：同名的几处要每一处都用到才算用到', [fieldVerdict([dup(false), dup(true)], []).unused.length, fieldVerdict([dup(true), dup(true)], []).unused.length], [1, 0])
   eq('字段闸门：同名的处数比基线多就按新增报，处数没变不报', [fieldVerdict([dup(false), dup(true)], ['k']).fresh.length, fieldVerdict([dup(false), dup(true)], ['k', 'k']).fresh.length], [1, 0])
-  eq('字段闸门：同名的两处只一处写了豁免，照样算豁免', fieldVerdict([dup(false), { ...dup(false), waiver: '子进程' }], []).waived.length, 1)
+  eq('字段闸门：同名的几处，没用到的每一处都要有自己的豁免，别处的豁免不替它挡', [[dup(false), { ...dup(false), waiver: '子进程' }], [{ ...dup(true), waiver: '子进程' }, dup(false)], [{ ...dup(false), waiver: '子进程' }, { ...dup(false), waiver: '日志' }]]
+    .map(two => { const v = fieldVerdict(two, []); return [v.unused.length, v.waived.length] }), [[1, 0], [1, 0], [0, 1]])
   eq('字段闸门：用到了的新字段写了空理由的豁免，也算不成立', fieldVerdict([{ ...dup(true), waiver: '' }], []).unjustified.length, 1)
   eq('字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红',
     [[{ ...dup(true), waiver: '子进程' }, { ...dup(true), waiver: '' }], [{ ...dup(true), waiver: '' }, { ...dup(true), waiver: '子进程' }]]
@@ -15122,6 +15123,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function keyed(): { viaConst: number; viaU1: number; viaU2: number; [symKey]: number; 7: number; viaNot: number } { return { viaConst: 1, viaU1: 2, viaU2: 3, [symKey]: 4, 7: 5, viaNot: 6 } }',
       'export function pick(n: 0): { value: number }', 'export function pick(n: 1): {}', 'export function pick(n: number): { value?: number } { return {} }',
       'export function ctor(): { new(): object; added: number } { return Object.assign(class {}, { added: 1 }) }',
+      'export function gen<T extends 0>(n: T): { value: number } // 字段不入断言：只能从子进程输出验到', 'export function gen<T extends 1>(n: T): {}', 'export function gen(n: number): { value?: number } { return {} }',
       "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
     ].join('\n'),
     'scripts/check/n.ts': 'export function nOnly(): { extless: number } { return { extless: 1 } }',
@@ -15229,11 +15231,15 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段闸门：无名元组的成员按位置各有名字，给另一个成员加同名字段，按新增报',
     fieldVerdict(moved.filter(f => f.file === 'scripts/check/t.ts'), more.filter(f => f.file === 'scripts/check/t.ts').map(f => f.key)).fresh.map(f => f.key),
     ['scripts/check/t.ts#pair.[1].value'])
-  const grown = fieldToy(files => { moreFiles(files); files['scripts/check/m.ts'] = files['scripts/check/m.ts'].replace('export function pick(n: 1): {}', 'export function pick(n: 1): { value: number }') })
+  const grown = fieldToy(files => { moreFiles(files); files['scripts/check/m.ts'] = files['scripts/check/m.ts'].replace('export function pick(n: 1): {}', 'export function pick(n: 1): { value: number }').replace('gen<T extends 1>(n: T): {}', 'gen<T extends 1>(n: T): { value: number }') })
   const pickOf = (all: typeof more) => all.filter(f => f.key.startsWith('scripts/check/m.ts#pick')).map(f => [f.key, f.used] as const)
   eq('字段：重载的各个签名名字里带上参数，分开；只有一个签名的函数名字里不带', [pickOf(more), moreOf('m.ts#ctor.added')?.key], [[['scripts/check/m.ts#pick(n: 0).value', true]], 'scripts/check/m.ts#ctor.added'])
   eq('字段闸门：重载里另一个签名也加上同名字段，按新增报；测试只读了旧的那个签名，照样红',
     fieldVerdict(grown.filter(f => f.key.startsWith('scripts/check/m.ts#pick')), more.filter(f => f.key.startsWith('scripts/check/m.ts#pick')).map(f => f.key)).unused.map(f => f.key), ['scripts/check/m.ts#pick(n: 1).value'])
+  const genOf = (all: typeof more) => all.filter(f => f.key.startsWith('scripts/check/m.ts#gen'))
+  eq('字段闸门：泛型重载只差类型参数的约束，名字里带上类型参数分开；旧的那处有豁免，不替新加的那处挡',
+    [genOf(grown).map(f => f.key).sort(), fieldVerdict(genOf(grown), genOf(more).map(f => f.key)).unused.map(f => f.key)],
+    [['scripts/check/m.ts#gen<T extends 0>(n: T).value', 'scripts/check/m.ts#gen<T extends 1>(n: T).value'], ['scripts/check/m.ts#gen<T extends 1>(n: T).value']])
   eq('字段：instanceof 左边的对象字面量不算读到右边构造器上的字段', moreOf('m.ts#ctor.added')?.used, false)
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])

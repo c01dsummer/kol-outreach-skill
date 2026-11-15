@@ -25075,8 +25075,8 @@
       "req": "harness",
       "why": "同名的几处一处用到就算全用到：撞了名的几处里新加的那处没人碰，测试只读了旧的那处，闸门放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "used: had.used && f.used",
-      "replace": "used: had.used || f.used",
+      "find": "used: idle.length === 0",
+      "replace": "used: idle.length < fs.length",
       "by": "test",
       "kills": [
         "字段闸门：同名的几处要每一处都用到才算用到"
@@ -25289,13 +25289,13 @@
     {
       "id": "M-H198-af",
       "req": "harness",
-      "why": "同名的几处只看第一处的豁免：第二处写了豁免也照样红",
+      "why": "同名的几处有一处写了豁免就全算豁免：没用到、也没写豁免的那处被别处的豁免挡掉",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "'' : had.waiver ?? f.waiver",
-      "replace": "'' : had.waiver",
+      "find": "idle.every(f => f.waiver !== undefined) ? idle[0]?.waiver",
+      "replace": "fs.some(f => f.waiver !== undefined) ? fs.find(f => f.waiver !== undefined)?.waiver",
       "by": "test",
       "kills": [
-        "字段闸门：同名的两处只一处写了豁免，照样算豁免"
+        "字段闸门：同名的几处，没用到的每一处都要有自己的豁免，别处的豁免不替它挡"
       ]
     },
     {
@@ -25375,8 +25375,8 @@
       "req": "harness",
       "why": "同名两处合并时有理由的豁免盖掉空理由的：不成立的豁免看先后，可能放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "had.waiver === '' || f.waiver === '' ? '' : had.waiver ?? f.waiver",
-      "replace": "had.waiver ?? f.waiver",
+      "find": "fs.some(f => f.waiver === '') ? '' : ",
+      "replace": "",
       "by": "test",
       "kills": [
         "字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红"
@@ -26005,6 +26005,30 @@
       "kills": [
         "字段：重载的各个签名名字里带上参数，分开；只有一个签名的函数名字里不带",
         "字段闸门：重载里另一个签名也加上同名字段，按新增报；测试只读了旧的那个签名，照样红"
+      ]
+    },
+    {
+      "id": "M-H198-dh",
+      "req": "harness",
+      "why": "重载签名的名字不带类型参数：只差约束的两个泛型重载撞成一个名字",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "n.typeParameters === undefined ? '' :",
+      "replace": "true ? '' :",
+      "by": "test",
+      "kills": [
+        "字段闸门：泛型重载只差类型参数的约束，名字里带上类型参数分开；旧的那处有豁免，不替新加的那处挡"
+      ]
+    },
+    {
+      "id": "M-H198-di",
+      "req": "harness",
+      "why": "合并同名几处时把第一处自己的豁免带过来：第一处用到了、写着豁免，第二处没用到也没豁免，却被算成豁免",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const { waiver: _first, ...first } = fs[0]",
+      "replace": "const first = fs[0]",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的几处，没用到的每一处都要有自己的豁免，别处的豁免不替它挡"
       ]
     },
     {

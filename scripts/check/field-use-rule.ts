@@ -119,7 +119,7 @@ function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declara
       }
       continue
     }
-    const name = ts.isFunctionDeclaration(n) && n.name !== undefined && (tc.getSymbolAtLocation(n.name)?.declarations ?? []).filter(d => ts.isFunctionDeclaration(d) && d.body === undefined).length > 1 ? `${n.name.text}(${n.parameters.map(p => p.getText()).join(', ').replace(/\s+/g, ' ')})` : nameOf(ts, n) // 重载：各签名带上参数，分开
+    const name = ts.isFunctionDeclaration(n) && n.name !== undefined && (tc.getSymbolAtLocation(n.name)?.declarations ?? []).filter(d => ts.isFunctionDeclaration(d) && d.body === undefined).length > 1 ? `${n.name.text}${n.typeParameters === undefined ? '' : `<${n.typeParameters.map(p => p.getText()).join(', ')}>`}(${n.parameters.map(p => p.getText()).join(', ')})`.replace(/\s+/g, ' ') : nameOf(ts, n) // 重载：各签名带上类型参数与参数，分开
     const raw = (n as { name?: Ts.Node }).name
     if (name !== undefined) parts.push(raw !== undefined && ts.isComputedPropertyName(raw) && literalName(ts, raw) === undefined ? name : segment(name))
   }
@@ -328,20 +328,20 @@ export interface FieldVerdict {
 
 /**
  * 名字可能撞（重载、同判别值的联合成员……写法列不完），所以按处数比：`base` 每处一个名字，`now` 里这个名字的处数比它多就算新增，
- * 而且要每一处都用到才算用到 —— 撞了名最坏是多报红，不会漏。新增里没用到的：有成立的豁免进 `waived`，否则进 `unused`。
+ * 而且要每一处都用到（或那一处自己有豁免）才算过 —— 撞了名最坏是多报红，不会漏。新增里没用到的：有成立的豁免进 `waived`，否则进 `unused`。
  * 不成立的豁免（标记后面空着）只看新增的；任一处写了空理由就算不成立。`unused` 或 `unjustified` 非空就红。
  */
 export function fieldVerdict(now: readonly Field[], base: readonly string[]): FieldVerdict {
   const tally = (keys: readonly string[]) => keys.reduce((m, k) => m.set(k, (m.get(k) ?? 0) + 1), new Map<string, number>()), before = tally(base), after = tally(now.map(f => f.key))
-  const merged = new Map<string, Field>()
-  for (const f of now) {
-    const had = merged.get(f.key)
-    if (had === undefined) { merged.set(f.key, f); continue }
-    // 两处里有一处写了空理由，合起来就是空理由（不成立的豁免不让另一处的理由盖掉，先后无关）
-    const waiver = had.waiver === '' || f.waiver === '' ? '' : had.waiver ?? f.waiver
-    merged.set(f.key, { ...had, used: had.used && f.used, ...(waiver === undefined ? {} : { waiver }) })
-  }
-  const fresh = [...merged.values()].filter(f => after.get(f.key)! > (before.get(f.key) ?? 0)).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+  const places = new Map<string, Field[]>()
+  for (const f of now) places.set(f.key, [...(places.get(f.key) ?? []), f])
+  // 每处各自判：没用到的每一处都要有自己的豁免，别处的不替它挡；任一处空理由就不成立（先后无关）
+  const merged = [...places.values()].map(fs => {
+    const idle = fs.filter(f => !f.used), waiver = fs.some(f => f.waiver === '') ? '' : idle.every(f => f.waiver !== undefined) ? idle[0]?.waiver : undefined
+    const { waiver: _first, ...first } = fs[0] // 第一处自己的豁免不带过来，合起来的豁免只看上一行
+    return { ...first, used: idle.length === 0, ...(waiver === undefined ? {} : { waiver }) }
+  })
+  const fresh = merged.filter(f => after.get(f.key)! > (before.get(f.key) ?? 0)).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
   const unjustified = fresh.filter(f => f.waiver !== undefined && f.waiver.length === 0)
   const idle = fresh.filter(f => !f.used)
   const waived = idle.filter(f => f.waiver !== undefined && f.waiver.length > 0)
