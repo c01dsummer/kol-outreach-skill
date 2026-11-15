@@ -14865,6 +14865,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function fnList(): Fn14[] { return [] }',
       'export interface Ctor15 { new (): object; added15: number }',
       'export function ctorList(): Ctor15[] { return [] }',
+      'export interface R16 { kept16: number; added16: number }',
+      'export function constrained<T extends R16>(v: T): T { return v }',
       'export function iter(): IteratorResult<{ inIter: number }> { return { done: true, value: undefined } }',
       'export interface Wire8 { other8: number }',
       'export function wire8(): Wire8 { return { other8: 0 } }',
@@ -14905,6 +14907,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "const keyedV = [kd[kc], kd[ku], kd[mm.symKey], kd[kn], mm.maybe()?.['viaOpt'], mm.maybe()?.[kc.length > 0 ? 'viaOpt2' : 'viaOpt2']]",
       'const selfJs = JSON.stringify(mm.selfJson()) + JSON.stringify(mm.chained()) + JSON.stringify(mm.firstThen()) + JSON.stringify(mm.wrapFirst()) + JSON.stringify(mm.withFn()) + JSON.stringify(mm.selfChild()) + JSON.stringify(mm.withFn9()) + JSON.stringify(mm.arrPlus()); deepStrictEqual(mm.arrPlusDeep(), Object.assign([1], { added11: 2 })); JSON.stringify(mm.fnList()); JSON.stringify(mm.ctorList()); JSON.stringify(mm.iter()); const r12 = mm.withFn12(); deepStrictEqual(r12, { fn12: r12.fn12 }); const p13 = JSON.stringify(mm.protoed()); deepStrictEqual(mm.protoed(), new mm.Proto13()); deepStrictEqual(mm.weak(), new WeakMap()); deepStrictEqual(mm.promised(), Promise.resolve({}))',
       'let ga = 0; let srcB = 0; ({ srcA: ga, srcB } = mm.assigned())',
+      "const r16: import('./m.js').R16 = mm.constrained({ kept16: 1, added16: 2 }); const viaLiteral = mm.constrained({ kept16: 1, added16: 2 }).added16; r16.kept16",
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
       "const m = await import('./f.js') as unknown as { copied: () => { cp: number } }",
@@ -14936,6 +14939,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   const fieldUseCases: [string, boolean][] = [['f.ts#mapped.inMap', false], ['f.ts#jsonMap.viaJson', false], ['m.ts#withToJSON.hidden', false], ['m.ts#Shown.shown', false], ['m.ts#withToJSON.toJSON', false], ['m.ts#withSym.[Symbol.iterator]', false], ['m.ts#filtered.dropped', false], ['m.ts#crossed.hidden2', false], ['m.ts#crossedDeep.deep2', false], ['m.ts#Self.kept3', false], ['m.ts#Inner.kept4', false], ['m.ts#chained.nested4', false], ['m.ts#In5.kept5', false], ['m.ts#In6.kept6', false], ['m.ts#Wire8.other8', false], ['m.ts#weak.weakVal', false], ['m.ts#promised.pendingVal', false], ['m.ts#withFn.fn7', false], ['m.ts#Fn7.added7', false], ['m.ts#withFn9.fn9', false], ['m.ts#Fn9.added9', false], ['m.ts#arrPlus.added10', false], ['m.ts#arrPlusDeep.added11', false], ['m.ts#Fn12.added12', false], ['m.ts#Proto13.own13', false], ['m.ts#Proto13.added13', false], ['m.ts#Proto13.method13', false], ['m.ts#Fn14.added14', false], ['m.ts#Ctor15.added15', false], ['m.ts#iter.inIter', false], ['m.ts#withSym.plain', true], ['m.ts#nulled.spaced', true], ['m.ts#undef.spaced2', true], ['m.ts#withFn12.fn12', true]] // 对不上时按键报出是哪一个
   eq('字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算',
     fieldUseCases.map(([k]) => [k, moreOf(k)?.used]), fieldUseCases)
+  eq('字段：返回类型是类型参数的按约束找字段；按约束类型读到的算，经实参字面量读到的不算（宁可多报红）',
+    ['R16.kept16', 'R16.added16'].map(k => moreOf(`m.ts#${k}`)?.used), [true, false])
   eq('字段：解构赋值的键读的是右边的字段（含改名），没解构的不算',
     ['assigned.srcA', 'assigned.srcB', 'assigned.srcC'].map(k => moreOf(`m.ts#${k}`)?.used), [true, true, false])
   eq('字段：按名字兜底只认重抄的那份类型，本文件别的同名属性不算', moreOf('h.ts#hz.other')?.used, false)

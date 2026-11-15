@@ -170,6 +170,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       for (const a of tc.getTypeArguments(t as Ts.TypeReference)) walk(a, `${via}[]`, seen)
       return
     }
+    if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen); return } // 按约束找：调用处读的是实参那份，宁可多报红
     if (!(t.flags & ts.TypeFlags.Object)) return
     if (fromLibrary(t)) for (const a of argumentsOf(t)) walk(a, `${via}<>`, seen)
     for (const info of tc.getIndexInfosOfType(t)) walk(info.type, `${via}[*]`, seen)

@@ -25401,6 +25401,18 @@
       ]
     },
     {
+      "id": "M-H198-db",
+      "req": "harness",
+      "why": "返回类型是类型参数的不按约束找：约束里新加的字段闸门看不见，没人碰也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen); return } // 按约束找：调用处读的是实参那份，宁可多报红\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：返回类型是类型参数的按约束找字段；按约束类型读到的算，经实参字面量读到的不算（宁可多报红）"
+      ]
+    },
+    {
       "id": "M-H196-a",
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",
