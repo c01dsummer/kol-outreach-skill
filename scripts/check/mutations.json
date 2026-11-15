@@ -18251,6 +18251,1806 @@
       "kills": ["准入读物：文件顶层的空语句与裸块也报不是声明的语句"]
     },
     {
+      "id": "M-H203-heavy001",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy002",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy003",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy004",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy005",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy006",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy007",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy008",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy009",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy010",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy011",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy012",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy013",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy014",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy015",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy016",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy017",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy018",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy019",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy020",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy021",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy022",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy023",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy024",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy025",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy026",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy027",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy028",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy029",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy030",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy031",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy032",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy033",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy034",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy035",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy036",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy037",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy038",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy039",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy040",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy041",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy042",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy043",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy044",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy045",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy046",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy047",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy048",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy049",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy050",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy051",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy052",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy053",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy054",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy055",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy056",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy057",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy058",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy059",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy060",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy061",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy062",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy063",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy064",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy065",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy066",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy067",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy068",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy069",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy070",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy071",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy072",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy073",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy074",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy075",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy076",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy077",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy078",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy079",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy080",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy081",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy082",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy083",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy084",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy085",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy086",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy087",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy088",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy089",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy090",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy091",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy092",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy093",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy094",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy095",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy096",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy097",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy098",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy099",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy100",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy101",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy102",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy103",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy104",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy105",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy106",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy107",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy108",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy109",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy110",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy111",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy112",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy113",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy114",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy115",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy116",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy117",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy118",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy119",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy120",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy121",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy122",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy123",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy124",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy125",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy126",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy127",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy128",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy129",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy130",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy131",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy132",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy133",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy134",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy135",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy136",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy137",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy138",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy139",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy140",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy141",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy142",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy143",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy144",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy145",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy146",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy147",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy148",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy149",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
+      "id": "M-H203-heavy150",
+      "req": "D15.a",
+      "why": "演示用：故意加重，验涨幅那一道在 CI 上变红（KOL-112 关单标准第 4 条），之后撤掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
+    },
+    {
       "id": "M-H203-a",
       "req": "harness",
       "why": "配置照对象原型链上有没有这个键查 —— 对象自带的方法名被当成一种实测过的配置，一摞的秒数算成 NaN",
