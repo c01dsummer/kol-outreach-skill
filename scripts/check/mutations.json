@@ -18251,6 +18251,16 @@
       "kills": ["准入读物：文件顶层的空语句与裸块也报不是声明的语句"]
     },
     {
+      "id": "M-H202-bi",
+      "req": "harness",
+      "why": "入口拒收时当场退出 —— 先打出的几百行在异步写出的平台上会被截掉一截",
+      "file": "scripts/check/admission.ts",
+      "find": "process.exitCode = main()",
+      "replace": "process.exit(main())",
+      "by": "test",
+      "kills": ["准入读物入口：没有硬退出的调用，拒收时打出的那几百行不会被截掉"]
+    },
+    {
       "id": "M-H203-a",
       "req": "harness",
       "why": "配置照对象原型链上有没有这个键查 —— 对象自带的方法名被当成一种实测过的配置，一摞的秒数算成 NaN",

@@ -25,6 +25,7 @@
     "audit": "tsx scripts/check/audit.ts",
     "adr-ledger": "tsx scripts/check/adr-ledger.ts",
     "debt-touch": "tsx scripts/check/debt-touch.ts",
+    "admission": "tsx scripts/check/admission.ts",
     "launches": "tsx scripts/check/launches.ts",
     "typecheck": "tsc --noEmit",
     "compile": "tsx scripts/check/compile.ts",
