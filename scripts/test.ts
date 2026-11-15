@@ -933,7 +933,7 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
     ['多字承诺词各对各的：出处里的 free trial 不是 free shipping 的出处', 'Free shipping and a free trial.', ['30-day free trial'], [], ['Free shipping'], []],
     // 承诺词要整词对上、资料里带否定的那一句不算（取舍六）
     ['资料里写「Not waterproof」不给「waterproof」当出处', 'It is fully waterproof.', ['Not waterproof; do not submerge'], [], ['waterproof'], []],
-    ['资料里带 no、not 的句子不给退款、保证当出处', 'Full refund, money-back guarantee.', ['No refunds on opened items. Not guaranteed to fit.'], [], ['refund', 'money-back', 'guarantee'], []],
+    ['资料里带 no、not 的句子不给退款、保证当出处', 'Full refund, money-back guarantee.', ['No refunds on opened items. Not guaranteed to fit.'], [], ['Full refund', 'money-back', 'guarantee'], []],
     ['Patent pending 不给 patented 当出处', 'Our patented blade.', ['Patent pending'], [], ['patented'], []],
     ['inorganic 不给 organic 当出处（整词）', 'Made with organic fruit.', ['Made of inorganic pigments'], [], ['organic'], []],
     ['终身保修整组对：battery lifetime 与 warranty void 都不是它的出处', 'Lifetime warranty.', ['Battery lifetime 500 cycles; warranty void if opened'], [], ['Lifetime warranty'], []],
@@ -1016,7 +1016,17 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
     ['同一个承诺词单复数、空格连字符不计：awards 认 award，free returns 认 Free return', 'Won awards, free returns, leakproof.', ['Award winner 2024', 'Free return within 30 days', 'Leak-proof lid'], [], [], []],
     ['免费送货各对各的；several hundred、hundreds 这类没有阿拉伯数字的大数也列', 'Free 2-day shipping. Lasts several hundred hours, loved by hundreds.',
       ['Free shipping over $50', 'Battery lasts hours'], [], ['Free 2-day shipping', 'several hundred', 'hundreds'], []],
-    ['资料里 except、unless、expired 这类说法不给承诺词当出处', 'Lifetime warranty included.', ['Lifetime warranty expired for old models'], [], ['Lifetime warranty'], []],
+    ['资料里 expired 这类说法不给承诺词当出处', 'Lifetime warranty included.', ['Lifetime warranty expired for old models'], [], ['Lifetime warranty'], []],
+    ['资料里 except、unless、excluding、exclusions 也是否定', 'Free shipping, money-back guarantee, BPA-free, leakproof.',
+      ['Free shipping on all orders except Hawaii', 'Money-back guarantee unless opened', 'BPA-free lid, excluding the seal', 'Leakproof (exclusions apply)'], [],
+      ['Free shipping', 'money-back', 'guarantee', 'BPA-free', 'leakproof'], []],
+    ['承诺词连同紧挨的修饰词一起比：别家的认证、别的批文不当出处', 'It is CE certified and UL certified, approved by the FDA, recommended by dermatologists, certified by TÜV.',
+      ['Made in an ISO 9001 certified, FDA registered facility', 'Dermatologist tested formula'], [],
+      ['CE certified', 'UL certified', 'approved by the FDA', 'recommended by dermatologists', 'certified by TÜV'], []],
+    ['修饰词资料里同一句写到就对上；代词、系动词、程度副词不算修饰词', 'Our blender is fully waterproof, approved by the FDA, CE certified, and comes with free gifts.',
+      ['Waterproof base', 'FDA approved', 'CE-certified motor', 'Free gift with every order'], [], [], []],
+    ['草稿里的复数、免费送货的几种说法互认', 'Ships free, free gifts, free trials, recommended by dermatologists.',
+      ['Free shipping', 'x'], [], ['free gifts', 'free trials', 'recommended by dermatologists'], []],
   ]
   const texts = (draft: string, facts: string[], posts: string[]) => {
     const found = draftClaims(draft, facts, posts)

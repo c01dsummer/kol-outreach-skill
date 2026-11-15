@@ -108,25 +108,26 @@ const PROMISE_WORDS: ReadonlyArray<readonly [string, string]> = [
   ['(?:free|easy) returns?', '__SAME__'],
   ['returns? (?:policy|window)', '__SAME__'],
   // 免费类各对各的：资料的 free trial 不是信里 free shipping 的出处。
-  ['ships? (?:for )?free|shipping is free|free (?:(?:express|standard|US|international|2-day|two-day) )?(?:shipping|delivery)', '__SAME__'],
-  ['free (?:gift|sample|samples|trial|replacement|replacements|upgrade|accessor(?:y|ies))', '__SAME__'],
+  ['free (?:express|standard|US|international|2-day|two-day) (?:shipping|delivery)', '__SAME__'],
+  ['ships? (?:for )?free|shipping is free|free (?:shipping|delivery)', 'ships? (?:for )?free|shipping is free|free (?:shipping|delivery)'],
+  ['free (?:gifts?|samples?|trials?|replacements?|upgrades?|accessor(?:y|ies))', '__SAME__'],
   ['complimentary', '__SAME__'],
   ['discount(?:s|ed)?', 'discount(?:s|ed)?'],
   ['commission(?:s)?', 'commission(?:s)?'],
   ['lifetime', '__SAME__'],
   ['for life|forever', '__SAME__'],
+  ['ce(?:[- ]marked|[- ]certified| mark)', '__SAME__'],
+  ['ul[- ](?:listed|certified)', '__SAME__'],
   ['certif(?:y|ied|ication|ications|icate|icates)', 'certif(?:y|ied|ication|ications|icate|icates)'],
   ['patent(?:s|ed)?', 'patent(?:s|ed)?'],
   ['award[- ]winning|won an award|awards?', '__SAME__'],
   ['clinically|clinical(?: trials?| studies| study)?', '__SAME__'],
-  ['dermatologist(?:[- ](?:tested|approved|recommended))?', '__SAME__'],
+  ['dermatologists?(?:[- ](?:tested|approved|recommended))?', '__SAME__'],
   ['doctor[- ](?:recommended|approved)', '__SAME__'],
   ['lab[- ]tested', '__SAME__'],
   ['(?:food|medical)[- ]grade', '__SAME__'],
   ['hypoallergenic', '__SAME__'],
   ['fda(?:[- ](?:approved|cleared|registered))?', '__SAME__'],
-  ['ce(?:[- ]marked| certified| mark)', '__SAME__'],
-  ['ul[- ](?:listed|certified)', '__SAME__'],
   ['fcc(?:[- ](?:approved|certified))?', '__SAME__'],
   ['iso(?: ?\\d+)?(?:[- ]certified)?', '__SAME__'],
   ['usda(?:[- ]organic)?', '__SAME__'],
@@ -151,6 +152,7 @@ const PROMISE_WORDS: ReadonlyArray<readonly [string, string]> = [
 
 /** 认承诺词的正则（左边整词起头，「#1」前面不能再有 #）。查否定时先把句子里的承诺词整个拿掉：「Non-toxic BPA-free jar」里的 non 是 non-toxic 自己的，不否定 BPA-free。 */
 const PROMISE_RES = PROMISE_WORDS.map(([word]) => new RegExp(`(?<![\\w#])(?:${word})(?![\\w])`, 'gi'))
+const PROMISE_FULL = PROMISE_WORDS.map(([word]) => new RegExp(`^(?:${word})$`, 'i'))
 const withoutPromises = (clause: string): string => PROMISE_RES.reduce((rest, re) => rest.replace(re, ' '), clause)
 
 /** 按草稿里那个词本身去出处里找：空格、连字符可有可无（leakproof 认 leak proof），词尾单复数不计（awards 认 award）。 */
@@ -160,8 +162,17 @@ const literalStem = (word: string): string => word.toLowerCase().replace(/[- ]/g
 /** 「免费」类后缀里的日常用法：hands-free 也是产品说法，照列；只排掉不是在说产品的这几个。 */
 const NOT_PROMISE = /^(?:feel|stress|worry|hassle|commitment|obligation|string|strings|care|toll)[- ]?free$/i
 
+/**
+ * 承诺词紧挨着的修饰词（CE certified 的 CE、approved by the FDA 的 approved、certified by TÜV 的 TÜV）一起算进这条说法，
+ * 资料同一句里也要写到：只认承诺词这一个词，资料里别家的认证、别的批文都会给它当出处。左边只看紧挨的一个词，
+ * 「X by the」这样的取 X；右边只看「by (the) X」。FILLER 里的代词、系动词、程度副词不算修饰词；漏进表外的词只会多标。
+ */
+const LEFT_MATE = /(?<![\p{L}\d_'-])(?<!\d\S*\s+)(\p{L}[\p{L}'-]*)(?: by(?: the| an?)?)? +$/iu
+const RIGHT_MATE = /^ +by(?: the| an?)? +(\p{L}[\p{L}'-]*)/iu
+const FILLER = /^(?:our|your|their|its|it|it's|this|that|these|those|we|you|they|is|are|was|were|be|been|being|am|and|or|but|with|for|of|to|in|on|at|as|the|a|an|by|so|also|both|very|super|really|truly|fully|totally|completely|entirely|100%|now|just|even|still|always|stays?|remains?|keeps?|comes?|made|has|have|get|gets|feel|feels|look|looks|naturally|actually|literally|plus|while|than|from|into|my|his|her|i|i'm|we're|you're|they're|won|win|wins|had|got|offer|offers|offering|include|includes|including|provide|provides)$/i
+
 /** 一句话里的否定：资料里这一句是否定说法时，不给草稿里同一个承诺词当出处。 */
-const NEGATION = /(?<![a-z])(?:no|not|non|never|neither|nor|none|without|pending|void|cannot|except|excluded|excludes|unless|expired|hardly|isn't|aren't|doesn't|don't|won't)(?![a-z])|n't(?![a-z])/i
+const NEGATION = /(?<![a-z])(?:no|not|non|never|neither|nor|none|without|pending|void|cannot|except|unless|expired|hardly|exclud(?:e|es|ed|ing)|exclusions?|isn't|aren't|doesn't|don't|won't)(?![a-z])|n't(?![a-z])/i
 
 /** 一个数：千分位只认三位一组（「400, weighs」里的逗号不算），可带小数，也可以是「.5」。 */
 const DIGITS = '(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)'
@@ -235,7 +246,7 @@ const LEFTOVER = /[\w.,/+-]*\d([a-z]*(?:[-/][a-z]+)*)/gi
 const ALNUM = /(?<![\w-])[a-z]+-?\d[a-z0-9]*\b/gi
 
 /** `key` 是归一后用来比的样子；承诺词另带去出处里找的写法。 */
-export interface Claim { text: string; key: string; at: number; stem?: RegExp }
+export interface Claim { text: string; key: string; at: number; stem?: RegExp; with?: readonly RegExp[] }
 
 const numberValue = (raw: string): string => {
   const n = Number(raw.replace(/,/g, ''))
@@ -258,12 +269,13 @@ export function claimsIn(text: string): Claim[] {
   let rest = placeholders(plain(text)).rest
   // take 返回 'keep' 时这一段原样留下给后面的规则；返回 undefined 时遮掉、不算说法。
   // after 是这一段后面紧跟的文字，合成一条的电话、钟点拿它取单位。
-  const mask = (re: RegExp, take: (m: RegExpExecArray, after: string) => Omit<Claim, 'at'> | undefined | 'keep') => {
+  const mask = (re: RegExp, take: (m: RegExpExecArray, after: string, before: string) => Omit<Claim, 'at'> & { at?: number } | undefined | 'keep') => {
     rest = rest.replace(re, (...args) => {
       const m = args.slice(0, -2) as unknown as RegExpExecArray
-      const claim = take(m, (args.at(-1) as string).slice((args.at(-2) as number) + m[0].length))
+      const whole = args.at(-1) as string, at = args.at(-2) as number
+      const claim = take(m, whole.slice(at + m[0].length), whole.slice(0, at))
       if (claim === 'keep') return m[0]
-      if (claim !== undefined) out.push({ ...claim, at: args.at(-2) as number })
+      if (claim !== undefined) out.push({ at, ...claim })
       return ' '.repeat(m[0].length)
     })
   }
@@ -276,10 +288,17 @@ export function claimsIn(text: string): Claim[] {
   mask(DIGIT_GROUPS, (m, after) => isLong(m[0]) ? { text: m[0], key: `digits:${groupKey(m[0])}:${unitAfter(m[0], after)}` } : 'keep')
   // 承诺词先认走：「#1」里的 1、「5-star」里的 5 不另算一个数字。
   PROMISE_WORDS.forEach(([, stem], i) => {
-    mask(PROMISE_RES[i], m => {
+    mask(PROMISE_RES[i], (m, after, before) => {
       if (NOT_PROMISE.test(m[0])) return undefined
       const source = stem === '__SAME__' ? literalStem(m[0]) : stem
-      return { text: m[0], key: `word:${m[0].toLowerCase()}`, stem: new RegExp(`(?<!\\w)(?:${source})(?!\\w)`, 'gi') }
+      const left = LEFT_MATE.exec(before.slice(-60)), right = RIGHT_MATE.exec(after.slice(0, 60))
+      const mate = (w: string | undefined): w is string => w !== undefined && !FILLER.test(w) && !PROMISE_FULL.some(re => re.test(w))
+      const mates = [left?.[1], right?.[1]].filter(mate)
+      const start = mate(left?.[1]) ? before.length - left![0].length : before.length
+      const end = before.length + m[0].length + (mate(right?.[1]) ? right![0].length : 0)
+      const whole = before + m[0] + after
+      return { at: start, text: whole.slice(start, end), key: `word:${[m[0], ...mates].join(' ').toLowerCase()}`,
+        stem: new RegExp(`(?<!\\w)(?:${source})(?!\\w)`, 'gi'), with: mates.map(w => new RegExp(`(?<![\\p{L}\\d_])${literalStem(w)}(?![\\p{L}\\d_])`, 'iu')) }
     })
   })
   mask(SPELLED_PRICE, m => withValue(m, spelledValue(m[1]), v => `price:${v}`))
@@ -341,7 +360,7 @@ function sourced(claim: Claim, source: Source): boolean {
     const stem = claim.stem
     return source.clauses.some(clause => {
       stem.lastIndex = 0
-      if (!stem.test(clause)) return false
+      if (!stem.test(clause) || !(claim.with ?? []).every(w => w.test(clause))) return false
       return !NEGATION.test(withoutPromises(clause))
     })
   }
