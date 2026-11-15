@@ -173,15 +173,32 @@ const NOT_ABBREV = String.raw`(?<!\p{L}\.\p{L}|(?:^|[^\p{L}])(?:Dr|Mr|Mrs|Ms|Jr|
 const CLAUSE_END = new RegExp(`${NOT_ABBREV}[.;!?\\n]+(?:\\s|$)|[;!?\\n]`, 'u')
 const SENTENCE_END = new RegExp(`${NOT_ABBREV}[.;!?]+(?=\\s|$)|\\n`, 'gu')
 /**
- * 认证类那一句比对用的写法：只留字母和数字组成的词，小写，每个词去掉词尾的 s（不去 ss），词之间一个空格，首尾各补一个空格。
- * 这样空格、连字符、标点、列表符号、表情、大小写、单复数都不计；比的时候看资料那一句折好的写法里有没有整段，不拼正则（长句也不会让正则溢出）。
+ * 认证类那一句比对用的写法：只留字母串和数字串（400ml 拆成 400 ml，IPX7 拆成 ipx 7），小写，字母串长过三个的去掉词尾 s（不去 ss），
+ * 之间一个空格，首尾各补一个空格。这样空格、连字符、标点、列表符号、表情、大小写、单复数都不计；比的时候看资料那一句折好的写法里有没有整段，
+ * 不拼正则（长句也不会让正则溢出）。资料那边紧跟连字符的词前面记成 \u0001（长度不变）：Self-certified 里的 certified 不能当一整段的开头。
  */
-const fold = (text: string): string =>
-  ` ${(text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).map(w => w.length > 3 ? w.replace(/(?<!s)s$/, '') : w).join(' ')} `
+const HYPHEN_START = '\u0001'
+function fold(text: string): string {
+  let out = ' ', end = -1
+  for (const t of text.toLowerCase().matchAll(/\p{L}+|\p{N}+/gu)) {
+    if (end >= 0) out += /^[^\s]*-[^\s]*$/.test(text.slice(end, t.index)) && t.index > end ? HYPHEN_START : ' '
+    out += t[0].length > 3 && /^\p{L}/u.test(t[0]) ? t[0].replace(/(?<!s)s$/, '') : t[0]
+    end = t.index + t[0].length
+  }
+  return out + ' '
+}
+/** 资料那一句（带 \u0001 记号）里有没有草稿那一句：整段出现，且开头那个词不是紧跟在连字符后面。 */
+function contains(source: string, draft: string): boolean {
+  const plain = source.replaceAll(HYPHEN_START, ' ')
+  for (let at = plain.indexOf(draft); at >= 0; at = plain.indexOf(draft, at + 1)) if (source[at] !== HYPHEN_START) return true
+  return false
+}
 /** 认证词左边紧挨着、但不说明是谁认可的词：We tested it、Once approved、Highly recommended 不算认证说法。 */
 const NOT_WHO = /^(?:our|your|their|its|it|it's|this|that|these|those|we|we're|you|you're|they|they're|i|i'm|is|are|was|were|be|been|being|has|have|had|and|or|but|with|for|of|to|in|on|at|as|the|a|an|by|so|also|both|all|every|each|fully|totally|highly|now|just|still|once|my|hi|hey|plus|not|if|when|get|gets|got|i've|we've|you've|they've|i'd|we'd|you'd|would|could|should|can|can't|cannot|will|really|definitely|strongly|personally|she|he|who|which)$/i
 /** 认证词后面、by 后面紧跟的这些词说的是收信人（approved by you、Sarah recommended you）；Vets recommend it 照核。 */
 const PRONOUN = /^(?:you|your|yours|me|my)$/i
+/** by、with、to 后面是这些词时说的是收信人或我们自己（approved by our team、cleared with us、recommended to anyone）。 */
+const BY_US = /^(?:you|your|yours|me|my|us|our|ours|their|them|anyone|everyone)$/i
 /** 主语是这些时说的是自己做的事（I tested Whirl Go、we cleared Friday），不是认证。 */
 const SUBJECT = /^(?:i|we|you|they|he|she|i've|we've|you've|they've|i'd|we'd|you'd|i'll|we'll|you'll)$/i
 const WORD = String.raw`[\p{L}\d](?:[\p{L}\d'®™-]|\.(?=[\p{L}\d]))*`
@@ -198,7 +215,7 @@ function endorsing(before: string, after: string): boolean {
   if (left !== undefined && (!NOT_WHO.test(left) || /^\p{Lu}{2,}$/u.test(left))) return true
   if (/^\s?[:(]/u.test(after)) return true
   const by = BY.exec(after)
-  if (by !== null) return !PRONOUN.test(by[1] ?? by[2])
+  if (by !== null) return !BY_US.test(by[1] ?? by[2])
   return next !== undefined && /^\p{Lu}/u.test(next) && !(left !== undefined && SUBJECT.test(left))
 }
 /** 一段文字里每一句的起止（按 SENTENCE_END 切，一遍走完）；认证词所在的那一句用二分查找取。 */
@@ -338,9 +355,13 @@ export function claimsIn(text: string): Claim[] {
   // 认证类说法核整句：认证词所在的那一句要在资料某一句里原样出现。只遮认证词本身，句子里的数照常比。
   // 不说明是谁认可的（once approved、we tested）不算认证说法。
   // 整句从没遮过的原文里取（前面的规则已经遮掉的字照样算在句子里）。
+  // 同一句里有几个认证词时只折一次、只记一条（一行几千个认证词也不会每个都存一份整句）。
+  const sentencesSeen = new Set<number>()
   const endorsed = (m: RegExpExecArray, after: string, before: string) => {
     const { at, text } = sentenceAt(unmasked, spans, before.length)
-    return { at, text, key: ENDORSED + text.toLowerCase(), folded: fold(text) }
+    if (sentencesSeen.has(at)) return undefined
+    sentencesSeen.add(at)
+    return { at, text, key: ENDORSED + text.toLowerCase(), folded: fold(text).replaceAll(HYPHEN_START, ' ') }
   }
   mask(ENDORSE, (m, after, before) => endorsing(before, after) ? endorsed(m, after, before) : 'keep')
   // 承诺词先认走：「#1」里的 1、「5-star」里的 5 不另算一个数字。
@@ -420,7 +441,7 @@ function sourceOf(texts: readonly string[]): Source {
  */
 function sourced(claim: Claim, source: Source): boolean {
   const folded = claim.folded
-  if (folded !== undefined) return folded.trim() !== '' && source.folded.some((f, i) => !source.notForEndorsed[i] && f.includes(folded))
+  if (folded !== undefined) return folded.trim() !== '' && source.folded.some((f, i) => !source.notForEndorsed[i] && contains(f, folded))
   if (claim.stem !== undefined) {
     const stem = claim.stem
     return source.clauses.some(clause => {
@@ -444,7 +465,8 @@ function withContext(draft: string, claim: Claim): Flagged {
   // 认证类那一条本身就是一整句，不再带前后词。
   if (claim.folded !== undefined) {
     // 超长的一句（一行几千字没有句号）只显示头尾，中间写省略号。
-    const text = claim.text.length > 500 ? `${claim.text.slice(0, 360)}…${claim.text.slice(-100)}` : claim.text
+    const chars = Array.from(claim.text)   // 按字符切，不把表情切成半个
+    const text = chars.length > 500 ? `${chars.slice(0, 360).join('')}…${chars.slice(-100).join('')}` : claim.text
     return { text, context: text }
   }
   const lineStart = draft.lastIndexOf('\n', claim.at - 1) + 1

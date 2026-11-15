@@ -1141,6 +1141,13 @@ suite('P2', '开发信草稿里带认证说法的那一句要在产品资料里�
     ['一行几千字没有句号的认证句不出错，只显示头尾', 'Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved.', ['Capacity 400 mL'], [],
       [('Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved').slice(9, 369) + '…' + ('we love your videos and '.repeat(400) + 'it is FDA approved').slice(-100)], []],
     ['比整句时词的边界照算：Untested by SGS 不给 Tested by SGS 作保', 'Tested by SGS.', ['Untested by SGS.'], [], ['Tested by SGS'], []],
+    ['by、with、to 后面是我们自己或泛指的人不算认证说法；后面跟 them、us 的背书照核', 'Content is approved by our team before it goes live. All content is approved by us before posting. Highly recommended to anyone who travels. Doctors recommend them. Consumer Reports recommended us.',
+      ['x'], [], ['Doctors recommend them', 'Consumer Reports recommended us'], []],
+    ['资料里连字符后半截不能当整句的开头：Self-certified、Pre-approved 不给 Certified、Approved 作保', 'Certified to CE standards. Approved by the FDA.',
+      ['Self-certified to CE standards.', 'Pre-approved by the FDA.'], [], ['Certified to CE standards', 'Approved by the FDA'], []],
+    ['数与单位、字母与数字贴写分写都算同一句，句里的数不同就对不上', 'FDA approved 400 mL jar. IPX-7 certified. FDA approved 500 mL jar.',
+      ['FDA approved 400ml jar.', 'IPX7 certified.'], [], ['FDA approved 500 mL jar', '500 mL'], []],
+    ['资料按句判否定：同一条资料里另一句不带否定，也不给被否定的那句作保', 'CE certified.', ['Not CE certified. FDA approved.'], [], ['CE certified'], []],
     ['说的是收信人或自己做的事不算认证说法', 'I tested Whirl Go myself. Sarah recommended you. Content is approved by you before posting. We cleared Friday for a call.', ['x'], [], [], []],
   ]
   const texts = (draft: string, facts: string[], posts: string[]) => {
@@ -1150,6 +1157,7 @@ suite('P2', '开发信草稿里带认证说法的那一句要在产品资料里�
   eq('P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处',
     rules.map(([name, draft, facts, posts]) => [name, ...texts(draft, facts, posts)]),
     rules.map(([name, , , , unsourced, postsOnly]) => [name, unsourced, postsOnly]))
+  eq('P2.c 认证类那一条本身是整句，不再带前后几个词', claimsLines('Hi there, it is FDA approved. Thanks a lot friend.', ['x'], []), { unsourced: 'Hi there, it is FDA approved' })
   criterion('P2.c')
 }
 })
