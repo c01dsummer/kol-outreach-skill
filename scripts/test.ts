@@ -178,7 +178,7 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
+import { loadCreators, loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveCreators, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -756,6 +756,27 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   const drafted = String(row[HEADERS.indexOf('outreach_draft')])
   ok('CSV 保留占位符', drafted.includes('{产品一句话}') && drafted.includes('{价格待填}'))
   eq('占位符一个不少', (drafted.match(/\{[^}]*\}/g) ?? []).length, 3)
+  criterion('P2.b')
+}
+{
+  // 隔离重写比出来的三处（ADR-206）：上面那几条只用 includes 点名两个有字的占位符再数个数，
+  // 删掉空占位符 {}、在名单落盘读回时改了空行都还绿。这里改成整格逐字比，空占位符与连着的空行都在夹具里。
+  const drafts = ['{}', '{name}', '{...}', 'Hi {},\n\n\nWe make a {产品一句话} for {}.\n\nBest,\n{name}']
+  const people = drafts.map((d, i) => mk('tiktok', `p2-exact-${i}`, { tier: 'A', score: 10 - i, outreach_draft: d }))
+  const before = structuredClone(people)
+  eq('P2.b 只有占位符、或带空占位符 {} 的草稿，表格行那一格与草稿逐字相同',
+    people.map(c => toRow(c)[HEADERS.indexOf('outreach_draft')]), drafts)
+  const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: drafts.length,
+    tiers: { A: drafts.length, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false }
+  const pages = [renderHtml(people, meta), renderHtml(people, meta, { mode: 'review', filters: 'dual' })]
+  eq('P2.b 默认与评审两种 HTML 里每封草稿都逐字在（空占位符 {} 也在），输入名单不变',
+    [pages.map(page => drafts.filter(d => !page.includes(d))), isDeepStrictEqual(people, before)], [[[], []], true])
+  const dir = mkdtempSync(join(tmpdir(), 'kol-p2-roundtrip-'))
+  try {
+    saveCreators(dir, people)
+    eq('P2.b 名单经 saveCreators 落盘、loadCreators 读回（render 读的就是这一份），草稿逐字相同',
+      loadCreators(dir).map(c => c.outreach_draft), drafts)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
   criterion('P2.b')
 }
 
