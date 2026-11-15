@@ -94,57 +94,56 @@ const PROOF_PREFIXES = 'water|leak|dust|shock|scratch|rust|splash|fire|tamper|ch
 
 /**
  * 承诺词：写进信里就是在替品牌许诺或声称资质的词。左边要整词起头（inorganic 里没有 organic），右边只要求不是数字字母延续，
- * 由正则自己收尾。每项是 [草稿里认的写法, 去出处里找的词干]；词干两边都按整词找。
+ * 由正则自己收尾。每项是 [草稿里认的写法, 去出处里找的词干]，两边按整词找；__SAME__ 是按草稿原词找（资料 Non-GMO 不给信里 non-toxic 当出处）。
  */
 const PROMISE_WORDS: ReadonlyArray<readonly [string, string]> = [
   // 「终身保修」整个词组对：资料里的 battery lifetime 不是信里 lifetime warranty 的出处。
-  ['lifetime (?:warranty|guarantee)', 'lifetime (?:warranty|guarantee)'],
+  ['lifetime (?:warranty|guarantee)', '__SAME__'],
   ['warrant(?:y|ies|ied|ee)', 'warrant(?:y|ies|ied|ee)'],
   ['guarantee(?:[ds]|ing)?', 'guarantee(?:[ds]|ing)?'],
   ['refund(?:s|ed|able)?', 'refund(?:s|ed|able)?'],
-  ['money[- ]?back', 'money[- ]?back'],
-  ['cash[- ]?back', 'cash[- ]?back'],
-  ['risk[- ]free', 'risk[- ]free'],
-  ['(?:free|easy) returns?', 'free returns?|easy returns?'],
-  ['returns? (?:policy|window)', 'returns? (?:policy|window)'],
-  // 免费类各对各的：出处里的 free trial 不是信里 free shipping 的出处。
-  ['ships? (?:for )?free|shipping is free|free (?:(?:express|standard|US|international|2-day|two-day) )?(?:shipping|delivery)', 'ships? (?:for )?free|shipping is free|free (?:(?:express|standard|US|international|2-day|two-day) )?(?:shipping|delivery)'],
-  ['free (?:gift|sample|samples|trial|replacement|replacements|upgrade|accessor(?:y|ies))', 'free (?:gift|sample|samples|trial|replacement|replacements|upgrade|accessor(?:y|ies))'],
-  ['complimentary', 'complimentary'],
+  ['money[- ]?back', '__SAME__'],
+  ['cash[- ]?back', '__SAME__'],
+  ['risk[- ]free', '__SAME__'],
+  ['(?:free|easy) returns?', '__SAME__'],
+  ['returns? (?:policy|window)', '__SAME__'],
+  // 免费类各对各的：资料的 free trial 不是信里 free shipping 的出处。
+  ['ships? (?:for )?free|shipping is free|free (?:(?:express|standard|US|international|2-day|two-day) )?(?:shipping|delivery)', '__SAME__'],
+  ['free (?:gift|sample|samples|trial|replacement|replacements|upgrade|accessor(?:y|ies))', '__SAME__'],
+  ['complimentary', '__SAME__'],
   ['discount(?:s|ed)?', 'discount(?:s|ed)?'],
   ['commission(?:s)?', 'commission(?:s)?'],
-  ['lifetime', 'lifetime'],
-  ['for life|forever', 'for life|forever'],
+  ['lifetime', '__SAME__'],
+  ['for life|forever', '__SAME__'],
   ['certif(?:y|ied|ication|ications|icate|icates)', 'certif(?:y|ied|ication|ications|icate|icates)'],
   ['patent(?:s|ed)?', 'patent(?:s|ed)?'],
-  ['award[- ]winning|won an award|awards?', 'award[- ]winning|won an award|awards?'],
-  ['clinically|clinical(?: trials?| studies| study)?', 'clinically|clinical(?: trials?| studies| study)?'],
-  ['dermatologist(?:[- ](?:tested|approved|recommended))?', 'dermatologist(?:[- ](?:tested|approved|recommended))?'],
-  ['doctor[- ](?:recommended|approved)', 'doctor[- ](?:recommended|approved)'],
-  ['lab[- ]tested', 'lab[- ]tested'],
-  ['(?:food|medical)[- ]grade', '(?:food|medical)[- ]grade'],
-  ['hypoallergenic', 'hypoallergenic'],
-  ['fda(?:[- ](?:approved|cleared|registered))?', 'fda(?:[- ](?:approved|cleared|registered))?'],
-  ['ce(?:[- ]marked| certified| mark)', 'ce(?:[- ]marked| certified| mark)?'],
-  ['ul[- ](?:listed|certified)', 'ul(?:[- ](?:listed|certified))?'],
-  ['fcc(?:[- ](?:approved|certified))?', 'fcc(?:[- ](?:approved|certified))?'],
-  ['iso(?: ?\\d+)?(?:[- ]certified)?', 'iso(?: ?\\d+)?(?:[- ]certified)?'],
-  ['usda(?:[- ]organic)?', 'usda(?:[- ]organic)?'],
-  ['non[- ]?(?:toxic|gmo)', 'non[- ]?(?:toxic|gmo)'],
-  // 以 -free、-proof 结尾的整词：BPA-free、gluten-free、leakproof。中间带空格的只认下面两张表里的常见前缀（BPA free、leak proof）：
-  // 「it's free」「totally free」不是在说产品。
+  ['award[- ]winning|won an award|awards?', '__SAME__'],
+  ['clinically|clinical(?: trials?| studies| study)?', '__SAME__'],
+  ['dermatologist(?:[- ](?:tested|approved|recommended))?', '__SAME__'],
+  ['doctor[- ](?:recommended|approved)', '__SAME__'],
+  ['lab[- ]tested', '__SAME__'],
+  ['(?:food|medical)[- ]grade', '__SAME__'],
+  ['hypoallergenic', '__SAME__'],
+  ['fda(?:[- ](?:approved|cleared|registered))?', '__SAME__'],
+  ['ce(?:[- ]marked| certified| mark)', '__SAME__'],
+  ['ul[- ](?:listed|certified)', '__SAME__'],
+  ['fcc(?:[- ](?:approved|certified))?', '__SAME__'],
+  ['iso(?: ?\\d+)?(?:[- ]certified)?', '__SAME__'],
+  ['usda(?:[- ]organic)?', '__SAME__'],
+  ['non[- ]?(?:toxic|gmo)', '__SAME__'],
+  // 以 -free、-proof 结尾的整词（BPA-free、leakproof）；带空格的只认上面两张表里的前缀，「it's free」「totally free」不是在说产品。
   [`[a-z]+-?free|(?:${FREE_PREFIXES}) free`, '__SAME__'],
   [`[a-z]+-?proof|(?:${PROOF_PREFIXES}) proof`, '__SAME__'],
-  ['all[- ]natural', 'all[- ]natural'],
-  ['organic', 'organic'],
-  ['vegan', 'vegan'],
-  ['water[- ]resistant', 'water[- ]resistant'],
-  ['dishwasher[- ]safe', 'dishwasher[- ]safe'],
+  ['all[- ]natural', '__SAME__'],
+  ['organic', '__SAME__'],
+  ['vegan', '__SAME__'],
+  ['water[- ]resistant', '__SAME__'],
+  ['dishwasher[- ]safe', '__SAME__'],
   ['safe for kids|kid[- ]safe', 'safe for kids|kid[- ]safe'],
-  ['biodegradable', 'biodegradable'],
-  ['recyclable', 'recyclable'],
+  ['biodegradable', '__SAME__'],
+  ['recyclable', '__SAME__'],
   ['best[- ]?sell(?:ing|ers?)', 'best[- ]?sell(?:ing|ers?)'],
-  ['top[- ]rated', 'top[- ]rated'],
+  ['top[- ]rated', '__SAME__'],
   ['five[- ]star|5[- ]star', 'five[- ]star|5[- ]star'],
   ["world'?s first", "world'?s first"],
   ['#1|number one|no\\. ?1|number 1', '#1|number one|no\\. ?1|number 1'],
@@ -154,15 +153,15 @@ const PROMISE_WORDS: ReadonlyArray<readonly [string, string]> = [
 const PROMISE_RES = PROMISE_WORDS.map(([word]) => new RegExp(`(?<![\\w#])(?:${word})(?![\\w])`, 'gi'))
 const withoutPromises = (clause: string): string => PROMISE_RES.reduce((rest, re) => rest.replace(re, ' '), clause)
 
-/** -free、-proof 这两项按草稿里那个词本身去出处里找（leakproof 只认 leak proof / leak-proof / leakproof）。 */
-const literalStem = (word: string): string => word.toLowerCase().replace(/[- ]/g, '').split('')
-  .map(ch => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[- ]?')
+/** 按草稿里那个词本身去出处里找：空格、连字符可有可无（leakproof 认 leak proof），词尾单复数不计（awards 认 award）。 */
+const literalStem = (word: string): string => word.toLowerCase().replace(/[- ]/g, '').replace(/(?<=\w{3})(?<!s)s$/, '').split('')
+  .map(ch => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[- ]?') + '(?:e?s)?'
 
 /** 「免费」类后缀里的日常用法：hands-free 也是产品说法，照列；只排掉不是在说产品的这几个。 */
 const NOT_PROMISE = /^(?:feel|stress|worry|hassle|commitment|obligation|string|strings|care|toll)[- ]?free$/i
 
 /** 一句话里的否定：资料里这一句是否定说法时，不给草稿里同一个承诺词当出处。 */
-const NEGATION = /(?<![a-z])(?:no|not|non|never|neither|nor|none|without|pending|void|cannot|isn't|aren't|doesn't|don't|won't)(?![a-z])|n't(?![a-z])/i
+const NEGATION = /(?<![a-z])(?:no|not|non|never|neither|nor|none|without|pending|void|cannot|except|excluded|excludes|unless|expired|hardly|isn't|aren't|doesn't|don't|won't)(?![a-z])|n't(?![a-z])/i
 
 /** 一个数：千分位只认三位一组（「400, weighs」里的逗号不算），可带小数，也可以是「.5」。 */
 const DIGITS = '(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)'
@@ -180,7 +179,7 @@ const LINKS: readonly RegExp[] = [
   /\b[\w.+-]+@[\w-]+(?:\.[a-zA-Z][\w-]*)*\.[a-z][a-z0-9-]*\b/g,                    // 邮箱：后缀小写字母起头（4K@59.94fps、1080p@60fps.It 不是）
   /\bhttps?:\/\/\S+|\bwww\.\S+/gi,                                                  // 网址
   // 不带协议的网址：网址名里要有字母，后缀要小写（「$29.99.Shop now」「40 hours.Me and」是句号后漏了空格，不是网址）。
-  /\b[\w-]*[a-zA-Z][\w-]*\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
+  /(?<![\w-])(?=[\w-]*[a-zA-Z])[\w-]+\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
 ]
 /** 钟点整串一条：10:30、9:00-17:00、10:30 and 11:30、10:30 am PST、1:10 to 1:20（比例也是这个形状，照样列出）。 */
 const CLOCK = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|and|until|till)[ \\t]?\\d{1,2}:\\d{2})?` +
@@ -196,10 +195,7 @@ function numberUnit(m: RegExpExecArray): string {
       : glued !== undefined ? foldUnit(glued)
         : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? foldUnit(spaced) : ''
 }
-/**
- * 合成的一条（电话、钟点、斜杠日期）后面的单位：把最后一个数接上后面的文字，按普通数字的口径取，两套口径不分家。
- * 币符写在后面的（1000$）算价钱。
- */
+/** 合成的一条（电话、钟点、斜杠日期）后面的单位：最后一个数接上后面的文字，按普通数字的口径取（1000$ 算价钱）。 */
 function unitAfter(group: string, after: string): string {
   // 不以数字结尾的一串（(400)、1:30 pm）拿 0 去接后文，口径一样。
   const probe = (/\d+(?:\.\d+)?$/.exec(group)?.[0] ?? '0') + after
@@ -223,8 +219,8 @@ const SPELLED_PERCENT = new RegExp(`\\b(${SPELLED})[\\s-](?:percent|per cent)\\b
 /** 拼写的数后面跟单位表里的单位：ten seconds、twenty five hours、a thousand-hour。 */
 const unitWords = W(Object.keys(UNIT_ALIASES).filter(u => u !== '%' && u.length > 1))
 const SPELLED_UNIT = new RegExp(`\\b(${SPELLED})[\\s-](${unitWords})\\b`, 'gi')
-/** 开发信里最常被编的几种不带阿拉伯数字的数量：half off、double、twice、a dozen、a million。 */
-const QUANTITY_PHRASES = /\b(?:half[- ](?:off|price)|double[sd]?|twice|(?:a|an)[\s-](?:dozen|million|thousand|hundred)|millions|thousands)\b/gi
+/** 开发信里最常被编的几种不带阿拉伯数字的数量：half off、double、twice、a dozen、several hundred、hundreds。 */
+const QUANTITY_PHRASES = /\b(?:half[- ](?:off|price)|double[sd]?|twice|(?:a|an|a few|several|many)[\s-](?:dozen|million|thousand|hundred)|millions|thousands|hundreds|dozens)\b/gi
 /** 百分号与 per cent 写法。 */
 const PERCENT_WORDS = '%|percent\\b|per cent\\b|pct\\b'
 /**

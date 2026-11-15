@@ -1010,6 +1010,13 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
     ['「five and ten minutes」不读成 15', 'Ready in between five and ten minutes.', ['15 minutes'], [], ['ten minutes'], []],
     ['单复数折法两边一致：calories 与 calorie、sizes 与 size；$1.2k 读成 1200', '100 calories, 3 sizes, 30 doses, 2 batteries, $1.2k.',
       ['100-calorie pack', '3-size set', '30-dose bottle', '2 battery pack', '$1200'], [], [], []],
+    ['承诺词一项里的几种写法各对各的：non-toxic 不认 Non-GMO，FDA approved 不认 FDA registered', 'It is non-toxic. FDA approved, medical-grade, free returns, CE marked, UL listed.',
+      ['Non-GMO ingredients', 'FDA registered facility', 'Food-grade silicone', 'Easy returns', 'CE certified', 'UL certified'], [],
+      ['non-toxic', 'FDA approved', 'medical-grade', 'free returns', 'CE marked', 'UL listed'], []],
+    ['同一个承诺词单复数、空格连字符不计：awards 认 award，free returns 认 Free return', 'Won awards, free returns, leakproof.', ['Award winner 2024', 'Free return within 30 days', 'Leak-proof lid'], [], [], []],
+    ['免费送货各对各的；several hundred、hundreds 这类没有阿拉伯数字的大数也列', 'Free 2-day shipping. Lasts several hundred hours, loved by hundreds.',
+      ['Free shipping over $50', 'Battery lasts hours'], [], ['Free 2-day shipping', 'several hundred', 'hundreds'], []],
+    ['资料里 except、unless、expired 这类说法不给承诺词当出处', 'Lifetime warranty included.', ['Lifetime warranty expired for old models'], [], ['Lifetime warranty'], []],
   ]
   const texts = (draft: string, facts: string[], posts: string[]) => {
     const found = draftClaims(draft, facts, posts)
