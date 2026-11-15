@@ -7,8 +7,10 @@ const newJudgmentFields = [
   'eligibility', 'adoption_priority', 'observed_content', 'work_evidence',
   'natural_integration', 'mismatch_risk', 'brand_calibration_version',
 ] as const
+/** P2：随草稿一起投影的出处登记；不算新评审判断，只是草稿的附注。 */
+const draftNoteFields = ['creator_sources'] as const
 const projectedFields = [
-  ...legacyFields, ...newJudgmentFields, 'review_status', 'linked_agent_review',
+  ...legacyFields, ...newJudgmentFields, ...draftNoteFields, 'review_status', 'linked_agent_review',
 ] as const
 
 function primaryAccount(creator: Creator): string | undefined {
@@ -82,9 +84,9 @@ export function projectAgentReviews(
     }
     const review = byAccount.get(primary)
     if (review) {
-      for (const field of [...legacyFields, ...newJudgmentFields]) {
+      for (const field of [...legacyFields, ...newJudgmentFields, ...draftNoteFields]) {
         const value = review[field]
-        if (value !== undefined) (creator as unknown as Record<string, unknown>)[field] = value
+        if (value !== undefined) (creator as unknown as Record<string, unknown>)[field] = structuredClone(value)
       }
     }
     creator.review_status = statusOf(review, calibrationVersion)

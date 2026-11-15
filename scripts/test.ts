@@ -196,6 +196,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p2-placeholders', needs: [] },
   { id: 'p2-draft-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
+  { id: 'p2-creator-sources', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
   { id: 'd4s-independent-claim', needs: [] },
@@ -1468,6 +1469,140 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
   useMemoryFile('memory/creators.json')
 }
 
+})
+await group('p2-creator-sources', () => {
+suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在评审 HTML 里，不拦')
+{
+  // P2（ADR-210）：期望只取自判据原文与下面写进夹具的字面值。
+  // 资料：简介、两条作品文案、昵称「Mei Lin」、账号 meicooks。草稿里各种情形各一句。
+  const BIO = '3-ingredient recipes for  busy mornings'
+  const POSTS = [{ desc: 'Leg day vlog' }, { desc: 'Yes, I show the “cleanup” every time' }] as unknown as Creator['recent_posts']
+  const DRAFT = 'Subject: Your 3-ingredient smoothie series\n\nHi Mei,\n\n' +
+    'Your series shows the cleanup every time —\nthat part stuck with me. You run marathons every week.\n\n' +
+    "Meicooks is my favourite channel. Mei Lin's kitchen looks great. We make a 400ml blender.\n\n" +
+    'Happy to send one over, if it fits your kitchen.\n\nBest,\n{name}'
+  const SOURCES = [
+    { draft: 'YOUR 3-ingredient   smoothie series', from: 'bio', quote: '3-INGREDIENT recipes for busy mornings' },
+    { draft: 'Your series shows the cleanup every time', from: 'post', quote: 'I show the "cleanup" every time' },
+    { draft: 'that part stuck with me', from: 'self' },
+    { draft: 'You run marathons every week.', from: 'post', quote: 'I run marathons' },
+    { draft: 'if it fits your kitchen', from: 'self' },
+    { draft: 'Your old sentence that was edited away', from: 'nickname', quote: 'Mei' },
+  ] as NonNullable<Creator['creator_sources']>
+  const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 4,
+    tiers: { A: 4, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false }
+  const people = [
+    mk('tiktok', 'meicooks', { nickname: 'Mei Lin', bio: BIO, recent_posts: POSTS, tier: 'A', score: 4, outreach_draft: DRAFT, creator_sources: SOURCES, profile_url: 'https://example.com/meicooks' }),
+    mk('tiktok', 'plain', { nickname: 'Ana', tier: 'A', score: 3, outreach_draft: 'Subject: Quick one\n\nHi Ana,\n\nWe make a blender.\n\nBest,\n{name}', profile_url: 'https://example.com/plain' }),
+    mk('tiktok', 'blank', { tier: 'A', score: 2, outreach_draft: ' \n ', creator_sources: SOURCES, profile_url: 'https://example.com/blank' }),
+    mk('tiktok', 'nodraft', { tier: 'A', score: 1, creator_sources: SOURCES, profile_url: 'https://example.com/nodraft' }),
+  ]
+  const before = structuredClone(people)
+  const lineOf = (page: string, handle: string): string | undefined => {
+    const card = page.split('<div class="card ').find(chunk => chunk.includes(`href="https://example.com/${handle}"`))
+    const m = card === undefined ? null : /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(card)
+    return m === null ? undefined : m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+  }
+  const HEAD = '写博主的话出处：', TAIL = '（改写得准不准请对照原文自己看）'
+  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual' })
+  eq('P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后',
+    lineOf(review, 'meicooks'), HEAD + [
+      '「YOUR 3-ingredient   smoothie series」← 简介原文「3-INGREDIENT recipes for busy mornings」',
+      '「Your series shows the cleanup every time」← 作品文案原文「I show the "cleanup" every time」',
+      '「that part stuck with me」← 发件人自己的话（确认没有给博主安新说法）',
+      '「You run marathons every week.」← 作品文案原文「I run marathons」（原文对不上：他的作品文案里没有这段）',
+      '「Meicooks is my favourite channel.」（提到了博主，没标出处）',
+      "「Mei Lin's kitchen looks great.」（提到了博主，没标出处）",
+      '「if it fits your kitchen」← 发件人自己的话（确认没有给博主安新说法）',
+      '「Your old sentence that was edited away」（登记了出处，但信里已经没有这句）',
+    ].join('；') + TAIL)
+  eq('P2.f 有草稿、没提到博主也没登记的写「无」', lineOf(review, 'plain'), `${HEAD}无${TAIL}`)
+  eq('P2.g 没草稿或草稿只有空白的卡片不出这一行', ['blank', 'nodraft'].map(h => lineOf(review, h)), [undefined, undefined])
+  ok('P2.g 只标不改：草稿原文逐字在 HTML 里，输入名单不变',
+    review.includes(DRAFT.replace(/&/g, '&amp;').replace(/'/g, '&#39;')) && isDeepStrictEqual(people, before))
+  ok('P2.g 默认模式 HTML 不出这一行（U9.a）', !renderHtml(people, meta).includes('data-draft-creator'))
+  const injected = renderHtml([mk('tiktok', 'inj', { tier: 'A', outreach_draft: 'You <b>rock</b>.', profile_url: 'https://example.com/inj' })], meta, { mode: 'review' })
+  ok('P2.f 这一行在输出处转义', !injected.includes('<b>rock</b>') && injected.includes('「You &lt;b&gt;rock&lt;/b&gt;.」（提到了博主，没标出处）'))
+  // 资料缺席：简介 null、没有作品时，登记了 bio/post 的都对不上；昵称对得上。
+  const bare = renderHtml([mk('tiktok', 'bare', { nickname: 'Sam Rivera', bio: null, tier: 'A', outreach_draft: 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.',
+    creator_sources: [{ draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }],
+    profile_url: 'https://example.com/bare' })], meta, { mode: 'review' })
+  eq('P2.f 简介缺席、没有作品时登记的原文对不上；昵称照对', lineOf(bare, 'bare'), HEAD + [
+    '「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）',
+    '「Your posts too.」← 作品文案原文「too」（原文对不上：他的作品文案里没有这段）',
+    '「Sam Rivera here.」← 昵称原文「sam rivera」',
+  ].join('；') + TAIL)
+  criterion('P2.f', 'P2.g')
+}
+{
+  // P2.e：正本校验、读写往返、投影。
+  const root = mkdtempSync(join(tmpdir(), 'kol-p2src-review-'))
+  try {
+    const key = 'tiktok:meicooks'
+    const SOURCES = [{ draft: 'Your series', from: 'post', quote: 'my series' }, { draft: 'that stuck with me', from: 'self' }]
+    const doc = (sources: unknown): AgentReviewDocument => ({ version: 1, updated_at: '2026-11-15T00:00:00Z', rounds: [],
+      reviews: { [key]: { account_keys: [key], outreach_draft: 'Your series. that stuck with me', creator_sources: sources } as unknown as AgentReview } })
+    writeAgentReviewDocument(root, doc(SOURCES))
+    const file = join(root, 'agent-review.json'), bytes = rf(file, 'utf8')
+    const read = readAgentReviewDocument(root)
+    eq('P2.e 合规的 creator_sources 读写往返不丢', read.document.reviews[key].creator_sources, SOURCES)
+    const bad: Array<[string, unknown, string]> = [
+      ['不是数组', { draft: 'x' }, 'creator_sources 必须是数组'],
+      ['项不是对象', ['x'], 'creator_sources[0] 必须是对象'],
+      ['不认得的键', [{ draft: 'x', from: 'self', note: 'y' }], 'creator_sources[0].note 不认得'],
+      ['draft 空白', [{ draft: ' ', from: 'self' }], 'creator_sources[0].draft 必须是非空字符串'],
+      ['draft 缺', [{ from: 'self' }], 'creator_sources[0].draft 必须是非空字符串'],
+      ['from 不认得', [{ draft: 'x', from: 'observed_content', quote: 'y' }], 'creator_sources[0].from 必须是'],
+      ['self 写了原文', [{ draft: 'x', from: 'self', quote: 'y' }], 'creator_sources[0].quote 发件人自己的话不写原文'],
+      ['bio 没写原文', [{ draft: 'x', from: 'bio' }], 'creator_sources[0].quote 必须是非空字符串'],
+      ['post 原文空白', [{ draft: 'x', from: 'post', quote: '  ' }], 'creator_sources[0].quote 必须是非空字符串'],
+      ['nickname 原文不是字符串', [{ draft: 'x', from: 'nickname', quote: 3 }], 'creator_sources[0].quote 必须是非空字符串'],
+      ['第二项坏也指出第几项', [SOURCES[0], { draft: 'x', from: 'bio' }], 'creator_sources[1].quote 必须是非空字符串'],
+    ]
+    eq('P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节', bad.map(([name, value, want]) => {
+      try { writeAgentReviewDocument(root, doc(value)); return [name, 'accepted'] }
+      catch (error) {
+        const text = error instanceof ReviewInputError ? error.message + JSON.stringify((error as unknown as { problems?: string[] }).problems ?? []) : String(error)
+        return [name, error instanceof ReviewInputError && text.includes(want) && text.includes(key), rf(file, 'utf8') === bytes]
+      }
+    }), bad.map(([name]) => [name, true, true]))
+    const creators = [mk('tiktok', 'meicooks')]
+    const projected = projectAgentReviews(read.document, creators)
+    eq('P2.e 投影到名单原样带上', projected[0].creator_sources, SOURCES)
+    projected[0].creator_sources![0].draft = 'changed'
+    eq('P2.e 改投影不反向改正本', read.document.reviews[key].creator_sources![0].draft, 'Your series')
+    const removed = structuredClone(read.document); delete removed.reviews[key].creator_sources
+    ok('P2.e 正本删掉它后，带着旧投影的名单重投影时也消失', !('creator_sources' in projectAgentReviews(removed, projected)[0]))
+    criterion('P2.e')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+{
+  // 真起 render：正本里一条评审带草稿和登记，render 以 0 结束，报告里那一行对得上，kol.csv 里草稿原样、没有新列。
+  const root = mkdtempSync(join(tmpdir(), 'kol-p2src-render-'))
+  try {
+    const dir = join(root, 'task'), cwd = join(root, 'cwd'), now = '2026-10-01T00:00:00Z'
+    mkdirSync(dir); mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const DRAFT = 'Subject: Quick one\n\nHi Ana,\n\nYour sourdough series is lovely. You also climb.\n\nBest,\n{name}'
+    const creator = { platform: 'tiktok', handle: 'u14_render', nickname: 'Ana', followers: 80000, bio: 'Baking sourdough series daily', bio_links: [], verified: false,
+      profile_url: 'https://www.tiktok.com/@u14_render', source_keyword: 'portable', source_dimension: 'category', source_tasks: [0], email: 'u14@example.test' }
+    writeFileSync(join(dir, 'task.json'), JSON.stringify({ product: 'u14', market: 'US', target_count: 1,
+      tasks: [{ keyword: 'portable', dimension: 'category', platform: 'tiktok' }], done: [0], created_at: now, updated_at: now }))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify([creator]))
+    writeFileSync(join(dir, 'agent-review.json'), JSON.stringify({ version: 1, updated_at: now, rounds: [], reviews: { 'tiktok:u14_render': {
+      account_keys: ['tiktok:u14_render'], fit: '✅', fit_reason: '夹具', outreach_draft: DRAFT,
+      creator_sources: [{ draft: 'Your sourdough series is lovely.', from: 'bio', quote: 'sourdough series' }] } } }))
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
+    const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
+    const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
+    const line = /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
+    const csv = read('kol.csv')
+    eq('P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、没有出处列',
+      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('creator_sources')],
+      [0, '写博主的话出处：「Your sourdough series is lovely.」← 简介原文「sourdough series」；「You also climb.」（提到了博主，没标出处）（改写得准不准请对照原文自己看）', true, false])
+    if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+  }
 })
 await group('d4-memory', () => {
 suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')

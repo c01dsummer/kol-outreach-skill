@@ -21791,6 +21791,286 @@
       ]
     },
     {
+      "id": "M-P2-s1",
+      "req": "P2.e",
+      "why": "正本里 creator_sources 写坏了（不是数组、项不是对象、键不认得、缺原文）也照收，不指出问题",
+      "file": "scripts/lib/review.ts",
+      "find": "    if (review.creator_sources !== undefined) problems.push(...creatorSourceProblems(review.creator_sources, `${at}.creator_sources`))\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节"
+      ]
+    },
+    {
+      "id": "M-P2-s2",
+      "req": "P2.e",
+      "why": "登记里多出不认得的键照收",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (!['draft', 'from', 'quote'].includes(key)) problems.push",
+      "replace": "      if (false) problems.push",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节"
+      ]
+    },
+    {
+      "id": "M-P2-s3",
+      "req": "P2.e",
+      "why": "发件人自己的话（self）写了原文也照收",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (record.quote !== undefined) problems.push",
+      "replace": "      if (false) problems.push",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节"
+      ]
+    },
+    {
+      "id": "M-P2-s4",
+      "req": "P2.e",
+      "why": "登记的出处不投影到名单上，报告看不到",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "      for (const field of [...legacyFields, ...newJudgmentFields, ...draftNoteFields]) {",
+      "replace": "      for (const field of [...legacyFields, ...newJudgmentFields]) {",
+      "by": "test",
+      "kills": [
+        "P2.e 投影到名单原样带上"
+      ]
+    },
+    {
+      "id": "M-P2-s5",
+      "req": "P2.e",
+      "why": "投影出去的登记和正本共用同一份，改名单上的会反过来改了正本",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "(creator as unknown as Record<string, unknown>)[field] = structuredClone(value)",
+      "replace": "(creator as unknown as Record<string, unknown>)[field] = value",
+      "by": "test",
+      "kills": [
+        "P2.e 改投影不反向改正本"
+      ]
+    },
+    {
+      "id": "M-P2-s6",
+      "req": "P2.e",
+      "why": "正本删掉登记后，名单上旧的那份还留着",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "  ...legacyFields, ...newJudgmentFields, ...draftNoteFields, 'review_status', 'linked_agent_review',",
+      "replace": "  ...legacyFields, ...newJudgmentFields, 'review_status', 'linked_agent_review',",
+      "by": "test",
+      "kills": [
+        "P2.e 正本删掉它后，带着旧投影的名单重投影时也消失"
+      ]
+    },
+    {
+      "id": "M-P2-s7",
+      "req": "P2.f",
+      "why": "比对原文时分大小写，大小写不同的原文被说成对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    .toLowerCase().replace(/\\s+/g, ' ').trim()",
+      "replace": "    .replace(/\\s+/g, ' ').trim()",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后"
+      ]
+    },
+    {
+      "id": "M-P2-s8",
+      "req": "P2.f",
+      "why": "比对原文时不合并空白，多一个空格就对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    .toLowerCase().replace(/\\s+/g, ' ').trim()",
+      "replace": "    .toLowerCase().trim()",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后"
+      ]
+    },
+    {
+      "id": "M-P2-s9",
+      "req": "P2.f",
+      "why": "弯引号与直引号不算同一个，照抄的原文被说成对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": ".replace(/[“”]/g, '\"')",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后"
+      ]
+    },
+    {
+      "id": "M-P2-s10",
+      "req": "P2.f",
+      "why": "作品文案只对第一条，引用后面几条作品的都被说成对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    : source.from === 'post' ? [...(creator.posts ?? [])]",
+      "replace": "    : source.from === 'post' ? (creator.posts ?? []).slice(0, 1)",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后"
+      ]
+    },
+    {
+      "id": "M-P2-s11",
+      "req": "P2.f",
+      "why": "原文在资料里找不到也写成对得上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "{ status: quoteFound(source, creator) ? 'matched' : 'quote_missing',",
+      "replace": "{ status: 'matched' as const,",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后",
+        "P2.f 简介缺席、没有作品时登记的原文对不上；昵称照对"
+      ]
+    },
+    {
+      "id": "M-P2-s12",
+      "req": "P2.f",
+      "why": "原文只对简介，作品文案与昵称都不对",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  const fields = source.from === 'bio' ? [creator.bio ?? '']",
+      "replace": "  const fields = true ? [creator.bio ?? '']",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后",
+        "P2.f 简介缺席、没有作品时登记的原文对不上；昵称照对"
+      ]
+    },
+    {
+      "id": "M-P2-s13",
+      "req": "P2.f",
+      "why": "信里提到博主（you 一类词）却没登记的句子不列",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return YOU.test(sentence) || names.some(name => name.test(sentence))",
+      "replace": "  return names.some(name => name.test(sentence))",
+      "by": "test",
+      "kills": [
+        "P2.f 这一行在输出处转义",
+        "P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、没有出处列"
+      ]
+    },
+    {
+      "id": "M-P2-s14",
+      "req": "P2.f",
+      "why": "信里提到博主昵称或账号名却没登记的句子不列",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return YOU.test(sentence) || names.some(name => name.test(sentence))",
+      "replace": "  return YOU.test(sentence)",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后"
+      ]
+    },
+    {
+      "id": "M-P2-s15",
+      "req": "P2.f",
+      "why": "账号名不算提到博主",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  if (handle.length >= 3) words.add(handle)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后"
+      ]
+    },
+    {
+      "id": "M-P2-s16",
+      "req": "P2.f",
+      "why": "问候行（Hi 某某）也被列成没标出处",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (!line || isGreeting(line)) continue",
+      "replace": "      if (!line) continue",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后",
+        "P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、没有出处列"
+      ]
+    },
+    {
+      "id": "M-P2-s17",
+      "req": "P2.f",
+      "why": "登记了但信里已经没有的那句不列出来",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    if (at < 0) { missing.push({ status: 'not_in_draft', draft: source.draft }); continue }",
+      "replace": "    if (at < 0) continue",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后"
+      ]
+    },
+    {
+      "id": "M-P2-s18",
+      "req": "P2.f",
+      "why": "发件人自己的话不标出来，混成对得上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    case 'self': return `「${item.draft}」← 发件人自己的话（确认没有给博主安新说法）`",
+      "replace": "    case 'self': return `「${item.draft}」`",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后"
+      ]
+    },
+    {
+      "id": "M-P2-s19",
+      "req": "P2.f",
+      "why": "一条都没有时不写「无」，留空",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return items.length ? items.map(creatorSourceText).join('；') : '无'",
+      "replace": "  return items.map(creatorSourceText).join('；')",
+      "by": "test",
+      "kills": [
+        "P2.f 有草稿、没提到博主也没登记的写「无」"
+      ]
+    },
+    {
+      "id": "M-P2-s20",
+      "req": "P2.f",
+      "why": "逐条不按在信里出现的先后排",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  placed.sort((a, b) => a.at - b.at)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后"
+      ]
+    },
+    {
+      "id": "M-P2-s21",
+      "req": "P2.g",
+      "why": "草稿只有空白的卡片也出这一行",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  if (draft === undefined || draft.trim() === '') return undefined",
+      "replace": "  if (draft === undefined) return undefined",
+      "by": "test",
+      "kills": [
+        "P2.g 没草稿或草稿只有空白的卡片不出这一行"
+      ]
+    },
+    {
+      "id": "M-P2-s22",
+      "req": "P2.g",
+      "why": "默认模式的旧 HTML 也出这一行",
+      "file": "scripts/lib/report.ts",
+      "find": "    const line = options.mode === 'review'\n      ? creatorSourceLine(",
+      "replace": "    const line = true\n      ? creatorSourceLine(",
+      "by": "test",
+      "kills": [
+        "P2.g 默认模式 HTML 不出这一行（U9.a）"
+      ]
+    },
+    {
+      "id": "M-P2-s23",
+      "req": "P2.f",
+      "why": "这一行不转义，草稿里的标签原样进了报告",
+      "file": "scripts/lib/report.ts",
+      "find": "写博主的话出处：${esc(line)}",
+      "replace": "写博主的话出处：${line}",
+      "by": "test",
+      "kills": [
+        "P2.f 这一行在输出处转义"
+      ]
+    },
+    {
       "id": "M-U12-d",
       "req": "U12.b",
       "why": "账号被转义两次，报告上显示的是字符实体的原文，不是账号本身",
@@ -25212,6 +25492,12 @@
       "scope": "「是否编造」这一半里机器标不出的那几样：不带数字又不在承诺词表里的换说法、数字对得上但意思歪了、已证实的产品事实本身写错",
       "why": "这几样要读懂句子意思、或要回到商品页核对底本，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。带数字的说法和词表里的承诺词由 P2.c 标出，有自己的认领与负片。",
       "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」，并要人看报告里「出处对不上」那一行；product-intake.md 写明读了商品页就把产品事实原文逐条记成已证实的产品事实。见 ADR-01、ADR-199。"
+    },
+    {
+      "req": "P2.d",
+      "scope": "写博主的话里机器判断不了的那几样：改写得准不准、一句话是不是真的在描述博主、发件人的感受有没有借机给博主安新说法",
+      "why": "这几样要读懂句子意思、拿去和博主原文比意思，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。登记的原文在不在、提到博主却没登记的句子由 P2.e、P2.f、P2.g 管，有自己的认领与负片。",
+      "mitigation": "skill/references/outreach-draft.md 写明写博主的话只能引用或准确改写他的简介、作品文案、昵称，每句登记出处；报告里「写博主的话出处」一行把信里这句与资料原文并排放，交付或存邮箱前要人对照。见 ADR-210。"
     },
     {
       "req": "P1.b",
