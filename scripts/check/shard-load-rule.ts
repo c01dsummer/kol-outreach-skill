@@ -204,17 +204,32 @@ const siblingsOf = (workflow: string, wanted: string): string[] | undefined => {
   while (to < raw.length - 1 && inside(raw[to + 1])) to++
   return raw.slice(from, to + 1).filter(l => l.trim() !== '' && indent(l) === level).map(l => l.trim())
 }
+/**
+ * 变异那个 job 的原文：`jobs:` 下面、含 `MUTATE_SHARD: ${{ matrix.shard }}/n` 那一行的那个 job（从 `  名字:` 到下一个同层的键）。
+ * 别的 job 也写了一样的 `shard: [1, 2, 3]` 矩阵时，矩阵与 exclude 只认这一段里的；没有 `jobs:` 或找不到那一行时交回全文
+ */
+const mutateJobOf = (workflow: string, count: number): string => {
+  const raw = workflow.split('\n'), live = raw.map(l => l.replace(/#.*$/, '').trimEnd())
+  const at = live.findIndex(l => l.trim() === `MUTATE_SHARD: \${{ matrix.shard }}/${count}`)
+  if (at < 0 || !live.includes('jobs:')) return workflow
+  let from = at
+  while (from >= 0 && !/^ {2}[\w-]+:$/.test(live[from])) from--
+  if (from < 0) return workflow
+  let to = from + 1
+  while (to < raw.length && (live[to].trim() === '' || /^ {3}/.test(live[to]))) to++
+  return raw.slice(from, to).join('\n')
+}
 
 /**
  * `check.yml` 里写死份数的几处与 `SHARD_COUNT` 对不对得上（ADR-200 第 92 行那张接线欠条的「份数」那一半）：
  * matrix 那一行恰是 `shard: [1, …, n]`、`MUTATE_SHARD` 那一行恰是 `/n`、上传的分份启动数文件名是 `-of-n.json`，
- * 且那个矩阵里没有 `exclude:` 剔掉哪一份（别的 job 的矩阵不管）。对不上时交回每一处说的是什么；改份数要这几处与这个常量一起改。
+ * 且那个矩阵里没有 `exclude:` 剔掉哪一份。矩阵与 exclude 只在变异那个 job 里认（见 `mutateJobOf`），别的 job 的矩阵不管。对不上时交回每一处说的是什么；改份数要这几处与这个常量一起改。
  */
 export function shardWiringFaults(workflow: string, count: number): string[] {
-  const lines = liveLines(workflow), faults: string[] = []
+  const lines = liveLines(workflow), job = mutateJobOf(workflow, count), faults: string[] = []
   const list = Array.from({ length: count }, (_unused, i) => i + 1).join(', ')
-  if (!lines.includes(`shard: [${list}]`)) faults.push(`matrix 不是「shard: [${list}]」`)
-  if ((siblingsOf(workflow, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude:'))) faults.push('matrix 用 exclude 剔掉了某几份')
+  if (!liveLines(job).includes(`shard: [${list}]`)) faults.push(`matrix 不是「shard: [${list}]」`)
+  if ((siblingsOf(job, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude:'))) faults.push('matrix 用 exclude 剔掉了某几份')
   if (!lines.includes(`MUTATE_SHARD: \${{ matrix.shard }}/${count}`)) faults.push(`MUTATE_SHARD 不是「\${{ matrix.shard }}/${count}」`)
   if (!lines.some(l => l.includes(`launches-\${{ matrix.shard }}-of-${count}.json`))) faults.push(`分份启动数文件名不是「launches-\${{ matrix.shard }}-of-${count}.json」`)
   return faults

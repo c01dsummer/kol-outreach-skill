@@ -11661,6 +11661,14 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('接线：别的 job 的矩阵带 exclude:，不算', faults(['jobs:', '  other:', '    strategy:', '      matrix:', '        os: [a, b]', '        exclude:', '          - os: b',
     '  mutate:', '    strategy:', '      matrix:', '        ' + matrix, '    env:', '      ' + envLine, '      path: ' + artifact]), [])
   ok('接线：矩阵那一段只是别的键的一截，不算', faults(['old-' + matrix, envLine, artifact]).length > 0)
+  // 别的 job 排在前面、也写了一样的 shard 矩阵：矩阵与 exclude 只认变异那个 job 的
+  const twoJobs = (otherExclude: boolean, mutateExclude: boolean) => faults(['jobs:', '  other:', '    strategy:', '      matrix:', '        ' + matrix,
+    ...(otherExclude ? ['        exclude:', '          - shard: 2'] : []), '  mutate:', '    strategy:', '      matrix:', '        ' + matrix,
+    ...(mutateExclude ? ['        exclude:', '          - shard: 2'] : []), '    steps:', '      - run: npm run mutate', '        env:', '          ' + envLine, '      - path: ' + artifact])
+  eq('接线：前面别的 job 同样的矩阵带 exclude:，不算', twoJobs(true, false), [])
+  eq('接线：前面别的 job 同样的矩阵没 exclude、变异那个带，交回一条', twoJobs(false, true).length, 1)
+  eq('接线：shard 矩阵只写在别的 job 里、变异那个 job 没有，交回一条', faults(['jobs:', '  other:', '    strategy:', '      matrix:', '        ' + matrix,
+    '  mutate:', '    steps:', '      - run: npm run mutate', '        env:', '          ' + envLine, '      - path: ' + artifact]).length, 1)
   // chain 那一串与 package.json 的 check 对得上（去掉 mutate 与 launches 两步）、变异那几份写着 MUTATE_JOBS: '6'
   const checkLine = 'npm run anchors && npm run size && npm test && npm run mutate && npm run audit && npm run launches'
   const flow = (chain: string, jobs = "MUTATE_JOBS: '6'") => `jobs:\n  chain:\n    steps:\n      - run: ${chain}\n  mutate:\n    env:\n      MUTATE_SHARD: \${{ matrix.shard }}/3\n      ${jobs}\n`

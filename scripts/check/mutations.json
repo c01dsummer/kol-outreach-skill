@@ -18567,8 +18567,8 @@
       "req": "harness",
       "why": "matrix 只核有没有、不核列的是哪几份 —— 改成两份或四份而闸门仍按三份算，没有东西红",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "  if (!lines.includes(`shard: [${list}]`)) faults",
-      "replace": "  if (!lines.some(l => l.startsWith('shard: ['))) faults",
+      "find": "  if (!liveLines(job).includes(`shard: [${list}]`)) faults",
+      "replace": "  if (!liveLines(job).some(l => l.startsWith('shard: ['))) faults",
       "by": "test",
       "kills": [
         "接线：矩阵只列两份，交回一条说明"
@@ -18579,8 +18579,8 @@
       "req": "harness",
       "why": "matrix 那一行照结尾认 —— 别的键名里带着 shard 的那一行被当成 matrix",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "  if (!lines.includes(`shard: [${list}]`)) faults",
-      "replace": "  if (!lines.some(l => l.endsWith(`shard: [${list}]`))) faults",
+      "find": "  if (!liveLines(job).includes(`shard: [${list}]`)) faults",
+      "replace": "  if (!liveLines(job).some(l => l.endsWith(`shard: [${list}]`))) faults",
       "by": "test",
       "kills": [
         "接线：矩阵那一段只是别的键的一截，不算"
@@ -18591,8 +18591,8 @@
       "req": "harness",
       "why": "只认一行写完的 exclude —— 分几行写的 exclude 剔掉一份也不红",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "  if ((siblingsOf(workflow, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude:'))) faults",
-      "replace": "  if ((siblingsOf(workflow, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude: ['))) faults",
+      "find": "  if ((siblingsOf(job, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude:'))) faults",
+      "replace": "  if ((siblingsOf(job, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude: ['))) faults",
       "by": "test",
       "kills": [
         "接线：矩阵带 exclude:，算一处对不上"
@@ -18603,7 +18603,7 @@
       "req": "harness",
       "why": "整份工作流里有 exclude 就算 —— 别的 job 给自己的矩阵挖掉一项，闸门在主干上也红",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "  if ((siblingsOf(workflow, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude:'))) faults",
+      "find": "  if ((siblingsOf(job, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude:'))) faults",
       "replace": "  if (lines.some(l => l.startsWith('exclude:'))) faults",
       "by": "test",
       "kills": [
@@ -18944,6 +18944,30 @@
       "by": "test",
       "kills": [
         "按重量分：weigh 拿到的是这一摞的键与这一摞的条目（按原顺序）"
+      ]
+    },
+    {
+      "id": "M-H203-bg",
+      "req": "harness",
+      "why": "不找变异那个 job、拿整份工作流 —— 排在前面的别的 job 写了一样的 shard 矩阵，就认成它的 exclude",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (at < 0 || !live.includes('jobs:')) return workflow",
+      "replace": "  return workflow",
+      "by": "test",
+      "kills": [
+        "接线：前面别的 job 同样的矩阵带 exclude:，不算"
+      ]
+    },
+    {
+      "id": "M-H203-bh",
+      "req": "harness",
+      "why": "shard 矩阵在整份工作流里找 —— 只写在别的 job 里、变异那个 job 根本没分份也放行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (!liveLines(job).includes(`shard: [${list}]`)) faults",
+      "replace": "  if (!lines.includes(`shard: [${list}]`)) faults",
+      "by": "test",
+      "kills": [
+        "接线：shard 矩阵只写在别的 job 里、变异那个 job 没有，交回一条"
       ]
     },
     {
