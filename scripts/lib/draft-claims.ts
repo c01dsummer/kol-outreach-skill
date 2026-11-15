@@ -201,9 +201,8 @@ function numberUnit(m: RegExpExecArray): string {
  * 币符写在后面的（1000$）算价钱。
  */
 function unitAfter(group: string, after: string): string {
-  const last = /\d+(?:\.\d+)?$/.exec(group)?.[0]
-  if (last === undefined) return ''
-  const probe = last + after
+  // 不以数字结尾的一串（(400)、1:30 pm）拿 0 去接后文，口径一样。
+  const probe = (/\d+(?:\.\d+)?$/.exec(group)?.[0] ?? '0') + after
   if (new RegExp(`^(?:${PRICE_AFTER.source})`, 'i').test(probe)) return '$'
   const m = new RegExp(`^(?:${NUMBER.source})`, 'i').exec(probe)
   return m === null ? '' : numberUnit(m)
@@ -232,7 +231,7 @@ const PERCENT_WORDS = '%|percent\\b|per cent\\b|pct\\b'
  * 一个阿拉伯数后面可以跟单位：贴着写（400ml、1080p、4K）、空格或连字符隔开（400 ml、10-second）、度数（40°C）。
  * 负号只在前面不是字母、数字、点时才算数的一部分：「-20」是负数，「3-5 years」「COVID-19」里的不是。
  */
-const NUMBER = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(-?${DIGITS})(?:\\s?\\+|[\\s-]plus)?(?:(\\s?(?:${PERCENT_WORDS}))|(°\\s?[cf]\\b)|([a-z]+(?![\\w]))|(?:[\\s-](?:(?:more|extra|additional|full|whole|total|or more|plus)\\s+)?([a-z]+(?![\\w'])))?)(?!\\w|\\.\\d)`, 'gi')
+const NUMBER = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(-?${DIGITS})(?:\\s?\\+|[\\s-]plus)?(?:(\\s?(?:${PERCENT_WORDS}))|(°\\s?[cf]\\b)|([a-z]+(?![\\w]))|(?:[\\s-](?:(?:more|extra|additional|full|whole|total|or more|plus)\\s+)?([a-z]+(?!\\w|'(?!s\\b)[a-z])))?)(?!\\w|\\.\\d)`, 'gi')
 /** 兜底：前面各条都没认走、仍带数字的一串整串列（1920x1080、5V2A、6.1x2.8、20.11.2026），不带末尾标点；
  * 紧跟的字母后缀（px、-inch）列出来但不进比对。 */
 const LEFTOVER = /[\w.,/+-]*\d([a-z]*(?:[-/][a-z]+)*)/gi
@@ -274,7 +273,8 @@ export function claimsIn(text: string): Claim[] {
   }
   // 只藏网址、邮箱，最先认（链接里的日期不算）；日期、钟点、电话各合成一条，位数不够的一串数原样留下照常扫。
   for (const re of LINKS) mask(re, () => undefined)
-  mask(DATE, (m, after) => ({ text: m[0], key: `date:${m[0].toLowerCase().replace(/[\s,.]+/g, ' ')}:${unitAfter(m[0], after)}` }))
+  // 只有斜杠写的三段（10/20/30 oz）可能是规格，带上后面的单位；月份名、年月日写法的真日期不比后面的词。
+  mask(DATE, (m, after) => ({ text: m[0], key: `date:${m[0].toLowerCase().replace(/[\s,.]+/g, ' ')}:${/^\d+\/\d+\/\d+$/.test(m[0]) ? unitAfter(m[0], after) : ''}` }))
   // 合成的一条照原串比（分隔符、小数点都算），后面紧跟的单位也进比对：1:30 hours 对不上 1:30 minutes。
   mask(CLOCK, (m, after) => ({ text: m[0], key: `time:${groupKey(m[0])}:${unitAfter(m[0], after)}` }))
   mask(DIGIT_GROUPS, (m, after) => isLong(m[0]) ? { text: m[0], key: `digits:${groupKey(m[0])}:${unitAfter(m[0], after)}` } : 'keep')
