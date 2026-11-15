@@ -83,6 +83,8 @@ export const SELFCHECK_TOOLS = {
   audit: 'check/audit.ts',
   'observer-cert': 'check/observer-cert.ts',
   anchors: 'check/anchors.ts',
+  'shard-load': 'check/shard-load.ts',
+  'shard-weights': 'check/shard-weights.ts',
 } as const
 
 /**

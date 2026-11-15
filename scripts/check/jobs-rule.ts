@@ -257,7 +257,7 @@ export function jobsWanted(
 }
 
 /**
- * 这一跑只跑变异清单的第几份（ADR-197）。`MUTATE_SHARD=k/n`：清单按子集配置成摞、按估重分成 n 份（ADR-200、ADR-203，见 `shardPlan`），这一跑跑第 k 份；
+ * 这一跑只跑变异清单的第几份（ADR-197）。`MUTATE_SHARD=k/n`：清单按子集配置成摞、按实测秒数分成 n 份（ADR-200、ADR-203，见 `shardPlan`），这一跑跑第 k 份；
  * 没写（或写空）就是整份，也就是 1/1。**说不清是哪一份就交回 undefined**，由入口当场拒绝 ——
  * 写错的分法悄悄按整份跑，CI 上几台 runner 会各跑一遍全量，人以为分了、其实没分；
  * 悄悄按 1/1 以外的哪一份跑更坏：有几份谁也没跑，却没有一处会红。
@@ -275,37 +275,37 @@ export function shardWanted(env: string | undefined): { index: number; count: nu
 }
 
 /**
- * 分份时一条变异归哪一摞（ADR-200）：验证者与它选跑的那几组（排好序）。整跑的（`only` 是 undefined）没有子集基线，交回 undefined，各自成一摞。
- * 变异一步分份与负载闸门（`shard-load.ts`）都用这一个键 —— 两边各写一份的话，闸门量的就不是实际的分法。
+ * 分份时一条变异归哪一摞（ADR-200）：验证者（没写的是需求测试）与它选跑的那几组（排好序）。整跑的（`only` 是 undefined）没有子集基线，交回 undefined，各自成一摞。
+ * 变异一步分份、负载闸门（`shard-load.ts`）与实测秒数文件都用这一个键，与成本报告的配置键（`configurationKey`）同形 —— 各写一份的话，闸门量的就不是实际的分法。
  */
 export function shardKey(by: string | undefined, only: readonly string[] | undefined): string | undefined {
-  return only === undefined ? undefined : JSON.stringify([by, [...only].sort()])
+  return only === undefined ? undefined : JSON.stringify([by === undefined ? 'test' : by, [...only].sort()])
 }
 
 /**
  * 整份清单怎么分成 count 份（ADR-200、ADR-203）：**同一种子集配置的整摞落在同一份里**，那种配置的正常基线就只在那一份跑一次。
- * `keyOf` 交回这一条的配置键（`shardKey`）；交回 undefined 的各自成一摞。`weightOf` 交回这一条的估重（`shard-load-rule.ts` 的 `mutationWeight`），
- * 一摞的估重是摞里各条之和。摞按估重从重到轻排（一样重的按在清单里第一次出现的先后），逐摞发给眼下估重最轻的那一份（一样轻的给编号小的）。
- * 交回 `shardAt`（第 i 条落在第几份，从 0 数）与 `loads`（每一份的估重）。
+ * `keyOf` 交回这一条的配置键（`shardKey`）；交回 undefined 的各自成一摞。`weigh` 交回一摞有多重（入口用 `shard-load-rule.ts` 的 `pileSeconds`：
+ * 这种配置一次基线加摞里条数条变异的实测秒数），拿到的是这一摞的键与摞里的条目（照清单原顺序）。
+ * 摞从重到轻排（一样重的按在清单里第一次出现的先后），逐摞发给眼下最轻的那一份（一样轻的给编号小的）。
+ * 交回 `shardAt`（第 i 条落在第几份，从 0 数）与 `loads`（每一份的重量）。
  *
- * 按估重而不按条数配（ADR-203 第二节）：按条数分时三份条数一样多，实测秒数差到最重一份比平均高三成 ——
- * 一条自检变异的代价约是一条需求测试变异的六倍。按秒数配又是猜：上一跑的秒数随机器变，拿来切下一跑不可复现。
+ * 按仓库里的实测秒数配而不按条数配（ADR-203 第二节）：按条数分时三份条数一样多，实测秒数差到最重一份比平均高三成 ——
+ * 各种配置每条变异的代价差几十倍。用的是树内文件里的数、不是这一跑量的数：同一棵树永远分得一样。
  * 不再轮流发：轮流发时每一份都碰到约八成的配置，每种配置的基线三份各跑一遍（ADR-197 第五节那张欠条）。
  */
-export function shardPlan<T>(items: readonly T[], keyOf: (item: T) => string | undefined, weightOf: (item: T) => number, count: number):
+export function shardPlan<T>(items: readonly T[], keyOf: (item: T) => string | undefined, weigh: (key: string | undefined, pile: readonly T[]) => number, count: number):
   { shardAt: number[]; loads: number[] } {
-  const piles: number[][] = []
+  const piles: { key: string | undefined; pile: number[] }[] = []
   const byKey = new Map<string, number[]>()
   items.forEach((item, i) => {
     const key = keyOf(item)
     const known = key === undefined ? undefined : byKey.get(key)
     if (known !== undefined) { known.push(i); return }
     const pile = [i]
-    piles.push(pile)
+    piles.push({ key, pile })
     if (key !== undefined) byKey.set(key, pile)
   })
-  const weigh = (pile: readonly number[]): number => pile.reduce((sum, i) => sum + weightOf(items[i]), 0)
-  const order = piles.map((pile, at) => ({ pile, at, weight: weigh(pile) })).sort((a, b) => b.weight - a.weight || a.at - b.at)
+  const order = piles.map(({ key, pile }, at) => ({ pile, at, weight: weigh(key, pile.map(i => items[i])) })).sort((a, b) => b.weight - a.weight || a.at - b.at)
   const loads: number[] = Array.from({ length: count }, () => 0)
   const shardAt: number[] = items.map(() => -1)
   for (const { pile, weight } of order) {
@@ -321,8 +321,8 @@ export function shardPlan<T>(items: readonly T[], keyOf: (item: T) => string | u
  * 第 index 份（从 1 数）是哪几条：`shardPlan` 那个分法里落在这一份的，照清单原顺序交回。
  * 每一条恰好落在一份里，几份合起来就是整份清单；每一份各自算，算出来的分法一样。
  */
-export function shardOf<T>(items: readonly T[], keyOf: (item: T) => string | undefined, weightOf: (item: T) => number, index: number, count: number): T[] {
-  const { shardAt } = shardPlan(items, keyOf, weightOf, count)
+export function shardOf<T>(items: readonly T[], keyOf: (item: T) => string | undefined, weigh: (key: string | undefined, pile: readonly T[]) => number, index: number, count: number): T[] {
+  const { shardAt } = shardPlan(items, keyOf, weigh, count)
   return items.filter((_unused, i) => shardAt[i] === index - 1)
 }
 

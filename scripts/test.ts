@@ -66,7 +66,7 @@ import {
   billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardKey, shardOf, shardPlan, shardWanted,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
-import { CEILING_MINUTES, CEILING_UNITS, SECONDS_PER_UNIT, chainWiringFaults, growthWaivers, mutationWeight, shardLoadGate, shardWiringFaults } from './check/shard-load-rule.js'
+import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, chainWiringFaults, growthWaivers, pileSeconds, readWeights, shardLoadGate, shardWiringFaults, weightsFromReports } from './check/shard-load-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -11045,25 +11045,31 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   // 成摞发（ADR-200）：同一种配置整摞落在一份里，那种配置的基线只在那一份跑；整跑的（键是 undefined）各自成一摞。
   // x 三条、y 两条、d 与 h 整跑、z 一条：x→1（3,0,0），y→2（3,2,0），d→3（3,2,1），z→3（3,2,2），h→2（一样少给编号小的）
   const piled: [string, string | undefined][] = [['a', 'x'], ['b', 'y'], ['c', 'x'], ['d', undefined], ['e', 'z'], ['f', 'x'], ['g', 'y'], ['h', undefined]]
-  const pileOf = (k: number, n: number) => shardOf(piled, p => p[1], () => 1, k, n).map(p => p[0])
+  const pileOf = (k: number, n: number) => shardOf(piled, p => p[1], (_k, pile) => pile.length, k, n).map(p => p[0])
   eq('分份：同一种配置整摞落在同一份', pileOf(1, 3), ['a', 'c', 'f'])
   eq('分份：一样少的给编号小的那一份，照清单原顺序交回', pileOf(2, 3), ['b', 'g', 'h'])
   eq('分份：整跑的各自成一摞', pileOf(3, 3), ['d', 'e'])
   eq('分份：几份合起来恰好是整份', [1, 2, 3].flatMap(k => pileOf(k, 3)).sort(), piled.map(p => p[0]))
   eq('分份：整份就是原清单', pileOf(1, 1), piled.map(p => p[0]))
-  // 按估重分：摞从重到轻发给当前最轻的一份。手算 —— a(x,6) b(y,1) c(y,1) d(z,1) e(x,6) 分两份：
-  // 摞 x=12、y=2、z=1 → x→0（12,0），y→1（12,2），z→1（12,3）。同一批按条数算是 x=2、y=2、z=1 → z 落第 0 份（2,2 一样轻给小的）
-  const heavy: [string, string | undefined, number][] = [['a', 'x', 6], ['b', 'y', 1], ['c', 'y', 1], ['d', 'z', 1], ['e', 'x', 6]]
-  eq('按估重分：重的一摞独占一份，轻的几摞挤另一份', shardPlan(heavy, p => p[1], p => p[2], 2), { shardAt: [0, 1, 1, 1, 0], loads: [12, 3] })
-  eq('按估重分：同一批条目按条数算，落点不一样', shardPlan(heavy, p => p[1], () => 1, 2), { shardAt: [0, 1, 1, 0, 0], loads: [3, 2] })
-  eq('按估重分：第 1 份照原清单顺序交回', shardOf(heavy, p => p[1], p => p[2], 1, 2).map(p => p[0]), ['a', 'e'])
-  eq('按估重分：第 2 份照原清单顺序交回', shardOf(heavy, p => p[1], p => p[2], 2, 2).map(p => p[0]), ['b', 'c', 'd'])
+  // 按重量分：一摞多重由 weigh(键, 这一摞的条目) 说了算，摞从重到轻发给当前最轻的一份。手算 —— a(x) b(y) c(y) d(z) e(x) 分两份，
+  // x 摞估 12、其余按条数：x=12、y=2、z=1 → x→0（12,0），y→1（12,2），z→1（12,3）。全按条数算是 x=2、y=2、z=1 → z 落第 0 份（2,2 一样轻给小的）
+  const heavy: [string, string | undefined][] = [['a', 'x'], ['b', 'y'], ['c', 'y'], ['d', 'z'], ['e', 'x']]
+  const xHeavy = (k: string | undefined, pile: readonly unknown[]) => k === 'x' ? 12 : pile.length
+  eq('按重量分：重的一摞独占一份，轻的几摞挤另一份', shardPlan(heavy, p => p[1], xHeavy, 2), { shardAt: [0, 1, 1, 1, 0], loads: [12, 3] })
+  eq('按重量分：同一批条目按条数算，落点不一样', shardPlan(heavy, p => p[1], (_k, pile) => pile.length, 2), { shardAt: [0, 1, 1, 0, 0], loads: [3, 2] })
+  eq('按重量分：第 1 份照原清单顺序交回', shardOf(heavy, p => p[1], xHeavy, 1, 2).map(p => p[0]), ['a', 'e'])
+  eq('按重量分：第 2 份照原清单顺序交回', shardOf(heavy, p => p[1], xHeavy, 2, 2).map(p => p[0]), ['b', 'c', 'd'])
+  // 问了几次、先问谁没有约定，所以按键记下来再排序比
+  const asked = new Map<string, string[]>()
+  shardPlan(heavy, p => p[1], (k, pile) => { asked.set(String(k), pile.map(p => p[0])); return 1 }, 2)
+  eq('按重量分：weigh 拿到的是这一摞的键与这一摞的条目（按原顺序）', [...asked].sort(), [['x', ['a', 'e']], ['y', ['b', 'c']], ['z', ['d']]])
   // 轻(1) 重(5) 中(3)：重→0（5,0），中→1（5,3），轻→1（5,4）。照清单顺序发的话是轻→0、重→1、中→0
-  eq('按估重分：先发重的，不照清单顺序', shardPlan([['l', 1], ['h', 5], ['m', 3]] as [string, number][], p => p[0], p => p[1], 2), { shardAt: [1, 0, 1], loads: [5, 4] })
+  const named = (weights: Record<string, number>) => (k: string | undefined) => weights[k ?? ''] ?? 0
+  eq('按重量分：先发重的，不照清单顺序', shardPlan(['l', 'h', 'm'], k => k, named({ l: 1, h: 5, m: 3 }), 2), { shardAt: [1, 0, 1], loads: [5, 4] })
   // y(3) x(3) z(1)：一样重，先出现的 y 先发 → y→0，x→1，z→0（3,3 一样轻给小的）
-  eq('按估重分：一样重的摞按第一次出现的先后发', shardPlan([['y', 3], ['x', 3], ['z', 1]] as [string, number][], p => p[0], p => p[1], 2), { shardAt: [0, 1, 0], loads: [4, 3] })
-  eq('按估重分：键是 undefined 的两条不并成一摞', shardPlan([2, 2], () => undefined, w => w, 2), { shardAt: [0, 1], loads: [2, 2] })
-  eq('按估重分：空清单也交回每份一个 0', shardPlan([] as number[], () => 'k', w => w, 3), { shardAt: [], loads: [0, 0, 0] })
+  eq('按重量分：一样重的摞按第一次出现的先后发', shardPlan(['y', 'x', 'z'], k => k, named({ y: 3, x: 3, z: 1 }), 2), { shardAt: [0, 1, 0], loads: [4, 3] })
+  eq('按重量分：键是 undefined 的两条不并成一摞', shardPlan(['p', 'q'], () => undefined, () => 2, 2), { shardAt: [0, 1], loads: [2, 2] })
+  eq('按重量分：空清单也交回每份一个 0', shardPlan([] as string[], k => k, () => 1, 3), { shardAt: [], loads: [0, 0, 0] })
   // 摞的键：by 与排过序的 only 一起序列化 —— 同一种配置写的先后不同也得是同一摞
   const onlyGiven = ['b', 'a']
   eq('摞的键：没写 only 交回 undefined', shardKey('selfcheck', undefined), undefined)
@@ -11558,28 +11564,71 @@ harness('自检夹具判进程收完没有：僵尸而且只剩它自己一个�
 
 })
 await group('h-shard-load', () => {
-harness('变异分份的估重闸：每份多重、长了多少、接线对不对')
+harness('变异分份的负载闸：每份多重、长了多少、接线对不对')
 {
-  // 一条变异估多重：验证者是自检的按 6，需求测试按 1；没写 by 就是需求测试。认不得的名字要炸，不能悄悄当 1
-  const refuses = (by: string) => { try { mutationWeight(by); return false } catch { return true } }
-  eq('估重：自检验证的一条算 6', mutationWeight('selfcheck'), 6)
-  eq('估重：需求测试验证的一条算 1', mutationWeight('test'), 1)
-  eq('估重：没写 by 按需求测试算 1', mutationWeight(undefined), 1)
-  ok('估重：认不得的验证者名字抛错', refuses('lint'))
-  ok('估重：constructor 不是验证者名字，抛错', refuses('constructor'))
-  ok('估重：toString 不是验证者名字，抛错', refuses('toString'))
-  // 2400 单位 × 0.35 秒 = 840 秒 = 14 分钟：两条上限说的是同一条线
-  eq('估重上限换成分钟就是那条时间上限', Math.round(CEILING_UNITS * SECONDS_PER_UNIT) / 60, CEILING_MINUTES)
+  // 14 分钟墙钟 ÷ 0.19 = 4421.05 → 4421 验证者秒：两条上限说的是同一条线
+  eq('时间上限换成验证者秒数就是那条秒数上限', Math.round(CEILING_MINUTES * 60 / WALL_PER_VERIFIER_SECOND), CEILING_SECONDS)
 
-  // 豁免：只认键恰为 mutation-growth-ok 的 trailer；写了键没写理由的单独数出来
-  eq('豁免：理由去掉首尾空白后收下', growthWaivers(['mutation-growth-ok:   新增一组判定  ']), { reasons: ['新增一组判定'], empty: 0 })
-  eq('豁免：冒号后什么都没有，计入空豁免', growthWaivers(['mutation-growth-ok:']), { reasons: [], empty: 1 })
-  eq('豁免：冒号后只有空白，计入空豁免', growthWaivers(['mutation-growth-ok:    ']), { reasons: [], empty: 1 })
-  eq('豁免：size-ok 是别的键，不算', growthWaivers(['size-ok: 测试 理由']), { reasons: [], empty: 0 })
-  eq('豁免：键多一截（mutation-growth-okay）不算', growthWaivers(['mutation-growth-okay: x']), { reasons: [], empty: 0 })
-  eq('豁免：几行混在一起，各归各', growthWaivers(['size-ok: 测试 理由', 'mutation-growth-ok: 甲', 'mutation-growth-ok: ', 'mutation-growth-ok: 乙']),
-    { reasons: ['甲', '乙'], empty: 1 })
-  eq('豁免：没有 trailer', growthWaivers([]), { reasons: [], empty: 0 })
+  // 权重文件是反序列化进来的：形状不对要说不对，不能带着 NaN 往下分
+  const good: ShardWeights = { schema: 'mutation-shard-weights/v1', runs: ['abc'],
+    defaults: { test: { base: 10, each: 2 }, selfcheck: { base: 30, each: 5 } }, configs: { K: { base: 100, each: 3 } } }
+  const faulted = (r: { weights: unknown } | { fault: string }) => 'fault' in r && r.fault.trim() !== ''
+  eq('权重文件：形状对的原样交回', readWeights(JSON.parse(JSON.stringify(good))), { weights: good })
+  ok('权重文件：schema 不是 v1，说不对', faulted(readWeights({ ...good, schema: 'mutation-shard-weights/v2' })))
+  ok('权重文件：runs 里混了个数，说不对', faulted(readWeights({ ...good, runs: ['abc', 7] })))
+  ok('权重文件：defaults 缺 selfcheck，说不对', faulted(readWeights({ ...good, defaults: { test: good.defaults.test } })))
+  ok('权重文件：defaults 缺 test，说不对', faulted(readWeights({ ...good, defaults: { selfcheck: good.defaults.selfcheck } })))
+  ok('权重文件：某种配置的 each 是负数，说不对', faulted(readWeights({ ...good, configs: { K: { base: 100, each: -1 } } })))
+  ok('权重文件：某种配置的 base 是字符串，说不对', faulted(readWeights({ ...good, configs: { K: { base: '100', each: 3 } } })))
+  ok('权重文件：defaults 的 base 是无穷大，说不对', faulted(readWeights({ ...good, defaults: { ...good.defaults, test: { base: Infinity, each: 2 } } })))
+  ok('权重文件：configs 是 null，说不对', faulted(readWeights({ ...good, configs: null })))
+  // 一摞多少秒：配置实测过就用它的 base + n × each；没测过按验证者的默认。K 四条 = 100 + 4×3；没测过的自检三条 = 30 + 3×5
+  const refuses = (by: string) => { try { pileSeconds(good, 'Z', by, 1); return false } catch { return true } }
+  eq('一摞秒数：实测过的配置用它自己的 base 与 each', pileSeconds(good, 'K', 'test', 4), 112)
+  eq('一摞秒数：没测过的配置按自检的默认', pileSeconds(good, 'Z', 'selfcheck', 3), 45)
+  eq('一摞秒数：没测过又没写 by，按需求测试的默认', pileSeconds(good, 'Z', undefined, 3), 16)
+  eq('一摞秒数：整跑的一条（键是 undefined）按验证者的默认', pileSeconds(good, undefined, 'test', 1), 12)
+  eq('一摞秒数：键叫 constructor 不算实测过，按默认', pileSeconds(good, 'constructor', 'test', 2), 14)
+  ok('一摞秒数：认不得的验证者名字抛错', refuses('lint'))
+  ok('一摞秒数：constructor 不是验证者名字，抛错', refuses('constructor'))
+
+  // 从成本报告算权重。两跑：bbb 拆成两份分片报告、aaa 一份。每格 [samples, totalMs]。手算（秒）——
+  //   T1(test)  bbb: base (4000+2000)/1000=6，each (3000+1500)/(2+1)/1000=1.5      aaa: base 8，each 2.5   → 中位数取较小：6 / 1.5
+  //   T2(test)  bbb: base 10，samples 和为 0 → 这一跑不取 each                      aaa: base 12，each 10000/3/1000=3.333 → 10 / 3.33
+  //   T3(test)  bbb: base 20，each 2                                              aaa: base 22，each 2    → 20 / 2
+  //   S1(self)  bbb: base 30，each 20000/4/1000=5                                 aaa: base 40，each 7    → 30 / 5
+  //   defaults.test: base = 6、10、20 的中位数 10；each = (4500+0+2000+2500+10000+4000)/(3+0+1+1+3+2)/1000 = 23000/10/1000 = 2.3
+  //   defaults.selfcheck: base 30；each = (20000+14000)/(4+2)/1000 = 5.667 → 5.67
+  const times = (...cells: [number, number][]) => Object.fromEntries(cells.map(([samples, totalMs], i) => [`类${i}`, { samples, totalMs }]))
+  const row = (key: string, by: string, base: [number, number][], each: [number, number][]) =>
+    ({ key, route: { by }, configuredIds: [], baselineTimes: times(...base), mutationTimes: times(...each) })
+  const report = (headSha: string, ...rows: unknown[]) => ({ identity: { headSha }, rows })
+  const made = weightsFromReports([
+    report('bbb', row('T1', 'test', [[1, 4000], [1, 2000]], [[2, 3000], [1, 1500]]), row('S1', 'selfcheck', [[1, 30000]], [[4, 20000]])),
+    report('aaa', row('T1', 'test', [[1, 8000]], [[1, 2500]]), row('T2', 'test', [[1, 12000]], [[3, 10000]]),
+      row('T3', 'test', [[1, 22000]], [[2, 4000]]), row('S1', 'selfcheck', [[1, 40000]], [[2, 14000]])),
+    report('bbb', row('T2', 'test', [[1, 10000]], [[0, 0]]), row('T3', 'test', [[1, 20000]], [[1, 2000]])),
+  ])
+  const w = 'weights' in made ? made.weights : undefined
+  const pair = (c: { base: number; each: number } | undefined) => c && [c.base, c.each]
+  eq('算权重：同一个 headSha 的几份算一跑，runs 去重按字典序', w?.runs, ['aaa', 'bbb'])
+  eq('算权重：各类毫秒加起来，两跑的中位数取较小的那个', pair(w?.configs['T1']), [6, 1.5])
+  eq('算权重：没有样本的那一跑不取 each，结果保留两位小数', pair(w?.configs['T2']), [10, 3.33])
+  eq('算权重：自检验证的配置照同一套算', pair(w?.configs['S1']), [30, 5])
+  eq('算权重：需求测试的默认 = 各配置 base 的中位数、全部毫秒除以全部样本', pair(w?.defaults.test), [10, 2.3])
+  eq('算权重：自检的默认只算自检验证的那些行', pair(w?.defaults.selfcheck), [30, 5.67])
+  eq('算权重：算出来的东西过得了权重文件的形状检查', w === undefined ? '没算出来' : 'weights' in readWeights(JSON.parse(JSON.stringify(w))), true)
+  ok('算权重：一份报告都没有，说算不了', faulted(weightsFromReports([])))
+  ok('算权重：有一份报告没有 rows，说算不了', faulted(weightsFromReports([report('aaa', row('T1', 'test', [[1, 1000]], [[1, 1000]]), row('S1', 'selfcheck', [[1, 1000]], [[1, 1000]])), { identity: { headSha: 'bbb' } }])))
+  ok('算权重：自检验证的一条都没有，说算不了', faulted(weightsFromReports([report('aaa', row('T1', 'test', [[1, 1000]], [[1, 1000]]))])))
+
+  // 豁免：只认键恰为 mutation-growth-ok 的 trailer，理由非空才收
+  eq('豁免：理由去掉首尾空白后收下', growthWaivers(['mutation-growth-ok:   新增一组判定  ']), ['新增一组判定'])
+  eq('豁免：冒号后只有空白，不收', growthWaivers(['mutation-growth-ok:    ', 'mutation-growth-ok:']), [])
+  eq('豁免：size-ok 是别的键，不算', growthWaivers(['size-ok: 测试 理由']), [])
+  eq('豁免：键多一截（mutation-growth-okay）不算', growthWaivers(['mutation-growth-okay: x']), [])
+  eq('豁免：键的大小写不一样，不算', growthWaivers(['Mutation-Growth-OK: x']), [])
+  eq('豁免：几行混在一起，各归各', growthWaivers(['size-ok: 测试 理由', 'mutation-growth-ok: 甲', 'mutation-growth-ok: ', 'mutation-growth-ok: 乙']), ['甲', '乙'])
 
   // 接线：矩阵、环境变量、产物文件名三段原文都要在工作流里
   const matrix = 'shard: [1, 2, 3]', envLine = 'MUTATE_SHARD: ${{ matrix.shard }}/3', artifact = 'launches-${{ matrix.shard }}-of-3.json'
@@ -11595,6 +11644,13 @@ harness('变异分份的估重闸：每份多重、长了多少、接线对不�
   ok('接线：矩阵只列两份，交回一条说明', oneFault(['shard: [1, 2]', envLine, artifact]))
   ok('接线：MUTATE_SHARD 分母写成 2，交回一条说明', oneFault([matrix, 'MUTATE_SHARD: ${{ matrix.shard }}/2', artifact]))
   ok('接线：产物文件名写成 of-2，交回一条说明', oneFault([matrix, envLine, 'launches-${{ matrix.shard }}-of-2.json']))
+  // 先去注释再比、整行恰好才算：留在注释里的旧行、被 exclude 挖掉一份的矩阵、分母多一位，都是「看着接了、其实没接」
+  eq('接线：行前有缩进、行尾带注释，照认', faults(['      ' + matrix + '  # 三份', '  ' + envLine, '  path: out/' + artifact]), [])
+  ok('接线：矩阵那一行只留在注释里，不算', faults(['# ' + matrix, envLine, artifact]).length > 0)
+  ok('接线：MUTATE_SHARD 那一行只留在注释里，不算', faults([matrix, 'MUTATE_SHARD: 1/1  # ' + envLine, artifact]).length > 0)
+  ok('接线：矩阵带 exclude:，算一处对不上', faults([matrix, 'exclude:', '  - shard: 2', envLine, artifact]).length > 0)
+  ok('接线：MUTATE_SHARD 分母写成 30，不算', faults([matrix, envLine + '0', artifact]).length > 0)
+  ok('接线：矩阵那一段只是别的键的一截，不算', faults(['old-' + matrix, envLine, artifact]).length > 0)
   // chain 那一串与 package.json 的 check 对得上（去掉 mutate 与 launches 两步）、变异那几份写着 MUTATE_JOBS: '6'
   const checkLine = 'npm run anchors && npm run size && npm test && npm run mutate && npm run audit && npm run launches'
   const flow = (chain: string, jobs = "MUTATE_JOBS: '6'") => `jobs:\n  chain:\n    steps:\n      - run: ${chain}\n  mutate:\n    env:\n      ${jobs}\n`
@@ -11604,46 +11660,52 @@ harness('变异分份的估重闸：每份多重、长了多少、接线对不�
   eq('串线：chain 那一串只是某行的一截，不算', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit && npm run x'), checkLine).length, 1)
   eq('串线：读不到 check 那一串，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit'), undefined).length, 1)
   eq('串线：MUTATE_JOBS 改成 4，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "MUTATE_JOBS: '4'"), checkLine).length, 1)
+  ok('串线：MUTATE_JOBS 写成 2、6 只在行尾注释里，不算', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "MUTATE_JOBS: '2'  # '6'"), checkLine).length > 0)
+  ok('串线：对的那一串只留在注释里，不算', chainWiringFaults('# - run: npm run anchors && npm run size && npm test && npm run audit\n' + flow('npm test'), checkLine).length > 0)
 
-  // 闸。底子是当前主干的形状：三份 1292/1291/1291，基线 3865（长了 9，0.23%），PR 上
+  // 闸。loads 是每份的验证者秒数。底子：三份差不多重（合计 6300.6），基线 6290（长了 0.17%），PR 上
   type GateInput = Parameters<typeof shardLoadGate>[0]
-  const clean: GateInput = { loads: [1292, 1291, 1291], base: { total: 3865 }, trunk: { onTrunk: false }, waivers: { reasons: [], empty: 0 }, wiring: [] }
+  const clean: GateInput = { loads: [2100.2, 2099.1, 2101.3], base: { total: 6290 }, trunk: { onTrunk: false }, waivers: [], wiring: [] }
   const gate = (over: Partial<GateInput>) => shardLoadGate({ ...clean, ...over })
-  const crossed = (over: Partial<GateInput>) => gate(over).lines.some(l => l.startsWith('✗'))
-  eq('闸：当前主干形状在 PR 上不红', gate({}).red, false)
-  eq('闸：当前主干形状没有一行以 ✗ 开头', crossed({}), false)
-  ok('闸：第一行报出每份估重', gate({}).lines[0]!.includes('1292 / 1291 / 1291'))
+  const crossLines = (over: Partial<GateInput>) => gate(over).lines.filter(l => l.startsWith('✗'))
+  const crossed = (over: Partial<GateInput>) => crossLines(over).length > 0
+  eq('闸：三份差不多重、没怎么长，PR 上不红', gate({}).red, false)
+  eq('闸：都没越线时没有一行以 ✗ 开头', crossed({}), false)
+  ok('闸：第一行报出每份秒数，取整', gate({}).lines[0]!.includes('2100 / 2099 / 2101'))
   // 第一道（不均）：平均 100，最重 126 高 26% 越线；最重 125 恰好 25% 不算
   eq('闸：最重一份比平均高过 25%，PR 上红', gate({ loads: [126, 100, 74], base: { total: 300 } }).red, true)
   eq('闸：最重一份比平均高过 25%，有一行 ✗', crossed({ loads: [126, 100, 74], base: { total: 300 } }), true)
   eq('闸：最重一份恰好比平均高 25%，不红', gate({ loads: [125, 100, 75], base: { total: 300 } }).red, false)
-  // 第二道（封顶）：最重一份 2401 越线，2400 不算。三份几乎一样重，不碰第一道
-  eq('闸：最重一份过了 2400，PR 上红', gate({ loads: [2401, 2400, 2399], base: { total: 7200 } }).red, true)
-  eq('闸：最重一份过了 2400，有一行 ✗', crossed({ loads: [2401, 2400, 2399], base: { total: 7200 } }), true)
-  eq('闸：最重一份恰好 2400，不红', gate({ loads: [2400, 2400, 2400], base: { total: 7200 } }).red, false)
-  // 第三道（增长）：基线 1000，总量 1051 长了 5.1% 越线；1050 恰好 5% 不算
-  eq('闸：总量比基线长过 5%，PR 上红', gate({ loads: [351, 350, 350], base: { total: 1000 } }).red, true)
-  eq('闸：总量比基线长过 5%，有一行 ✗', crossed({ loads: [351, 350, 350], base: { total: 1000 } }), true)
+  eq('闸：最重的一份排在最后也照样认出来', gate({ loads: [74, 100, 126], base: { total: 300 } }).red, true)
+  // 第二道（封顶）：最重一份 4422 越线，4421 不算。三份几乎一样重，不碰第一道
+  eq('闸：最重一份过了 4421 秒，PR 上红', gate({ loads: [4420, 4421, 4422], base: { total: 13263 } }).red, true)
+  eq('闸：最重一份过了 4421 秒，有一行 ✗', crossed({ loads: [4420, 4421, 4422], base: { total: 13263 } }), true)
+  eq('闸：最重一份恰好 4421 秒，不红', gate({ loads: [4421, 4421, 4421], base: { total: 13263 } }).red, false)
+  // 第三道（增长）：基线 1000，总量 1051 长了 5.1% 越线；1050 恰好 5% 不算；删到只剩三成是负增长，不算
+  const grown = { loads: [351, 350, 350], base: { total: 1000 } }
+  eq('闸：总量比基线长过 5%，PR 上红', gate(grown).red, true)
+  eq('闸：总量比基线长过 5%，有一行 ✗', crossed(grown), true)
   eq('闸：总量恰好比基线长 5%，不红', gate({ loads: [350, 350, 350], base: { total: 1000 } }).red, false)
   eq('闸：基线是 0 而现在有量，算越线', gate({ base: { total: 0 } }).red, true)
-  // 主干上：越线只报不红；基线读不出、空豁免也不红
+  eq('闸：总量比基线少了一大截，不红也没有 ✗', [gate({ loads: [100, 100, 100], base: { total: 1000 } }).red, crossed({ loads: [100, 100, 100], base: { total: 1000 } })], [false, false])
+  ok('闸：PR 上增长越线那一行提豁免怎么写', crossLines(grown).some(l => l.includes('mutation-growth-ok')))
+  eq('闸：主干上增长越线那一行不提豁免写法', crossLines({ ...grown, trunk: { onTrunk: true } }).map(l => l.includes('mutation-growth-ok')), [false])
+  // 主干上：越线只报不红；基线读不出也不红
   eq('闸：主干上不均越线不红', gate({ loads: [126, 100, 74], base: { total: 300 }, trunk: { onTrunk: true } }).red, false)
   eq('闸：主干上不均越线照样有一行 ✗', crossed({ loads: [126, 100, 74], base: { total: 300 }, trunk: { onTrunk: true } }), true)
   eq('闸：主干上基线读不出，不红', gate({ base: { unknown: '读不到基线' }, trunk: { onTrunk: true } }).red, false)
-  eq('闸：主干上空豁免，不红', gate({ waivers: { reasons: [], empty: 1 }, trunk: { onTrunk: true } }).red, false)
-  // 豁免只放行增长那一道，而且要有理由
-  const waived = { loads: [351, 350, 350], base: { total: 1000 }, waivers: { reasons: ['新增一组判定'], empty: 0 } }
+  // 豁免只放行增长那一道：下面两条的涨幅也越线了（300 对 200、13263 对 10000），另一道照红
+  const waived = { ...grown, waivers: ['新增一组判定'] }
   eq('闸：增长越线写了豁免理由，放行', gate(waived).red, false)
   eq('闸：豁免放行后没有一行以 ✗ 开头', crossed(waived), false)
   ok('闸：豁免那一行带着「已豁免」与理由原文', gate(waived).lines.some(l => l.includes('已豁免') && l.includes('新增一组判定')))
-  eq('闸：豁免不放行不均那一道', gate({ loads: [126, 100, 74], base: { total: 300 }, waivers: { reasons: ['新增一组判定'], empty: 0 } }).red, true)
-  eq('闸：豁免不放行封顶那一道', gate({ loads: [2401, 2400, 2399], base: { total: 7200 }, waivers: { reasons: ['新增一组判定'], empty: 0 } }).red, true)
-  eq('闸：PR 上有空豁免，红', gate({ waivers: { reasons: [], empty: 1 } }).red, true)
+  eq('闸：豁免不放行不均那一道', gate({ loads: [126, 100, 74], base: { total: 200 }, waivers: ['新增一组判定'] }).red, true)
+  eq('闸：豁免不放行封顶那一道', gate({ loads: [4420, 4421, 4422], base: { total: 10000 }, waivers: ['新增一组判定'] }).red, true)
   eq('闸：PR 上基线读不出，红', gate({ base: { unknown: '读不到基线' } }).red, true)
   // 接线不对两边都红；它那一行排在报数行前面
   eq('闸：接线不对，PR 上红', gate({ wiring: ['工作流里没有矩阵那一段'] }).red, true)
   eq('闸：接线不对，主干上也红', gate({ wiring: ['工作流里没有矩阵那一段'], trunk: { onTrunk: true } }).red, true)
-  ok('闸：接线不对时报数行退到第二行', gate({ wiring: ['工作流里没有矩阵那一段'] }).lines[1]!.includes('1292 / 1291 / 1291'))
+  ok('闸：接线不对时报数行退到第二行', gate({ wiring: ['工作流里没有矩阵那一段'] }).lines[1]!.includes('2100 / 2099 / 2101'))
   eq('闸：在不在主干上都读不出，别的全好也红', gate({ trunk: { unknown: '读不到分支' } }).red, true)
 }
 })
