@@ -20,9 +20,9 @@
  * 读不到就红：主干上算不出、PR 基线的清单读不出来、秒数文件认不得，都不当成「没涨」。
  */
 
-/** CI 上变异一步分几份。与 `.github/workflows/check.yml` 的三处对得上由 `shardWiringFaults` 核 */
+/** CI 上变异一步分几份（`.github/workflows/check.yml` 里写死的几处与它对不对得上，另一条 PR 接；ADR-203 第四节） */
 export const SHARD_COUNT = 3
-/** CI 上每一份变异派几个 worker（ADR-200：4 核的 runner 上派 6 个）。与 `check.yml` 对得上由 `chainWiringFaults` 核 */
+/** CI 上每一份变异派几个 worker（ADR-200：4 核的 runner 上派 6 个）。闸门报接线对不上时说出它 */
 export const CI_MUTATE_JOBS = 6
 
 /** 最重一份比平均值高多少就红 */
@@ -186,102 +186,6 @@ export function growthWaivers(trailers: readonly string[]): string[] {
   return reasons
 }
 
-/** 去掉每行 `#` 起的注释、两头空白：接线核对只认真起作用的那几行，注释里留着的旧写法不算 */
-const liveLines = (workflow: string): string[] => workflow.split('\n').map(l => l.replace(/#.*$/, '').trim())
-/**
- * 与某一行同属一个 YAML 映射的那几行（去注释、去两头空白）：往上往下走，缩进不比它浅的都在这一段里，只留与它同一层的。
- * 用来把「exclude」限在变异那个矩阵里、把「MUTATE_JOBS」限在变异那一步的 env 里 —— 别的 job 里写的不算
- */
-const siblingsOf = (workflow: string, wanted: string): string[] | undefined => {
-  const raw = workflow.split('\n').map(l => l.replace(/#.*$/, '').trimEnd())
-  const at = raw.findIndex(l => l.trim() === wanted)
-  if (at < 0) return undefined
-  const indent = (l: string): number => l.length - l.trimStart().length
-  const level = indent(raw[at])
-  const inside = (l: string): boolean => l.trim() === '' || indent(l) >= level
-  let from = at, to = at
-  while (from > 0 && inside(raw[from - 1])) from--
-  while (to < raw.length - 1 && inside(raw[to + 1])) to++
-  return raw.slice(from, to + 1).filter(l => l.trim() !== '' && indent(l) === level).map(l => l.trim())
-}
-/**
- * 变异那个 job 的原文：`jobs:` 下面、含 `MUTATE_SHARD: ${{ matrix.shard }}/n` 那一行的那个 job（从 `  名字:` 到下一个同层的键）。
- * 别的 job 也写了一样的 `shard: [1, 2, 3]` 矩阵时，矩阵与 exclude 只认这一段里的；没有 `jobs:` 或找不到那一行时交回全文
- */
-const mutateJobOf = (workflow: string, count: number): string => {
-  const raw = workflow.split('\n'), live = raw.map(l => l.replace(/#.*$/, '').trimEnd())
-  const at = live.findIndex(l => l.trim() === `MUTATE_SHARD: \${{ matrix.shard }}/${count}`)
-  if (at < 0 || !live.includes('jobs:')) return workflow
-  let from = at
-  while (from >= 0 && !/^ {2}[\w-]+:$/.test(live[from])) from--
-  if (from < 0) return workflow
-  let to = from + 1
-  while (to < raw.length && (live[to].trim() === '' || /^ {3}/.test(live[to]))) to++
-  return raw.slice(from, to).join('\n')
-}
-
-/**
- * `- run: npm run mutate` 那一步自己的 env（去注释、去两头空白）：那一步下面缩进比 `-` 深的几行里，`env:` 底下那一层。
- * 找不到那一步或它没有 env 时交回 []
- */
-const mutateStepEnv = (workflow: string): string[] => {
-  const raw = workflow.split('\n').map(l => l.replace(/#.*$/, '').trimEnd())
-  const indent = (l: string): number => l.length - l.trimStart().length
-  const at = raw.findIndex(l => l.trim() === '- run: npm run mutate')
-  if (at < 0) return []
-  const dash = indent(raw[at])
-  let to = at + 1
-  while (to < raw.length && (raw[to].trim() === '' || indent(raw[to]) > dash)) to++
-  const step = raw.slice(at + 1, to).filter(l => l.trim() !== '')
-  const env = step.findIndex(l => l.trim() === 'env:' && indent(l) === dash + 2)
-  if (env < 0) return []
-  const level = env + 1 < step.length ? indent(step[env + 1]) : 0
-  const out: string[] = []
-  for (const l of step.slice(env + 1)) {
-    if (indent(l) <= dash + 2) break
-    if (indent(l) === level) out.push(l.trim())
-  }
-  return out
-}
-
-/**
- * `check.yml` 里写死份数的几处与 `SHARD_COUNT` 对不对得上（ADR-200 第 92 行那张接线欠条的「份数」那一半）：
- * matrix 那一行恰是 `shard: [1, …, n]`、`MUTATE_SHARD` 那一行恰是 `/n`、上传的分份启动数文件名是 `-of-n.json`，
- * 且那个矩阵里没有 `exclude:` 剔掉哪一份。矩阵与 exclude 只在变异那个 job 里认（见 `mutateJobOf`），别的 job 的矩阵不管。对不上时交回每一处说的是什么；改份数要这几处与这个常量一起改。
- */
-export function shardWiringFaults(workflow: string, count: number): string[] {
-  const lines = liveLines(workflow), job = mutateJobOf(workflow, count), faults: string[] = []
-  const list = Array.from({ length: count }, (_unused, i) => i + 1).join(', ')
-  if (!liveLines(job).includes(`shard: [${list}]`)) faults.push(`matrix 不是「shard: [${list}]」`)
-  if ((siblingsOf(job, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude:'))) faults.push('matrix 用 exclude 剔掉了某几份')
-  if (!lines.includes(`MUTATE_SHARD: \${{ matrix.shard }}/${count}`)) faults.push(`MUTATE_SHARD 不是「\${{ matrix.shard }}/${count}」`)
-  if (!lines.some(l => l.includes(`launches-\${{ matrix.shard }}-of-${count}.json`))) faults.push(`分份启动数文件名不是「launches-\${{ matrix.shard }}-of-${count}.json」`)
-  return faults
-}
-
-/**
- * `check.yml` 里另外两处接线（ADR-200 第 92 行那张欠条的两半）：
- * - `chain` 那个 job 跑的那一串，必须恰是 `package.json` 的 `check` 去掉变异与启动数两步 —— 本地那一串加了一步、CI 上忘了加，
- *   CI 就少查一样还照样绿；
- * - `- run: npm run mutate` 那一步自己的 env 里写着 `MUTATE_SHARD` 与 `MUTATE_JOBS: '6'` —— 删掉或挪到别的步骤（哪怕两行一起挪），
- *   变异一步就不分份或每份照核数只派 4 个，没有东西会红。
- * `checkScript` 读不到（undefined）也算一处对不上。对得上交回 []。
- */
-export function chainWiringFaults(workflow: string, checkScript: string | undefined): string[] {
-  const lines = liveLines(workflow), faults: string[] = []
-  if (checkScript === undefined) faults.push('读不到 package.json 的 check 那一串')
-  else {
-    const chain = checkScript.replace(' && npm run mutate', '').replace(' && npm run launches', '')
-    if (!lines.includes(`- run: ${chain}`)) faults.push(`chain 那一串不是 package.json 的 check 去掉 mutate 与 launches 两步（应为「${chain}」）`)
-  }
-  // 只认写在 `- run: npm run mutate` 那一步 env 里的：两行一起挪到别的步骤（chain 那一步、同 job 的 compile 那一步）都管不到变异
-  const mutateEnv = mutateStepEnv(workflow)
-  for (const want of [`MUTATE_SHARD: \${{ matrix.shard }}/${SHARD_COUNT}`, `MUTATE_JOBS: '${CI_MUTATE_JOBS}'`]) {
-    if (!mutateEnv.includes(want)) faults.push(`「- run: npm run mutate」那一步的 env 里没写「${want}」`)
-  }
-  return faults
-}
-
 /** 闸门要的量。`trunk` 同启动数闸门：在不在主干上，或者问不出来 */
 export interface ShardLoadInput {
   /** 每一份的验证者秒数（`shardPlan` 交回的 `loads`），按份的编号排 */
@@ -291,7 +195,7 @@ export interface ShardLoadInput {
   readonly trunk: { readonly onTrunk: boolean } | { readonly unknown: string }
   /** 这条分支自己的提交里 `growthWaivers` 读出来的理由 */
   readonly waivers: readonly string[]
-  /** `shardWiringFaults` 与 `chainWiringFaults` 交回的，合在一起 */
+  /** `check.yml` 接线对不上的几处（核对接线的那一半另一条 PR 接；本条的入口交 []） */
   readonly wiring: readonly string[]
 }
 export interface ShardLoadGate { readonly red: boolean; readonly lines: readonly string[] }

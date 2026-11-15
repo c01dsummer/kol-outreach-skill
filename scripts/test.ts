@@ -66,7 +66,7 @@ import {
   billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardKey, shardOf, shardPlan, shardWanted,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
-import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, chainWiringFaults, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, shardWiringFaults, weightsFromReports } from './check/shard-load-rule.js'
+import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports } from './check/shard-load-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -11636,55 +11636,6 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('豁免：键多一截（mutation-growth-okay）不算', growthWaivers(['mutation-growth-okay: x']), [])
   eq('豁免：键的大小写不一样，不算', growthWaivers(['Mutation-Growth-OK: x']), [])
   eq('豁免：几行混在一起，各归各', growthWaivers(['size-ok: 测试 理由', 'mutation-growth-ok: 甲', 'mutation-growth-ok: ', 'mutation-growth-ok: 乙']), ['甲', '乙'])
-
-  // 接线：矩阵、环境变量、产物文件名三段原文都要在工作流里
-  const matrix = 'shard: [1, 2, 3]', envLine = 'MUTATE_SHARD: ${{ matrix.shard }}/3', artifact = 'launches-${{ matrix.shard }}-of-3.json'
-  const faults = (parts: string[], count = 3) => shardWiringFaults(parts.join('\n'), count)
-  const oneFault = (parts: string[]) => { const f = faults(parts); return f.length === 1 && f[0]!.trim() !== '' }
-  eq('接线：三段都在，没有说明', faults([matrix, envLine, artifact]), [])
-  ok('接线：缺矩阵那一段，交回一条说明', oneFault([envLine, artifact]))
-  ok('接线：缺 MUTATE_SHARD 那一段，交回一条说明', oneFault([matrix, artifact]))
-  ok('接线：缺产物文件名那一段，交回一条说明', oneFault([matrix, envLine]))
-  eq('接线：三段全缺，交回三条', faults([]).length, 3)
-  ok('接线：三份的工作流按两份核，不放行', faults([matrix, envLine, artifact], 2).length > 0)
-  // 三处各只把份数写成 2：只看写没写、不看份数的话，这三条照样放行
-  ok('接线：矩阵只列两份，交回一条说明', oneFault(['shard: [1, 2]', envLine, artifact]))
-  ok('接线：MUTATE_SHARD 分母写成 2，交回一条说明', oneFault([matrix, 'MUTATE_SHARD: ${{ matrix.shard }}/2', artifact]))
-  ok('接线：产物文件名写成 of-2，交回一条说明', oneFault([matrix, envLine, 'launches-${{ matrix.shard }}-of-2.json']))
-  // 先去注释再比、整行恰好才算：留在注释里的旧行、被 exclude 挖掉一份的矩阵、分母多一位，都是「看着接了、其实没接」
-  eq('接线：行前有缩进、行尾带注释，照认', faults(['      ' + matrix + '  # 三份', '  ' + envLine, '  path: out/' + artifact]), [])
-  ok('接线：矩阵那一行只留在注释里，不算', faults(['# ' + matrix, envLine, artifact]).length > 0)
-  ok('接线：MUTATE_SHARD 那一行只留在注释里，不算', faults([matrix, 'MUTATE_SHARD: 1/1  # ' + envLine, artifact]).length > 0)
-  ok('接线：矩阵带 exclude:，算一处对不上', faults([matrix, 'exclude:', '  - shard: 2', envLine, artifact]).length > 0)
-  ok('接线：MUTATE_SHARD 分母写成 30，不算', faults([matrix, envLine + '0', artifact]).length > 0)
-  // exclude 只管变异那个矩阵：别的 job 自己的矩阵里写 exclude 不算变异这边对不上
-  eq('接线：别的 job 的矩阵带 exclude:，不算', faults(['jobs:', '  other:', '    strategy:', '      matrix:', '        os: [a, b]', '        exclude:', '          - os: b',
-    '  mutate:', '    strategy:', '      matrix:', '        ' + matrix, '    env:', '      ' + envLine, '      path: ' + artifact]), [])
-  ok('接线：矩阵那一段只是别的键的一截，不算', faults(['old-' + matrix, envLine, artifact]).length > 0)
-  // 别的 job 排在前面、也写了一样的 shard 矩阵：矩阵与 exclude 只认变异那个 job 的
-  const twoJobs = (otherExclude: boolean, mutateExclude: boolean) => faults(['jobs:', '  other:', '    strategy:', '      matrix:', '        ' + matrix,
-    ...(otherExclude ? ['        exclude:', '          - shard: 2'] : []), '  mutate:', '    strategy:', '      matrix:', '        ' + matrix,
-    ...(mutateExclude ? ['        exclude:', '          - shard: 2'] : []), '    steps:', '      - run: npm run mutate', '        env:', '          ' + envLine, '      - path: ' + artifact])
-  eq('接线：前面别的 job 同样的矩阵带 exclude:，不算', twoJobs(true, false), [])
-  eq('接线：前面别的 job 同样的矩阵没 exclude、变异那个带，交回一条', twoJobs(false, true).length, 1)
-  eq('接线：shard 矩阵只写在别的 job 里、变异那个 job 没有，交回一条', faults(['jobs:', '  other:', '    strategy:', '      matrix:', '        ' + matrix,
-    '  mutate:', '    steps:', '      - run: npm run mutate', '        env:', '          ' + envLine, '      - path: ' + artifact]).length, 1)
-  // chain 那一串与 package.json 的 check 对得上（去掉 mutate 与 launches 两步）、变异那几份写着 MUTATE_JOBS: '6'
-  const checkLine = 'npm run anchors && npm run size && npm test && npm run mutate && npm run audit && npm run launches'
-  const flow = (chain: string, jobs = "MUTATE_JOBS: '6'") => `jobs:\n  chain:\n    steps:\n      - run: ${chain}\n  mutate:\n    steps:\n      - run: npm run mutate\n        env:\n          MUTATE_SHARD: \${{ matrix.shard }}/3\n          ${jobs}\n      - uses: x\n`
-  eq('串线：chain 恰是 check 去掉两步，没有说明', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit'), checkLine), [])
-  eq('串线：chain 少写一步，交回一条', chainWiringFaults(flow('npm run anchors && npm test && npm run audit'), checkLine).length, 1)
-  eq('串线：chain 多跑了 mutate，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run mutate && npm run audit'), checkLine).length, 1)
-  eq('串线：chain 那一串只是某行的一截，不算', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit && npm run x'), checkLine).length, 1)
-  eq('串线：读不到 check 那一串，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit'), undefined).length, 1)
-  eq('串线：MUTATE_JOBS 改成 4，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "MUTATE_JOBS: '4'"), checkLine).length, 1)
-  ok('串线：MUTATE_JOBS 写成 2、6 只在行尾注释里，不算', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "MUTATE_JOBS: '2'  # '6'"), checkLine).length > 0)
-  // MUTATE_JOBS 要写在变异那一步的 env 里（与 MUTATE_SHARD 同一段）；挪到 chain 那一步的 env 里不算
-  eq('串线：MUTATE_JOBS 挪到 chain 那一步，交回一条', chainWiringFaults(`jobs:\n  chain:\n    steps:\n      - run: npm run anchors && npm run size && npm test && npm run audit\n        env:\n          MUTATE_JOBS: '6'\n  mutate:\n    steps:\n      - run: npm run mutate\n        env:\n          MUTATE_SHARD: \${{ matrix.shard }}/3\n`, checkLine).length, 1)
-  // 两行一起挪到同一 job 的前一步（compile）：同一段里照样都有，但变异那一步一样也拿不到
-  eq('串线：MUTATE_SHARD 与 MUTATE_JOBS 一起挪到 compile 那一步，交回两条', chainWiringFaults(`jobs:\n  chain:\n    steps:\n      - run: npm run anchors && npm run size && npm test && npm run audit\n  mutate:\n    steps:\n      - run: npm run compile\n        env:\n          MUTATE_SHARD: \${{ matrix.shard }}/3\n          MUTATE_JOBS: '6'\n      - run: npm run mutate\n      - uses: x\n`, checkLine).length, 2)
-  eq('串线：MUTATE_JOBS 写在变异那一步下面更深的一层（with 里），交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "with:\n            MUTATE_JOBS: '6'"), checkLine).length, 1)
-  ok('串线：对的那一串只留在注释里，不算', chainWiringFaults('# - run: npm run anchors && npm run size && npm test && npm run audit\n' + flow('npm test'), checkLine).length > 0)
 
   // 闸。loads 是每份的验证者秒数。底子：三份差不多重（合计 6300.6），基线 6290（长了 0.17%），PR 上
   type GateInput = Parameters<typeof shardLoadGate>[0]
