@@ -21965,7 +21965,7 @@
       "req": "P2.f",
       "why": "问候行（Hi Mei,）也当成提到博主的句子列出来，报告里全是噪音",
       "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (opening && isGreeting(line)) continue",
+      "find": "      if (greetingSlot && isGreeting(line, salutation)) continue",
       "replace": "      if (false) continue",
       "by": "test",
       "kills": [
@@ -22114,23 +22114,11 @@
       "by": "test",
       "kills": [
         "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后",
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s28",
-      "req": "P2.f",
-      "why": "Hi 开头的行里带 your 也当问候跳过，「Hey Mei, your marathons rock!」这种没人看",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "!YOU.test(normalizeText(line))",
-      "replace": "true",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
-      ]
-    },
-    {
-      "id": "M-P2-s29",
       "req": "P2.f",
       "why": "列表行不各自成句，和上一行接在一起，一个登记盖住两行",
       "file": "scripts/lib/creator-sources.ts",
@@ -22142,7 +22130,7 @@
       ]
     },
     {
-      "id": "M-P2-s30",
+      "id": "M-P2-s29",
       "req": "P2.f",
       "why": "在 Dr.、U.S. 这类缩写处切句，一句话被切成几段",
       "file": "scripts/lib/creator-sources.ts",
@@ -22154,7 +22142,7 @@
       ]
     },
     {
-      "id": "M-P2-s31",
+      "id": "M-P2-s30",
       "req": "P2.f",
       "why": "句号后没空格（series.You）不切句，后半句跟着前半句的登记算盖住",
       "file": "scripts/lib/creator-sources.ts",
@@ -22166,7 +22154,7 @@
       ]
     },
     {
-      "id": "M-P2-s32",
+      "id": "M-P2-s31",
       "req": "P2.f",
       "why": "句号后跟收尾引号时不切句",
       "file": "scripts/lib/creator-sources.ts",
@@ -22178,7 +22166,7 @@
       ]
     },
     {
-      "id": "M-P2-s33",
+      "id": "M-P2-s32",
       "req": "P2.f",
       "why": "弯单引号不归一成直引号，资料里写直撇号、登记写弯撇号就对不上",
       "file": "scripts/lib/creator-sources.ts",
@@ -22190,7 +22178,7 @@
       ]
     },
     {
-      "id": "M-P2-s34",
+      "id": "M-P2-s33",
       "req": "P2.f",
       "why": "名字不按整词认，Meiko 也当成提到了 Mei",
       "file": "scripts/lib/creator-sources.ts",
@@ -22202,7 +22190,7 @@
       ]
     },
     {
-      "id": "M-P2-s35",
+      "id": "M-P2-s34",
       "req": "P2.f",
       "why": "同一句在信里出现两次就列两次",
       "file": "scripts/lib/creator-sources.ts",
@@ -22214,19 +22202,19 @@
       ]
     },
     {
-      "id": "M-P2-s36",
+      "id": "M-P2-s35",
       "req": "P2.f",
       "why": "驼峰昵称（TechWithSarah）不拆开，认不出 Sarah",
       "file": "scripts/lib/creator-sources.ts",
-      "find": ".replace(/(\\p{Ll})(\\p{Lu})/gu, '$1 $2')",
-      "replace": "",
+      "find": "const split = source.normalize('NFKC').replace(/(\\p{Ll})(\\p{Lu})/gu, '$1 $2')",
+      "replace": "const split = source.normalize('NFKC')",
       "by": "test",
       "kills": [
         "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
       ]
     },
     {
-      "id": "M-P2-s37",
+      "id": "M-P2-s36",
       "req": "P2.f",
       "why": "昵称里的 the、with、official 这类普通词也当名字，带这些词的句子全被列出来",
       "file": "scripts/lib/creator-sources.ts",
@@ -22238,7 +22226,7 @@
       ]
     },
     {
-      "id": "M-P2-s38",
+      "id": "M-P2-s37",
       "req": "P2.g",
       "why": "名单里昵称、简介、作品文案不是字符串时照当字符串用，render 抛错",
       "file": "scripts/lib/creator-sources.ts",
@@ -22250,7 +22238,7 @@
       ]
     },
     {
-      "id": "M-P2-s39",
+      "id": "M-P2-s38",
       "req": "P2.f",
       "why": "登记了出处、信里已没有的句子排在最前，盖过要先看的问题",
       "file": "scripts/lib/creator-sources.ts",
@@ -22262,7 +22250,7 @@
       ]
     },
     {
-      "id": "M-P2-s40",
+      "id": "M-P2-s39",
       "req": "P2.f",
       "why": "长短破折号不归一成连字符，资料与登记里破折号写法不同就对不上",
       "file": "scripts/lib/creator-sources.ts",
@@ -22274,7 +22262,7 @@
       ]
     },
     {
-      "id": "M-P2-s41",
+      "id": "M-P2-s40",
       "req": "P2.f",
       "why": "句末标点后空白再接小写也切句，引号里的感叹号、a.m. 把一句切开，后半句编的话漏列",
       "file": "scripts/lib/creator-sources.ts",
@@ -22282,47 +22270,11 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
       ]
     },
     {
-      "id": "M-P2-s42",
-      "req": "P2.f",
-      "why": "问候只看开头词，「Hey Mei, sourdough queen!」这种后面接评价的整行被跳过",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "const GREETING = /^(?:hi|hello|hey|dear)\\b[^,!.\\-–—]*[,!.\\-–—]?$/i",
-      "replace": "const GREETING = /^(?:hi|hello|hey|dear)\\b/i",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s43",
-      "req": "P2.f",
-      "why": "段中间以 Hi 开头的折行也当问候跳过，吞掉正文",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (opening && isGreeting(line)) continue",
-      "replace": "      if (isGreeting(line)) continue",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s44",
-      "req": "P2.f",
-      "why": "问候不限词数，长长一行称呼里夹的描述也跳过",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "GREETING.test(line) && line.split(/\\s+/).length <= 5 &&",
-      "replace": "GREETING.test(line) &&",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s45",
+      "id": "M-P2-s41",
       "req": "P2.f",
       "why": "整个账号名、整个昵称不当名字认，sarah_bakes、mei123 这种写出来认不出",
       "file": "scripts/lib/creator-sources.ts",
@@ -22330,11 +22282,11 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
       ]
     },
     {
-      "id": "M-P2-s46",
+      "id": "M-P2-s42",
       "req": "P2.f",
       "why": "主题行整行不核，主题里写博主的话没人看",
       "file": "scripts/lib/creator-sources.ts",
@@ -22342,11 +22294,11 @@
       "replace": "continue }",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
       ]
     },
     {
-      "id": "M-P2-s47",
+      "id": "M-P2-s43",
       "req": "P2.f",
       "why": "比对前不做 NFKC，全角字母的原文就对不上",
       "file": "scripts/lib/creator-sources.ts",
@@ -22354,11 +22306,11 @@
       "replace": "  return text\n",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
       ]
     },
     {
-      "id": "M-P2-s48",
+      "id": "M-P2-s44",
       "req": "P2.f",
       "why": "只把短破折号归一成连字符，长破折号的原文就对不上",
       "file": "scripts/lib/creator-sources.ts",
@@ -22366,7 +22318,104 @@
       "replace": ".replace(/[–]/g, '-')",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s45",
+      "req": "P2.f",
+      "why": "称呼不限于博主的名字，「Hey Mei your marathons rock!」这种整行当问候跳过",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return words.every(word => word !== '' && (salutation.has(word) || GENERIC_SALUTATIONS.has(word)))",
+      "replace": "  return true",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后",
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s46",
+      "req": "P2.f",
+      "why": "问候收尾的逗号、感叹号不认，每封的 Dear Mei, 都被当正文列出",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "const GREETING = /^(?:hi|hello|hey|dear)\\s+(.*?)\\s*[,!.\\-–—]?$/i",
+      "replace": "const GREETING = /^(?:hi|hello|hey|dear)\\s+(.*?)\\s*$/i",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s47",
+      "req": "P2.f",
+      "why": "每一段的问候样式行都跳过，信后面另起一段的「Hey Mei …」没人看",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (greetingSlot && isGreeting(line, salutation)) continue",
+      "replace": "      if (isGreeting(line, salutation)) continue",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s48",
+      "req": "P2.f",
+      "why": "问候不限词数，长长一行称呼也跳过",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  if (m === null || line.split(/\\s+/).length > 5) return false",
+      "replace": "  if (m === null) return false",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s49",
+      "req": "P2.f",
+      "why": "there、team 这类泛称不认，Hello team Mei! 被当正文列出",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "(salutation.has(word) || GENERIC_SALUTATIONS.has(word))",
+      "replace": "salutation.has(word)",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s50",
+      "req": "P2.f",
+      "why": "没登记的部分只剩表情时当没有，Your smoothie series 🔥🔥 只登记前半也算盖住",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "filter(p => /[^\\s\\p{P}]/u.test(p))",
+      "replace": "filter(p => /[\\p{L}\\p{N}]/u.test(p))",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s51",
+      "req": "P2.f",
+      "why": "整个昵称不当名字认，mei_lin 这种写出来认不出",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "[text(creator.handle)?.replace(/^@/, ''), text(creator.nickname)]",
+      "replace": "[text(creator.handle)?.replace(/^@/, '')]",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s52",
+      "req": "P2.f",
+      "why": "登记只标在信里第一次出现的地方，同一段话第二次出现后面接的编造不列",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = normalizedDraft.indexOf(key, at + 1)) {",
+      "replace": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = -1) {",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
       ]
     },
     {

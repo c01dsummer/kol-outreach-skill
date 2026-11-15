@@ -53,12 +53,29 @@ export function normalizeText(text: string): string {
 /** 第二人称：信里出现这些词，这一句就是在对博主说话，多半在说他。弯撇号先归一成直撇号再认。 */
 const YOU = /\b(?:you|your|yours|yourself|yourselves|you're|you've|you'll|you'd)\b/i
 /**
- * 问候行：一段的第一行，Hi/Hello/Hey/Dear 开头、后面只跟称呼（最多一个收尾的逗号、感叹号、句点或破折号，
- * 之后不再有别的话）、不超过五个词、没有 you 一类词 —— 只是称呼，不算描述。「Hey Mei, sourdough queen!」不是问候。
+ * 问候行：主题行之后正文的第一行，Hi/Hello/Hey/Dear 开头、后面只跟称呼、最后最多一个收尾的逗号、感叹号、句点或破折号，
+ * 不超过五个词。称呼只认博主昵称、账号名里的词和 there、team、all 这几个泛称 ——「Hey sourdough queen!」「Hi Mei the smoothie genius,」不是问候，照正文核。
  */
-const GREETING = /^(?:hi|hello|hey|dear)\b[^,!.\-–—]*[,!.\-–—]?$/i
-const isGreeting = (line: string): boolean =>
-  GREETING.test(line) && line.split(/\s+/).length <= 5 && !YOU.test(normalizeText(line))
+const GREETING = /^(?:hi|hello|hey|dear)\s+(.*?)\s*[,!.\-–—]?$/i
+const GENERIC_SALUTATIONS = new Set(['there', 'team', 'all', 'everyone', 'folks', 'friend', 'friends'])
+function isGreeting(line: string, salutation: ReadonlySet<string>): boolean {
+  const m = GREETING.exec(line.normalize('NFKC'))
+  if (m === null || line.split(/\s+/).length > 5) return false
+  const words = m[1].replace(/^@/, '').toLowerCase().split(/\s+/)
+  return words.every(word => word !== '' && (salutation.has(word) || GENERIC_SALUTATIONS.has(word)))
+}
+
+/** 可以出现在问候里的称呼：整个账号名、整个昵称，以及它们按非字母与驼峰拆开的每个词（不限长短，Jo 也算）。 */
+function salutationWords(creator: CreatorText): Set<string> {
+  const words = new Set<string>()
+  for (const source of [text(creator.nickname), text(creator.handle)?.replace(/^@/, '')]) {
+    if (source === undefined) continue
+    const nfkc = source.normalize('NFKC')
+    words.add(nfkc.trim().toLowerCase())
+    for (const word of nfkc.replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2').match(/[\p{L}\p{N}]+/gu) ?? []) words.add(word.toLowerCase())
+  }
+  return words
+}
 /** 第一个非空行以 Subject: 开头时是主题行，冒号后面那段自成一句，不和下面的正文接起来（同 U13.a）。 */
 const SUBJECT = /^subject\s*[:：]\s*/i
 /** 列表行（-、*、•、1. 1) 开头）各自成句，不和上下行接起来。 */
@@ -117,23 +134,23 @@ function splitSentences(line: string): string[] {
   return out
 }
 
-/** 把草稿切成句：空行分段，段内折行接回一行（信常常手动折行），列表行各自成句；主题行（第一个非空行）自成一句；问候行跳过。 */
-function sentences(draft: string): string[] {
+/** 把草稿切成句：空行分段，段内折行接回一行（信常常手动折行），列表行各自成句；主题行（第一个非空行）自成一句；主题行之后正文第一行是问候时跳过。 */
+function sentences(draft: string, salutation: ReadonlySet<string>): string[] {
   const out: string[] = []
   let first = true
+  let opening = true
   for (const paragraph of draft.split(/\r?\n\s*\r?\n/)) {
     const body: string[] = []
     const flush = () => { if (body.length) out.push(...splitSentences(body.splice(0).join(' '))) }
-    let paragraphFirst = true
     for (const raw of paragraph.split(/\r?\n/)) {
       const line = raw.trim()
       if (!line) continue
       const subject = first && SUBJECT.test(line)
       first = false
-      const opening = paragraphFirst
-      paragraphFirst = false
       if (subject) { const rest = line.replace(SUBJECT, '').trim(); if (rest) out.push(rest); continue }
-      if (opening && isGreeting(line)) continue
+      const greetingSlot = opening
+      opening = false
+      if (greetingSlot && isGreeting(line, salutation)) continue
       if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line)); continue }
       body.push(line)
     }
@@ -199,7 +216,8 @@ function uncovered(normalizedDraft: string, covered: readonly boolean[], at: num
     if (covered[i]) { touched = true; if (piece) pieces.push(piece); piece = '' } else piece += normalizedDraft[i]
   }
   if (piece) pieces.push(piece)
-  const rest = pieces.map(p => p.trim()).filter(p => /[\p{L}\p{N}]/u.test(p))
+  // 只丢纯空白与标点的剩余段；表情、符号（🔥、=、>>>）也是没登记的话，照列。
+  const rest = pieces.map(p => p.trim()).filter(p => /[^\s\p{P}]/u.test(p))
   return { touched, rest: rest.join('…') }
 }
 
@@ -227,7 +245,7 @@ export function creatorSourceItems(
   const names = nameWords(creator)
   let cursor = 0
   const seen = new Set<string>()
-  for (const sentence of sentences(draft)) {
+  for (const sentence of sentences(draft, salutationWords(creator))) {
     const s = normalizeText(sentence)
     const found = normalizedDraft.indexOf(s, cursor)
     if (found >= 0) cursor = found + s.length
