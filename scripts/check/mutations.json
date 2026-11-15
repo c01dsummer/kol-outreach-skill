@@ -18251,6 +18251,342 @@
       "kills": ["准入读物：文件顶层的空语句与裸块也报不是声明的语句"]
     },
     {
+      "id": "M-H203-a",
+      "req": "harness",
+      "why": "认不得的验证者名字照对象原型链上有没有这个键查 —— 对象自带的那几个方法名被当成验证者，估重成了一个函数",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (!Object.hasOwn(MUTATION_WEIGHT, name)) throw",
+      "replace": "  if (!(name in MUTATION_WEIGHT)) throw",
+      "by": "test",
+      "kills": [
+        "估重：constructor 不是验证者名字，抛错"
+      ]
+    },
+    {
+      "id": "M-H203-b",
+      "req": "harness",
+      "why": "没写验证者的变异按自检算 —— 没写 by 的本是需求测试，估重放大六倍，三份怎么分、涨了多少全跟着错",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  const name = by === undefined ? 'test' : by",
+      "replace": "  const name = by === undefined ? 'selfcheck' : by",
+      "by": "test",
+      "kills": [
+        "估重：没写 by 按需求测试算 1"
+      ]
+    },
+    {
+      "id": "M-H203-c",
+      "req": "harness",
+      "why": "自检变异与需求测试变异算一样重 —— 又回到按条数分，三份实测秒数差三成也看不出",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "export const MUTATION_WEIGHT: Readonly<Record<string, number>> = { test: 1, selfcheck: 6 }",
+      "replace": "export const MUTATION_WEIGHT: Readonly<Record<string, number>> = { test: 1, selfcheck: 1 }",
+      "by": "test",
+      "kills": [
+        "估重：自检验证的一条算 6"
+      ]
+    },
+    {
+      "id": "M-H203-d",
+      "req": "harness",
+      "why": "豁免的键照前缀认 —— 写岔了的键也放行涨幅那一道",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (m === null || m[1] !== GROWTH_WAIVER_KEY) continue",
+      "replace": "    if (m === null || !m[1].startsWith(GROWTH_WAIVER_KEY)) continue",
+      "by": "test",
+      "kills": [
+        "豁免：键多一截（mutation-growth-okay）不算"
+      ]
+    },
+    {
+      "id": "M-H203-e",
+      "req": "harness",
+      "why": "只写键没写理由的豁免被当成写了理由 —— 一个空豁免就放过涨幅那一道",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (reason === '') empty++",
+      "replace": "    if (reason === ' ') empty++",
+      "by": "test",
+      "kills": [
+        "豁免：冒号后什么都没有，计入空豁免"
+      ]
+    },
+    {
+      "id": "M-H203-f",
+      "req": "harness",
+      "why": "理由不去两头空白 —— 冒号后只有空格的那一行算写了理由",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    const reason = m[2].trim()",
+      "replace": "    const reason = m[2]",
+      "by": "test",
+      "kills": [
+        "豁免：理由去掉首尾空白后收下"
+      ]
+    },
+    {
+      "id": "M-H203-g",
+      "req": "harness",
+      "why": "matrix 只核有没有、不核列的是哪几份 —— 改成两份或四份而闸门仍按三份算，没有东西红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (!workflow.includes(`shard: [${list}]`)) faults",
+      "replace": "  if (!workflow.includes(`shard: [`)) faults",
+      "by": "test",
+      "kills": [
+        "接线：矩阵只列两份，交回一条说明"
+      ]
+    },
+    {
+      "id": "M-H203-h",
+      "req": "harness",
+      "why": "MUTATE_SHARD 只核有没有、不核分母 —— 分母与份数对不上时不红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (!workflow.includes(`MUTATE_SHARD: \\${{ matrix.shard }}/${count}`)) faults",
+      "replace": "  if (!workflow.includes(`MUTATE_SHARD: `)) faults",
+      "by": "test",
+      "kills": [
+        "接线：MUTATE_SHARD 分母写成 2，交回一条说明"
+      ]
+    },
+    {
+      "id": "M-H203-i",
+      "req": "harness",
+      "why": "分份启动数文件名只核有没有、不核写死的份数 —— 文件名与份数对不上时不红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (!workflow.includes(`launches-\\${{ matrix.shard }}-of-${count}.json`)) faults",
+      "replace": "  if (!workflow.includes(`launches-`)) faults",
+      "by": "test",
+      "kills": [
+        "接线：产物文件名写成 of-2，交回一条说明"
+      ]
+    },
+    {
+      "id": "M-H203-j",
+      "req": "harness",
+      "why": "chain 那一串照 check 原样比、不去掉变异一步 —— 对得上的接线也判成对不上，闸门在每个 PR 上都红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    const chain = checkScript.replace(' && npm run mutate', '').replace(' && npm run launches', '')",
+      "replace": "    const chain = checkScript.replace(' && npm run launches', '')",
+      "by": "test",
+      "kills": [
+        "串线：chain 恰是 check 去掉两步，没有说明"
+      ]
+    },
+    {
+      "id": "M-H203-k",
+      "req": "harness",
+      "why": "chain 那一串只要在哪一行里出现过就算 —— 多跑或少跑一步的那一行只要以它开头也放行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (!workflow.split('\\n').some(line => line.trim() === `- run: ${chain}`)) faults",
+      "replace": "    if (!workflow.includes(chain)) faults",
+      "by": "test",
+      "kills": [
+        "串线：chain 那一串只是某行的一截，不算"
+      ]
+    },
+    {
+      "id": "M-H203-l",
+      "req": "harness",
+      "why": "读不到 package.json 的 check 那一串时不报 —— 「读不到」被当成「对得上」",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (checkScript === undefined) faults.push('读不到 package.json 的 check 那一串')",
+      "replace": "  if (checkScript === undefined) faults.length",
+      "by": "test",
+      "kills": [
+        "串线：读不到 check 那一串，交回一条"
+      ]
+    },
+    {
+      "id": "M-H203-m",
+      "req": "harness",
+      "why": "只核写没写 MUTATE_JOBS、不核派几个 —— 派的 worker 少了、变异一步慢一成半，没有东西红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (!workflow.includes(`MUTATE_JOBS: '${CI_MUTATE_JOBS}'`)) faults",
+      "replace": "  if (!workflow.includes('MUTATE_JOBS: ')) faults",
+      "by": "test",
+      "kills": [
+        "串线：MUTATE_JOBS 改成 4，交回一条"
+      ]
+    },
+    {
+      "id": "M-H203-n",
+      "req": "harness",
+      "why": "问不出在不在主干上时放行 —— 「读不到」变成「没越线」",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if ('unknown' in trunk) { lines.push(`✗ 变异负载：问不出这棵树在不在主干上（${trunk.unknown}），三道线都没法判`); return { red: true, lines } }",
+      "replace": "  if ('unknown' in trunk) { lines.push(`✗ 变异负载：问不出这棵树在不在主干上（${trunk.unknown}），三道线都没法判`); return { red: false, lines } }",
+      "by": "test",
+      "kills": [
+        "闸：在不在主干上都读不出，别的全好也红"
+      ]
+    },
+    {
+      "id": "M-H203-o",
+      "req": "harness",
+      "why": "接线对不上只当越线、主干上不红 —— 改坏 check.yml 的那一推合进主干也照样绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (wiring.length > 0) { fault = true; lines.push(",
+      "replace": "  if (wiring.length > 0) { lines.push(",
+      "by": "test",
+      "kills": [
+        "闸：接线不对，主干上也红"
+      ]
+    },
+    {
+      "id": "M-H203-p",
+      "req": "harness",
+      "why": "恰在 25% 那条线上就红 —— 线说的是「超过」",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (over > BALANCE_LIMIT) findings",
+      "replace": "  if (over >= BALANCE_LIMIT) findings",
+      "by": "test",
+      "kills": [
+        "闸：最重一份恰好比平均高 25%，不红"
+      ]
+    },
+    {
+      "id": "M-H203-q",
+      "req": "harness",
+      "why": "不均那道线放宽一倍 —— 一摞压垮一份也不红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (over > BALANCE_LIMIT) findings",
+      "replace": "  if (over > BALANCE_LIMIT * 2) findings",
+      "by": "test",
+      "kills": [
+        "闸：最重一份比平均高过 25%，PR 上红"
+      ]
+    },
+    {
+      "id": "M-H203-r",
+      "req": "harness",
+      "why": "恰在 14 分钟那条线上就红 —— 线说的是「超过」",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (heaviest > CEILING_UNITS) findings",
+      "replace": "  if (heaviest >= CEILING_UNITS) findings",
+      "by": "test",
+      "kills": [
+        "闸：最重一份恰好 2400，不红"
+      ]
+    },
+    {
+      "id": "M-H203-s",
+      "req": "harness",
+      "why": "上限放宽一倍 —— 最重一份涨到二十几分钟才红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (heaviest > CEILING_UNITS) findings",
+      "replace": "  if (heaviest > CEILING_UNITS * 2) findings",
+      "by": "test",
+      "kills": [
+        "闸：最重一份过了 2400，PR 上红"
+      ]
+    },
+    {
+      "id": "M-H203-t",
+      "req": "harness",
+      "why": "恰涨 5% 就红 —— 线说的是「超过」",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (growth !== undefined && growth > GROWTH_LIMIT) {",
+      "replace": "  if (growth !== undefined && growth >= GROWTH_LIMIT) {",
+      "by": "test",
+      "kills": [
+        "闸：总量恰好比基线长 5%，不红"
+      ]
+    },
+    {
+      "id": "M-H203-u",
+      "req": "harness",
+      "why": "基线是 0 时当没涨 —— 从无到有的那一大批变异不红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    growth = base.total === 0 ? (d > 0 ? Infinity : 0) : d / base.total",
+      "replace": "    growth = base.total === 0 ? 0 : d / base.total",
+      "by": "test",
+      "kills": [
+        "闸：基线是 0 而现在有量，算越线"
+      ]
+    },
+    {
+      "id": "M-H203-v",
+      "req": "harness",
+      "why": "没写豁免也当豁免了 —— 涨幅那一道永远不红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (waivers.reasons.length > 0) lines.push(",
+      "replace": "    if (waivers.reasons.length >= 0) lines.push(",
+      "by": "test",
+      "kills": [
+        "闸：总量比基线长过 5%，PR 上红"
+      ]
+    },
+    {
+      "id": "M-H203-w",
+      "req": "harness",
+      "why": "主干上读不出上一版也红 —— 主干第一个提交那一类情形让主干变红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (!onTrunk && !('total' in base)) { fault = true;",
+      "replace": "  if (!('total' in base)) { fault = true;",
+      "by": "test",
+      "kills": [
+        "闸：主干上基线读不出，不红"
+      ]
+    },
+    {
+      "id": "M-H203-x",
+      "req": "harness",
+      "why": "只有一行空豁免时不红 —— 写了个空豁免被当成没写，也不提醒",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (!onTrunk && waivers.empty > 0) { fault = true;",
+      "replace": "  if (!onTrunk && waivers.empty > 1) { fault = true;",
+      "by": "test",
+      "kills": [
+        "闸：PR 上有空豁免，红"
+      ]
+    },
+    {
+      "id": "M-H203-y",
+      "req": "harness",
+      "why": "主干上越线也红 —— CI 跑在推送之后，主干上判红只会让主干变红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  return { red: fault || (!onTrunk && findings.length > 0), lines }",
+      "replace": "  return { red: fault || findings.length > 0, lines }",
+      "by": "test",
+      "kills": [
+        "闸：主干上不均越线不红"
+      ]
+    },
+    {
+      "id": "M-H203-z",
+      "req": "harness",
+      "why": "选组不排序就当键 —— 同样几组写的先后不同就成了两摞，同一种基线跑两遍",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return only === undefined ? undefined : JSON.stringify([by, [...only].sort()])",
+      "replace": "  return only === undefined ? undefined : JSON.stringify([by, [...only]])",
+      "by": "test",
+      "kills": [
+        "摞的键：only 排序后与 by 一起序列化"
+      ]
+    },
+    {
+      "id": "M-H203-aa",
+      "req": "harness",
+      "why": "选组是空的当成整跑 —— 键不同，分份与基线对不上",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return only === undefined ? undefined : JSON.stringify([by, [...only].sort()])",
+      "replace": "  return only === undefined || only.length === 0 ? undefined : JSON.stringify([by, [...only].sort()])",
+      "by": "test",
+      "kills": [
+        "摞的键：only 是空数组也算写了，不交回 undefined"
+      ]
+    },
+    {
+      "id": "M-H203-ab",
+      "req": "harness",
+      "why": "摞的重量按条数算、不按估重 —— 又回到按条数分，三份实测秒数差三成",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  const weigh = (pile: readonly number[]): number => pile.reduce((sum, i) => sum + weightOf(items[i]), 0)",
+      "replace": "  const weigh = (pile: readonly number[]): number => pile.length",
+      "by": "test",
+      "kills": [
+        "按估重分：重的一摞独占一份，轻的几摞挤另一份"
+      ]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",

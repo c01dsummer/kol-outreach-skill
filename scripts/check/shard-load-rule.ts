@@ -131,7 +131,7 @@ export function shardLoadGate(input: ShardLoadInput): ShardLoadGate {
   const heaviest = Math.max(0, ...loads)
   const mean = loads.length === 0 ? 0 : total / loads.length
   const over = mean === 0 ? 0 : heaviest / mean - 1
-  const vs = onTrunk ? '上一版' : 'PR 基线'
+  const vs = onTrunk ? '上一版' : ' PR 基线'
   let growth: number | undefined
   let delta = ''
   if ('total' in base) {
