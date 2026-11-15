@@ -14,6 +14,8 @@
     "calibration": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/calibration.ts",
     "test": "tsx scripts/test.ts",
     "size": "tsx scripts/check/size.ts",
+    "shard-load": "tsx scripts/check/shard-load.ts",
+    "shard-weights": "tsx scripts/check/shard-weights.ts",
     "spec": "tsx scripts/check/spec-sync.ts",
     "anchors": "tsx scripts/check/anchors.ts",
     "skill": "tsx scripts/check/skill.ts",
