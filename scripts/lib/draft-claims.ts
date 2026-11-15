@@ -197,10 +197,8 @@ function contains(source: string, plain: string, draft: string): boolean {
 const NOT_WHO = /^(?:our|your|their|its|it|it's|this|that|these|those|we|we're|you|you're|they|they're|i|i'm|is|are|was|were|be|been|being|has|have|had|and|or|but|with|for|of|to|in|on|at|as|the|a|an|by|so|also|both|all|every|each|fully|totally|highly|now|just|still|once|my|hi|hey|plus|not|if|when|get|gets|got|i've|we've|you've|they've|i'd|we'd|you'd|would|could|should|can|can't|cannot|will|really|definitely|strongly|personally|she|he|who|which)$/i
 /** 认证词后面、by 后面紧跟的这些词说的是收信人（approved by you、Sarah recommended you）；Vets recommend it 照核。 */
 const PRONOUN = /^(?:you|your|yours|me|my)$/i
-/** by、with、to 后面是这些小写的词时说的是收信人或我们自己（approved by us、recommended to anyone）；大写的 US 是美国，照核。 */
+/** by、with、to 后面是这些小写的词时说的是收信人或我们自己（approved by us、recommended to anyone）；大写的 US 是美国，照核。by our、by their 后面不管跟什么都照核：分不清是自家团队还是第三方时宁可多列一句。 */
 const BY_US = /^(?:you|your|yours|me|my|us|anyone|everyone)$/
-/** by 我们或他们的团队（approved by our legal team、cleared with their brand team）说的是合作流程；by our doctors、by their health agency 照核。 */
-const OUR_TEAM = /^(?:\s[\p{L}-]+){0,3}\s(?:by|with|to)\s(?:our|their)\s(?:[\p{L}-]+\s)?(?:team|staff|legal|marketing|brand|editors?|managers?)\b/iu
 /** 主语是这些时说的是自己做的事（I tested Whirl Go、we cleared Friday），不是认证。 */
 const SUBJECT = /^(?:i|we|you|they|he|she|i've|we've|you've|they've|i'd|we'd|you'd|i'll|we'll|you'll)$/i
 const WORD = String.raw`[\p{L}\d](?:[\p{L}\d'®™-]|\.(?=[\p{L}\d]))*`
@@ -217,7 +215,7 @@ function endorsing(before: string, after: string): boolean {
   if (left !== undefined && (!NOT_WHO.test(left) || /^\p{Lu}{2,}$/u.test(left))) return true
   if (/^\s?[:(]/u.test(after)) return true
   const by = BY.exec(after)
-  if (by !== null) return !BY_US.test(by[1] ?? by[2]) && !OUR_TEAM.test(after)
+  if (by !== null) return !BY_US.test(by[1] ?? by[2])
   return next !== undefined && /^\p{Lu}/u.test(next) && !(left !== undefined && SUBJECT.test(left))
 }
 /** 一段文字里每一句的起止（按 SENTENCE_END 切，一遍走完）；认证词所在的那一句用二分查找取。 */
