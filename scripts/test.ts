@@ -178,7 +178,7 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { loadCreators, loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveCreators, saveRawCreators, saveTask } from './lib/task.js'
+import { loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -759,24 +759,83 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   criterion('P2.b')
 }
 {
-  // 隔离重写比出来的三处（ADR-206）：上面那几条只用 includes 点名两个有字的占位符再数个数，
-  // 删掉空占位符 {}、在名单落盘读回时改了空行都还绿。这里改成整格逐字比，空占位符与连着的空行都在夹具里。
+  // 隔离重写比出来的（ADR-206）：上面那几条只用 includes 点名两个有字的占位符再数个数，
+  // 只删掉空占位符 {}、或在 render 读名单、出评审行、写 CSV、写 XLSX 任一步删掉它，都还绿。
+  // 这里逐字整格比：每封草稿按自己的卡片、自己的行、自己的格取出来，草稿之间互为子串也不会互相顶替。
   const drafts = ['{}', '{name}', '{...}', 'Hi {},\n\n\nWe make a {产品一句话} for {}.\n\nBest,\n{name}']
-  const people = drafts.map((d, i) => mk('tiktok', `p2-exact-${i}`, { tier: 'A', score: 10 - i, outreach_draft: d }))
+  const handles = drafts.map((_, i) => `p2_exact_${i}`)
+  const people = drafts.map((d, i) => mk('tiktok', handles[i], { tier: 'A', score: 10 - i, outreach_draft: d, profile_url: `https://example.com/${handles[i]}` }))
   const before = structuredClone(people)
+  const htmlEsc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+  // 一张卡片里的草稿块：按 profile 链接找卡片，取那张卡片自己的 <pre>；找不到就交 undefined
+  const preOf = (page: string, handle: string): string | undefined => {
+    const card = page.split('<div class="card ').find(chunk => chunk.includes(`href="https://example.com/${handle}"`))
+    const m = card === undefined ? null : /<pre>([\s\S]*?)<\/pre>/.exec(card)
+    return m === null ? undefined : m[1]
+  }
   eq('P2.b 只有占位符、或带空占位符 {} 的草稿，表格行那一格与草稿逐字相同',
     people.map(c => toRow(c)[HEADERS.indexOf('outreach_draft')]), drafts)
   const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: drafts.length,
     tiers: { A: drafts.length, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false }
   const pages = [renderHtml(people, meta), renderHtml(people, meta, { mode: 'review', filters: 'dual' })]
-  eq('P2.b 默认与评审两种 HTML 里每封草稿都逐字在（空占位符 {} 也在），输入名单不变',
-    [pages.map(page => drafts.filter(d => !page.includes(d))), isDeepStrictEqual(people, before)], [[[], []], true])
-  const dir = mkdtempSync(join(tmpdir(), 'kol-p2-roundtrip-'))
+  eq('P2.b 默认与评审两种 HTML 里每张卡片自己的草稿块与草稿逐字相同（空占位符 {} 也在），输入名单不变',
+    [pages.map(page => handles.map(h => preOf(page, h))), isDeepStrictEqual(people, before)], [[drafts.map(htmlEsc), drafts.map(htmlEsc)], true])
+
+  // 真起 render：名单从任务目录读进来，评审行写成 kol.csv 与 kol.xlsx，报告写成 report.html —— 每一步都可能动草稿
+  const root = mkdtempSync(join(tmpdir(), 'kol-p2-exact-'))
   try {
-    saveCreators(dir, people)
-    eq('P2.b 名单经 saveCreators 落盘、loadCreators 读回（render 读的就是这一份），草稿逐字相同',
-      loadCreators(dir).map(c => c.outreach_draft), drafts)
-  } finally { rmSync(dir, { recursive: true, force: true }) }
+    const dir = join(root, 'task'), cwd = join(root, 'cwd'), now = '2026-10-01T00:00:00Z'
+    mkdirSync(dir); mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const list = drafts.map((d, i) => ({ platform: 'tiktok', handle: handles[i], nickname: handles[i], followers: 80000, bio: 'Creator profile', bio_links: [], verified: false,
+      profile_url: `https://example.com/${handles[i]}`, source_keyword: 'portable', source_dimension: 'category', source_tasks: [0],
+      fit: '✅', fit_reason: '夹具里的内容判断', outreach_draft: d }))
+    writeFileSync(join(dir, 'task.json'), JSON.stringify({ product: 'p2exact', market: 'US', target_count: drafts.length,
+      tasks: [{ keyword: 'portable', dimension: 'category', platform: 'tiktok' }], done: [0], created_at: now, updated_at: now }))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify(list))
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
+    const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
+    const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
+    // RFC 4180 的最小读法：引号里的逗号、换行、两个引号都是格里的字
+    const csvCells = (text: string): string[][] => {
+      const rows: string[][] = []; let row: string[] = [], cur = '', quoted = false
+      const src = text.replace(/^﻿/, '')
+      for (let i = 0; i < src.length; i++) {
+        const ch = src[i]
+        if (quoted) { if (ch === '"' && src[i + 1] === '"') { cur += '"'; i++ } else if (ch === '"') quoted = false; else cur += ch }
+        else if (ch === '"') quoted = true
+        else if (ch === ',') { row.push(cur); cur = '' }
+        else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = '' }
+        else cur += ch
+      }
+      if (cur !== '' || row.length) { row.push(cur); rows.push(row) }
+      return rows
+    }
+    const csv = csvCells(read('kol.csv')), head = csv[0] ?? []
+    const byHandle = (rows: string[][], col: string[]) => handles.map(h => rows.find(row => row[col.indexOf('handle')] === h)?.[col.indexOf('outreach_draft')])
+    // XLSX：逐个工作表取行，每格是 inlineStr 的 <t> 原文反转义
+    const xmlText = (t: string) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+    const sheetRows: string[][] = []
+    for (let n = 1; n <= 6; n++) {
+      let xml: string; try { xml = xlsxPart(join(dir, 'kol.xlsx'), `xl/worksheets/sheet${n}.xml`) } catch { break }
+      for (const row of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+        const cells: string[] = []
+        for (const c of row[1].matchAll(/<c r="([A-Z]+)\d+"[^>]*>([\s\S]*?)<\/c>/g)) {
+          let col = 0; for (const l of c[1]) col = col * 26 + l.charCodeAt(0) - 64
+          const t = /<t\b[^>]*>([\s\S]*?)<\/t>/.exec(c[2]) ?? /<v>([\s\S]*?)<\/v>/.exec(c[2])
+          cells[col - 1] = t === null ? '' : xmlText(t[1])
+        }
+        sheetRows.push(Array.from(cells, v => v ?? ''))
+      }
+    }
+    const xlsxHead = sheetRows.find(row => row.includes('outreach_draft') && row.includes('handle')) ?? []
+    eq('P2.b 真起 render 以 0 结束', r.status, 0)
+    if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    eq('P2.b 真起 render：kol.csv 里每封草稿在自己那一行逐字相同（空占位符 {} 也在）', byHandle(csv.slice(1), head), drafts)
+    eq('P2.b 真起 render：kol.xlsx 里每封草稿在自己那一行逐字相同（空占位符 {} 也在）', byHandle(sheetRows, xlsxHead), drafts)
+    eq('P2.b 真起 render：report.html 里每张卡片自己的草稿块与草稿逐字相同（空占位符 {} 也在）',
+      handles.map(h => preOf(read('report.html'), h)), drafts.map(htmlEsc))
+  } finally { rmSync(root, { recursive: true, force: true }) }
   criterion('P2.b')
 }
 
