@@ -116,21 +116,18 @@ const PROMISE_WORDS: ReadonlyArray<readonly [string, string]> = [
   ['commission(?:s)?', 'commission(?:s)?'],
   ['lifetime', '__SAME__'],
   ['for life|forever', '__SAME__'],
-  ['ce(?:[- ]marked|[- ]certified| mark)', '__ALWAYS__'],
-  ['ul[- ](?:listed|certified)', '__ALWAYS__'],
-  ['certif(?:y|ied|ication|ications|icate|icates)', '__ALWAYS__'],
-  ['patent(?:s|ed)?', '__ALWAYS__'],
-  ['award[- ]winning|won an award|awards?', '__ALWAYS__'],
-  ['clinically|clinical(?: trials?| studies| study)?', '__ALWAYS__'],
-  ['dermatologists?(?:[- ](?:tested|approved|recommended))?', '__ALWAYS__'],
-  ['doctor[- ](?:recommended|approved)', '__ALWAYS__'],
-  ['lab[- ]tested', '__ALWAYS__'],
+  ['ce(?:[- ]marked|[- ]certified| mark)', '__VERBATIM__'],
+  ['certif(?:y|ied|ication|ications|icate|icates)', '__VERBATIM__'],
+  ['patent(?:s|ed)?', '__VERBATIM__'],
+  ['award[- ]winning|won an award|awards?', '__VERBATIM__'],
+  ['clinically|clinical(?: trials?| studies| study)?', '__VERBATIM__'],
+  ['dermatologists?(?:[- ](?:tested|approved|recommended))?', '__VERBATIM__'],
   ['(?:food|medical)[- ]grade', '__SAME__'],
   ['hypoallergenic', '__SAME__'],
-  ['fda(?:[- ](?:approved|cleared|registered))?', '__ALWAYS__'],
-  ['fcc(?:[- ](?:approved|certified))?', '__ALWAYS__'],
-  ['iso(?: ?\\d+)?(?:[- ]certified)?', '__ALWAYS__'],
-  ['usda(?:[- ]organic)?', '__ALWAYS__'],
+  ['fda(?:[- ](?:approved|cleared|registered))?', '__VERBATIM__'],
+  ['fcc(?:[- ](?:approved|certified))?', '__VERBATIM__'],
+  ['iso(?: ?\\d+)?(?:[- ]certified)?', '__VERBATIM__'],
+  ['usda(?:[- ]organic)?', '__VERBATIM__'],
   ['non[- ]?(?:toxic|gmo)', '__SAME__'],
   // 以 -free、-proof 结尾的整词（BPA-free、leakproof）；带空格的只认上面两张表里的前缀，「it's free」「totally free」不是在说产品。
   [`[a-z]+-?free|(?:${FREE_PREFIXES}) free`, '__SAME__'],
@@ -162,17 +159,21 @@ const literalStem = (word: string): string => word.toLowerCase().replace(/[- ]/g
 const NOT_PROMISE = /^(?:feel|stress|worry|hassle|commitment|obligation|string|strings|care|toll)[- ]?free$/i
 
 /**
- * 「谁认可的」说法一律照列，不去资料里找：认证、批准、注册、检测、推荐、获奖、专利，和 FDA、CE、UL 这类机构名（承诺词表里标 __ALWAYS__ 的几项）。
- * 连着四轮复核都能造出资料替信里这类话作保的写法（别家的认证、还没拿到的批文、否定句），靠拆句子认机构名收不拢；这类话写错有法律风险，交给人核。
- * 紧挨着「谁」时连同那个「谁」列成一截（NSF-certified、vet recommended、approved by Health Canada）；表外的 approved、tested 这类词只在挨着「谁」时才算。
+ * 「谁认可的」说法整截原样比：认证、批准、注册、检测、推荐、获奖、专利，和 FDA、CE 这类机构名（承诺词表里标 __VERBATIM__ 的几项）。
+ * 紧挨着「谁」时连同那个「谁」算一截（NSF-certified、vet recommended、approved by Health Canada），这一截要在资料某一句里原样出现，
+ * 且那一句不是否定或还没拿到（not、pending、awaiting、applied…）。前几轮把几个词拆开分别去资料里找，别家的认证、别的批文总能拼出出处；
+ * 整截原样比没有这条路。表外的 approved、tested 这类词只在挨着「谁」时才算。
  */
 const ENDORSE = /(?<![\p{L}\d_])(?:certif(?:y|ied|ication|ications|icate|icates)|patent(?:s|ed)?|award(?:s|ed)?|approv(?:e|ed|al|als)|clear(?:ed|ance)|regist(?:ered|ration)|listed|complian(?:t|ce)|tested|recommend(?:ed|s)?|endorse(?:d|ment|ments)?|proven|accredit(?:ed|ation))(?![\p{L}\d_])/giu
 /** 紧挨在说法左边、但不是「谁」的词。 */
-const NOT_WHO = /^(?:our|your|their|its|it|it's|this|that|these|those|we|we're|you|you're|they|they're|i|i'm|is|are|was|were|be|been|being|has|have|had|and|or|but|with|for|of|to|in|on|at|as|the|a|an|by|so|also|both|all|every|each|fully|totally|highly|now|just|still|once|my|hi|hey|plus|not|if|when|get|gets|got|won|win|wins)$/i
-const ALWAYS = 'always:'
+const NOT_WHO = /^(?:our|your|their|its|it|it's|this|that|these|those|we|we're|you|you're|they|they're|i|i'm|is|are|was|were|be|been|being|has|have|had|and|or|but|with|for|of|to|in|on|at|as|the|a|an|by|so|also|both|all|every|each|fully|totally|highly|now|just|still|once|my|hi|hey|plus|not|if|when|get|gets|got|won|win|wins|i've|we've|you've|they've|i'd|we'd|you'd|would|could|should|can|can't|cannot|will|really|definitely|strongly|personally|she|he|who|which|price|link|links|item|items|final|content|holiday)$/i
+const ENDORSED = 'endorsed:'
+const BARE_AGENCY = /^(?:fda|usda|ce|ul|fcc|iso|dermatologists?)$/i
+/** 认证类那一截在资料里要原样出现（空格、连字符、单复数不计）。 */
+const verbatim = (text: string): RegExp => new RegExp(`(?<![\\p{L}\\d_])${literalStem(text)}(?![\\p{L}\\d_])`, 'giu')
 
 /** 一句话里的否定：资料里这一句是否定说法时，不给草稿里同一个承诺词当出处。 */
-const NEGATION = /(?<![a-z])(?:no|not|non|never|neither|nor|none|without|pending|void|cannot|except|unless|expired|hardly|exclud(?:e|es|ed|ing)|exclusions?|isn't|aren't|doesn't|don't|won't)(?![a-z])|n't(?![a-z])/i
+const NEGATION = /(?<![a-z])(?:no|not|non|never|neither|nor|none|without|pending|awaiting|applied|applying|seeking|submitted|expected|planned|upcoming|in progress|in process|void|cannot|except|unless|expired|hardly|exclud(?:e|es|ed|ing)|exclusions?|isn't|aren't|doesn't|don't|won't)(?![a-z])|n't(?![a-z])/i
 
 /** 一个数：千分位只认三位一组（「400, weighs」里的逗号不算），可带小数，也可以是「.5」。 */
 const DIGITS = '(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)'
@@ -286,25 +287,23 @@ export function claimsIn(text: string): Claim[] {
   // 合成的一条照原串比（分隔符、小数点都算），后面紧跟的单位也进比对：1:30 hours 对不上 1:30 minutes。
   mask(CLOCK, (m, after) => ({ text: m[0], key: `time:${groupKey(m[0])}:${unitAfter(m[0], after)}` }))
   mask(DIGIT_GROUPS, (m, after) => isLong(m[0]) ? { text: m[0], key: `digits:${groupKey(m[0])}:${unitAfter(m[0], after)}` } : 'keep')
-  // 表外的认证类词紧挨着「谁」时连同那个「谁」整截认走、照列；不挨着「谁」的（once approved、we tested）不算说法。
-  const spans: Array<readonly [number, number]> = []
+  // 表外的认证类词紧挨着「谁」时连同那个「谁」列成一截；不挨着「谁」的（once approved、we tested）不算说法。只遮说法本身，
+  // 两边的「谁」留给后面的规则照常认（Free shipping approved 里的免费送货照常比），已在这一截里的机构名最后不另列；数后面的单位（500 cycles tested）不当「谁」。
   mask(ENDORSE, (m, after, before) => {
-    const left = /((?:\p{L}\.){2,}|\p{L}[\p{L}'’]*)[ -]$/u.exec(before.slice(-40)), right = /^ ?\(? ?(?:by|from)(?: the| a| an)? +(?:(?:\p{L}\.){2,}|\p{L}[\p{L}'’-]*)(?: (?:(?:\p{L}\.){2,}|\p{Lu}[\p{L}'’-]*))*/u.exec(after)
+    const left = /(?<![\p{L}\d'’.])(?<!\d[ -])((?:\p{L}\.){2,}|\p{L}[\p{L}'’]*)[ -]$/u.exec(before.slice(-40))
+    const right = /^ ?\(? ?(?:[Bb][Yy]|[Ff][Rr][Oo][Mm]|[Tt][Oo]|[Uu][Nn][Dd][Ee][Rr])(?: [Tt][Hh][Ee]| [Aa]| [Aa][Nn])? +(?:(?:\p{L}\.){2,}|\p{L}[\p{L}'’-]*)(?: (?:(?:\p{L}\.){2,}|\p{Lu}[\p{L}'’-]*))*/u.exec(after)
     const who = left !== null && !NOT_WHO.test(left[1]) ? left[0].length : 0
     if (who === 0 && right === null) return 'keep'
-    const start = before.length - who, end = before.length + m[0].length + (right?.[0].length ?? 0)
-    spans.push([start, end])
+    const start = before.length - who
     const text = before.slice(start) + m[0] + (right?.[0] ?? '')
-    return { at: start, text, key: ALWAYS + text.toLowerCase() }
+    return { at: start, text, key: ENDORSED + text.toLowerCase(), stem: verbatim(text) }
   })
-  let blanked = '', pos = 0
-  for (const [a, b] of spans) { const from = Math.max(a, pos); if (b > from) { blanked += rest.slice(pos, from) + ' '.repeat(b - from); pos = b } }
-  rest = blanked + rest.slice(pos)
   // 承诺词先认走：「#1」里的 1、「5-star」里的 5 不另算一个数字。
   PROMISE_WORDS.forEach(([, stem], i) => {
     mask(PROMISE_RES[i], m => {
       if (NOT_PROMISE.test(m[0])) return undefined
-      if (stem === '__ALWAYS__') return { text: m[0], key: ALWAYS + m[0].toLowerCase() }
+      // 单写一个机构名（The FDA has approved it、approved: FDA 里的 FDA）说不清是哪种认可，资料里写了也照列。
+      if (stem === '__VERBATIM__') return { text: m[0], key: ENDORSED + m[0].toLowerCase(), stem: BARE_AGENCY.test(m[0]) ? /(?!)/g : verbatim(m[0]) }
       const source = stem === '__SAME__' ? literalStem(m[0]) : stem
       return { text: m[0], key: `word:${m[0].toLowerCase()}`, stem: new RegExp(`(?<!\\w)(?:${source})(?!\\w)`, 'gi') }
     })
@@ -326,7 +325,14 @@ export function claimsIn(text: string): Claim[] {
   // 比的是到最后一个数字为止的那一截：6.1x2.8-inch 与 6.1x2.8 inches、1920x1080px 与 1920x1080 算同一个（同型号串，不比单位）。
   mask(LEFTOVER, m => ({ text: m[0], key: `raw:${m[0].slice(0, m[0].length - m[1].length).toLowerCase()}` }))
   // 列出来的是草稿原文那几个字（BPA‑free 里的不换行连字符照原样），比对用的 key 来自换过排版字符的文字。
-  return out.map(c => ({ ...c, text: text.slice(c.at, c.at + c.text.length) })).sort((a, b) => a.at - b.at)
+  // 认证类一截里已经带着的机构名（FDA approved 里的 FDA）不再单列。
+  const covered = new Set<Claim>()
+  let reach = -1
+  for (const c of out.filter(c => c.key.startsWith(ENDORSED)).sort((a, b) => a.at - b.at || b.text.length - a.text.length)) {
+    if (c.at + c.text.length <= reach) covered.add(c)
+    reach = Math.max(reach, c.at + c.text.length)
+  }
+  return out.filter(c => !covered.has(c)).map(c => ({ ...c, text: text.slice(c.at, c.at + c.text.length) })).sort((a, b) => a.at - b.at)
 }
 
 function withValue(m: RegExpExecArray, value: number | undefined, key: (v: string) => string): Omit<Claim, 'at'> | 'keep' {
@@ -353,7 +359,8 @@ function sourceOf(texts: readonly string[]): Source {
       values.get(value)!.add(kind === 'price' ? '$' : unit)   // P1 例外：上一行刚建好这一项
     }
   }
-  const clauses = texts.flatMap(t => placeholders(plain(t)).rest.split(/[.;!?\n]+(?:\s|$)|[;!?\n]/)).filter(s => s.trim() !== '')
+  // 问句（Is it FDA approved?）不是在说产品，不给承诺词当出处。
+  const clauses = texts.flatMap(t => placeholders(plain(t)).rest.replace(/[^.;!?\n]*\?/g, ' ').split(/[.;!?\n]+(?:\s|$)|[;!?\n]/)).filter(s => s.trim() !== '')
   return { keys, values, clauses }
 }
 
@@ -364,7 +371,6 @@ function sourceOf(texts: readonly string[]): Source {
  * - 承诺词要在出处某一句里整词出现，且那一句不带否定（Not waterproof、Patent pending、warranty void）；「谁认可的」那几项一律照列。
  */
 function sourced(claim: Claim, source: Source): boolean {
-  if (claim.key.startsWith(ALWAYS)) return false
   if (claim.stem !== undefined) {
     const stem = claim.stem
     return source.clauses.some(clause => {
