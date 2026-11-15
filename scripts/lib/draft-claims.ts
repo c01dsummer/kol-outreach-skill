@@ -173,29 +173,46 @@ const CURRENCY_WORDS = 'dollars?|bucks|usd|eur|euros?|gbp|cad|aud|inr'
 const CURRENCY_SIGNS = '$€£¥₹'
 
 /** 机器能确定不是产品说法的形状：整段遮掉，不列也不当出处。 */
+const TIME_ZONES = 'pst|pdt|est|edt|cst|cdt|mst|mdt|cet|cest|gmt|utc|bst|ist|jst|aest|sgt|hkt'
+const WEEKDAYS = 'mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|today|tomorrow'
 const NOISE: readonly RegExp[] = [
   /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+/gi,                                             // 邮箱
   /\bhttps?:\/\/\S+|\bwww\.\S+/gi,                                                  // 网址
   // 不带协议的网址：网址名里要有字母，后缀要小写（「$29.99.Shop now」「40 hours.Me and」是句号后漏了空格，不是网址）。
   /\b[\w-]*[a-zA-Z][\w-]*\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
   /\b\d{1,2}(?::\d{2})?\s?(?:am|pm|a\.m\.|p\.m\.)(?![a-z\d])/gi,                   // 钟点 3pm、10:30 am（PM2.5 不是）
-  // 不带 am、pm 的「10:30」只在 at、by、from 这类词后面才当钟点；「a 1:10 ratio」是比例，照列。
-  /(?<=\b(?:at|by|from|until|till|before|after|around|between|to)\s)\d{1,2}:\d{2}\b/gi,
+  // 不带 am、pm 的「10:30」：两头都是钟点的区间（9:00-17:00、10:30 to 11:30），后面跟时区的（10:30 PST），
+  // 前面是星期几或 at、by、from 这类词的。比例（a 1:10 ratio、dilute to 1:10、at 1:10 with water）照列。
+  /\b\d{1,2}:\d{2}\s?(?:-|–|to|and|until|till)\s?\d{1,2}:\d{2}\b/gi,
+  new RegExp(`\\b\\d{1,2}:\\d{2}(?=\\s?(?:${TIME_ZONES})\\b)`, 'gi'),
+  new RegExp(`(?<=\\b(?:${WEEKDAYS}|at|by|from|until|till|before|after|around|between)\\s)\\d{1,2}:\\d{2}\\b(?!\\s?(?:ratio|with|dilution)\\b)`, 'gi'),
   /\b\d+(?:st|nd|rd|th)\b/gi,                                                       // 序数词 2nd
 ]
 /**
- * 电话只认三种形状：带「+」国家号的（+1 415 555 0199）、区号带括号的（(415) 555-0199）、三三四位用同一个连字符或点隔开的（415-555-0199），
- * 合起来至少九位。用空格隔开的一串数（「500 750 1000 ml」「100 000 000」）、价钱区间（「$129.99-149.99」）不像电话，照常扫。
+ * 电话的形状，合起来至少九位，可带分机（x123、ext. 12）：
+ * - 带国际前缀的（+1 415 555 0199、+44 (0)20 7946 0958、00 44 20 7946 0958）；
+ * - 区号带括号的（(415) 555-0199、1 (415) 555-0199）；三三四位用同一个连字符或点隔开的（415-555-0199、1-800-555-0199）；
+ * - 0 开头的本地号（020 7946 0958、0800 123 4567、01 23 45 67 89）；
+ * - 前面写了 Tel、Phone、Call、WhatsApp 这类提示词的，空格隔开也算（Call 415 555 0199）。
+ * 后面紧跟单位的不是电话（250-500-1000 ml、(500) 750-1000 ml）；没有提示词、用空格隔开的一串数（500 750 1000 ml）和价钱区间照常扫。
  */
-const PHONE = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(?:\\+\\d{1,3}[\\s.-]?\\(?\\d{1,4}\\)?(?:[\\s.-]\\d{2,4}){1,4}|\\(\\d{3}\\)\\s?\\d{3}[\\s.-]\\d{4}|\\d{3}([.-])\\d{3}\\1\\d{4})(?![\\w%]|[.,]\\d)`, 'g')
+const PHONE_UNITS = W(Object.keys(UNIT_ALIASES).filter(u => u !== '%'))
+const PHONE_BODY = [
+  '(?:\\+|00)\\s?\\d{1,3}[\\s.-]?(?:\\(0\\)\\s?)?\\(?\\d{1,4}\\)?(?:[\\s.-]\\d{2,5}){1,4}',
+  '(?:1[\\s.-]?)?\\(\\d{3}\\)\\s?\\d{3}[\\s.-]\\d{4}',
+  '(?:1([.-]))?\\d{3}([.-])\\d{3}\\2\\d{4}',
+  '0\\d{1,4}(?:[\\s.-]\\d{2,4}){2,4}',
+  '(?<=\\b(?:tel|telephone|phone|call|text|whatsapp|mobile|cell|fax|m|t|p)\\.?:?\\s{0,3})[\\d(+][\\d\\s().-]{7,}\\d',
+].join('|')
+const PHONE = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(?:${PHONE_BODY})(?:\\s?(?:x|ext\\.?)\\s?\\d{1,5})?(?![\\w%]|[.,]\\d|\\s?(?:${PHONE_UNITS})\\b)`, 'gi')
 const isPhone = (s: string) => (s.match(/\d/g) ?? []).length >= 9
 
 const MONTHS = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
-/** 日期整串算一条：11/20/2026、2026-11-20、March 15、15 March 2026。 */
-const DATE = new RegExp(`\\b(?:\\d{1,2}/\\d{1,2}/\\d{2,4}|\\d{4}-\\d{1,2}-\\d{1,2}|(?:${MONTHS})\\.? \\d{1,2}(?:st|nd|rd|th)?(?:,? \\d{4})?|\\d{1,2} (?:${MONTHS})(?:,? \\d{4})?)\\b`, 'gi')
+/** 日期整串算一条：11/20/2026、2026-11-20、March 15、March 15th、15 March 2026、15th March、the 20th of March。 */
+const DATE = new RegExp(`\\b(?:\\d{1,2}/\\d{1,2}/\\d{2,4}|\\d{4}-\\d{1,2}-\\d{1,2}|(?:${MONTHS})\\.? \\d{1,2}(?:st|nd|rd|th)?(?:,? \\d{4})?|\\d{1,2}(?:st|nd|rd|th)? (?:of )?(?:${MONTHS})(?:,? \\d{4})?)\\b`, 'gi')
 
 /** 价格：币符或币种在前（$29.99、$ 40、US$5、₹400、USD 40、CAD 40），或写在后面（40 dollars、50-dollar、40 USD、40$、40€）。 */
-const PRICE_BEFORE = new RegExp(`(?:US\\$|[${CURRENCY_SIGNS}]\\s?|\\b(?:usd|eur|gbp|cad|aud|inr)\\s?)(${DIGITS})(?:\\s?(k|m)\\b)?`, 'gi')
+const PRICE_BEFORE = new RegExp(`(?:US\\$|[${CURRENCY_SIGNS}][ \\t]?|\\b(?:usd|eur|gbp|cad|aud|inr)\\s?)(${DIGITS})(?:\\s?(k|m)\\b)?`, 'gi')
 const PRICE_AFTER = new RegExp(`(?<![\\w.])(${DIGITS})(?:[\\s-]?(?:${CURRENCY_WORDS})\\b|\\s?[${CURRENCY_SIGNS}])`, 'gi')
 /** 拼写的数加钱或百分号：fifty dollars、a fifty-dollar card、thirty bucks、fifty per cent。 */
 const SPELLED_PRICE = new RegExp(`\\b(${SPELLED})[\\s-](?:${CURRENCY_WORDS})\\b`, 'gi')
@@ -211,9 +228,12 @@ const PERCENT_WORDS = '%|percent\\b|per cent\\b|pct\\b'
  * 一个阿拉伯数后面可以跟单位：贴着写（400ml、1080p、4K）、空格或连字符隔开（400 ml、10-second）、度数（40°C）。
  * 负号只在前面不是字母、数字、点时才算数的一部分：「-20」是负数，「3-5 years」「COVID-19」里的不是。
  */
-const NUMBER = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(-?${DIGITS})\\+?(?:(\\s?(?:${PERCENT_WORDS}))|(°\\s?[cf]\\b)|([a-z]+(?![\\w]))|(?:[\\s-](?:(?:more|extra|additional|full|whole|total)\\s+)?([a-z]+(?![\\w'])))?)(?!\\w|\\.\\d)`, 'gi')
-/** 数字起头、字母后面又跟数字的整串（1920x1080、5V2A、3in1、1080p60、4K60）整串对，不拆。 */
-const DIGIT_ALNUM = /(?<![\w.-])\d+[a-z]+\d[a-z0-9]*\b/gi
+const NUMBER = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(-?${DIGITS})(?:\\s?\\+|[\\s-]plus)?(?:(\\s?(?:${PERCENT_WORDS}))|(°\\s?[cf]\\b)|([a-z]+(?![\\w]))|(?:[\\s-](?:(?:more|extra|additional|full|whole|total|or more|plus)\\s+)?([a-z]+(?![\\w'])))?)(?!\\w|\\.\\d)`, 'gi')
+/**
+ * 兜底用：前面各条都没认走、仍带数字的一串（连着的字母、数字、点、逗号、连字符、斜杠），去掉末尾的标点。
+ * 数字起头的混合串（1920x1080、5V2A、3in1、1080p60、6.1x2.8）和点分日期（20.11.2026）都靠它整串列、整串对。
+ */
+const LEFTOVER = /[\w.,/+-]*\d(?:[\w.,/+-]*[\w])?/g
 /** 型号串：字母起头又含数字的整词（IPX7、Qi2、H13、IPX-7）；「1-on-1」里的 on-1 不算。 */
 const ALNUM = /(?<![\w-])[a-z]+-?\d[a-z0-9]*\b/gi
 
@@ -253,9 +273,10 @@ export function claimsIn(text: string): Claim[] {
     })
   }
   // 先遮掉确定不是产品说法的形状；位数不够的「电话」原样留下照常扫。
+  // 日期最先认：「March 15th」里的 15th 不能先被当序数词遮掉。
+  mask(DATE, m => ({ text: m[0], key: `date:${m[0].toLowerCase().replace(/[\s,.]+/g, ' ')}` }))
   for (const re of NOISE) mask(re, () => undefined)
   mask(PHONE, m => isPhone(m[0]) ? undefined : 'keep')
-  mask(DATE, m => ({ text: m[0], key: `date:${m[0].toLowerCase().replace(/[\s,.]+/g, ' ')}` }))
   // 承诺词先认走：「#1」里的 1、「5-star」里的 5 不另算一个数字。
   PROMISE_WORDS.forEach(([, stem], i) => {
     mask(PROMISE_RES[i], m => {
@@ -268,9 +289,9 @@ export function claimsIn(text: string): Claim[] {
   mask(SPELLED_PERCENT, m => withValue(m, spelledValue(m[1]), v => `num:${v}:%`))
   mask(SPELLED_UNIT, m => withValue(m, spelledValue(m[1]), v => `num:${v}:${foldUnit(m[2])}`))
   mask(QUANTITY_PHRASES, m => ({ text: m[0], key: `phrase:${m[0].toLowerCase().replace(/[\s-]+/g, ' ')}` }))
-  mask(PRICE_BEFORE, m => ({ text: m[0].trim(), key: `price:${scaled(m[1], m[2])}` }))
+  // 币符写在后面的先认：「129$ 40 hours」里的 $ 归 129，不和后面的 40 拼成价钱。
   mask(PRICE_AFTER, m => ({ text: m[0].trim(), key: `price:${numberValue(m[1])}` }))
-  mask(DIGIT_ALNUM, m => ({ text: m[0], key: `alnum:${m[0].toLowerCase()}` }))
+  mask(PRICE_BEFORE, m => ({ text: m[0].trim(), key: `price:${scaled(m[1], m[2])}` }))
   mask(ALNUM, m => ({ text: m[0], key: `alnum:${m[0].toLowerCase().replace(/-/g, '')}` }))
   mask(NUMBER, m => {
     const [, value, percent, degree, glued, spaced] = m
@@ -281,6 +302,8 @@ export function claimsIn(text: string): Claim[] {
     const text = unit === '' && spaced !== undefined ? value : m[0].trim()
     return { text, key: `num:${numberValue(value)}:${unit}` }
   })
+  // 兜底：上面哪条规则都没认走的数字（6.1x2.8、1.000.000、v1.2.3 里的 2.3）整串照列，不让它静默消失。
+  mask(LEFTOVER, m => ({ text: m[0], key: `raw:${m[0].toLowerCase()}` }))
   // 列出来的是草稿原文那几个字（BPA‑free 里的不换行连字符照原样），比对用的 key 来自换过排版字符的文字。
   return out.map(c => ({ ...c, text: text.slice(c.at, c.at + c.text.length) })).sort((a, b) => a.at - b.at)
 }
