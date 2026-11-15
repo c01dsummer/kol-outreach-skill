@@ -1602,7 +1602,9 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
   // 资料三态（P1）：简介查过没写（null）是「对不上」；简介没查过（缺席）、作品没查过（缺席或空数组）是「对不了，没查过」，不说成「没有」。
   const SRC3 = [{ draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['creator_sources']>
   const DRAFT3 = 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.'
-  const bare = renderHtml([
+  // 手改坏的资料防护失效时这里会抛错：包一层，让断言报红而不是整组死在半路。
+  const safeRender = (...args: Parameters<typeof renderHtml>): string => { try { return renderHtml(...args) } catch (error) { return String(error) } }
+  const bare = safeRender([
     mk('tiktok', 'bare', { nickname: 'Sam Rivera', bio: null, recent_posts: [], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/bare' }),
     mk('tiktok', 'unq', { nickname: 'Sam Rivera', bio: undefined, recent_posts: undefined, tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/unq' }),
     mk('tiktok', 'had', { nickname: 'Sam Rivera', bio: 'Sam here', recent_posts: [{ desc: 'leg day' }] as unknown as Creator['recent_posts'], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/had' }),
@@ -1654,7 +1656,8 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     const creators = [mk('tiktok', 'meicooks')]
     const projected = projectAgentReviews(read.document, creators)
     eq('P2.e 投影到名单原样带上', projected[0].creator_sources, SOURCES)
-    projected[0].creator_sources![0].draft = 'changed'
+    // 投影没带上时不在这里抛错，交给上一条断言报红。
+    if (projected[0].creator_sources !== undefined) projected[0].creator_sources[0].draft = 'changed'
     eq('P2.e 改投影不反向改正本', read.document.reviews[key].creator_sources![0].draft, 'Your series')
     const removed = structuredClone(read.document); delete removed.reviews[key].creator_sources
     ok('P2.e 正本删掉它后，带着旧投影的名单重投影时也消失', !('creator_sources' in projectAgentReviews(removed, projected)[0]))
