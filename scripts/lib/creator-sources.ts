@@ -7,7 +7,7 @@
  *
  * 1. 对账：登记的原文片段确实在那一样资料里逐字出现；登记的那句确实还在信里。
  * 2. 点名：信里提到博主（you / your 这一类词、昵称里的名字、账号名）却没有登记出处的句子列出来；
- *    一句里只登记了一段的，整句印出来并标「只登记了一部分」—— 登记半句不能盖住整句（ADR-210 第六节）。
+ *    一句里只登记了一段的（登记跨过句界、停在句中也一样），整句印出来并列出没登记的部分 —— 登记半句不能盖住整句（ADR-210 第六节）。
  *
  * 改写得准不准，机器判断不了 —— 报告把「信里这句」和「他原文」并排放，交给人看。
  * **只标不拦**：结果只进评审 HTML，草稿一个字节不改（P2.b），也不让导出失败。
@@ -52,8 +52,11 @@ export function normalizeText(text: string): string {
 
 /** 第二人称：信里出现这些词，这一句就是在对博主说话，多半在说他。弯撇号先归一成直撇号再认。 */
 const YOU = /\b(?:you|your|yours|yourself|yourselves|you're|you've|you'll|you'd)\b/i
-/** 问候行：Hi/Hello/Hey/Dear 开头、不超过五个词、而且没有 you 一类词的一行只是称呼，不算描述。 */
-const GREETING = /^(?:hi|hello|hey|dear)\b/i
+/**
+ * 问候行：一段的第一行，Hi/Hello/Hey/Dear 开头、后面只跟称呼（最多一个收尾的逗号、感叹号、句点或破折号，
+ * 之后不再有别的话）、不超过五个词、没有 you 一类词 —— 只是称呼，不算描述。「Hey Mei, sourdough queen!」不是问候。
+ */
+const GREETING = /^(?:hi|hello|hey|dear)\b[^,!.\-–—]*[,!.\-–—]?$/i
 const isGreeting = (line: string): boolean =>
   GREETING.test(line) && line.split(/\s+/).length <= 5 && !YOU.test(normalizeText(line))
 /** 第一个非空行以 Subject: 开头时是主题行，冒号后面那段自成一句，不和下面的正文接起来（同 U13.a）。 */
@@ -74,6 +77,11 @@ const text = (value: unknown): string | undefined => typeof value === 'string' ?
 /** 昵称、账号里的名字：驼峰拆开（TechWithSarah → Tech、With、Sarah），取三个字母以上、不在停用词里的词，整词出现就算提到了他。 */
 function nameWords(creator: CreatorText): RegExp[] {
   const words = new Set<string>()
+  // 整个账号名、整个昵称也各算一个名字：sarah_bakes、mei123 这种按词拆不出来（下划线、数字连着字母）。
+  for (const whole of [text(creator.handle)?.replace(/^@/, ''), text(creator.nickname)]) {
+    const lower = whole?.normalize('NFKC').trim().toLowerCase()
+    if (lower !== undefined && lower.length >= 3 && !NAME_STOPWORDS.has(lower)) words.add(lower)
+  }
   for (const source of [text(creator.nickname), text(creator.handle)]) {
     if (source === undefined) continue
     const split = source.normalize('NFKC').replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2')
@@ -94,6 +102,8 @@ function splitSentences(line: string): string[] {
     const end = m.index + m[0].length
     const next = line.slice(end)
     if (next !== '' && !/^\s/.test(next) && !/^\p{Lu}/u.test(next)) continue
+    // 后面空白再接小写字母：还是同一句（引号里的感叹号、句中的 ...、表外缩写 a.m. 不在这里切开）。
+    if (/^\s+\p{Ll}/u.test(next)) continue
     if (m[0].startsWith('.')) {
       const before = /([\p{L}.]+)$/u.exec(line.slice(start, m.index))?.[1].toLowerCase()
       if (before !== undefined && (before.length === 1 || ABBREVIATIONS.has(before))) continue
@@ -114,13 +124,16 @@ function sentences(draft: string): string[] {
   for (const paragraph of draft.split(/\r?\n\s*\r?\n/)) {
     const body: string[] = []
     const flush = () => { if (body.length) out.push(...splitSentences(body.splice(0).join(' '))) }
+    let paragraphFirst = true
     for (const raw of paragraph.split(/\r?\n/)) {
       const line = raw.trim()
       if (!line) continue
       const subject = first && SUBJECT.test(line)
       first = false
+      const opening = paragraphFirst
+      paragraphFirst = false
       if (subject) { const rest = line.replace(SUBJECT, '').trim(); if (rest) out.push(rest); continue }
-      if (isGreeting(line)) continue
+      if (opening && isGreeting(line)) continue
       if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line)); continue }
       body.push(line)
     }
@@ -162,22 +175,28 @@ export type CreatorSourceItem =
   | { status: 'partial'; draft: string; rest: string }
   | { status: 'unregistered'; draft: string }
 
-/** 一句里没被任何登记盖住的字：按登记在这句里出现的每一处标出覆盖，剩下带字母或数字的段落按原顺序用「…」连起来；全盖住返回 ''。 */
-function uncovered(sentence: string, keys: readonly string[]): { touched: boolean; rest: string } {
-  const covered = new Array<boolean>(sentence.length).fill(false)
-  let touched = false
+/**
+ * 覆盖按整封信的字算：每条登记在（归一后的）信里出现的每一处都标成盖住。这样登记停在切句点上、或跨过切句点，
+ * 被它压到一部分的下一句也算「只登记了一部分」，不会因为切句切在登记中间而整句漏掉（ADR-210 第六节）。
+ */
+function coverage(normalizedDraft: string, keys: readonly string[]): boolean[] {
+  const covered = new Array<boolean>(normalizedDraft.length).fill(false)
   for (const key of keys) {
     if (!key) continue
-    if (key.includes(sentence)) return { touched: true, rest: '' }
-    for (let at = sentence.indexOf(key); at >= 0; at = sentence.indexOf(key, at + 1)) {
-      touched = true
+    for (let at = normalizedDraft.indexOf(key); at >= 0; at = normalizedDraft.indexOf(key, at + 1)) {
       for (let i = at; i < at + key.length; i++) covered[i] = true
     }
   }
+  return covered
+}
+
+/** 一句（信里从 `at` 起、长 `length` 的一段）有没有被碰到，没被盖住的部分按原顺序用「…」连起来；全盖住时 `rest` 为 ''。 */
+function uncovered(normalizedDraft: string, covered: readonly boolean[], at: number, length: number): { touched: boolean; rest: string } {
+  let touched = false
   const pieces: string[] = []
   let piece = ''
-  for (let i = 0; i < sentence.length; i++) {
-    if (covered[i]) { if (piece) pieces.push(piece); piece = '' } else piece += sentence[i]
+  for (let i = at; i < at + length; i++) {
+    if (covered[i]) { touched = true; if (piece) pieces.push(piece); piece = '' } else piece += normalizedDraft[i]
   }
   if (piece) pieces.push(piece)
   const rest = pieces.map(p => p.trim()).filter(p => /[\p{L}\p{N}]/u.test(p))
@@ -194,7 +213,7 @@ export function creatorSourceItems(
   if (draft === undefined || draft.trim() === '') return undefined
   const normalizedDraft = normalizeText(draft)
   const registered = (sources ?? []).map(source => ({ source, key: normalizeText(source.draft) }))
-  const keys = registered.map(r => r.key)
+  const covered = coverage(normalizedDraft, registered.map(r => r.key))
   const placed: Array<{ at: number; item: CreatorSourceItem }> = []
   const missing: CreatorSourceItem[] = []
   for (const { source, key } of registered) {
@@ -214,8 +233,9 @@ export function creatorSourceItems(
     if (found >= 0) cursor = found + s.length
     if (!s || seen.has(s)) continue
     seen.add(s)
+    // 在信里找不到这句（归一前后切法有出入的极少数情形）时当没被碰过，提到博主就照列，不放过。
     const at = found >= 0 ? found : normalizedDraft.length
-    const { touched, rest } = uncovered(s, keys)
+    const { touched, rest } = found >= 0 ? uncovered(normalizedDraft, covered, found, s.length) : { touched: false, rest: '' }
     if (touched && rest) placed.push({ at, item: { status: 'partial', draft: sentence, rest } })
     else if (!touched && mentionsCreator(sentence, names)) placed.push({ at, item: { status: 'unregistered', draft: sentence } })
   }

@@ -1541,9 +1541,9 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
       `要看：「- You won awards」（提到了博主，没标出处）${BAR}${MATCH}`],
     ['缩写后的句点不切句', 'Hi Mei,\n\nYou studied under Dr. Oz in the U.S. for years.', [],
       '要看：「You studied under Dr. Oz in the U.S. for years.」（提到了博主，没标出处）'],
-    ['问候行里带 you 一类词不算问候', 'Hey Mei, your marathons rock!', [],
-      '要看：「Hey Mei, your marathons rock!」（提到了博主，没标出处）'],
-    ['Hello、Dear 开头的短行是问候', 'Hello Mei!\nDear Mei,\n\nWe make a blender.', [], '无'],
+    ['问候行里带 you 一类词不算问候', 'Hey Mei your marathons rock!', [],
+      '要看：「Hey Mei your marathons rock!」（提到了博主，没标出处）'],
+    ['Hello、Dear 开头的短行是问候', 'Hello Mei!\n\nDear Mei,\n\nWe make a blender.', [], '无'],
     ['弯撇号也认 you 一类词', 'Hi Mei,\n\nYou’re a pro.', [], '要看：「You’re a pro.」（提到了博主，没标出处）'],
     ['名字整词才算：Meiko 不是 Mei', 'Hi Mei,\n\nMeiko helped us.', [], '无'],
     ['要看的按在信里的先后，不按登记的先后', 'Hi Mei,\n\nYou won awards. Your 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
@@ -1553,6 +1553,31 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
   ]
   eq('P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后',
     halfCases.map(([name, draft, sources]) => [name, one(draft, sources)]), halfCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
+  // 登记停在切句点上或跨过切句点：覆盖按整封信的字算，被压到一部分的那句照样列出没登记的部分（独立复核第二轮的阻塞）。
+  const POST = { recent_posts: [{ desc: 'Yes, I show the cleanup every time! Day 12. Still showing the cleanup!' }] as unknown as Creator['recent_posts'] }
+  const crossCases: Array<[string, string, NonNullable<Creator['creator_sources']>, string, Partial<Creator>]> = [
+    ['引号里的感叹号后接小写不切句', 'Hi Mei,\n\nYour post "Yes, I show the cleanup every time!" proves nobody works harder.',
+      [{ draft: 'Your post "Yes, I show the cleanup every time!"', from: 'post', quote: 'Yes, I show the cleanup every time!' }],
+      '要看：「Your post "Yes, I show the cleanup every time!" proves nobody works harder.」（只登记了其中一段，没登记的：「proves nobody works harder.」）' + BAR +
+      '对得上：「Your post "Yes, I show the cleanup every time!"」← 作品文案原文「Yes, I show the cleanup every time!」', POST],
+    ['登记跨过切句点，压到下一句一部分', 'Hi Mei,\n\nYour caption "Day 12. Still showing the cleanup!" is the most honest thing online.',
+      [{ draft: 'Your caption "Day 12. Still showing the cleanup!"', from: 'post', quote: 'Day 12. Still showing the cleanup!' }],
+      '要看：「Still showing the cleanup!" is the most honest thing online.」（只登记了其中一段，没登记的：「is the most honest thing online.」）' + BAR +
+      '对得上：「Your caption "Day 12. Still showing the cleanup!"」← 作品文案原文「Day 12. Still showing the cleanup!」', POST],
+    ['表外缩写后接小写不切句', 'Hi Mei,\n\nYour 5 a.m. smoothie routine is the most disciplined thing around.',
+      [{ draft: 'Your 5 a.m.', from: 'self' }],
+      `要看：「Your 5 a.m. smoothie routine is the most disciplined thing around.」（只登记了其中一段，没登记的：「smoothie routine is the most disciplined thing around.」）${BAR}${SELF}「Your 5 a.m.」`, {}],
+    ['账号名带下划线整个写出来也认', 'Hi,\n\n@sarah_bakes is the best baker online.', [], '要看：「@sarah_bakes is the best baker online.」（提到了博主，没标出处）', { nickname: 'SB', handle: 'sarah_bakes' }],
+    ['账号名带数字整个写出来也认', 'Hi,\n\nmei123 is the best baker online.', [], '要看：「mei123 is the best baker online.」（提到了博主，没标出处）', { nickname: '🍰', handle: 'mei123' }],
+    ['问候后面接了评价就不是问候', 'Hey Mei, sourdough queen!\n\nWe make a blender.', [], '要看：「Hey Mei, sourdough queen!」（提到了博主，没标出处）', {}],
+    ['问候只认段首行，折行后以 Hi 开头的行照正文接', 'Hello Mei,\n\nWe loved it.\nHi Mei\nyou ran far.', [], '要看：「Hi Mei you ran far.」（提到了博主，没标出处）', {}],
+    ['问候超过五个词不算问候', 'Hello Mei Lin Rose Ann Smith,\n\nWe make a blender.', [], '要看：「Hello Mei Lin Rose Ann Smith,」（提到了博主，没标出处）', {}],
+    ['主题行写到博主也要登记', 'Subject: Mei, your blender\n\nHi Mei,\n\nWe make a blender.', [], '要看：「Mei, your blender」（提到了博主，没标出处）', {}],
+    ['全角字与长破折号归一后对得上', 'Hi Mei,\n\nYour ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
+      '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
+  ]
+  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认段首、只跟称呼、五个词以内；主题行照核；NFKC 与长破折号归一',
+    crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
   // 昵称：驼峰拆开认名字，the、with 这类普通词不算名字；两个字母的词不算。
   eq('P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算',
     [one('Hi,\n\nSarah won awards. We cook with care. Jo is here.', [], { nickname: 'TechWithSarah', handle: 'x1' }),
