@@ -7335,7 +7335,7 @@ group('admission-entry', [], () => {
   // 设成玩具树的父目录 —— 往上找不到仓库，清单要写「无从确认」。
   //
   // 玩具登记表：P1 两条判据、点到名 S2（原文）与 D3（判据），P9 不在登记表里、ADR-15 不认；交点 P1 × D3 声明在 P1、
-  // S2 × P1 声明在对面、U6 × S2 与 P1 无关；S2 点到 U6 —— 只走一跳，不收；D3 作废、没有判据。
+  // S2 × P1 声明在对面、U6 × S2 与 P1 无关；S2 点到 U6 —— 只走一跳，不收；D3 作废（带一条判据，见下）。
   // 编号用 P/S/D/U：点到名只认 [PSDFU] 打头（ADR-202 第二节第 1 份第 4 条），X 打头的认不出。
   // 入口出包前先过 spec-sync 那一道登记表校验（ADR-202 第十四节第 9 条、第十六节），所以玩具登记表要是一份过得了校验的：
   // 有分类表、cat 与编号前缀一致、点了的决策记录写进 adr 并在 docs/adr 下有那一份、作废的那条也有判据
@@ -7476,6 +7476,10 @@ group('admission-entry', [], () => {
     named('admission 清单说机器只扫了三种、说只读这个目录',
       manifest.includes('函数体') && manifest.includes('不是声明的语句') && manifest.includes('初始值不是字面量')
         && manifest.includes('只读这个目录'), manifest)
+    // 第二节第 0 份点名要有的另外三样：包里不装什么、没核的是什么、不要读仓库也不要照项目说明的路由去读（复核手改删掉这三句都存活过）
+    named('admission 清单说包里不装什么、没核什么、不要读仓库',
+      manifest.includes('不在包里的') && manifest.includes('测试') && manifest.includes('决策记录')
+        && manifest.includes('没核的') && manifest.includes('注释') && manifest.includes('不要读仓库'), manifest)
   }
 
   // 参数多一个少一个：打用法，什么都不写
@@ -7526,6 +7530,66 @@ group('admission-entry', [], () => {
   const gone = runToolBoth('admission 编号已作废即以退出码 2 结束', 'admission', ['D3', deprecatedPkg], tree, { status: 2 })
   if (gone.ok) named('admission 作废的编号拒收、不建包目录',
     refused(gone.stderr, 'D3 已作废') && !existsSync(deprecatedPkg) && treeSame(), gone.stderr)
+
+  // 包目录的路上有东西不对：包目录是个文件、上级是个文件、悬空的符号链接（指进仓库里一个不存在的路径）——
+  // 各以 2 退出、一行 ✗、不往哪儿写（复核找到它们原先以 1 退出、打调用栈；1 留给扫出实现）。这几例是看过实现以后加的（ADR-202 第十七节）
+  const aFile = join(tmp, 'admission-a-file')
+  writeFileSync(aFile, 'x\n', 'utf8')
+  const isFile = runToolBoth('admission 包目录是个文件即以退出码 2 结束', 'admission', ['P1', aFile], tree, { status: 2 })
+  if (isFile.ok) named('admission 包目录是个文件时拒收、那个文件不动',
+    refused(isFile.stderr, '不是目录') && readFileSync(aFile, 'utf8') === 'x\n' && treeSame(), isFile.stderr)
+  const underFile = runToolBoth('admission 包目录的上级是个文件即以退出码 2 结束', 'admission', ['P1', join(tmp, 'admission-a-file', 'pkg')], tree, { status: 2 })
+  if (underFile.ok) named('admission 包目录的上级是个文件时拒收',
+    refused(underFile.stderr, '不是目录') && readFileSync(aFile, 'utf8') === 'x\n' && treeSame(), underFile.stderr)
+  const dangling = join(tmp, 'admission-dangling')
+  symlinkSync(join(tree, 'not-there'), dangling)
+  const hanging = runToolBoth('admission 包目录是悬空的符号链接即以退出码 2 结束', 'admission', ['P1', dangling], tree, { status: 2 })
+  if (hanging.ok) named('admission 包目录是悬空的符号链接时拒收、不往链接指的地方写',
+    refused(hanging.stderr, '悬空的符号链接') && !existsSync(join(tree, 'not-there')) && treeSame(), hanging.stderr)
+  // 变异目录形状不对：豁免不是数组、变异里有 null —— 以 2 退出、点出哪里不对（原先抛 TypeError 以 1 退出）
+  const badShapeTree = join(tmp, 'admission-bad-shape')
+  toy(badShapeTree, { mutations, exemptions: {} })
+  const badShapePkg = join(tmp, 'admission-pkg-bad-shape')
+  const badShape = runToolBoth('admission 豁免不是数组即以退出码 2 结束', 'admission', ['P1', badShapePkg], badShapeTree, { status: 2 })
+  if (badShape.ok) named('admission 豁免不是数组时拒收、点出来、不建包目录',
+    refused(badShape.stderr, 'exemptions 不是数组') && !existsSync(badShapePkg), badShape.stderr)
+  const nullItemTree = join(tmp, 'admission-null-item')
+  toy(nullItemTree, { mutations: [...mutations, null], exemptions })
+  const nullItemPkg = join(tmp, 'admission-pkg-null-item')
+  const nullItem = runToolBoth('admission 变异里有 null 即以退出码 2 结束', 'admission', ['P1', nullItemPkg], nullItemTree, { status: 2 })
+  if (nullItem.ok) named('admission 变异里有 null 时拒收、点出第几项、不建包目录',
+    refused(nullItem.stderr, 'mutations 第 5 项') && !existsSync(nullItemPkg), nullItem.stderr)
+
+  // 有 git 的树：清单写出 HEAD 的提交与工作区干不干净；包目录是已存在的空目录照常出包（契约是「不存在或是空的」）。
+  // 复核手改把干净与不干净写反、把提交写成 HEAD~1 都存活过 —— 那时玩具树全没有 git
+  const gitTree = join(tmp, 'admission-git')
+  toy(gitTree, { mutations, exemptions })
+  const gitOk = (...args: string[]): string | undefined => {
+    const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args],
+      { cwd: gitTree, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    if (r.status === 0) return r.stdout.trim()
+    failed++; console.error(`  ✗ admission 有 git 的玩具树${SELFCHECK_FIXTURE_MARK}：git ${args.join(' ')}：${r.error ?? r.stderr}`)
+    return undefined
+  }
+  const gitHead = gitOk('init', '--quiet', '-b', 'main') !== undefined && gitOk('add', '-A') !== undefined
+    && gitOk('commit', '--quiet', '-m', 'one') !== undefined && gitOk('commit', '--quiet', '--allow-empty', '-m', 'two') !== undefined
+    ? gitOk('rev-parse', 'HEAD') : undefined
+  if (gitHead !== undefined) {
+    const emptyPkg = join(tmp, 'admission-pkg-empty')
+    mkdirSync(emptyPkg)
+    const clean = runToolBoth('admission 有 git、包目录是空目录时照常出包', 'admission', ['P1', emptyPkg], gitTree)
+    const cleanManifest = existsSync(join(emptyPkg, '00-清单.md')) ? readFileSync(join(emptyPkg, '00-清单.md'), 'utf8') : ''
+    if (clean.ok) named('admission 清单写出 HEAD 的提交、工作区干净',
+      cleanManifest.includes(`出自提交：${gitHead}`) && /工作区[：:]\s*干净/.test(cleanManifest) && existsSync(join(emptyPkg, '01-需求-P1.md')),
+      cleanManifest.slice(0, 300))
+    writeFileSync(join(gitTree, 'skill', 'draft.txt'), '没提交\n', 'utf8')
+    const dirtyPkg = join(tmp, 'admission-pkg-dirty')
+    const dirty = runToolBoth('admission 有没提交的改动时照常出包', 'admission', ['P1', dirtyPkg], gitTree)
+    const dirtyManifest = existsSync(join(dirtyPkg, '00-清单.md')) ? readFileSync(join(dirtyPkg, '00-清单.md'), 'utf8') : ''
+    if (dirty.ok) named('admission 有没提交的改动时清单说对不上、不说干净',
+      dirtyManifest.includes(`出自提交：${gitHead}`) && dirtyManifest.includes('有没提交的改动') && !/工作区[：:]\s*干净/.test(dirtyManifest),
+      dirtyManifest.slice(0, 300))
+  }
 
   // 登记表没过校验（需求编号重复）：不出包、以 2 退出，点出是哪一处 —— 不然点到名的那条会出两块（第十四节第 9 条）
   const dupReqTree = join(tmp, 'admission-dup-req')

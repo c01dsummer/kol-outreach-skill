@@ -2,9 +2,9 @@
 /**
  * 准入读物包的入口（`npm run admission -- <需求编号> <包目录>`，ADR-202 第六节第二片）。
  *
- * 只读、写包、打印、设退出码：需求单与变异说明怎么出、签名怎么扫、包目录在不在仓库里，
- * 全在 `admission-rule.ts`（`docs/CONVENTIONS.md` 第 10 条）。这里只把真树读成那几样输入，
- * 出声明、拷文档、算 SHA256。
+ * 需求单与变异说明怎么出、签名怎么扫、包目录在不在仓库里，在 `admission-rule.ts`（`docs/CONVENTIONS.md` 第 10 条）。
+ * 这里把真树读成那几样输入，出声明、拷文档、算 SHA256、写包、打印、设退出码；还留着几处只有自检够得到的小取舍
+ * （取真实路径的走法、变异目录的形状、拒收的先后），ADR-202 第十七节记着（ADR-193 第 112 行那一类）。
  *
  * **先全部算完、扫完，再写。** 有一处不出包就一个文件都不写：写了一半的包看起来和写完的一样，
  * 而读它的上下文分不出少了什么。
@@ -13,8 +13,9 @@
  * 当场退出的话，stdout／stderr 接到管道上时排着没写出去的那一截会被截掉（KOL-45 关单标准第 4 条）。
  *
  * 退出码：0 出了包；1 扫出了实现（签名里有函数体之类、变异说明夹带实现原文）或声明没出全，一个文件都不写；
- * 2 用法不对或不肯出包（参数不是两个、包目录在仓库里或已存在而且不空、登记表没过 `spec-sync` 那一道校验、
- * 编号不在登记表里或已作废、变异目录读不出或编号重复），一个文件都不写。
+ * 2 用法不对或不肯出包（参数不是两个、包目录在仓库里或已存在而且不空或不是目录、路上有悬空的符号链接、
+ * 上级不是目录或写不进去、登记表没过 `spec-sync` 那一道校验、编号不在登记表里或已作废、变异目录形状不对或编号重复），
+ * 一个文件都不写；没接住的异常也以 2 退出。唯一会留下东西的是写包写到一半出错（磁盘满之类），那时照实说留下了什么。
  *
  * 不接进 `npm run check`：这是给人（或给起测试上下文的那一方）手动出包用的，检查链里没有一步要它的产物。
  */
@@ -22,7 +23,7 @@ import type * as Ts from 'typescript'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { briefSheet, declarationFindings, insideRoot, requirementSheet } from './admission-rule.js'
 import { duplicateIds } from './attribution-rule.js'
@@ -45,12 +46,34 @@ const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }
  * 一个路径的真实路径：存在的那一截解掉符号链接，还不存在的那一截原样接在后面。
  * `insideRoot` 只比字符串（ADR-202 第十五节那张欠条）：仓库外一个指进仓库的符号链接，
  * 不先解开就会被当成在外面。
+ *
+ * 路上有一个**悬空的**符号链接（链接本身在、指的东西不在）时交回 `undefined`：它不存在、又解不开，
+ * 当成「不存在的那一截」原样接上的话，判的是链接的名字，写的时候却顺着链接落到它指的地方（第十七节）。
  */
-const realish = (p: string): string => {
+const realish = (p: string): string | undefined => {
   const abs = resolve(p)
   if (existsSync(abs)) return realpathSync(abs)
+  try { if (lstatSync(abs).isSymbolicLink()) return undefined } catch { /* 连链接也没有：真不存在 */ }
   const parent = dirname(abs)
-  return parent === abs ? abs : join(realish(parent), basename(abs))
+  if (parent === abs) return abs
+  const base = realish(parent)
+  return base === undefined ? undefined : join(base, basename(abs))
+}
+
+/** 包目录要写进去的那个最近的已存在的上级（含它自己） */
+const nearestExisting = (p: string): string => existsSync(p) || dirname(p) === p ? p : nearestExisting(dirname(p))
+
+/** 变异目录的形状：入口读的那几个字段在、是字符串；豁免缺着算没有（第十七节） */
+const isText = (v: unknown): v is string => typeof v === 'string'
+const catalogProblem = (corpus: any): string | undefined => {
+  if (!Array.isArray(corpus?.mutations)) return '读不出 mutations 数组'
+  const badMutation = corpus.mutations.findIndex((m: any) => m === null || typeof m !== 'object' || !isText(m.id) || !isText(m.req) || !isText(m.why))
+  if (badMutation >= 0) return `mutations 第 ${badMutation + 1} 项不是带 id、req、why 三个字符串的对象`
+  if (corpus.exemptions === undefined) return undefined
+  if (!Array.isArray(corpus.exemptions)) return 'exemptions 不是数组'
+  const badExemption = corpus.exemptions.findIndex((e: any) => e === null || typeof e !== 'object' || !isText(e.req) || !isText(e.why)
+    || (e.scope !== undefined && !isText(e.scope)))
+  return badExemption >= 0 ? `exemptions 第 ${badExemption + 1} 项不是带 req、why 两个字符串（scope 缺着或也是字符串）的对象` : undefined
 }
 
 const readJson = (file: string): any => {
@@ -68,9 +91,15 @@ function main(): number {
   const [id, dirArg] = args
   const root = realpathSync(process.cwd())
   const out = realish(dirArg)
+  if (out === undefined) return refuse(`包目录 ${resolve(dirArg)} 的路上有悬空的符号链接 —— 解不开，就判不了它在不在仓库里`)
 
   if (insideRoot(root, out)) return refuse(`包目录 ${out} 在仓库里 —— 要放在仓库外面，读它的上下文才碰不到实现`)
+  if (existsSync(out) && !statSync(out).isDirectory()) return refuse(`包目录 ${out} 已存在而且不是目录`)
   if (existsSync(out) && readdirSync(out).length > 0) return refuse(`包目录 ${out} 已存在而且不空 —— 旧包里多出来的文件会留着，而清单不列它们`)
+  // 写得进去先问清楚：算完再在建目录上失败，拒收就成了半路崩
+  const base = nearestExisting(out)
+  if (!statSync(base).isDirectory()) return refuse(`包目录 ${out} 的上级 ${base} 不是目录`)
+  try { accessSync(base, constants.W_OK | constants.X_OK) } catch { return refuse(`包目录 ${out} 的上级 ${base} 写不进去`) }
 
   // 登记表先过 spec-sync 那一道校验再出需求单：需求单的判定假定编号唯一、形状对（ADR-202 第十四节第 9 条）。
   // 决策记录在不在照 spec-sync 的读法从 docs/adr 收
@@ -91,7 +120,8 @@ function main(): number {
   if (!sheet.ok) return refuse(sheet.reason)
 
   const corpus = readJson(CATALOG)
-  if (!Array.isArray(corpus?.mutations)) return refuse(`读不出 ${CATALOG} 里的 mutations`)
+  const catalogBad = catalogProblem(corpus)
+  if (catalogBad !== undefined) return refuse(`${CATALOG}：${catalogBad}`)
   // 读变异编号的地方都先过 duplicateIds（ADR-34 第 90 行那一类）：同号两条在变异说明里分不出是哪一条
   const dup = duplicateIds(corpus.mutations)
   if (dup.length > 0) return refuse(`变异目录里编号重复：${dup.join('、')}`)
@@ -107,7 +137,7 @@ function main(): number {
       strict: true, skipLibCheck: true, declaration: true, emitDeclarationOnly: true, noEmit: false, types: ['node'],
     })
     skipped = program.emit(undefined, (name, text) => {
-      signatures.set(relative(root, realish(name)).split('\\').join('/'), text)
+      signatures.set(relative(root, realish(name) ?? resolve(name)).split('\\').join('/'), text)
     }).emitSkipped
   }
   const missing = sources.map(f => f.replace(/\.ts$/, '.d.ts')).filter(f => !signatures.has(f))
@@ -154,13 +184,24 @@ function main(): number {
   ].join('\n')
 
   const all = new Map<string, Buffer>([['00-清单.md', Buffer.from(manifest)], ...files])
-  for (const [f, b] of all) {
-    mkdirSync(dirname(join(out, f)), { recursive: true })
-    writeFileSync(join(out, f), b)
-    console.log(`  ${f}`)
+  try {
+    for (const [f, b] of all) {
+      mkdirSync(dirname(join(out, f)), { recursive: true })
+      writeFileSync(join(out, f), b)
+      console.log(`  ${f}`)
+    }
+  } catch (e) {
+    console.error(`✗ 准入读物包：写到一半出错，${out} 里留下了上面列出的那几个文件 —— 删掉整个目录再出（${e instanceof Error ? e.message : String(e)}）`)
+    return 2
   }
   console.log(`✓ 准入读物包 · ${id} → ${out}：共 ${all.size} 个文件（清单 1 · 需求单 1 · 签名 ${sigs.length} · 对外文档 ${docs.length} · 变异说明 1）`)
   return 0
 }
 
-process.exitCode = main()
+// 没接住的异常（读盘、写盘出错之类）一律算拒收、以 2 退出：1 留给「扫出了实现」，按退出码分支的调用方不该把崩当成夹带
+try {
+  process.exitCode = main()
+} catch (e) {
+  console.error(`✗ 准入读物包：意外出错，不出包 —— ${e instanceof Error ? e.stack ?? e.message : String(e)}`)
+  process.exitCode = 2
+}
