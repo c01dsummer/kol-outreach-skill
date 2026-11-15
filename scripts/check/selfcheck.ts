@@ -7577,7 +7577,9 @@ group('admission-entry', [], () => {
   toy(reachTree, { mutations, exemptions })
   mkdirSync(join(tmp, 'admission-outside-src'), { recursive: true })
   writeFileSync(join(tmp, 'admission-outside-src', 'far.ts'), 'export const far = 1\n', 'utf8')
-  writeFileSync(join(reachTree, 'scripts', 'lib', 'near.ts'), "export { far } from '../../../admission-outside-src/far.js'\n", 'utf8')
+  // 路径放进变量再拼：整句写成字面的话，验证者闭包把它当真 import 收进来（h-infra-rules「真闭包里没有磁盘上不存在的路径」）
+  const farSpec = '../../../admission-outside-src/far.js'
+  writeFileSync(join(reachTree, 'scripts', 'lib', 'near.ts'), `export { far } from '${farSpec}'\n`, 'utf8')
   const reachPkg = join(tmp, 'admission-pkg-reach-out')
   const reach = runToolBoth('admission 源码引用了仓库外的文件即以退出码 2 结束', 'admission', ['P1', reachPkg], reachTree, { status: 2 })
   if (reach.ok) named('admission 声明产出落在仓库外时拒收、包目录内外都不写',
