@@ -4039,7 +4039,7 @@ group('profile-402-stop', [], () => {
       mix.sum?.profile_failed === 1, how(mix))
     named('profile 补全先 404 后 402 收尾时，续跑提示把 404 那人、402 那人与之后没请求的人都算作待补 profile',
       pending(mix, 3), `应说还有 3 个人的 profile、且不说续跑不产生新的请求；stderr 末几行 ${stderrTail(mix.stderr)}`)
-    // 402 收尾修复第 1 件：补全循环被 402 打断时，「N 人补全失败」那一行也照打，与汇总的 profile_failed 对得上
+    // 402 收尾修复第 1 项：补全循环被 402 打断时，「N 人补全失败」那一行也照打，与汇总的 profile_failed 对得上
     named('collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上',
       /1 人补全失败/.test(mix.stderr) && mix.sum?.profile_failed === 1, `stderr 末几行 ${stderrTail(mix.stderr)}`)
   }
@@ -10771,7 +10771,7 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
     fileText(join(late.taskDir, 'creators.json')) === lateList && fileText(join(late.taskDir, manualName)) === lateManual &&
     fileText(join(late.taskDir, agentName)) === lateAgent && isDeepStrictEqual(jsonFile(join(late.taskDir, agentName))?.rounds, lateRounds) &&
     !existsSync(join(late.taskDir, 'kol.csv')) && !existsSync(join(late.cwd, 'memory', 'creators.json')), '已付费证据丢失或冲突仍交付')
-  // 402 收尾修复第 2 件：收尾投影抛评审输入错误（退 2）时，stdout 不出汇总（ADR-193 第一节）
+  // 402 收尾修复第 2 项：收尾投影抛评审输入错误（退 2）时，stdout 不出汇总（ADR-193 第一节）
   named('collect 收尾投影发现评审输入冲突以退出码 2 结束，stdout 不出汇总',
     lr.ok && lr.status === 2 && lr.stdout.trim() === '', `退出=${lr.status}，stdout=${lr.stdout.slice(0, 200)}`)
 
@@ -10792,7 +10792,7 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
   reviewCliEntryCompleted.exit = true
 })
 
-// 402 收尾修复第 2 件：收尾那一路（冻结候选、投影、保存评审正本、写名单）抛出时不出汇总，退出码按评审输入 2、
+// 402 收尾修复第 2 项：收尾那一路（冻结候选、投影、保存评审正本、写名单）抛出时不出汇总，退出码按评审输入 2、
 // 保存失败 6 分（ADR-193 第一节）。上一组的只读正本在开跑前那次保存就失败；这里让开跑前没有可存的变化
 // （正本已冻着名单里的人），只有收尾冻结累加器里多出来的那人时才真去写，失败才落在收尾。
 group('review-cli-entry-collect-wrapup', ['review-cli-entry-positive'], () => {

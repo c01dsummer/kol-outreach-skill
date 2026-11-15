@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * 零请求观察器与外层断网的认证入口。冻结的命令行在 `observer-cert.sh`，由整合方在 PR head 的干净克隆里照跑；
+ * 零请求观察器与外层断网的认证入口（KOL-21）。冻结的命令行在 `observer-cert.sh`，由整合方在 PR head 的干净克隆里照跑；
  * 自检组 `observer-cert-entry` 把它当工具起在临时目录里，验的是接线，那一跑不算认证。
  *
  *   tsx scripts/check/observer-cert.ts --out <证据目录>
