@@ -84,9 +84,13 @@ export function projectAgentReviews(
     }
     const review = byAccount.get(primary)
     if (review) {
-      for (const field of [...legacyFields, ...newJudgmentFields, ...draftNoteFields]) {
+      for (const field of [...legacyFields, ...newJudgmentFields]) {
         const value = review[field]
-        if (value !== undefined) (creator as unknown as Record<string, unknown>)[field] = structuredClone(value)
+        if (value !== undefined) (creator as unknown as Record<string, unknown>)[field] = value
+      }
+      // P2.e：出处登记是数组，复制一份再投影，改名单上的不会反过来改了正本。
+      for (const field of draftNoteFields) {
+        if (review[field] !== undefined) creator[field] = structuredClone(review[field])
       }
     }
     creator.review_status = statusOf(review, calibrationVersion)

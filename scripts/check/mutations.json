@@ -21831,8 +21831,8 @@
       "req": "P2.e",
       "why": "登记的出处不投影到名单上，报告看不到",
       "file": "scripts/lib/review-projection.ts",
-      "find": "      for (const field of [...legacyFields, ...newJudgmentFields, ...draftNoteFields]) {",
-      "replace": "      for (const field of [...legacyFields, ...newJudgmentFields]) {",
+      "find": "      for (const field of draftNoteFields) {",
+      "replace": "      for (const field of [] as typeof draftNoteFields) {",
       "by": "test",
       "kills": [
         "P2.e 投影到名单原样带上"
@@ -21843,8 +21843,8 @@
       "req": "P2.e",
       "why": "投影出去的登记和正本共用同一份，改名单上的会反过来改了正本",
       "file": "scripts/lib/review-projection.ts",
-      "find": "(creator as unknown as Record<string, unknown>)[field] = structuredClone(value)",
-      "replace": "(creator as unknown as Record<string, unknown>)[field] = value",
+      "find": "creator[field] = structuredClone(review[field])",
+      "replace": "creator[field] = review[field]",
       "by": "test",
       "kills": [
         "P2.e 改投影不反向改正本"
