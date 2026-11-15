@@ -1571,6 +1571,8 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     ['账号名带下划线整个写出来也认', 'Hi,\n\n@sarah_bakes is the best baker online.', [], '要看：「@sarah_bakes is the best baker online.」（提到了博主，没标出处）', { nickname: 'SB', handle: 'sarah_bakes' }],
     ['账号名带数字整个写出来也认', 'Hi,\n\nmei123 is the best baker online.', [], '要看：「mei123 is the best baker online.」（提到了博主，没标出处）', { nickname: '🍰', handle: 'mei123' }],
     ['问候后面接了评价就不是问候', 'Hey Mei, sourdough queen!\n\nWe make a blender.', [], '要看：「Hey Mei, sourdough queen!」（提到了博主，没标出处）', {}],
+    ['开头的称呼不带名字也算在说他', 'Hey sourdough queen!\n\nWe make a blender.', [], '要看：「Hey sourdough queen!」（提到了博主，没标出处）', {}],
+    ['there 这类泛称是问候', 'Hi there,\n\nWe make a blender.', [], '无', {}],
     ['称呼和评价之间没标点也不是问候', 'Hi Mei the smoothie genius,\n\nWe make a blender.', [], '要看：「Hi Mei the smoothie genius,」（提到了博主，没标出处）', {}],
     ['只有正文第一行可能是问候，后面的段照正文核', 'Hi Mei,\n\nWe make a blender.\n\nHey Mei', [], '要看：「Hey Mei」（提到了博主，没标出处）', {}],
     ['没登记的只剩表情也列出', 'Hi Mei,\n\nYour smoothie series 🔥🔥', [{ draft: 'Your smoothie series', from: 'self' }], `要看：「Your smoothie series 🔥🔥」（只登记了其中一段，没登记的：「🔥🔥」）${BAR}${SELF}「Your smoothie series」`, {}],
@@ -1583,7 +1585,7 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     ['全角字与长破折号归一后对得上', 'Hi Mei,\n\nYour ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
       '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
   ]
-  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一',
+  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一',
     crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
   // 昵称：驼峰拆开认名字，the、with 这类普通词不算名字；两个字母的词不算。
   eq('P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算',
@@ -1613,7 +1615,7 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
       HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（原文对不上：他的作品文案里没有这段）'].join('；') + NICK + TAIL,
     ])
   // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，和下一行接成一句。
-  const subj = renderHtml([mk('tiktok', 'subj', { tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
+  const subj = renderHtml([mk('tiktok', 'subj', { nickname: 'Ana', tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
   eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文切句', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen is lovely.」（提到了博主，没标出处）${TAIL}`)
   criterion('P2.f', 'P2.g')
 }

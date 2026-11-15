@@ -54,13 +54,15 @@ export function normalizeText(text: string): string {
 const YOU = /\b(?:you|your|yours|yourself|yourselves|you're|you've|you'll|you'd)\b/i
 /**
  * 问候行：主题行之后正文的第一行，Hi/Hello/Hey/Dear 开头、后面只跟称呼、最后最多一个收尾的逗号、感叹号、句点或破折号，
- * 不超过五个词。称呼只认博主昵称、账号名里的词和 there、team、all 这几个泛称 ——「Hey sourdough queen!」「Hi Mei the smoothie genius,」不是问候，照正文核。
+ * 不超过五个词。称呼只认博主昵称、账号名里的词和 there、team、all 这几个泛称 ——「Hi Mei the smoothie genius,」「Hey sourdough queen!」不是问候：这一行在称呼他，不带名字也当提到了他，照列。
  */
-const GREETING = /^(?:hi|hello|hey|dear)\s+(.*?)\s*[,!.\-–—]?$/i
+const GREETING = /^(?:hi|hello|hey|dear)\b\s*(.*?)\s*[,!.\-–—]?$/i
+const SALUTE = /^(?:hi|hello|hey|dear)\b/i
 const GENERIC_SALUTATIONS = new Set(['there', 'team', 'all', 'everyone', 'folks', 'friend', 'friends'])
 function isGreeting(line: string, salutation: ReadonlySet<string>): boolean {
   const m = GREETING.exec(line.normalize('NFKC'))
   if (m === null || line.split(/\s+/).length > 5) return false
+  if (m[1] === '') return true
   const words = m[1].replace(/^@/, '').toLowerCase().split(/\s+/)
   return words.every(word => word !== '' && (salutation.has(word) || GENERIC_SALUTATIONS.has(word)))
 }
@@ -135,7 +137,7 @@ function splitSentences(line: string): string[] {
 }
 
 /** 把草稿切成句：空行分段，段内折行接回一行（信常常手动折行），列表行各自成句；主题行（第一个非空行）自成一句；主题行之后正文第一行是问候时跳过。 */
-function sentences(draft: string, salutation: ReadonlySet<string>): string[] {
+function sentences(draft: string, salutation: ReadonlySet<string>, addressed: Set<string>): string[] {
   const out: string[] = []
   let first = true
   let opening = true
@@ -151,6 +153,8 @@ function sentences(draft: string, salutation: ReadonlySet<string>): string[] {
       const greetingSlot = opening
       opening = false
       if (greetingSlot && isGreeting(line, salutation)) continue
+      // 正文第一行以 Hi/Hello/Hey/Dear 开头却不是纯称呼：称呼后面接的话是在说他，自成句、记成提到了博主。
+      if (greetingSlot && SALUTE.test(line)) { const pieces = splitSentences(line); if (pieces[0]) addressed.add(pieces[0]); out.push(...pieces); continue }
       if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line)); continue }
       body.push(line)
     }
@@ -245,7 +249,8 @@ export function creatorSourceItems(
   const names = nameWords(creator)
   let cursor = 0
   const seen = new Set<string>()
-  for (const sentence of sentences(draft, salutationWords(creator))) {
+  const addressed = new Set<string>()
+  for (const sentence of sentences(draft, salutationWords(creator), addressed)) {
     const s = normalizeText(sentence)
     const found = normalizedDraft.indexOf(s, cursor)
     if (found >= 0) cursor = found + s.length
@@ -255,7 +260,7 @@ export function creatorSourceItems(
     const at = found >= 0 ? found : normalizedDraft.length
     const { touched, rest } = found >= 0 ? uncovered(normalizedDraft, covered, found, s.length) : { touched: false, rest: '' }
     if (touched && rest) placed.push({ at, item: { status: 'partial', draft: sentence, rest } })
-    else if (!touched && mentionsCreator(sentence, names)) placed.push({ at, item: { status: 'unregistered', draft: sentence } })
+    else if (!touched && (addressed.has(sentence) || mentionsCreator(sentence, names))) placed.push({ at, item: { status: 'unregistered', draft: sentence } })
   }
   placed.sort((a, b) => a.at - b.at)
   return [...placed.map(p => p.item), ...missing]
