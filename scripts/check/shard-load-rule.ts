@@ -77,16 +77,33 @@ export function readWeights(json: unknown): { weights: ShardWeights } | { fault:
   return { weights: json as unknown as ShardWeights }
 }
 
+/** 跑一遍整个验证者大约几秒：文件里这个验证者各种配置的一次基线加起来（键认不出来的不算） */
+const fullRunSeconds = (w: ShardWeights, name: VerifierName): number => {
+  let sum = 0
+  for (const [key, cost] of Object.entries(w.configs)) {
+    let parsed: unknown
+    try { parsed = JSON.parse(key) } catch { continue }
+    if (Array.isArray(parsed) && parsed[0] === name) sum += cost.base
+  }
+  return sum
+}
+
 /**
  * 一摞的秒数：文件里有这种配置就用它的，没有就按验证者取默认值；都是一次基线加 n 条变异。
- * 整跑的变异（键是 undefined）没有子集基线，也按默认值算。认不得的验证者抛错 —— 猜一个数等于量一个编出来的量。
+ * 整跑的变异（键是 undefined）每一条都要把整个验证者跑一遍：按 n × 那个验证者各配置基线之和算，
+ * 不少于默认值的一次基线加一条（文件里一种配置都没有时）。认不得的验证者抛错 —— 猜一个数等于量一个编出来的量。
  */
 export function pileSeconds(w: ShardWeights, key: string | undefined, by: string | undefined, n: number): number {
   const name = by === undefined ? 'test' : by
   if (!isVerifier(name)) throw new Error(`认不得的验证者「${name}」，不知道它一条要几秒`)
-  const cost = key !== undefined && Object.hasOwn(w.configs, key) ? w.configs[key] : w.defaults[name]
+  if (key === undefined) return n * Math.max(fullRunSeconds(w, name), w.defaults[name].base + w.defaults[name].each)
+  const cost = Object.hasOwn(w.configs, key) ? w.configs[key] : w.defaults[name]
   return cost.base + n * cost.each
 }
+
+/** 变异一步与闸门称一摞用的同一个函数：这一摞的键、这一摞的条目（取第一条的验证者） → 秒数 */
+export const pileWeigher = (w: ShardWeights) =>
+  (key: string | undefined, pile: readonly { readonly by?: string }[]): number => pileSeconds(w, key, pile[0]?.by, pile.length)
 
 const round2 = (x: number): number => Math.round(x * 100) / 100
 /** 中位数：排好序取下标 ⌊(n−1)/2⌋（偶数个取较小的那个） */

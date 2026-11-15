@@ -66,7 +66,7 @@ import {
   billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardKey, shardOf, shardPlan, shardWanted,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
-import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, chainWiringFaults, growthWaivers, pileSeconds, readWeights, shardLoadGate, shardWiringFaults, weightsFromReports } from './check/shard-load-rule.js'
+import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, chainWiringFaults, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, shardWiringFaults, weightsFromReports } from './check/shard-load-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -11589,6 +11589,12 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('一摞秒数：没测过又没写 by，按需求测试的默认', pileSeconds(good, 'Z', undefined, 3), 16)
   eq('一摞秒数：整跑的一条（键是 undefined）按验证者的默认', pileSeconds(good, undefined, 'test', 1), 12)
   eq('一摞秒数：键叫 constructor 不算实测过，按默认', pileSeconds(good, 'constructor', 'test', 2), 14)
+  // 整跑的一条要把整个验证者跑一遍：按那个验证者各种配置的基线之和算（键认不出的 K 不算），不少于默认的一次基线加一条。
+  // 需求测试两种配置基线 5 + 20 → 两条 50；自检只一种、基线 40 → 一条 40；验证者一种配置都没有 → 默认 10 + 2
+  const real: ShardWeights = { ...good, configs: { K: { base: 100, each: 3 }, '["test",["a"]]': { base: 5, each: 1 }, '["test",["b"]]': { base: 20, each: 1 }, '["selfcheck",["s"]]': { base: 40, each: 9 } } }
+  eq('一摞秒数：整跑的每一条按把整个验证者跑一遍算（各配置基线之和）', [pileSeconds(real, undefined, 'test', 2), pileSeconds(real, undefined, 'selfcheck', 1)], [50, 40])
+  eq('一摞秒数：整跑的按默认的一次基线加一条兜底', pileSeconds({ ...good, configs: { '["selfcheck",["s"]]': { base: 1, each: 1 } } }, undefined, 'selfcheck', 2), 70)
+  eq('一摞秒数：变异一步与闸门用的称法取这一摞第一条的验证者与条数', [pileWeigher(real)('["selfcheck",["s"]]', [{ by: 'selfcheck' }, { by: 'selfcheck' }]), pileWeigher(real)('["selfcheck",["zz"]]', [{ by: 'selfcheck' }, { by: 'selfcheck' }])], [58, 40])
   ok('一摞秒数：认不得的验证者名字抛错', refuses('lint'))
   ok('一摞秒数：constructor 不是验证者名字，抛错', refuses('constructor'))
 
@@ -11702,6 +11708,8 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('闸：豁免不放行不均那一道', gate({ loads: [126, 100, 74], base: { total: 200 }, waivers: ['新增一组判定'] }).red, true)
   eq('闸：豁免不放行封顶那一道', gate({ loads: [4420, 4421, 4422], base: { total: 10000 }, waivers: ['新增一组判定'] }).red, true)
   eq('闸：PR 上基线读不出，红', gate({ base: { unknown: '读不到基线' } }).red, true)
+  eq('闸：写了豁免也不放过 PR 基线读不出', gate({ base: { unknown: '读不到基线' }, waivers: ['新增一组判定'] }).red, true)
+  eq('闸：主干上过了上限照样有一行 ✗', crossed({ loads: [4420, 4421, 4422], base: { total: 13263 }, trunk: { onTrunk: true } }), true)
   // 接线不对两边都红；它那一行排在报数行前面
   eq('闸：接线不对，PR 上红', gate({ wiring: ['工作流里没有矩阵那一段'] }).red, true)
   eq('闸：接线不对，主干上也红', gate({ wiring: ['工作流里没有矩阵那一段'], trunk: { onTrunk: true } }).red, true)

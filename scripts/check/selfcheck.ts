@@ -7517,6 +7517,19 @@ group('shard-load-entry', [], () => {
       if (bad.ok) named('shard-load 秒数文件认不得时说是哪个文件', bad.stdout.includes('算不出每一份的秒数') && bad.stdout.includes('shard-weights.json'), bad.stdout)
     }
   }
+  // PR 基线那份清单读不出来（主干上那份写坏了）：不当成没涨，以 1 退出；报数行说读不出来
+  const noBaseTmp = join(tmp, 'shard-load-no-base')
+  if (repo(noBaseTmp, false)) {
+    writeFileSync(join(noBaseTmp, 'scripts', 'check', 'mutations.json'), '{ 坏了', 'utf8')
+    if (commit(noBaseTmp, 'broken list') && git(noBaseTmp, 'update-ref', 'refs/remotes/origin/main', 'HEAD') && git(noBaseTmp, 'switch', '--quiet', '-c', 'topic')) {
+      write(noBaseTmp, [10, 10, 10])
+      if (commit(noBaseTmp, 'fixed list')) {
+        const noBase = runToolBoth('shard-load PR 基线清单读不出即以退出码 1 结束', 'shard-load', [], noBaseTmp, { status: 1 })
+        if (noBase.ok) named('shard-load PR 基线清单读不出时报数行说读不出来、另有一行 ✗',
+          report(noBase.stdout).includes('比 PR 基线：读不出来') && noBase.stdout.split('\n').some(l => l.startsWith('✗ 变异负载：PR 基线那份变异清单读不出来')), noBase.stdout)
+      }
+    }
+  }
   // 回写秒数文件的入口：从日志里认出成本报告那几行（行首带着 CI 的时间戳），按 headSha 归成几跑，写到树内那个路径。
   // 手推：g1 两跑基线 2、4 秒，一条 1.5、2.5 秒 → 取较小的那个中位数 2 与 1.5；s1 只有一跑。别的行与不是 summary 的那一段不认
   const row = (key: string, by: string, baseMs: number, samples: number, ms: number) =>
@@ -7527,10 +7540,11 @@ group('shard-load-entry', [], () => {
   writeFileSync(join(weighTmp, 'a.log'), ['别的一行', seg('aaa', [row('["test",["g1"]]', 'test', 2000, 2, 3000), row('["selfcheck",["s1"]]', 'selfcheck', 10000, 1, 8000)]),
     `MUTATION_COST_JSON ${JSON.stringify({ kind: 'configuration', report: { identity: { headSha: 'zzz' }, rows: [] } })}`, ''].join('\n'), 'utf8')
   writeFileSync(join(weighTmp, 'b.log'), seg('bbb', [row('["test",["g1"]]', 'test', 4000, 2, 5000)]) + '\n', 'utf8')
-  const wrote = runToolBoth('shard-weights 读得出报告即写回、以退出码 0 结束', 'shard-weights', ['a.log', 'b.log'], weighTmp)
+  // a.log 给两遍：同一份报告只收一次，不然 aaa 那一跑的秒数翻倍、中位数跟着变
+  const wrote = runToolBoth('shard-weights 读得出报告即写回、以退出码 0 结束', 'shard-weights', ['a.log', 'b.log', 'a.log'], weighTmp)
   if (wrote.ok) {
     const file = existsSync(join(weighTmp, 'scripts', 'check', 'shard-weights.json')) ? readFileSync(join(weighTmp, 'scripts', 'check', 'shard-weights.json'), 'utf8') : ''
-    named('shard-weights 写回的文件按手推的数、两跑都记下',
+    named('shard-weights 写回的文件按手推的数、两跑都记下、同一份报告只收一次',
       file.includes('"runs": ["aaa","bbb"]') && file.includes('    "[\\"test\\",[\\"g1\\"]]": {"base":2,"each":1.5}')
         && file.includes('"selfcheck":{"base":10,"each":8}'), file)
   }
@@ -9025,6 +9039,9 @@ group('mutate-shard', [], () => {
       `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
       `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
     ].join('\n') + '\n', 'utf8')
+    // 分份时变异一步要读树内的秒数文件（ADR-203）。四条都是整跑的、同一个验证者，称出来一样重，落点与按条数分相同
+    writeFileSync(join(shardTmp, 'scripts', 'check', 'shard-weights.json'),
+      '{"schema":"mutation-shard-weights/v1","runs":[],"defaults":{"test":{"base":1,"each":1},"selfcheck":{"base":1,"each":1}},"configs":{}}\n', 'utf8')
   } catch (e) {
     failed++
     console.error(`  ✗ 分份夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
@@ -9052,6 +9069,12 @@ group('mutate-shard', [], () => {
   const secondSeen = seen()
   const bad = shardRun('mutate 分份：写成 3/2', '3/2', '--jobs=1', 1)
   const badSeen = seen()
+  // 秒数文件认不得：不拿猜的数分，在施变之前退出
+  const weightsFile = join(shardTmp, 'scripts', 'check', 'shard-weights.json'), weightsText = readFileSync(weightsFile, 'utf8')
+  writeFileSync(weightsFile, '{"schema":"mutation-shard-weights/v0"}\n', 'utf8')
+  const noWeights = shardRun('mutate 分份：秒数文件认不得', '1/2', '--jobs=1', 1)
+  const noWeightsSeen = seen()
+  writeFileSync(weightsFile, weightsText, 'utf8')
   const mutated = (lines: string[]) => lines.map(l => l.split(',').slice(0, 2).join(',')).filter(l => l !== 'keep,hold').sort()
   named('分份：第 1 份派工只跑了清单第 1、3 条', first.ok && JSON.stringify(mutated(firstSeen)) === JSON.stringify(['gone,hold', 'kept,hold']), firstSeen.join(' | '))
   named('分份：第 2 份串行只跑了清单第 2、4 条', second.ok && JSON.stringify(mutated(secondSeen)) === JSON.stringify(['keep,held', 'keep,lost']), secondSeen.join(' | '))
@@ -9060,6 +9083,8 @@ group('mutate-shard', [], () => {
   named('分份：验证者的环境里不带 MUTATE_SHARD', [...firstSeen, ...secondSeen].length > 0 && [...firstSeen, ...secondSeen].every(l => l.endsWith(',-')), [...firstSeen, ...secondSeen].join(' | '))
   named('分份：启动数写这一份自己的文件，上一跑的整份文件删了', JSON.stringify(firstFiles) === JSON.stringify(['launches-1-of-2.json']), firstFiles.join(' | '))
   named('分份：上一份留下的分份文件也删了', JSON.stringify(secondFiles) === JSON.stringify(['launches-2-of-2.json']), secondFiles.join(' | '))
+  named('分份：秒数文件认不得以 1 退出、一条也没施、说出是哪个文件', noWeights.ok && mutated(noWeightsSeen).length === 0
+    && /要分份却读不出 scripts\/check\/shard-weights\.json/.test(noWeights.stdout + noWeights.stderr), `${noWeightsSeen.join(' | ')} ‖ ${(noWeights.stdout + noWeights.stderr).split('\n').slice(-3).join(' / ')}`)
   named('分份：写成 3/2 以 1 退出、一条也没施', bad.ok && mutated(badSeen).length === 0 && /说不清这一跑是第几份/.test(bad.stdout + bad.stderr), `${badSeen.join(' | ')} ‖ ${(bad.stdout + bad.stderr).split('\n').slice(-3).join(' / ')}`)
 })
 

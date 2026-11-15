@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { shardKey, shardPlan } from './jobs-rule.js'
 import { executionRoutes } from './mutate-rule.js'
-import { SHARD_COUNT, SHARD_WEIGHTS_FILE, chainWiringFaults, growthWaivers, pileSeconds, readWeights, shardLoadGate, shardWiringFaults, type ShardLoadInput, type ShardWeights } from './shard-load-rule.js'
+import { SHARD_COUNT, SHARD_WEIGHTS_FILE, chainWiringFaults, growthWaivers, pileWeigher, readWeights, shardLoadGate, shardWiringFaults, type ShardLoadInput, type ShardWeights } from './shard-load-rule.js'
 import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
 import { trailerLines } from './trailer.js'
 
@@ -26,19 +26,25 @@ type Mut = { id: string; by?: string }
 const listOf = (text: string): Mut[] => (JSON.parse(text) as { mutations: Mut[] }).mutations
 
 /** 一份清单每一份的秒数：与变异一步同一个路由、同一个键、同一份秒数文件。算不出来就抛 —— 由调用处打成红 */
-const loadsOf = (muts: Mut[], readSource: (file: string) => string | undefined, w: ShardWeights): number[] => {
+const loadsOf = (muts: Mut[], readSource: (file: string) => string | undefined, w: ShardWeights): { loads: number[]; defaulted: Mut[] } => {
   const routes = new Map(executionRoutes(muts as unknown as Parameters<typeof executionRoutes>[0], readSource).routes.map(r => [r.id, r]))
-  return shardPlan(muts, m => shardKey(m.by, routes.get(m.id)!.only), (key, pile) => pileSeconds(w, key, pile[0]?.by, pile.length), SHARD_COUNT).loads
+  const keyOf = (m: Mut) => shardKey(m.by, routes.get(m.id)!.only)
+  // 不在秒数文件里的（新加或改了名的组、整跑的）按默认值或整跑的算法估：报出来有多少条，量丢了看得见
+  const defaulted = muts.filter(m => { const k = keyOf(m); return k === undefined || !Object.hasOwn(w.configs, k) })
+  return { loads: shardPlan(muts, keyOf, pileWeigher(w), SHARD_COUNT).loads, defaulted }
 }
 
 const main = (): number => {
   let weights: ShardWeights
   let loads: number[]
+  let defaulted: number
   try {
     const read = readWeights(JSON.parse(readFileSync(SHARD_WEIGHTS_FILE, 'utf8')))
     if ('fault' in read) throw new Error(`${SHARD_WEIGHTS_FILE}：${read.fault}`)
     weights = read.weights
-    loads = loadsOf(listOf(readFileSync(MUTATIONS, 'utf8')), file => existsSync(file) ? readFileSync(file, 'utf8') : undefined, weights)
+    const now = loadsOf(listOf(readFileSync(MUTATIONS, 'utf8')), file => existsSync(file) ? readFileSync(file, 'utf8') : undefined, weights)
+    loads = now.loads
+    defaulted = now.defaulted.length
   } catch (e) {
     console.log(`✗ 变异负载：当前树算不出每一份的秒数（${e instanceof Error ? e.message : String(e)}）`)
     return 1
@@ -61,7 +67,7 @@ const main = (): number => {
     try {
       const text = tryGit('show', `${at}:${MUTATIONS}`)
       if (text === null) throw new Error(`${at.slice(0, 7)} 上没有 ${MUTATIONS}`)
-      base = { total: loadsOf(listOf(text), file => tryGit('show', `${at}:${file}`) ?? undefined, weights).reduce((a, b) => a + b, 0) }
+      base = { total: loadsOf(listOf(text), file => tryGit('show', `${at}:${file}`) ?? undefined, weights).loads.reduce((a, b) => a + b, 0) }
     } catch (e) { base = { unknown: e instanceof Error ? e.message : String(e) } }
     if (!baseline.onTrunk) messages = baseline.commits.map(c => tryGit('log', '-1', '--format=%B', c) ?? '')
   }
@@ -75,6 +81,7 @@ const main = (): number => {
 
   const gate = shardLoadGate({ loads, base, trunk, waivers: growthWaivers(messages.flatMap(trailerLines)), wiring })
   for (const line of gate.lines) console.log(line)
+  if (defaulted > 0) console.log(`  其中 ${defaulted} 条变异的配置不在 ${SHARD_WEIGHTS_FILE} 里（新加或改了名的组、整跑的），按验证者的默认值估；多了就该重写秒数文件（ADR-203 第五节）`)
   return gate.red ? 1 : 0
 }
 process.exitCode = main()

@@ -61,7 +61,7 @@ import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
-import { SHARD_WEIGHTS_FILE, pileSeconds, readWeights, type ShardWeights } from './shard-load-rule.js'
+import { SHARD_WEIGHTS_FILE, pileWeigher, readWeights, type ShardWeights } from './shard-load-rule.js'
 import { asTsx, prebuildOne, prebuiltCommand } from './prebuilt.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import {
@@ -989,7 +989,7 @@ if (sharded) {
   else weights = read.weights
 }
 const mine = shardOf(muts, m => shardKey(m.by, onlyFor(m)),
-  (key, pile) => weights === undefined ? pile.length : pileSeconds(weights, key, pile[0]?.by, pile.length), shard.index, shard.count)
+  weights === undefined ? (_key, pile) => pile.length : pileWeigher(weights), shard.index, shard.count)
 const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), mine.length)
 if (jobs === undefined) {
   exitWith(1, '✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n',

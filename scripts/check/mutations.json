@@ -18255,8 +18255,8 @@
       "req": "harness",
       "why": "配置照对象原型链上有没有这个键查 —— 对象自带的方法名被当成一种实测过的配置，一摞的秒数算成 NaN",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "  const cost = key !== undefined && Object.hasOwn(w.configs, key) ? w.configs[key] : w.defaults[name]",
-      "replace": "  const cost = key !== undefined && key in w.configs ? w.configs[key] : w.defaults[name]",
+      "find": "  const cost = Object.hasOwn(w.configs, key) ? w.configs[key] : w.defaults[name]",
+      "replace": "  const cost = key in w.configs ? w.configs[key] : w.defaults[name]",
       "by": "test",
       "kills": [
         "一摞秒数：键叫 constructor 不算实测过，按默认"
@@ -18445,6 +18445,54 @@
     {
       "id": "M-H203-q",
       "req": "harness",
+      "why": "整跑的一条把两个验证者的基线全加上 —— 一条需求测试的整跑变异算成连自检也跑了一遍",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (Array.isArray(parsed) && parsed[0] === name) sum += cost.base",
+      "replace": "    if (Array.isArray(parsed)) sum += cost.base",
+      "by": "test",
+      "kills": [
+        "一摞秒数：整跑的每一条按把整个验证者跑一遍算（各配置基线之和）"
+      ]
+    },
+    {
+      "id": "M-H203-r",
+      "req": "harness",
+      "why": "整跑的一条只算最后一种配置的基线 —— 跑整个验证者的变异称得太轻，涨幅与上限两道静默放行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (Array.isArray(parsed) && parsed[0] === name) sum += cost.base",
+      "replace": "    if (Array.isArray(parsed) && parsed[0] === name) sum = cost.base",
+      "by": "test",
+      "kills": [
+        "一摞秒数：整跑的每一条按把整个验证者跑一遍算（各配置基线之和）"
+      ]
+    },
+    {
+      "id": "M-H203-s",
+      "req": "harness",
+      "why": "文件里没这个验证者的配置时整跑的算 0 秒 —— 加多少条整跑变异都不涨",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (key === undefined) return n * Math.max(fullRunSeconds(w, name), w.defaults[name].base + w.defaults[name].each)",
+      "replace": "  if (key === undefined) return n * fullRunSeconds(w, name)",
+      "by": "test",
+      "kills": [
+        "一摞秒数：整跑的按默认的一次基线加一条兜底"
+      ]
+    },
+    {
+      "id": "M-H203-t",
+      "req": "harness",
+      "why": "称一摞时不看验证者 —— 没测过的自检配置按需求测试的默认算，轻了五倍",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  (key: string | undefined, pile: readonly { readonly by?: string }[]): number => pileSeconds(w, key, pile[0]?.by, pile.length)",
+      "replace": "  (key: string | undefined, pile: readonly { readonly by?: string }[]): number => pileSeconds(w, key, undefined, pile.length)",
+      "by": "test",
+      "kills": [
+        "一摞秒数：变异一步与闸门用的称法取这一摞第一条的验证者与条数"
+      ]
+    },
+    {
+      "id": "M-H203-u",
+      "req": "harness",
       "why": "理由不去两头空白 —— 记下来的理由带着空格，冒号后只有空白的那一行也算写了理由",
       "file": "scripts/check/shard-load-rule.ts",
       "find": "    const reason = m[2].trim()",
@@ -18455,7 +18503,7 @@
       ]
     },
     {
-      "id": "M-H203-r",
+      "id": "M-H203-v",
       "req": "harness",
       "why": "只写键没写理由也收 —— 一个空豁免就放过涨幅那一道",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18467,7 +18515,7 @@
       ]
     },
     {
-      "id": "M-H203-s",
+      "id": "M-H203-w",
       "req": "harness",
       "why": "豁免的键照前缀认 —— 写岔了的键也放行涨幅那一道",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18479,7 +18527,7 @@
       ]
     },
     {
-      "id": "M-H203-t",
+      "id": "M-H203-x",
       "req": "harness",
       "why": "豁免的键不分大小写 —— 与 trailer 的读法不一样，git 那边认不出的写法这里放行",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18491,7 +18539,7 @@
       ]
     },
     {
-      "id": "M-H203-u",
+      "id": "M-H203-y",
       "req": "harness",
       "why": "不去行尾注释 —— 对的接线后面写一句注释就判成对不上",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18503,7 +18551,7 @@
       ]
     },
     {
-      "id": "M-H203-v",
+      "id": "M-H203-z",
       "req": "harness",
       "why": "矩阵那一行照没有空格的写法核 —— 对的接线判成对不上，闸门在每个 PR 上都红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18515,7 +18563,7 @@
       ]
     },
     {
-      "id": "M-H203-w",
+      "id": "M-H203-aa",
       "req": "harness",
       "why": "matrix 只核有没有、不核列的是哪几份 —— 改成两份或四份而闸门仍按三份算，没有东西红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18527,7 +18575,7 @@
       ]
     },
     {
-      "id": "M-H203-x",
+      "id": "M-H203-ab",
       "req": "harness",
       "why": "matrix 那一行照结尾认 —— 别的键名里带着 shard 的那一行被当成 matrix",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18539,7 +18587,7 @@
       ]
     },
     {
-      "id": "M-H203-y",
+      "id": "M-H203-ac",
       "req": "harness",
       "why": "只认一行写完的 exclude —— 分几行写的 exclude 剔掉一份也不红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18551,7 +18599,7 @@
       ]
     },
     {
-      "id": "M-H203-z",
+      "id": "M-H203-ad",
       "req": "harness",
       "why": "MUTATE_SHARD 那一行照开头认 —— 分母多写一位也放行",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18563,7 +18611,7 @@
       ]
     },
     {
-      "id": "M-H203-aa",
+      "id": "M-H203-ae",
       "req": "harness",
       "why": "MUTATE_SHARD 只核有没有、不核分母 —— 分母与份数对不上时不红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18575,7 +18623,7 @@
       ]
     },
     {
-      "id": "M-H203-ab",
+      "id": "M-H203-af",
       "req": "harness",
       "why": "分份启动数文件名只核有没有、不核写死的份数 —— 文件名与份数对不上时不红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18587,7 +18635,7 @@
       ]
     },
     {
-      "id": "M-H203-ac",
+      "id": "M-H203-ag",
       "req": "harness",
       "why": "chain 那一串照 check 原样比、不去掉变异一步 —— 对得上的接线也判成对不上，闸门在每个 PR 上都红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18599,7 +18647,7 @@
       ]
     },
     {
-      "id": "M-H203-ad",
+      "id": "M-H203-ah",
       "req": "harness",
       "why": "chain 那一串只要在哪一行里出现过就算 —— 多跑一步的那一行也放行",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18611,7 +18659,7 @@
       ]
     },
     {
-      "id": "M-H203-ae",
+      "id": "M-H203-ai",
       "req": "harness",
       "why": "读不到 package.json 的 check 那一串时不报 —— 「读不到」被当成「对得上」",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18623,7 +18671,7 @@
       ]
     },
     {
-      "id": "M-H203-af",
+      "id": "M-H203-aj",
       "req": "harness",
       "why": "只核写没写 MUTATE_JOBS、不核派几个 —— 派的 worker 少了、变异一步慢一成半，没有东西红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18635,7 +18683,7 @@
       ]
     },
     {
-      "id": "M-H203-ag",
+      "id": "M-H203-ak",
       "req": "harness",
       "why": "问不出在不在主干上时放行 —— 「读不到」变成「没越线」",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18647,7 +18695,7 @@
       ]
     },
     {
-      "id": "M-H203-ah",
+      "id": "M-H203-al",
       "req": "harness",
       "why": "接线对不上只打一行、不算红 —— 改坏 check.yml 的那一推照样绿",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18659,7 +18707,7 @@
       ]
     },
     {
-      "id": "M-H203-ai",
+      "id": "M-H203-am",
       "req": "harness",
       "why": "只看第一份当最重的 —— 压在后两份上的那一摞看不见",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18671,7 +18719,7 @@
       ]
     },
     {
-      "id": "M-H203-aj",
+      "id": "M-H203-an",
       "req": "harness",
       "why": "恰在 25% 那条线上就红 —— 线说的是「超过」",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18683,7 +18731,7 @@
       ]
     },
     {
-      "id": "M-H203-ak",
+      "id": "M-H203-ao",
       "req": "harness",
       "why": "不均那道线放宽一倍 —— 一摞压垮一份也不红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18695,7 +18743,7 @@
       ]
     },
     {
-      "id": "M-H203-al",
+      "id": "M-H203-ap",
       "req": "harness",
       "why": "恰在 14 分钟那条线上就红 —— 线说的是「超过」",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18707,7 +18755,7 @@
       ]
     },
     {
-      "id": "M-H203-am",
+      "id": "M-H203-aq",
       "req": "harness",
       "why": "上限放宽一倍 —— 最重一份涨到二十几分钟才红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18719,7 +18767,7 @@
       ]
     },
     {
-      "id": "M-H203-an",
+      "id": "M-H203-ar",
       "req": "harness",
       "why": "恰涨 5% 就红 —— 线说的是「超过」",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18731,7 +18779,7 @@
       ]
     },
     {
-      "id": "M-H203-ao",
+      "id": "M-H203-as",
       "req": "harness",
       "why": "基线是 0 时当没涨 —— 从无到有的那一大批变异不红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18743,7 +18791,7 @@
       ]
     },
     {
-      "id": "M-H203-ap",
+      "id": "M-H203-at",
       "req": "harness",
       "why": "没写豁免也当豁免了 —— 涨幅那一道永远不红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18755,7 +18803,7 @@
       ]
     },
     {
-      "id": "M-H203-aq",
+      "id": "M-H203-au",
       "req": "harness",
       "why": "主干上也教人写豁免 —— 已经合进去了，豁免什么都放不过，只会让人以为补一行就行",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18767,7 +18815,7 @@
       ]
     },
     {
-      "id": "M-H203-ar",
+      "id": "M-H203-av",
       "req": "harness",
       "why": "放行时不写理由原文 —— 看日志的人不知道为什么放过",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18779,7 +18827,7 @@
       ]
     },
     {
-      "id": "M-H203-as",
+      "id": "M-H203-aw",
       "req": "harness",
       "why": "主干上读不出上一版也红 —— 主干第一个提交那一类情形让主干变红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18791,7 +18839,7 @@
       ]
     },
     {
-      "id": "M-H203-at",
+      "id": "M-H203-ax",
       "req": "harness",
       "why": "PR 上读不出基线时放行 —— 「读不到」变成「没涨」",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18803,7 +18851,7 @@
       ]
     },
     {
-      "id": "M-H203-au",
+      "id": "M-H203-ay",
       "req": "harness",
       "why": "主干上越线也红 —— CI 跑在推送之后，主干上判红只会让主干变红",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18815,7 +18863,7 @@
       ]
     },
     {
-      "id": "M-H203-av",
+      "id": "M-H203-az",
       "req": "harness",
       "why": "每份秒数向上取整 —— 报的数与判的数对不上",
       "file": "scripts/check/shard-load-rule.ts",
@@ -18827,7 +18875,7 @@
       ]
     },
     {
-      "id": "M-H203-aw",
+      "id": "M-H203-ba",
       "req": "harness",
       "why": "选组不排序就当键 —— 同样几组写的先后不同就成了两摞，同一种基线跑两遍，也查不到秒数文件里那一行",
       "file": "scripts/check/jobs-rule.ts",
@@ -18839,7 +18887,7 @@
       ]
     },
     {
-      "id": "M-H203-ax",
+      "id": "M-H203-bb",
       "req": "harness",
       "why": "选组是空的当成整跑 —— 键不同，分份与基线对不上",
       "file": "scripts/check/jobs-rule.ts",
@@ -18851,7 +18899,7 @@
       ]
     },
     {
-      "id": "M-H203-ay",
+      "id": "M-H203-bc",
       "req": "harness",
       "why": "称重时不给这一摞的键 —— 每摞都按验证者的默认值算，秒数文件白写",
       "file": "scripts/check/jobs-rule.ts",
