@@ -887,6 +887,15 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
     [`出处对不上：任务里没有已证实的产品事实可对：400ml；ten seconds；BPA-free；$29.99；2-year；warranty；IPX7；30%${SUFFIX}`,
       `只在博主作品里有：3-ingredient${POSTS_SUFFIX}`])
   ok('P2.c 默认模式 HTML 不出这两行（U9.a）', !renderHtml(people, meta).includes('data-draft-claims'))
+  // 两行里每条带草稿原文的前后几个词，草稿里的 <、&、引号要经转义才能进页面（U12）。
+  const tricky = [mk('tiktok', 'tricky', { tier: 'A', score: 1, profile_url: 'https://example.com/tricky',
+    outreach_draft: 'Now <b>"best"</b> & 12-blade motor, your 3-ingredient <i>series</i>',
+    recent_posts: [{ desc: '3-ingredient smoothie', plays: 1 }] as unknown as Creator['recent_posts'] })]
+  const trickyPage = renderHtml(tricky, meta, { mode: 'review', facts: FACTS })
+  const unsourcedTricky = lineOf(trickyPage, 'tricky') ?? '<缺>', postsTricky = lineOf(trickyPage, 'tricky', 'posts-only') ?? '<缺>'
+  ok('P2.c 两行带出的草稿前后文经过转义：<、>、& 与引号不原样进页面',
+    !/[<>"]/.test(unsourcedTricky + postsTricky) && unsourcedTricky.includes('&lt;b&gt;') && unsourcedTricky.includes('&amp; 12-blade') &&
+      postsTricky.includes('&lt;i&gt;series'))
   ok('P2.c 只开评审模式、不开双筛选时也出', lineOf(renderHtml(people, meta, { mode: 'review', facts: FACTS }), 'clean') === `出处对不上：无${SUFFIX}`)
 
   // 比对口径逐条：[名字, 草稿, 已证实的产品事实, 博主作品文字, 期望列为对不上的, 期望列为只在作品里有的]（只比原写法）。

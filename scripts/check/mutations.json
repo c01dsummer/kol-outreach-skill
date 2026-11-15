@@ -731,6 +731,8 @@
     {"id": "M-P2-c34", "req": "P2.c", "why": "数字后面贴着的字母不当单位 —— 1080p 被拆出 1080，资料里任何一个 1080 都把它对上", "file": "scripts/lib/draft-claims.ts", "find": "|([a-z]+(?![\\\\w]))|", "replace": "|(?!)([a-z]+)|", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c35", "req": "P2.c", "why": "空白草稿也出这一行 —— 没写草稿的卡片多出一行「无」，和有草稿的分不开", "file": "scripts/lib/draft-claims.ts", "find": "  if (draft === undefined || draft.trim() === '') return undefined", "replace": "  if (draft === undefined) return undefined", "by": "test", "kills": ["P2.c 有草稿、扫完没有对不上的写「无」，没有只在作品里的不出那一行；没草稿或草稿全是空白的卡片两行都不出", "P2.c 那一行的写法：前后各三个词、不跨行；没有前后词时只写原写法；没事实、资料不是英文、括号没配对各加一句"]},
     {"id": "M-P2-c36", "req": "P2.c", "why": "默认模式 HTML 也出这两行 —— 旧调用方的报告字节变了（U9.a）", "file": "scripts/lib/report.ts", "find": "    const lines = options.mode === 'review'\n", "replace": "    const lines = options.mode !== undefined || true\n", "by": "test", "kills": ["P2.c 默认模式 HTML 不出这两行（U9.a）"]},
+    {"id": "M-P2-c37", "req": "P2.c", "why": "「出处对不上」那一行不转义 —— 每条带的草稿前后文原样进页面，草稿里的 < 与 & 打乱报告或注入标签（U12）", "file": "scripts/lib/report.ts", "find": "出处对不上：${esc(lines.unsourced)}", "replace": "出处对不上：${lines.unsourced}", "by": "test", "kills": ["P2.c 两行带出的草稿前后文经过转义：<、>、& 与引号不原样进页面"]},
+    {"id": "M-P2-c38", "req": "P2.c", "why": "「只在博主作品里有」那一行不转义 —— 草稿里的 < 与 & 原样进页面（U12）", "file": "scripts/lib/report.ts", "find": "只在博主作品里有：${esc(lines.postsOnly)}", "replace": "只在博主作品里有：${lines.postsOnly}", "by": "test", "kills": ["P2.c 两行带出的草稿前后文经过转义：<、>、& 与引号不原样进页面"]},
     {
       "id": "M-U1-a",
       "req": "U9.a",
