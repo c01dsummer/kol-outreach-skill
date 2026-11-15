@@ -18697,10 +18697,10 @@
     {
       "id": "M-H203-al",
       "req": "harness",
-      "why": "只核写没写 MUTATE_JOBS、不核派几个 —— 派的 worker 少了、变异一步慢一成半，没有东西红",
+      "why": "只核写没写那两个键、不核值 —— 派的 worker 少了、变异一步慢一成半，没有东西红",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "  if (!mutateEnv.includes(`MUTATE_JOBS: '${CI_MUTATE_JOBS}'`)) faults",
-      "replace": "  if (!mutateEnv.some(l => l.startsWith('MUTATE_JOBS: '))) faults",
+      "find": "    if (!mutateEnv.includes(want)) faults",
+      "replace": "    if (!mutateEnv.some(l => l.startsWith(want.split(': ')[0] + ': '))) faults",
       "by": "test",
       "kills": [
         "串线：MUTATE_JOBS 改成 4，交回一条"
@@ -18711,8 +18711,8 @@
       "req": "harness",
       "why": "MUTATE_JOBS 在工作流哪里都算 —— 挪到 chain 那一步的 env 里，变异那几份照核数只派 4 个，没有东西红",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "  if (!mutateEnv.includes(`MUTATE_JOBS: '${CI_MUTATE_JOBS}'`)) faults",
-      "replace": "  if (!lines.includes(`MUTATE_JOBS: '${CI_MUTATE_JOBS}'`)) faults",
+      "find": "  const mutateEnv = mutateStepEnv(workflow)",
+      "replace": "  const mutateEnv = lines",
       "by": "test",
       "kills": [
         "串线：MUTATE_JOBS 挪到 chain 那一步，交回一条"
@@ -18968,6 +18968,42 @@
       "by": "test",
       "kills": [
         "接线：shard 矩阵只写在别的 job 里、变异那个 job 没有，交回一条"
+      ]
+    },
+    {
+      "id": "M-H203-bi",
+      "req": "harness",
+      "why": "认与 MUTATE_SHARD 同一段的 env、不认是不是变异那一步 —— 两行一起挪到 compile 那一步也放行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  const mutateEnv = mutateStepEnv(workflow)",
+      "replace": "  const mutateEnv = siblingsOf(workflow, `MUTATE_SHARD: \\${{ matrix.shard }}/${SHARD_COUNT}`) ?? []",
+      "by": "test",
+      "kills": [
+        "串线：MUTATE_SHARD 与 MUTATE_JOBS 一起挪到 compile 那一步，交回两条"
+      ]
+    },
+    {
+      "id": "M-H203-bj",
+      "req": "harness",
+      "why": "只核 MUTATE_JOBS 在不在变异那一步、不核 MUTATE_SHARD —— 分份那一行挪走了，变异一步每份都跑整份",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  for (const want of [`MUTATE_SHARD: \\${{ matrix.shard }}/${SHARD_COUNT}`, `MUTATE_JOBS: '${CI_MUTATE_JOBS}'`]) {",
+      "replace": "  for (const want of [`MUTATE_JOBS: '${CI_MUTATE_JOBS}'`]) {",
+      "by": "test",
+      "kills": [
+        "串线：MUTATE_SHARD 与 MUTATE_JOBS 一起挪到 compile 那一步，交回两条"
+      ]
+    },
+    {
+      "id": "M-H203-bk",
+      "req": "harness",
+      "why": "env 底下更深一层的也算 —— 写在 env 里某个子映射下的 MUTATE_JOBS 不是变异那一步的环境变量也放行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (indent(l) === level) out.push(l.trim())",
+      "replace": "    out.push(l.trim())",
+      "by": "test",
+      "kills": [
+        "串线：MUTATE_JOBS 写在变异那一步下面更深的一层（with 里），交回一条"
       ]
     },
     {

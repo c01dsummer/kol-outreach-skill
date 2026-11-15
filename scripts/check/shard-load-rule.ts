@@ -221,6 +221,30 @@ const mutateJobOf = (workflow: string, count: number): string => {
 }
 
 /**
+ * `- run: npm run mutate` 那一步自己的 env（去注释、去两头空白）：那一步下面缩进比 `-` 深的几行里，`env:` 底下那一层。
+ * 找不到那一步或它没有 env 时交回 []
+ */
+const mutateStepEnv = (workflow: string): string[] => {
+  const raw = workflow.split('\n').map(l => l.replace(/#.*$/, '').trimEnd())
+  const indent = (l: string): number => l.length - l.trimStart().length
+  const at = raw.findIndex(l => l.trim() === '- run: npm run mutate')
+  if (at < 0) return []
+  const dash = indent(raw[at])
+  let to = at + 1
+  while (to < raw.length && (raw[to].trim() === '' || indent(raw[to]) > dash)) to++
+  const step = raw.slice(at + 1, to).filter(l => l.trim() !== '')
+  const env = step.findIndex(l => l.trim() === 'env:' && indent(l) === dash + 2)
+  if (env < 0) return []
+  const level = env + 1 < step.length ? indent(step[env + 1]) : 0
+  const out: string[] = []
+  for (const l of step.slice(env + 1)) {
+    if (indent(l) <= dash + 2) break
+    if (indent(l) === level) out.push(l.trim())
+  }
+  return out
+}
+
+/**
  * `check.yml` 里写死份数的几处与 `SHARD_COUNT` 对不对得上（ADR-200 第 92 行那张接线欠条的「份数」那一半）：
  * matrix 那一行恰是 `shard: [1, …, n]`、`MUTATE_SHARD` 那一行恰是 `/n`、上传的分份启动数文件名是 `-of-n.json`，
  * 且那个矩阵里没有 `exclude:` 剔掉哪一份。矩阵与 exclude 只在变异那个 job 里认（见 `mutateJobOf`），别的 job 的矩阵不管。对不上时交回每一处说的是什么；改份数要这几处与这个常量一起改。
@@ -239,7 +263,8 @@ export function shardWiringFaults(workflow: string, count: number): string[] {
  * `check.yml` 里另外两处接线（ADR-200 第 92 行那张欠条的两半）：
  * - `chain` 那个 job 跑的那一串，必须恰是 `package.json` 的 `check` 去掉变异与启动数两步 —— 本地那一串加了一步、CI 上忘了加，
  *   CI 就少查一样还照样绿；
- * - 变异那一步的 env 里（与 `MUTATE_SHARD` 同一段）写着 `MUTATE_JOBS: '6'` —— 删掉它或挪到别的步骤，每份照核数只派 4 个，变异一步慢约一成半，没有东西会红。
+ * - `- run: npm run mutate` 那一步自己的 env 里写着 `MUTATE_SHARD` 与 `MUTATE_JOBS: '6'` —— 删掉或挪到别的步骤（哪怕两行一起挪），
+ *   变异一步就不分份或每份照核数只派 4 个，没有东西会红。
  * `checkScript` 读不到（undefined）也算一处对不上。对得上交回 []。
  */
 export function chainWiringFaults(workflow: string, checkScript: string | undefined): string[] {
@@ -249,9 +274,11 @@ export function chainWiringFaults(workflow: string, checkScript: string | undefi
     const chain = checkScript.replace(' && npm run mutate', '').replace(' && npm run launches', '')
     if (!lines.includes(`- run: ${chain}`)) faults.push(`chain 那一串不是 package.json 的 check 去掉 mutate 与 launches 两步（应为「${chain}」）`)
   }
-  // 只认写在变异那一步 env 里（与 MUTATE_SHARD 同一段）的那一行：挪到 chain 那一步的 env 里管不到变异
-  const mutateEnv = siblingsOf(workflow, `MUTATE_SHARD: \${{ matrix.shard }}/${SHARD_COUNT}`) ?? []
-  if (!mutateEnv.includes(`MUTATE_JOBS: '${CI_MUTATE_JOBS}'`)) faults.push(`变异那一步的 env 里（与 MUTATE_SHARD 同一段）没写「MUTATE_JOBS: '${CI_MUTATE_JOBS}'」`)
+  // 只认写在 `- run: npm run mutate` 那一步 env 里的：两行一起挪到别的步骤（chain 那一步、同 job 的 compile 那一步）都管不到变异
+  const mutateEnv = mutateStepEnv(workflow)
+  for (const want of [`MUTATE_SHARD: \${{ matrix.shard }}/${SHARD_COUNT}`, `MUTATE_JOBS: '${CI_MUTATE_JOBS}'`]) {
+    if (!mutateEnv.includes(want)) faults.push(`「- run: npm run mutate」那一步的 env 里没写「${want}」`)
+  }
   return faults
 }
 

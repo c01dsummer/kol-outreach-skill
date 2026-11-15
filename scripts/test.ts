@@ -11671,7 +11671,7 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
     '  mutate:', '    steps:', '      - run: npm run mutate', '        env:', '          ' + envLine, '      - path: ' + artifact]).length, 1)
   // chain 那一串与 package.json 的 check 对得上（去掉 mutate 与 launches 两步）、变异那几份写着 MUTATE_JOBS: '6'
   const checkLine = 'npm run anchors && npm run size && npm test && npm run mutate && npm run audit && npm run launches'
-  const flow = (chain: string, jobs = "MUTATE_JOBS: '6'") => `jobs:\n  chain:\n    steps:\n      - run: ${chain}\n  mutate:\n    env:\n      MUTATE_SHARD: \${{ matrix.shard }}/3\n      ${jobs}\n`
+  const flow = (chain: string, jobs = "MUTATE_JOBS: '6'") => `jobs:\n  chain:\n    steps:\n      - run: ${chain}\n  mutate:\n    steps:\n      - run: npm run mutate\n        env:\n          MUTATE_SHARD: \${{ matrix.shard }}/3\n          ${jobs}\n      - uses: x\n`
   eq('串线：chain 恰是 check 去掉两步，没有说明', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit'), checkLine), [])
   eq('串线：chain 少写一步，交回一条', chainWiringFaults(flow('npm run anchors && npm test && npm run audit'), checkLine).length, 1)
   eq('串线：chain 多跑了 mutate，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run mutate && npm run audit'), checkLine).length, 1)
@@ -11680,7 +11680,10 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('串线：MUTATE_JOBS 改成 4，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "MUTATE_JOBS: '4'"), checkLine).length, 1)
   ok('串线：MUTATE_JOBS 写成 2、6 只在行尾注释里，不算', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "MUTATE_JOBS: '2'  # '6'"), checkLine).length > 0)
   // MUTATE_JOBS 要写在变异那一步的 env 里（与 MUTATE_SHARD 同一段）；挪到 chain 那一步的 env 里不算
-  eq('串线：MUTATE_JOBS 挪到 chain 那一步，交回一条', chainWiringFaults(`jobs:\n  chain:\n    env:\n      MUTATE_JOBS: '6'\n    steps:\n      - run: npm run anchors && npm run size && npm test && npm run audit\n  mutate:\n    env:\n      MUTATE_SHARD: \${{ matrix.shard }}/3\n`, checkLine).length, 1)
+  eq('串线：MUTATE_JOBS 挪到 chain 那一步，交回一条', chainWiringFaults(`jobs:\n  chain:\n    steps:\n      - run: npm run anchors && npm run size && npm test && npm run audit\n        env:\n          MUTATE_JOBS: '6'\n  mutate:\n    steps:\n      - run: npm run mutate\n        env:\n          MUTATE_SHARD: \${{ matrix.shard }}/3\n`, checkLine).length, 1)
+  // 两行一起挪到同一 job 的前一步（compile）：同一段里照样都有，但变异那一步一样也拿不到
+  eq('串线：MUTATE_SHARD 与 MUTATE_JOBS 一起挪到 compile 那一步，交回两条', chainWiringFaults(`jobs:\n  chain:\n    steps:\n      - run: npm run anchors && npm run size && npm test && npm run audit\n  mutate:\n    steps:\n      - run: npm run compile\n        env:\n          MUTATE_SHARD: \${{ matrix.shard }}/3\n          MUTATE_JOBS: '6'\n      - run: npm run mutate\n      - uses: x\n`, checkLine).length, 2)
+  eq('串线：MUTATE_JOBS 写在变异那一步下面更深的一层（with 里），交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "with:\n            MUTATE_JOBS: '6'"), checkLine).length, 1)
   ok('串线：对的那一串只留在注释里，不算', chainWiringFaults('# - run: npm run anchors && npm run size && npm test && npm run audit\n' + flow('npm test'), checkLine).length > 0)
 
   // 闸。loads 是每份的验证者秒数。底子：三份差不多重（合计 6300.6），基线 6290（长了 0.17%），PR 上
