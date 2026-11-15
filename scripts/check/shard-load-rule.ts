@@ -112,7 +112,7 @@ const sumOf = (o: unknown, field: 'totalMs' | 'samples'): number | undefined => 
   if (!isObject(o)) return undefined
   let s = 0
   for (const v of Object.values(o)) {
-    if (!isObject(v) || typeof v[field] !== 'number' || !Number.isFinite(v[field])) return undefined
+    if (!isObject(v) || typeof v[field] !== 'number' || !Number.isFinite(v[field]) || (v[field] as number) < 0) return undefined
     s += v[field] as number
   }
   return s
@@ -188,17 +188,33 @@ export function growthWaivers(trailers: readonly string[]): string[] {
 
 /** 去掉每行 `#` 起的注释、两头空白：接线核对只认真起作用的那几行，注释里留着的旧写法不算 */
 const liveLines = (workflow: string): string[] => workflow.split('\n').map(l => l.replace(/#.*$/, '').trim())
+/**
+ * 与某一行同属一个 YAML 映射的那几行（去注释、去两头空白）：往上往下走，缩进不比它浅的都在这一段里，只留与它同一层的。
+ * 用来把「exclude」限在变异那个矩阵里、把「MUTATE_JOBS」限在变异那一步的 env 里 —— 别的 job 里写的不算
+ */
+const siblingsOf = (workflow: string, wanted: string): string[] | undefined => {
+  const raw = workflow.split('\n').map(l => l.replace(/#.*$/, '').trimEnd())
+  const at = raw.findIndex(l => l.trim() === wanted)
+  if (at < 0) return undefined
+  const indent = (l: string): number => l.length - l.trimStart().length
+  const level = indent(raw[at])
+  const inside = (l: string): boolean => l.trim() === '' || indent(l) >= level
+  let from = at, to = at
+  while (from > 0 && inside(raw[from - 1])) from--
+  while (to < raw.length - 1 && inside(raw[to + 1])) to++
+  return raw.slice(from, to + 1).filter(l => l.trim() !== '' && indent(l) === level).map(l => l.trim())
+}
 
 /**
  * `check.yml` 里写死份数的几处与 `SHARD_COUNT` 对不对得上（ADR-200 第 92 行那张接线欠条的「份数」那一半）：
  * matrix 那一行恰是 `shard: [1, …, n]`、`MUTATE_SHARD` 那一行恰是 `/n`、上传的分份启动数文件名是 `-of-n.json`，
- * 且没有 `exclude:` 剔掉哪一份。对不上时交回每一处说的是什么；改份数要这几处与这个常量一起改。
+ * 且那个矩阵里没有 `exclude:` 剔掉哪一份（别的 job 的矩阵不管）。对不上时交回每一处说的是什么；改份数要这几处与这个常量一起改。
  */
 export function shardWiringFaults(workflow: string, count: number): string[] {
   const lines = liveLines(workflow), faults: string[] = []
   const list = Array.from({ length: count }, (_unused, i) => i + 1).join(', ')
   if (!lines.includes(`shard: [${list}]`)) faults.push(`matrix 不是「shard: [${list}]」`)
-  if (lines.some(l => l.includes('exclude:'))) faults.push('matrix 用 exclude 剔掉了某几份')
+  if ((siblingsOf(workflow, `shard: [${list}]`) ?? []).some(l => l.startsWith('exclude:'))) faults.push('matrix 用 exclude 剔掉了某几份')
   if (!lines.includes(`MUTATE_SHARD: \${{ matrix.shard }}/${count}`)) faults.push(`MUTATE_SHARD 不是「\${{ matrix.shard }}/${count}」`)
   if (!lines.some(l => l.includes(`launches-\${{ matrix.shard }}-of-${count}.json`))) faults.push(`分份启动数文件名不是「launches-\${{ matrix.shard }}-of-${count}.json」`)
   return faults
@@ -208,7 +224,7 @@ export function shardWiringFaults(workflow: string, count: number): string[] {
  * `check.yml` 里另外两处接线（ADR-200 第 92 行那张欠条的两半）：
  * - `chain` 那个 job 跑的那一串，必须恰是 `package.json` 的 `check` 去掉变异与启动数两步 —— 本地那一串加了一步、CI 上忘了加，
  *   CI 就少查一样还照样绿；
- * - 变异那几份写着 `MUTATE_JOBS: '6'` —— 删掉它，每份照核数只派 4 个，变异一步慢约一成半，没有东西会红。
+ * - 变异那一步的 env 里（与 `MUTATE_SHARD` 同一段）写着 `MUTATE_JOBS: '6'` —— 删掉它或挪到别的步骤，每份照核数只派 4 个，变异一步慢约一成半，没有东西会红。
  * `checkScript` 读不到（undefined）也算一处对不上。对得上交回 []。
  */
 export function chainWiringFaults(workflow: string, checkScript: string | undefined): string[] {
@@ -218,7 +234,9 @@ export function chainWiringFaults(workflow: string, checkScript: string | undefi
     const chain = checkScript.replace(' && npm run mutate', '').replace(' && npm run launches', '')
     if (!lines.includes(`- run: ${chain}`)) faults.push(`chain 那一串不是 package.json 的 check 去掉 mutate 与 launches 两步（应为「${chain}」）`)
   }
-  if (!lines.includes(`MUTATE_JOBS: '${CI_MUTATE_JOBS}'`)) faults.push(`变异那几份没写「MUTATE_JOBS: '${CI_MUTATE_JOBS}'」`)
+  // 只认写在变异那一步 env 里（与 MUTATE_SHARD 同一段）的那一行：挪到 chain 那一步的 env 里管不到变异
+  const mutateEnv = siblingsOf(workflow, `MUTATE_SHARD: \${{ matrix.shard }}/${SHARD_COUNT}`) ?? []
+  if (!mutateEnv.includes(`MUTATE_JOBS: '${CI_MUTATE_JOBS}'`)) faults.push(`变异那一步的 env 里（与 MUTATE_SHARD 同一段）没写「MUTATE_JOBS: '${CI_MUTATE_JOBS}'」`)
   return faults
 }
 

@@ -11626,6 +11626,7 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('算权重：算出来的东西过得了权重文件的形状检查', w === undefined ? '没算出来' : 'weights' in readWeights(JSON.parse(JSON.stringify(w))), true)
   ok('算权重：一份报告都没有，说算不了', faulted(weightsFromReports([])))
   ok('算权重：有一份报告没有 rows，说算不了', faulted(weightsFromReports([report('aaa', row('T1', 'test', [[1, 1000]], [[1, 1000]]), row('S1', 'selfcheck', [[1, 1000]], [[1, 1000]])), { identity: { headSha: 'bbb' } }])))
+  ok('算权重：报告里有负的毫秒，说算不了', faulted(weightsFromReports([report('aaa', row('T1', 'test', [[1, 1000]], [[1, 1000]]), row('S1', 'selfcheck', [[1, 1000]], [[1, -1000]]))])))
   ok('算权重：自检验证的一条都没有，说算不了', faulted(weightsFromReports([report('aaa', row('T1', 'test', [[1, 1000]], [[1, 1000]]))])))
 
   // 豁免：只认键恰为 mutation-growth-ok 的 trailer，理由非空才收
@@ -11656,10 +11657,13 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   ok('接线：MUTATE_SHARD 那一行只留在注释里，不算', faults([matrix, 'MUTATE_SHARD: 1/1  # ' + envLine, artifact]).length > 0)
   ok('接线：矩阵带 exclude:，算一处对不上', faults([matrix, 'exclude:', '  - shard: 2', envLine, artifact]).length > 0)
   ok('接线：MUTATE_SHARD 分母写成 30，不算', faults([matrix, envLine + '0', artifact]).length > 0)
+  // exclude 只管变异那个矩阵：别的 job 自己的矩阵里写 exclude 不算变异这边对不上
+  eq('接线：别的 job 的矩阵带 exclude:，不算', faults(['jobs:', '  other:', '    strategy:', '      matrix:', '        os: [a, b]', '        exclude:', '          - os: b',
+    '  mutate:', '    strategy:', '      matrix:', '        ' + matrix, '    env:', '      ' + envLine, '      path: ' + artifact]), [])
   ok('接线：矩阵那一段只是别的键的一截，不算', faults(['old-' + matrix, envLine, artifact]).length > 0)
   // chain 那一串与 package.json 的 check 对得上（去掉 mutate 与 launches 两步）、变异那几份写着 MUTATE_JOBS: '6'
   const checkLine = 'npm run anchors && npm run size && npm test && npm run mutate && npm run audit && npm run launches'
-  const flow = (chain: string, jobs = "MUTATE_JOBS: '6'") => `jobs:\n  chain:\n    steps:\n      - run: ${chain}\n  mutate:\n    env:\n      ${jobs}\n`
+  const flow = (chain: string, jobs = "MUTATE_JOBS: '6'") => `jobs:\n  chain:\n    steps:\n      - run: ${chain}\n  mutate:\n    env:\n      MUTATE_SHARD: \${{ matrix.shard }}/3\n      ${jobs}\n`
   eq('串线：chain 恰是 check 去掉两步，没有说明', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit'), checkLine), [])
   eq('串线：chain 少写一步，交回一条', chainWiringFaults(flow('npm run anchors && npm test && npm run audit'), checkLine).length, 1)
   eq('串线：chain 多跑了 mutate，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run mutate && npm run audit'), checkLine).length, 1)
@@ -11667,6 +11671,8 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('串线：读不到 check 那一串，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit'), undefined).length, 1)
   eq('串线：MUTATE_JOBS 改成 4，交回一条', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "MUTATE_JOBS: '4'"), checkLine).length, 1)
   ok('串线：MUTATE_JOBS 写成 2、6 只在行尾注释里，不算', chainWiringFaults(flow('npm run anchors && npm run size && npm test && npm run audit', "MUTATE_JOBS: '2'  # '6'"), checkLine).length > 0)
+  // MUTATE_JOBS 要写在变异那一步的 env 里（与 MUTATE_SHARD 同一段）；挪到 chain 那一步的 env 里不算
+  eq('串线：MUTATE_JOBS 挪到 chain 那一步，交回一条', chainWiringFaults(`jobs:\n  chain:\n    env:\n      MUTATE_JOBS: '6'\n    steps:\n      - run: npm run anchors && npm run size && npm test && npm run audit\n  mutate:\n    env:\n      MUTATE_SHARD: \${{ matrix.shard }}/3\n`, checkLine).length, 1)
   ok('串线：对的那一串只留在注释里，不算', chainWiringFaults('# - run: npm run anchors && npm run size && npm test && npm run audit\n' + flow('npm test'), checkLine).length > 0)
 
   // 闸。loads 是每份的验证者秒数。底子：三份差不多重（合计 6300.6），基线 6290（长了 0.17%），PR 上
