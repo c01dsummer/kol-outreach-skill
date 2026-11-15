@@ -25332,6 +25332,30 @@
       ]
     },
     {
+      "id": "M-H198-ck",
+      "req": "harness",
+      "why": "JSON 那一路拆数组与对象的交叉时连对象那一半也进：JSON 只写数组元素，挂在数组上的别的字段算成碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "for (const u of arr.length > 0 ? arr : t.types)",
+      "replace": "for (const u of t.types)",
+      "by": "test",
+      "kills": [
+        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+      ]
+    },
+    {
+      "id": "M-H198-cl",
+      "req": "harness",
+      "why": "逐层深比较那一路也只看数组元素：深比较会比数组上挂的别的字段，这些字段算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const arr = entries ? [] : t.types.filter",
+      "replace": "const arr = t.types.filter",
+      "by": "test",
+      "kills": [
+        "字段：同一类型换过与没换过 toJSON 的位置各走一次（两种先后都认）；调用了的 toJSON 本身算用到；可调用的值 JSON 不写，挂在上面的属性不算"
+      ]
+    },
+    {
       "id": "M-H196-a",
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",

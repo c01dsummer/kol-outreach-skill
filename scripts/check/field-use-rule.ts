@@ -253,7 +253,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures()
       if (replaced.length > 0) { mark(toJSON); for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries, false); return }
       if (!entries && t.getCallSignatures().length > 0) return // JSON 不写可调用的值，挂在它上面的属性没被读
-      if (t.isIntersection()) { for (const u of t.types) whole(u, seen, entries, swap); return }
+      if (t.isIntersection()) { const arr = entries ? [] : t.types.filter(u => tc.isArrayType(u) || tc.isTupleType(u)); for (const u of arr.length > 0 ? arr : t.types) whole(u, seen, entries, swap); return } // JSON 只写数组元素
       if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
       if (!(t.flags & ts.TypeFlags.Object)) return
       if (fromLibrary(t) && entries && !/^(Weak|Promise$)/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)
