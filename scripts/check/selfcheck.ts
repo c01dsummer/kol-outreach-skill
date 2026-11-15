@@ -7585,6 +7585,18 @@ group('admission-entry', [], () => {
   if (reach.ok) named('admission 声明产出落在仓库外时拒收、包目录内外都不写',
     refused(reach.stderr, '落在仓库外') && !existsSync(reachPkg)
       && isDeepStrictEqual(listing(join(tmp, 'admission-outside-src')), ['far.ts']), reach.stderr)
+  // 源码引用了仓库里、两个源目录之外的 .ts（scripts/check/ 下的）：tsc 也给它出声明，那不是签名 —— 以 2 拒收、不建包目录（#484 上 CodeRabbit 第二轮）
+  const strayTree = join(tmp, 'admission-stray')
+  toy(strayTree, { mutations, exemptions })
+  mkdirSync(join(strayTree, 'scripts', 'check'), { recursive: true })
+  writeFileSync(join(strayTree, 'scripts', 'check', 'private.ts'), 'export const secret = 1\n', 'utf8')
+  // 路径放进变量再拼，理由同上一条
+  const straySpec = '../check/private.js'
+  writeFileSync(join(strayTree, 'scripts', 'lib', 'near.ts'), `export { secret } from '${straySpec}'\n`, 'utf8')
+  const strayPkg = join(tmp, 'admission-pkg-stray')
+  const strayRun = runToolBoth('admission 源码引用了源目录之外的仓库文件即以退出码 2 结束', 'admission', ['P1', strayPkg], strayTree, { status: 2 })
+  if (strayRun.ok) named('admission 声明产出不在源目录里时拒收、点出那份声明、不建包目录',
+    refused(strayRun.stderr, '不在源目录里') && strayRun.stderr.includes('scripts/check/private.d.ts') && !existsSync(strayPkg), strayRun.stderr)
 
   // 有 git 的树：清单写出 HEAD 的提交与工作区干不干净；包目录是已存在的空目录照常出包（契约是「不存在或是空的」）。
   // 复核手改把干净与不干净写反、把提交写成 HEAD~1 都存活过 —— 那时玩具树全没有 git

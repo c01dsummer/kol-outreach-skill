@@ -148,6 +148,10 @@ function main(): number {
   // 照搬进包会写到包目录外面去，而且那份不是这两个源目录的签名（#484 上 CodeRabbit 第一轮）
   const outside = [...signatures.keys()].filter(f => f === '..' || f.startsWith('../') || isAbsolute(f))
   if (outside.length > 0) return refuse(`声明产出落在仓库外：${outside.join('、')} —— 源目录里的代码引用了仓库外的文件`)
+  // 仓库里、两个源目录之外的 .ts 被引用到，tsc 同样给它出声明（比如 scripts/check/ 下的）：那不是签名，进包就把实现那一侧递给了写测试的人（#484 上 CodeRabbit 第二轮）
+  const expected = new Set(sources.map(f => f.replace(/\.ts$/, '.d.ts')))
+  const stray = [...signatures.keys()].filter(f => !expected.has(f))
+  if (stray.length > 0) return refuse(`声明产出不在源目录里：${stray.join('、')} —— 源目录里的代码引用了 ${SOURCES.join('、')} 之外的文件`)
   const missing = sources.map(f => f.replace(/\.ts$/, '.d.ts')).filter(f => !signatures.has(f))
   if (skipped || missing.length > 0) {
     console.error(`✗ 准入读物包：声明没出全（${missing.join('、') || '产出被跳过'}），不出包`)
