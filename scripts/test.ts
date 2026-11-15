@@ -195,6 +195,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-plays', needs: [] },
   { id: 'p2-placeholders', needs: [] },
   { id: 'p2-draft-claims', needs: [] },
+  { id: 'p2-endorsement-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
@@ -1018,32 +1019,6 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
     ['同一个承诺词单复数、空格连字符不计：awards 认 Award，free returns 认 Free return', 'Won awards, free returns, leakproof.', ['Award winner 2024', 'Free return within 30 days', 'Leak-proof lid'], [], [], []],
     ['免费送货各对各的；several hundred、hundreds 这类没有阿拉伯数字的大数也列', 'Free 2-day shipping. Lasts several hundred hours, loved by hundreds.',
       ['Free shipping over $50', 'Battery lasts hours'], [], ['Free 2-day shipping', 'several hundred', 'hundreds'], []],
-    ['资料里 expired 这类说法不给承诺词当出处', 'Lifetime warranty included.', ['Lifetime warranty expired for old models'], [], ['Lifetime warranty'], []],
-    ['资料里 except、unless、excluding、exclusions 也是否定', 'Free shipping, money-back guarantee, BPA-free, leakproof.',
-      ['Free shipping on all orders except Hawaii', 'Money-back guarantee unless opened', 'BPA-free lid, excluding the seal', 'Leakproof (exclusions apply)'], [],
-      ['Free shipping', 'money-back', 'guarantee', 'BPA-free', 'leakproof'], []],
-    ['认证类说法连同紧挨的「谁」整截原样比：资料里别家的认证、别的批文不当出处', 'It is CE certified and UL certified, approved by the FDA, recommended by dermatologists, certified by TÜV.',
-      ['Made in an ISO 9001 certified, FDA registered facility', 'Dermatologist tested formula'], [],
-      ['CE certified', 'UL certified', 'approved by the FDA', 'recommended by dermatologists', 'certified by TÜV'], []],
-    ['认证类那一截资料里要原样有：FDA approved 不算 approved by the FDA 的出处；CE-certified 算 CE certified', 'Our blender is fully waterproof, approved by the FDA, CE certified, and comes with free gifts.',
-      ['Waterproof base', 'FDA approved', 'CE-certified motor', 'Free gift with every order'], [], ['approved by the FDA'], []],
-    ['认证类整截原样比：连字符、名词式、主动式里单写的机构名照列、to 后面的机构', 'It is NSF-certified and has FDA approval. The FDA has approved it. Certified to NSF standards; USDA certified; certified organic; FDA certified.',
-      ['Made in an ISO 9001 certified, FDA registered facility', 'Dermatologist tested formula', 'Organic cotton'], [],
-      ['NSF-certified', 'FDA approval', 'FDA', 'Certified to NSF', 'USDA certified', 'FDA certified'], []],
-    ['属性词前面的形容词、动词不拿去比：durable leakproof、backed by a lifetime warranty 资料里有就对上', 'We make a durable leakproof bottle, premium BPA-free, backed by a lifetime warranty. Enjoy free shipping, gentle vegan formula, waterproof by design.',
-      ['Leakproof lid.', 'Lifetime warranty.', 'BPA-free', 'Free shipping', 'Vegan', 'Waterproof'], [], [], []],
-    ['资料原样写了就对上，换了语序不算；by 后面的 U.S. 这类缩写整个带上', 'Tested by dermatologists, FDA approved, approved by the U.S. FDA, certified by SGS.',
-      ['Dermatologist tested formula', 'The blender is FDA approved', 'Approved by the US FDA', 'Certified by SGS and TÜV'], [], ['Tested by dermatologists', 'approved by the U.S. FDA'], []],
-    ['资料里否定那一句、只有机构名的那一句都不算出处', 'FDA certified and approved by the FDA.',
-      ['Our FDA registered facility is certified.', 'Not FDA approved. Approved by Health Canada.'], [], ['FDA certified', 'approved by the FDA'], []],
-    ['占位符不当「谁」；属性词照原词对上', 'Premium leakproof vegan leather, money back guarantee, Acme {product_name} certified.',
-      ['Leakproof', 'Vegan leather', 'Money back guarantee', 'ISO certified'], [], [], []],
-    ['资料里「还没拿到」的说法不算出处：awaiting、applied for、in progress', 'It has FDA approval and FDA clearance, UL listed.',
-      ['Awaiting FDA approval.', 'We have applied for FDA clearance.', 'UL listed: in progress'], [], ['FDA approval', 'FDA clearance', 'UL listed'], []],
-    ['资料里的问句不算出处；单写的机构名资料里写了也照列', 'It is FDA approved. Approved: FDA.', ['Is it FDA approved? No, it is FDA registered.'], [], ['FDA approved', 'FDA'], []],
-    ['数后面的单位、承诺词后半截不当「谁」：数照常带单位比，免费送货照常比', 'The hinge is 500 cycles tested. A 4K certified display. Free shipping approved.', ['500 cycles', 'Free shipping', '4K'], [], ['certified', 'shipping approved'], []],
-    ['不挨着「谁」的 approved、tested 不算说法；数后面的单位照常比', 'Drop tested to 2 m. Once approved, we ship. We tested it. Highly recommended.',
-      ['Drop tested to 2 ft'], [], ['2 m'], []],
     ['草稿里的复数、免费送货的几种说法互认', 'Ships free, free gifts, free trials, recommended by dermatologists, loved by dermatologists.',
       ['Free shipping', 'x'], [], ['free gifts', 'free trials', 'recommended by dermatologists', 'dermatologists'], []],
   ]
@@ -1092,6 +1067,65 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
       [0, '出处对不上：5-year（blender with a 5-year warranty, waterproof.）；warranty（with a 5-year warranty, waterproof.）（只查数字和承诺词，其余说法仍要自己看）', true])
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
   } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+
+await group('p2-endorsement-claims', () => {
+suite('P2', '开发信草稿里的认证类说法（谁认证、谁批准）要在产品资料里原样找得到')
+{
+  // P2.c 认证类那一截（ADR-209 第二十、二十一节）：认证词连同紧挨的「谁」整截原样比，资料里否定、问句、「还没拿到」的那一句不算出处；
+  // 单写的机构名照列。行的格式同上一组的比对口径表：[名字, 草稿, 已证实的产品事实, 博主作品文字, 期望列为对不上的, 期望列为只在作品里有的]。
+  const rules: Array<[string, string, string[], string[], string[], string[]]> = [
+    ['资料里 expired 这类说法不给承诺词当出处', 'Lifetime warranty included.', ['Lifetime warranty expired for old models'], [], ['Lifetime warranty'], []],
+    ['资料里 except、unless、excluding、exclusions 也是否定', 'Free shipping, money-back guarantee, BPA-free, leakproof.',
+      ['Free shipping on all orders except Hawaii', 'Money-back guarantee unless opened', 'BPA-free lid, excluding the seal', 'Leakproof (exclusions apply)'], [],
+      ['Free shipping', 'money-back', 'guarantee', 'BPA-free', 'leakproof'], []],
+    ['认证类说法连同紧挨的「谁」整截原样比：资料里别家的认证、别的批文不当出处', 'It is CE certified and UL certified, approved by the FDA, recommended by dermatologists, certified by TÜV.',
+      ['Made in an ISO 9001 certified, FDA registered facility', 'Dermatologist tested formula'], [],
+      ['CE certified', 'UL certified', 'approved by the FDA', 'recommended by dermatologists', 'certified by TÜV'], []],
+    ['认证类那一截资料里要原样有：FDA approved 不算 approved by the FDA 的出处；CE-certified 算 CE certified', 'Our blender is fully waterproof, approved by the FDA, CE certified, and comes with free gifts.',
+      ['Waterproof base', 'FDA approved', 'CE-certified motor', 'Free gift with every order'], [], ['approved by the FDA'], []],
+    ['认证类整截原样比：连字符、名词式、主动式里单写的机构名照列、to 后面的机构', 'It is NSF-certified and has FDA approval. The FDA has approved it. Certified to NSF standards; USDA certified; certified organic; FDA certified.',
+      ['Made in an ISO 9001 certified, FDA registered facility', 'Dermatologist tested formula', 'Organic cotton'], [],
+      ['NSF-certified', 'FDA approval', 'FDA', 'Certified to NSF standards', 'USDA certified', 'FDA certified'], []],
+    ['属性词前面的形容词、动词不拿去比：durable leakproof、backed by a lifetime warranty 资料里有就对上', 'We make a durable leakproof bottle, premium BPA-free, backed by a lifetime warranty. Enjoy free shipping, gentle vegan formula, waterproof by design.',
+      ['Leakproof lid.', 'Lifetime warranty.', 'BPA-free', 'Free shipping', 'Vegan', 'Waterproof'], [], [], []],
+    ['资料原样写了就对上，换了语序不算；by 后面的 U.S. 这类缩写整个带上', 'Tested by dermatologists, FDA approved, approved by the U.S. FDA, certified by SGS.',
+      ['Dermatologist tested formula', 'The blender is FDA approved', 'Approved by the US FDA', 'Certified by SGS and TÜV'], [], ['Tested by dermatologists', 'approved by the U.S. FDA'], []],
+    ['资料里否定那一句、只有机构名的那一句都不算出处', 'FDA certified and approved by the FDA.',
+      ['Our FDA registered facility is certified.', 'Not FDA approved. Approved by Health Canada.'], [], ['FDA certified', 'approved by the FDA'], []],
+    ['占位符不当「谁」；属性词照原词对上', 'Premium leakproof vegan leather, money back guarantee, Acme {product_name} certified.',
+      ['Leakproof', 'Vegan leather', 'Money back guarantee', 'ISO certified'], [], [], []],
+    ['资料里「还没拿到」的说法不算出处：awaiting、applied for、in progress', 'It has FDA approval and FDA clearance, UL listed.',
+      ['Awaiting FDA approval.', 'We have applied for FDA clearance.', 'UL listed: in progress'], [], ['FDA approval', 'FDA clearance', 'UL listed'], []],
+    ['资料里的问句不算出处；单写的机构名资料里写了也照列', 'It is FDA approved. Approved: FDA.', ['Is it FDA approved? No, it is FDA registered.'], [], ['FDA approved', 'Approved: FDA'], []],
+    ['数后面的单位、承诺词后半截不当「谁」：数照常带单位比，免费送货照常比', 'The hinge is 500 cycles tested. A 4K certified display. Free shipping approved.', ['500 cycles', 'Free shipping', '4K'], [], ['certified', 'Free shipping approved'], []],
+    ['不挨着「谁」的 approved、tested 不算说法；数后面的单位照常比', 'Drop tested to 2 m. Once approved, we ship. We tested it. Highly recommended.',
+      ['Drop tested to 2 ft'], [], ['2 m'], []],
+    ['取不进来的「谁」也要取进来：ISO 9001 certified 不靠资料里的 ISO 9001 或别的 certified 过关', 'It is ISO 9001 certified.', ['Our factory follows ISO 9001.', 'Qi2 certified.'], [], ['ISO 9001 certified'], []],
+    ['并列的几个名字整截带上：certified Kosher and Halal、Halal and Kosher certified、by NSF and Energy Star、by Health Canada and the EPA',
+      'It is certified Kosher and Halal. It is Halal and Kosher certified. Certified by NSF and Energy Star. Approved by Health Canada and the EPA.',
+      ['Certified Kosher.', 'Kosher certified.', 'Certified by NSF.', 'Approved by Health Canada.'], [],
+      ['certified Kosher and Halal', 'Halal and Kosher certified', 'Certified by NSF and Energy Star', 'Approved by Health Canada and the EPA'], []],
+    ['机构名不同的各对各的：Health Canada 不认 Transport Canada；WHO approved 照列', 'Health Canada approved. WHO approved.', ['Transport Canada approved.'], [],
+      ['Health Canada approved', 'WHO approved'], []],
+    ['全大写的 US 照样当名字；单写的 CE、UL 资料里写了也照列', 'Certified by the US Department of Agriculture. Meets CE and UL standards.',
+      ['Certified by the US Department of Energy.', 'Meets CE and UL standards.'], [], ['Certified by the US Department of Agriculture', 'CE', 'UL'], []],
+    ['资料里 Dr. 后面不断句；lapsed、competitor、filed 这类说法不算出处', 'It is FDA approved, NSF certified and UL listed.',
+      ["We do not claim that Dr. Smith's formula is FDA approved.", 'NSF certification lapsed. Our competitor is NSF certified.', 'UL listed: filed.'], [],
+      ['FDA approved', 'NSF certified', 'UL listed'], []],
+    ['前面的件数不当「谁」；引号里的名字、include 后面的一串、获奖的说法都列', '12 NSF certified filters. "Kosher" certified. Certifications include NSF, Kosher and Halal. It was awarded the Red Dot prize. Our blender was awarded!',
+      ['12 hours. NSF certified.', 'CE certified.', 'CE certification.'], [],
+      ['12 NSF', 'Kosher" certified', 'Certifications include NSF, Kosher and Halal', 'awarded the Red Dot', 'awarded'], []],
+  ]
+  const texts = (draft: string, facts: string[], posts: string[]) => {
+    const found = draftClaims(draft, facts, posts)
+    return [found.unsourced.map(f => f.text), found.postsOnly.map(f => f.text)]
+  }
+  eq('P2.c 认证类说法：认证词连同紧挨的「谁」整截原样比；资料里否定、问句、还没拿到的不算出处；单写的机构名照列',
+    rules.map(([name, draft, facts, posts]) => [name, ...texts(draft, facts, posts)]),
+    rules.map(([name, , , , unsourced, postsOnly]) => [name, unsourced, postsOnly]))
+  criterion('P2.c')
 }
 })
 if (fullRun) {
