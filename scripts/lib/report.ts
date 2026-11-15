@@ -264,7 +264,7 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
   const creatorLine = (c: Creator) => {
     const line = options.mode === 'review'
       ? creatorSourceLine(c.outreach_draft, c.creator_sources, {
-        bio: c.bio, posts: (c.recent_posts ?? []).map(p => p.desc), nickname: c.nickname, handle: c.handle,
+        bio: c.bio, posts: c.recent_posts?.map(p => p.desc), nickname: c.nickname, handle: c.handle,
       }) : undefined
     return line === undefined ? '' : `
     <div class="bio" data-draft-creator="sources">写博主的话出处：${esc(line)}（改写得准不准请对照原文自己看）</div>`

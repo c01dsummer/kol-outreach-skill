@@ -1473,20 +1473,20 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
 await group('p2-creator-sources', () => {
 suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在评审 HTML 里，不拦')
 {
-  // P2（ADR-210）：期望只取自判据原文与下面写进夹具的字面值。
-  // 资料：简介、两条作品文案、昵称「Mei Lin」、账号 meicooks。草稿里各种情形各一句。
-  const BIO = '3-ingredient recipes for  busy mornings'
-  const POSTS = [{ desc: 'Leg day vlog' }, { desc: 'Yes, I show the “cleanup” every time' }] as unknown as Creator['recent_posts']
+  // P2.f（ADR-210）：期望只取自判据原文与下面写进夹具的字面值。
+  // 资料：简介、两条作品文案、昵称「Mei Lin」、账号 meicooks。草稿里各种情形各一句；登记都是整句。
+  const BIO = "Mei's 3-ingredient recipes for  busy mornings"
+  const POSTS = [{ desc: 'Leg day vlog' }, { desc: 'Yes, I show the “cleanup” every time – always' }] as unknown as Creator['recent_posts']
   const DRAFT = 'Subject: Your 3-ingredient smoothie series\n\nHi Mei,\n\n' +
     'Your series shows the cleanup every time —\nthat part stuck with me. You run marathons every week.\n\n' +
     "Meicooks is my favourite channel. Mei Lin's kitchen looks great. We make a 400ml blender.\n\n" +
-    'Happy to send one over, if it fits your kitchen.\n\nBest,\n{name}'
+    'Happy to send one over if it fits your kitchen.\n\nBest,\n{name}'
   const SOURCES = [
-    { draft: 'YOUR 3-ingredient   smoothie series', from: 'bio', quote: '3-INGREDIENT recipes for busy mornings' },
-    { draft: 'Your series shows the cleanup every time', from: 'post', quote: 'I show the "cleanup" every time' },
-    { draft: 'that part stuck with me', from: 'self' },
+    { draft: 'YOUR 3-ingredient   smoothie series', from: 'bio', quote: 'MEI’S 3-INGREDIENT recipes for busy mornings' },
+    { draft: 'Your series shows the cleanup every time —', from: 'post', quote: 'I show the "cleanup" every time - always' },
+    { draft: 'that part stuck with me.', from: 'self' },
     { draft: 'You run marathons every week.', from: 'post', quote: 'I run marathons' },
-    { draft: 'if it fits your kitchen', from: 'self' },
+    { draft: 'Happy to send one over if it fits your kitchen.', from: 'self' },
     { draft: 'Your old sentence that was edited away', from: 'nickname', quote: 'Mei' },
   ] as NonNullable<Creator['creator_sources']>
   const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 4,
@@ -1503,19 +1503,19 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     const m = card === undefined ? null : /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(card)
     return m === null ? undefined : m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&')
   }
-  const HEAD = '写博主的话出处：', TAIL = '（改写得准不准请对照原文自己看）'
+  const HEAD = '写博主的话出处：', TAIL = '（改写得准不准请对照原文自己看）', BAR = '　｜　'
+  const SELF = '发件人自己的话（确认没有借它给博主安新说法）：'
   const review = renderHtml(people, meta, { mode: 'review', filters: 'dual' })
-  eq('P2.f 按在草稿里出现的先后逐条列：对得上的并排原文（不分大小写、空白合并、弯直引号同等，作品文案任一条），找不到的标原文对不上，self 标发件人自己的话，提到博主（you 一类词、昵称里的名字、账号名）却没登记的标没标出处，问候行不算，已不在信里的排最后',
-    lineOf(review, 'meicooks'), HEAD + [
-      '「YOUR 3-ingredient   smoothie series」← 简介原文「3-INGREDIENT recipes for busy mornings」',
-      '「Your series shows the cleanup every time」← 作品文案原文「I show the "cleanup" every time」',
-      '「that part stuck with me」← 发件人自己的话（确认没有给博主安新说法）',
+  eq('P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算',
+    lineOf(review, 'meicooks'), HEAD + '要看：' + [
       '「You run marathons every week.」← 作品文案原文「I run marathons」（原文对不上：他的作品文案里没有这段）',
       '「Meicooks is my favourite channel.」（提到了博主，没标出处）',
       "「Mei Lin's kitchen looks great.」（提到了博主，没标出处）",
-      '「if it fits your kitchen」← 发件人自己的话（确认没有给博主安新说法）',
       '「Your old sentence that was edited away」（登记了出处，但信里已经没有这句）',
-    ].join('；') + TAIL)
+    ].join('；') + BAR + '对得上：' + [
+      '「YOUR 3-ingredient   smoothie series」← 简介原文「MEI’S 3-INGREDIENT recipes for busy mornings」',
+      '「Your series shows the cleanup every time —」← 作品文案原文「I show the "cleanup" every time - always」',
+    ].join('；') + BAR + SELF + ['「that part stuck with me.」', '「Happy to send one over if it fits your kitchen.」'].join('；') + TAIL)
   eq('P2.f 有草稿、没提到博主也没登记的写「无」', lineOf(review, 'plain'), `${HEAD}无${TAIL}`)
   eq('P2.g 没草稿或草稿只有空白的卡片不出这一行', ['blank', 'nodraft'].map(h => lineOf(review, h)), [undefined, undefined])
   ok('P2.g 只标不改：草稿原文逐字在 HTML 里，输入名单不变',
@@ -1523,15 +1523,66 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
   ok('P2.g 默认模式 HTML 不出这一行（U9.a）', !renderHtml(people, meta).includes('data-draft-creator'))
   const injected = renderHtml([mk('tiktok', 'inj', { tier: 'A', outreach_draft: 'You <b>rock</b>.', profile_url: 'https://example.com/inj' })], meta, { mode: 'review' })
   ok('P2.f 这一行在输出处转义', !injected.includes('<b>rock</b>') && injected.includes('「You &lt;b&gt;rock&lt;/b&gt;.」（提到了博主，没标出处）'))
-  // 资料缺席：简介 null、没有作品时，登记了 bio/post 的都对不上；昵称对得上。
-  const bare = renderHtml([mk('tiktok', 'bare', { nickname: 'Sam Rivera', bio: null, tier: 'A', outreach_draft: 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.',
-    creator_sources: [{ draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }],
-    profile_url: 'https://example.com/bare' })], meta, { mode: 'review' })
-  eq('P2.f 简介缺席、没有作品时登记的原文对不上；昵称照对', lineOf(bare, 'bare'), HEAD + [
-    '「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）',
-    '「Your posts too.」← 作品文案原文「too」（原文对不上：他的作品文案里没有这段）',
-    '「Sam Rivera here.」← 昵称原文「sam rivera」',
-  ].join('；') + TAIL)
+  // 登记半句盖不住整句：句子里没登记的部分照印出来，不管 Agent 登记的是一小段、一个词还是一个标点。
+  const one = (draft: string, sources: NonNullable<Creator['creator_sources']>, over: Partial<Creator> = {}) =>
+    lineOf(renderHtml([mk('tiktok', 'one', { nickname: 'Mei Lin', bio: '3-ingredient recipes', tier: 'A', outreach_draft: draft, creator_sources: sources, profile_url: 'https://example.com/one', ...over })], meta, { mode: 'review' }), 'one')
+  const HALF = { draft: 'Your 3-ingredient series', from: 'bio', quote: '3-ingredient recipes' } as const
+  const MATCH = '对得上：「Your 3-ingredient series」← 简介原文「3-ingredient recipes」'
+  const halfCases: Array<[string, string, NonNullable<Creator['creator_sources']>, string]> = [
+    ['登记半句，后半句编的', 'Hi Mei,\n\nYour 3-ingredient series proves you are the top chef.', [HALF],
+      `要看：「Your 3-ingredient series proves you are the top chef.」（只登记了其中一段，没登记的：「proves you are the top chef.」）${BAR}${MATCH}`],
+    ['登记一个词当发件人的话', 'Hi Mei,\n\nYou won awards.', [{ draft: 'you', from: 'self' }],
+      `要看：「You won awards.」（只登记了其中一段，没登记的：「won awards.」）${BAR}${SELF}「you」`],
+    ['句号后没空格也切句', 'Hi Mei,\n\nYour 3-ingredient series.You won awards.', [HALF],
+      `要看：「You won awards.」（提到了博主，没标出处）${BAR}${MATCH}`],
+    ['引号收尾的句子也切', 'Hi Mei,\n\nYour 3-ingredient series." You won awards.', [HALF],
+      `要看：「You won awards.」（提到了博主，没标出处）${BAR}${MATCH}`],
+    ['列表行各自成句', 'Hi Mei,\n\n- Your 3-ingredient series\n- You won awards', [HALF],
+      `要看：「- You won awards」（提到了博主，没标出处）${BAR}${MATCH}`],
+    ['缩写后的句点不切句', 'Hi Mei,\n\nYou studied under Dr. Oz in the U.S. for years.', [],
+      '要看：「You studied under Dr. Oz in the U.S. for years.」（提到了博主，没标出处）'],
+    ['问候行里带 you 一类词不算问候', 'Hey Mei, your marathons rock!', [],
+      '要看：「Hey Mei, your marathons rock!」（提到了博主，没标出处）'],
+    ['Hello、Dear 开头的短行是问候', 'Hello Mei!\nDear Mei,\n\nWe make a blender.', [], '无'],
+    ['弯撇号也认 you 一类词', 'Hi Mei,\n\nYou’re a pro.', [], '要看：「You’re a pro.」（提到了博主，没标出处）'],
+    ['名字整词才算：Meiko 不是 Mei', 'Hi Mei,\n\nMeiko helped us.', [], '无'],
+    ['要看的按在信里的先后，不按登记的先后', 'Hi Mei,\n\nYou won awards. Your 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
+      '要看：「You won awards.」（提到了博主，没标出处）；「Your 3-ingredient secret.」← 简介原文「secret」（原文对不上：他的简介里没有这段）'],
+    ['同一句只列一次', 'Hi Mei,\n\nYou rock.\n\nYou rock.', [], '要看：「You rock.」（提到了博主，没标出处）'],
+    ['登记跨过两句的一整段也算盖住', 'Hi Mei,\n\nYou cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
+  ]
+  eq('P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后',
+    halfCases.map(([name, draft, sources]) => [name, one(draft, sources)]), halfCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
+  // 昵称：驼峰拆开认名字，the、with 这类普通词不算名字；两个字母的词不算。
+  eq('P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算',
+    [one('Hi,\n\nSarah won awards. We cook with care. Jo is here.', [], { nickname: 'TechWithSarah', handle: 'x1' }),
+     one('Hi,\n\nWe make the blender with care.', [], { nickname: 'Cooking With Sarah | The Official', handle: 'x2' })],
+    [`${HEAD}要看：「Sarah won awards.」（提到了博主，没标出处）${TAIL}`, `${HEAD}无${TAIL}`])
+  // 名单被手改坏（昵称不是字符串、作品文案是 null、简介是数字）时这一行照出，不让 render 失败（P2.g）。
+  let crashed = ''
+  try {
+    renderHtml([mk('tiktok', 'bad', { nickname: 7 as unknown as string, bio: 5 as unknown as string, recent_posts: [{ desc: null }] as unknown as Creator['recent_posts'], tier: 'A',
+      outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post.', creator_sources: [{ draft: 'Your bio.', from: 'bio', quote: 'x' }, { draft: 'Your post.', from: 'post', quote: 'x' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
+  } catch (error) { crashed = String(error) }
+  eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', crashed, '')
+  // 资料三态（P1）：简介查过没写（null）是「对不上」；简介没查过（缺席）、作品没查过（缺席或空数组）是「对不了，没查过」，不说成「没有」。
+  const SRC3 = [{ draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['creator_sources']>
+  const DRAFT3 = 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.'
+  const bare = renderHtml([
+    mk('tiktok', 'bare', { nickname: 'Sam Rivera', bio: null, recent_posts: [], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/bare' }),
+    mk('tiktok', 'unq', { nickname: 'Sam Rivera', bio: undefined, recent_posts: undefined, tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/unq' }),
+    mk('tiktok', 'had', { nickname: 'Sam Rivera', bio: 'Sam here', recent_posts: [{ desc: 'leg day' }] as unknown as Creator['recent_posts'], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/had' }),
+  ], meta, { mode: 'review' })
+  const NICK = `${BAR}对得上：「Sam Rivera here.」← 昵称原文「sam rivera」`
+  eq('P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对',
+    ['bare', 'unq', 'had'].map(h => lineOf(bare, h)), [
+      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
+      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（对不了：他的简介没查过）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
+      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（原文对不上：他的作品文案里没有这段）'].join('；') + NICK + TAIL,
+    ])
+  // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，和下一行接成一句。
+  const subj = renderHtml([mk('tiktok', 'subj', { tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
+  eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文切句', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen is lovely.」（提到了博主，没标出处）${TAIL}`)
   criterion('P2.f', 'P2.g')
 }
 {
@@ -1597,9 +1648,12 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
     const line = /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
     const csv = read('kol.csv')
-    eq('P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、没有出处列',
-      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('creator_sources')],
-      [0, '写博主的话出处：「Your sourdough series is lovely.」← 简介原文「sourdough series」；「You also climb.」（提到了博主，没标出处）（改写得准不准请对照原文自己看）', true, false])
+    let xlsxText = ''
+    try { xlsxText = xlsxPart(join(dir, 'kol.xlsx'), 'xl/worksheets/sheet1.xml') } catch { xlsxText = 'unreadable' }
+    try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), 'xl/sharedStrings.xml') } catch { /* 没有共享字符串表时只看工作表 */ }
+    eq('P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
+      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('creator_sources'), xlsxText !== 'unreadable' && xlsxText.includes('outreach_draft'), xlsxText.includes('creator_sources')],
+      [0, '写博主的话出处：要看：「You also climb.」（提到了博主，没标出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true, false])
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
   } finally { rmSync(root, { recursive: true, force: true }) }
   }
