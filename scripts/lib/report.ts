@@ -265,7 +265,7 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
     <div class="bio" data-draft-subject="outreach_subject">主题：${esc(subject)}</div>`
   }
   // P2.c：草稿里对不上产品资料的数字与承诺词；只有已证实的产品事实能让说法过关，
-  // 只在这位博主作品文字里找得到的另列一行。只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-199、ADR-208）。
+  // 只在这位博主作品文字里找得到的另列一行。只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-199、ADR-209）。
   const claimsLine = (c: Creator) => {
     const lines = options.mode === 'review'
       ? claimsLines(c.outreach_draft, options.facts, (c.recent_posts ?? []).map(p => p.desc)) : undefined
