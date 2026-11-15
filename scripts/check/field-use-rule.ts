@@ -119,7 +119,7 @@ function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declara
       }
       continue
     }
-    const name = nameOf(ts, n)
+    const name = ts.isFunctionDeclaration(n) && n.name !== undefined && (tc.getSymbolAtLocation(n.name)?.declarations ?? []).filter(d => ts.isFunctionDeclaration(d) && d.body === undefined).length > 1 ? `${n.name.text}(${n.parameters.map(p => p.getText()).join(', ').replace(/\s+/g, ' ')})` : nameOf(ts, n) // 重载：各签名带上参数，分开
     const raw = (n as { name?: Ts.Node }).name
     if (name !== undefined) parts.push(raw !== undefined && ts.isComputedPropertyName(raw) && literalName(ts, raw) === undefined ? name : segment(name))
   }

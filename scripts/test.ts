@@ -15230,9 +15230,10 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     fieldVerdict(moved.filter(f => f.file === 'scripts/check/t.ts'), more.filter(f => f.file === 'scripts/check/t.ts').map(f => f.key)).fresh.map(f => f.key),
     ['scripts/check/t.ts#pair.[1].value'])
   const grown = fieldToy(files => { moreFiles(files); files['scripts/check/m.ts'] = files['scripts/check/m.ts'].replace('export function pick(n: 1): {}', 'export function pick(n: 1): { value: number }') })
-  const pickOf = (all: typeof more) => all.filter(f => f.key === 'scripts/check/m.ts#pick.value')
-  eq('字段闸门：重载里另一个签名也加上同名字段，名字撞上了，按处数多出来报新增；测试只读了旧的那处，照样红',
-    [pickOf(more).length, pickOf(grown).length, fieldVerdict(pickOf(grown), pickOf(more).map(f => f.key)).unused.map(f => f.key)], [1, 2, ['scripts/check/m.ts#pick.value']])
+  const pickOf = (all: typeof more) => all.filter(f => f.key.startsWith('scripts/check/m.ts#pick')).map(f => [f.key, f.used] as const)
+  eq('字段：重载的各个签名名字里带上参数，分开；只有一个签名的函数名字里不带', [pickOf(more), moreOf('m.ts#ctor.added')?.key], [[['scripts/check/m.ts#pick(n: 0).value', true]], 'scripts/check/m.ts#ctor.added'])
+  eq('字段闸门：重载里另一个签名也加上同名字段，按新增报；测试只读了旧的那个签名，照样红',
+    fieldVerdict(grown.filter(f => f.key.startsWith('scripts/check/m.ts#pick')), more.filter(f => f.key.startsWith('scripts/check/m.ts#pick')).map(f => f.key)).unused.map(f => f.key), ['scripts/check/m.ts#pick(n: 1).value'])
   eq('字段：instanceof 左边的对象字面量不算读到右边构造器上的字段', moreOf('m.ts#ctor.added')?.used, false)
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
