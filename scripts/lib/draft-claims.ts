@@ -41,15 +41,18 @@ const NOT_UNITS = new Set(('a an the and or nor but of to on at for with by from
   'may might must do does did has have had get gets got am i plus today now yet again already ever still here there ' +
   'total overall apiece instead either back away left right').split(' '))
 
-/** 表外的单位按字面比：小写，复数折成单数（colors → color、batteries → battery、boxes → box）。 */
+/**
+ * 表外的单位按字面比：小写，单复数折成同一个样子。不求折出真正的单数，只求两边折法一致：
+ * 先去复数的 s，再把结尾的 ie 写成 y、去掉结尾的 e —— calories 与 calorie、batteries 与 battery、sizes 与 size、boxes 与 box 各折成同一个。
+ */
 function foldUnit(word: string): string {
   const w = word.toLowerCase()
   const alias = UNIT_ALIASES[w]
   if (alias !== undefined) return alias
-  if (w.length > 4 && w.endsWith('ies')) return `${w.slice(0, -3)}y`
-  if (w.length > 4 && /(?:s|x|z|ch|sh)es$/.test(w)) return w.slice(0, -2)
-  if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1)
-  return w
+  let f = w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w
+  if (f.length > 3 && f.endsWith('ie')) f = `${f.slice(0, -2)}y`
+  else if (f.length > 3 && f.endsWith('e')) f = f.slice(0, -1)
+  return f
 }
 
 /** 拼写出来的数：个位、十几、整十，以及 hundred、thousand、million 这几个倍数。 */
@@ -83,7 +86,14 @@ function spelledValue(phrase: string): number | undefined {
 
 const W = (words: readonly string[]) => [...words].sort((a, b) => b.length - a.length).join('|')
 /** 一组拼写数字：「twenty five」「twenty-five」「two hundred」「a thousand」「a dozen」；必须以数词开头。 */
-const SPELLED = `(?:(?:a|an)[\\s-]+(?:dozen|hundred|thousand|million)|(?:${W([...ONES, ...TEENS, ...TENS])})(?:[\\s-]+(?:${W([...ONES, ...TEENS, ...TENS, 'hundred', 'thousand', 'million', 'and'])}))*)`
+const NUM_WORDS = W([...ONES, ...TEENS, ...TENS])
+/** 「and」只在 hundred、thousand、million 后面才连着读（one hundred and five）；「five and ten minutes」是两个数。 */
+const SPELLED = `(?:(?:a|an)[\\s-]+(?:dozen|hundred|thousand|million)|(?:${NUM_WORDS})(?:[\\s-]+(?:${NUM_WORDS}|hundred|thousand|million|dozen)|(?<=hundred|thousand|million)\\s+and(?=\\s+(?:${NUM_WORDS})))*)`
+
+/** 「BPA free」「leak proof」这样中间带空格写时认的前缀；连写或带连字符的不受这两张表限制。 */
+const FREE_PREFIXES = 'bpa|cruelty|gluten|sugar|dairy|lactose|fat|parabens?|sulfates?|fragrance|latex|nut|soy|alcohol|phthalates?|' +
+  'lead|plastic|chemical|toxin|pfas|pfoa|caffeine|grain|egg|wheat|carbon|maintenance|scent|oil|silicone|preservative'
+const PROOF_PREFIXES = 'water|leak|dust|shock|scratch|rust|splash|fire|tamper|child|spill|shatter|odor|weather|stain|drop|sweat'
 
 /**
  * 承诺词：写进信里就是在替品牌许诺或声称资质的词。左边要整词起头（inorganic 里没有 organic），右边只要求不是数字字母延续，
@@ -124,9 +134,10 @@ const PROMISE_WORDS: ReadonlyArray<readonly [string, string]> = [
   ['iso(?: ?\\d+)?(?:[- ]certified)?', 'iso(?: ?\\d+)?(?:[- ]certified)?'],
   ['usda(?:[- ]organic)?', 'usda(?:[- ]organic)?'],
   ['non[- ]?(?:toxic|gmo)', 'non[- ]?(?:toxic|gmo)'],
-  // 以 -free、-proof 结尾的整词：BPA-free、gluten-free、leakproof、water proof。中间不许有空格：「it's free」不是。
-  ['[a-z]+-?free', '__SAME__'],
-  ['[a-z]+-?proof|water proof', '__SAME__'],
+  // 以 -free、-proof 结尾的整词：BPA-free、gluten-free、leakproof。中间带空格的只认下面两张表里的常见前缀（BPA free、leak proof）：
+  // 「it's free」「totally free」不是在说产品。
+  [`[a-z]+-?free|(?:${FREE_PREFIXES}) free`, '__SAME__'],
+  [`[a-z]+-?proof|(?:${PROOF_PREFIXES}) proof`, '__SAME__'],
   ['all[- ]natural', 'all[- ]natural'],
   ['organic', 'organic'],
   ['vegan', 'vegan'],
@@ -154,34 +165,40 @@ const literalStem = (word: string): string => word.toLowerCase().replace(/[- ]/g
 const NOT_PROMISE = /^(?:feel|stress|worry|hassle|commitment|obligation|string|strings|care|toll)[- ]?free$/i
 
 /** 一句话里的否定：资料里这一句是否定说法时，不给草稿里同一个承诺词当出处。 */
-const NEGATION = /(?<![a-z])(?:no|not|non|never|without|pending|void|cannot|isn't|aren't|doesn't|don't|won't)(?![a-z])|n't(?![a-z])/i
+const NEGATION = /(?<![a-z])(?:no|not|non|never|neither|nor|none|without|pending|void|cannot|isn't|aren't|doesn't|don't|won't)(?![a-z])|n't(?![a-z])/i
 
 /** 一个数：千分位只认三位一组（「400, weighs」里的逗号不算），可带小数，也可以是「.5」。 */
 const DIGITS = '(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)'
-const CURRENCY_WORDS = 'dollars?|bucks|usd|eur|euros?|gbp|cad|aud'
+const CURRENCY_WORDS = 'dollars?|bucks|usd|eur|euros?|gbp|cad|aud|inr'
+const CURRENCY_SIGNS = '$€£¥₹'
 
 /** 机器能确定不是产品说法的形状：整段遮掉，不列也不当出处。 */
 const NOISE: readonly RegExp[] = [
   /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+/gi,                                             // 邮箱
   /\bhttps?:\/\/\S+|\bwww\.\S+/gi,                                                  // 网址
-  /\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/gi, // 不带协议的网址
-  /\b\d{1,2}(?::\d{2})?\s?(?:am|pm|a\.m\.|p\.m\.)(?![a-z])/gi,                      // 钟点 3pm、10:30 am
-  /\b\d{1,2}:\d{2}\b/g,                                                             // 钟点 10:30
+  // 不带协议的网址：网址名里要有字母，后缀要小写（「$29.99.Shop now」「40 hours.Me and」是句号后漏了空格，不是网址）。
+  /\b[\w-]*[a-zA-Z][\w-]*\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
+  /\b\d{1,2}(?::\d{2})?\s?(?:am|pm|a\.m\.|p\.m\.)(?![a-z\d])/gi,                   // 钟点 3pm、10:30 am（PM2.5 不是）
+  // 不带 am、pm 的「10:30」只在 at、by、from 这类词后面才当钟点；「a 1:10 ratio」是比例，照列。
+  /(?<=\b(?:at|by|from|until|till|before|after|around|between|to)\s)\d{1,2}:\d{2}\b/gi,
   /\b\d+(?:st|nd|rd|th)\b/gi,                                                       // 序数词 2nd
 ]
-/** 电话：几组数字用空格、点、连字符、括号隔开，合起来至少九位；位数不够的（「3-5 business」）不是电话，照常扫。 */
-const PHONE = /(?<![\w.])\+?\(?\d{1,4}\)?(?:[\s.-]\(?\d{2,4}\)?){2,}(?![\w%])/g
+/**
+ * 电话只认三种形状：带「+」国家号的（+1 415 555 0199）、区号带括号的（(415) 555-0199）、三三四位用同一个连字符或点隔开的（415-555-0199），
+ * 合起来至少九位。用空格隔开的一串数（「500 750 1000 ml」「100 000 000」）、价钱区间（「$129.99-149.99」）不像电话，照常扫。
+ */
+const PHONE = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(?:\\+\\d{1,3}[\\s.-]?\\(?\\d{1,4}\\)?(?:[\\s.-]\\d{2,4}){1,4}|\\(\\d{3}\\)\\s?\\d{3}[\\s.-]\\d{4}|\\d{3}([.-])\\d{3}\\1\\d{4})(?![\\w%]|[.,]\\d)`, 'g')
 const isPhone = (s: string) => (s.match(/\d/g) ?? []).length >= 9
 
 const MONTHS = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
 /** 日期整串算一条：11/20/2026、2026-11-20、March 15、15 March 2026。 */
 const DATE = new RegExp(`\\b(?:\\d{1,2}/\\d{1,2}/\\d{2,4}|\\d{4}-\\d{1,2}-\\d{1,2}|(?:${MONTHS})\\.? \\d{1,2}(?:st|nd|rd|th)?(?:,? \\d{4})?|\\d{1,2} (?:${MONTHS})(?:,? \\d{4})?)\\b`, 'gi')
 
-/** 价格：币符在前（$29.99、US$5、USD 40），或币种写在后面（40 dollars、40 USD）。 */
-const PRICE_BEFORE = new RegExp(`(?:US\\$|[$€£¥]|\\b(?:usd|eur|gbp)\\s?)(${DIGITS})(?:\\s?(k|m)\\b)?`, 'gi')
-const PRICE_AFTER = new RegExp(`(?<![\\w.])(${DIGITS})\\s?(?:${CURRENCY_WORDS})\\b`, 'gi')
-/** 拼写的数加钱或百分号：fifty dollars、thirty bucks、fifty per cent。 */
-const SPELLED_PRICE = new RegExp(`\\b(${SPELLED})\\s(?:${CURRENCY_WORDS})\\b`, 'gi')
+/** 价格：币符或币种在前（$29.99、$ 40、US$5、₹400、USD 40、CAD 40），或写在后面（40 dollars、50-dollar、40 USD、40$、40€）。 */
+const PRICE_BEFORE = new RegExp(`(?:US\\$|[${CURRENCY_SIGNS}]\\s?|\\b(?:usd|eur|gbp|cad|aud|inr)\\s?)(${DIGITS})(?:\\s?(k|m)\\b)?`, 'gi')
+const PRICE_AFTER = new RegExp(`(?<![\\w.])(${DIGITS})(?:[\\s-]?(?:${CURRENCY_WORDS})\\b|\\s?[${CURRENCY_SIGNS}])`, 'gi')
+/** 拼写的数加钱或百分号：fifty dollars、a fifty-dollar card、thirty bucks、fifty per cent。 */
+const SPELLED_PRICE = new RegExp(`\\b(${SPELLED})[\\s-](?:${CURRENCY_WORDS})\\b`, 'gi')
 const SPELLED_PERCENT = new RegExp(`\\b(${SPELLED})[\\s-](?:percent|per cent)\\b`, 'gi')
 /** 拼写的数后面跟单位表里的单位：ten seconds、twenty five hours、a thousand-hour。 */
 const unitWords = W(Object.keys(UNIT_ALIASES).filter(u => u !== '%' && u.length > 1))
@@ -194,7 +211,9 @@ const PERCENT_WORDS = '%|percent\\b|per cent\\b|pct\\b'
  * 一个阿拉伯数后面可以跟单位：贴着写（400ml、1080p、4K）、空格或连字符隔开（400 ml、10-second）、度数（40°C）。
  * 负号只在前面不是字母、数字、点时才算数的一部分：「-20」是负数，「3-5 years」「COVID-19」里的不是。
  */
-const NUMBER = new RegExp(`(?<![\\w.$€£¥])(-?${DIGITS})(?:(\\s?(?:${PERCENT_WORDS}))|(°\\s?[cf]\\b)|([a-z]+(?![\\w]))|(?:[\\s-]([a-z]+(?![\\w'])))?)(?!\\w|\\.\\d)`, 'gi')
+const NUMBER = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(-?${DIGITS})\\+?(?:(\\s?(?:${PERCENT_WORDS}))|(°\\s?[cf]\\b)|([a-z]+(?![\\w]))|(?:[\\s-](?:(?:more|extra|additional|full|whole|total)\\s+)?([a-z]+(?![\\w'])))?)(?!\\w|\\.\\d)`, 'gi')
+/** 数字起头、字母后面又跟数字的整串（1920x1080、5V2A、3in1、1080p60、4K60）整串对，不拆。 */
+const DIGIT_ALNUM = /(?<![\w.-])\d+[a-z]+\d[a-z0-9]*\b/gi
 /** 型号串：字母起头又含数字的整词（IPX7、Qi2、H13、IPX-7）；「1-on-1」里的 on-1 不算。 */
 const ALNUM = /(?<![\w-])[a-z]+-?\d[a-z0-9]*\b/gi
 
@@ -206,6 +225,12 @@ const numberValue = (raw: string): string => {
   return Number.isFinite(n) ? String(n) : raw
 }
 
+/**
+ * 排版字符换成键盘上的写法：弯撇号 ’ ‘ 换成 '，几种连字符和短横换成 -（BPA‑free、world’s first、isn’t）。
+ * 一个字符换一个字符，下标不变，前后文仍取草稿原文。
+ */
+const plain = (text: string): string => text.replace(/[’‘ʼ]/g, "'").replace(/[‐‑‒–]/g, '-')
+
 /** {…} 占位符：只认同一行、40 字以内的，套着写的（{{price}}）由里往外剥。剥掉的位置补空白，下标不变。 */
 function placeholders(text: string): { rest: string; unmatched: boolean } {
   let rest = text, prev = ''
@@ -216,7 +241,7 @@ function placeholders(text: string): { rest: string; unmatched: boolean } {
 /** 把一段文字拆成可比的说法；草稿与出处走同一个函数，归一口径才一致。 */
 export function claimsIn(text: string): Claim[] {
   const out: Claim[] = []
-  let rest = placeholders(text).rest
+  let rest = placeholders(plain(text)).rest
   // take 返回 'keep' 时这一段原样留下给后面的规则；返回 undefined 时遮掉、不算说法。
   const mask = (re: RegExp, take: (m: RegExpExecArray) => Omit<Claim, 'at'> | undefined | 'keep') => {
     rest = rest.replace(re, (...args) => {
@@ -245,6 +270,7 @@ export function claimsIn(text: string): Claim[] {
   mask(QUANTITY_PHRASES, m => ({ text: m[0], key: `phrase:${m[0].toLowerCase().replace(/[\s-]+/g, ' ')}` }))
   mask(PRICE_BEFORE, m => ({ text: m[0].trim(), key: `price:${scaled(m[1], m[2])}` }))
   mask(PRICE_AFTER, m => ({ text: m[0].trim(), key: `price:${numberValue(m[1])}` }))
+  mask(DIGIT_ALNUM, m => ({ text: m[0], key: `alnum:${m[0].toLowerCase()}` }))
   mask(ALNUM, m => ({ text: m[0], key: `alnum:${m[0].toLowerCase().replace(/-/g, '')}` }))
   mask(NUMBER, m => {
     const [, value, percent, degree, glued, spaced] = m
@@ -255,7 +281,8 @@ export function claimsIn(text: string): Claim[] {
     const text = unit === '' && spaced !== undefined ? value : m[0].trim()
     return { text, key: `num:${numberValue(value)}:${unit}` }
   })
-  return out.sort((a, b) => a.at - b.at)
+  // 列出来的是草稿原文那几个字（BPA‑free 里的不换行连字符照原样），比对用的 key 来自换过排版字符的文字。
+  return out.map(c => ({ ...c, text: text.slice(c.at, c.at + c.text.length) })).sort((a, b) => a.at - b.at)
 }
 
 function withValue(m: RegExpExecArray, value: number | undefined, key: (v: string) => string): Omit<Claim, 'at'> | 'keep' {
@@ -282,7 +309,7 @@ function sourceOf(texts: readonly string[]): Source {
       values.get(value)!.add(kind === 'price' ? '$' : unit)   // P1 例外：上一行刚建好这一项
     }
   }
-  const clauses = texts.flatMap(t => placeholders(t).rest.split(/[.;!?\n]+(?:\s|$)|[;!?\n]/)).filter(s => s.trim() !== '')
+  const clauses = texts.flatMap(t => placeholders(plain(t)).rest.split(/[.;!?\n]+(?:\s|$)|[;!?\n]/)).filter(s => s.trim() !== '')
   return { keys, values, clauses }
 }
 

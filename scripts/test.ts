@@ -955,6 +955,22 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
     ['「.5」这样的小数也扫', 'Weighs just .5 kg.', ['Weighs 1 kg'], [], ['.5 kg'], []],
     ['同一写法只列一次（不分大小写），列先出现的', 'A 400ml jar. Yes, 400ml. 400ML!', ['x'], [], ['400ml'], []],
     ['反方向：出处里的裸数 1080 不给 1080p 当出处，出处里的 -20 不给 20 当出处', 'Shoots 1080p, rated to 20.', ['Resolution 1080', 'Rated to -20'], [], ['1080p', '20'], []],
+    // 独立复核第二轮找出的漏标与误标
+    ['中间带空格的 -free、-proof 也认；it\'s totally free 照旧不算', "Our jar is BPA free and cruelty free, leak proof, and it's totally free.", ['Tritan jar'], [], ['BPA free', 'cruelty free', 'leak proof'], []],
+    ['数字起头、字母后又跟数字的串整串列', 'Display is 1920x1080, charges 5V2A, a 3in1 design, 1080p60.', ['OLED display'], [], ['1920x1080', '5V2A', '3in1', '1080p60'], []],
+    ['数字起头的混合串出处里整串有就对上', 'A 3in1 design, 4K60 video.', ['3in1 blender', 'Shoots 4k60'], [], [], []],
+    ['价钱区间、空格隔开的规格和大数不当电话', 'Priced at $129.99-149.99. Comes in 500 750 1000 ml sizes.', ['Tritan jar'], [], ['$129.99', '-149.99', '500', '750', '1000 ml'], []],
+    ['括号区号、点或连字符隔开的三三四位、带 + 的都是电话', 'Call (415) 555-0199 or 415.555.0199 or +44 20 7946 0958.', ['x'], [], [], []],
+    ['40+ hours、40 more hours 带着单位比', 'Enjoy 40+ hours, or 40 more hours of battery.', ['Only 40 dB of noise'], [], ['40+ hours', '40 more hours'], []],
+    ['币符在后、币种在前、币符后空一格、卢比、连字符写的钱都算价钱', 'Only 40$ or 40€ or CAD 40, $ 41, ₹400, a fifty-dollar card, 50-dollar.', ['Battery lasts up to 40 hours'], [],
+      ['40$', '40€', 'CAD 40', '$ 41', '₹400', 'fifty-dollar', '50-dollar'], []],
+    ['弯撇号、不换行连字符照键盘写法比；neither、nor 也是否定；列出的是草稿原写法', 'It’s fully waterproof and dustproof, a BPA‑free jar, world’s first, 10‑second rinse.',
+      ['This product isn’t waterproof.', 'Neither dustproof nor shockproof.', 'BPA-free', '10 minutes'], [], ['waterproof', 'dustproof', 'world’s first', '10‑second'], []],
+    ['比例不当钟点，PM2.5 不当下午；at 后面的 10:30 才是钟点', 'Mix at a 1:10 ratio, removes 99 PM2.5 particles, call at 10:30.', ['x'], [], ['1', '10 ratio', '99', 'PM2', '.5 particles'], []],
+    ['句号后漏空格不当网址', 'Only $29.99.Shop now. Runs 40 hours.Me and you.', ['x'], [], ['$29.99', '40 hours'], []],
+    ['「five and ten minutes」不读成 15', 'Ready in between five and ten minutes.', ['15 minutes'], [], ['ten minutes'], []],
+    ['单复数折法两边一致：calories 与 calorie、sizes 与 size；$1.2k 读成 1200', '100 calories, 3 sizes, 30 doses, 2 batteries, $1.2k.',
+      ['100-calorie pack', '3-size set', '30-dose bottle', '2 battery pack', '$1200'], [], [], []],
   ]
   const texts = (draft: string, facts: string[], posts: string[]) => {
     const found = draftClaims(draft, facts, posts)
