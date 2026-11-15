@@ -18325,7 +18325,7 @@
       "find": "return sources.some(s => target.startsWith(`${s}/`))",
       "replace": "return target !== undefined",
       "by": "test",
-      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包的 import 都不抄"]
+      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包（连看着像源目录路径的包名）的 import 都不抄"]
     },
     {
       "id": "M-H202-bp",
@@ -18335,7 +18335,7 @@
       "find": "target.startsWith(`${s}/`)",
       "replace": "target.startsWith(s)",
       "by": "test",
-      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包的 import 都不抄"]
+      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包（连看着像源目录路径的包名）的 import 都不抄"]
     },
     {
       "id": "M-H202-bq",
