@@ -11771,7 +11771,9 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   const check = 'npm run a && npm run shard-load && npm run mutate && npm run b && npm run launches'
   const pinned = pinnedWorkflow('npm run a && npm run shard-load && npm run b')
   const wf = ['# 头注', ...pinned.flatMap((l, i) => i === 3 ? ['', '    # 缩进的整行注释', l] : [l])].join('\n') + '\n'
-  const swap = (from: string, to: string): string => { if (!wf.includes(from)) throw new Error(`接线夹具里没有：${from}`); return wf.replace(from, to) }
+  // 夹具里找不到要改的那一行时不抛（抛了整组死在半路，变异判成跑不起来）：记下来，交回空文件让那条用例自己红，末尾再点名
+  const missing: string[] = []
+  const swap = (from: string, to: string): string => { if (!wf.includes(from)) { missing.push(from); return '' } return wf.replace(from, to) }
   const faults = (text: string, script: string | undefined = check) => workflowWiringFaults(text, script)
   const says = (text: string, ...parts: string[]) => { const f = faults(text); return f.length === 1 && parts.every(p => f[0].includes(p)) }
   ok('接线：钉死的样子按份数、worker 数与 chain 那一串填', pinned.includes('        shard: [1, 2, 3]') && pinned.includes('          MUTATE_SHARD: ${{ matrix.shard }}/3')
@@ -11815,6 +11817,7 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   ok('接线：末尾多一行，说应为没有这一行', says(wf + '  extra:\n', '应为没有这一行'))
   ok('接线：末尾少一行，说文件已经到头', says(wf.replace(/[^\n]*\n$/, ''), '文件已经到头'))
   ok('接线：报的那一行说改钉死的那份', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), 'WORKFLOW_PIN'))
+  eq('接线：每条用例要改的那一行夹具里都有', missing, [])
 }
 })
 await group('h-infra-rules', () => {
