@@ -66,7 +66,7 @@ import {
   billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardKey, shardOf, shardPlan, shardWanted,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
-import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports, workflowWiringFaults } from './check/shard-load-rule.js'
+import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports, pinnedWorkflow, workflowWiringFaults } from './check/shard-load-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -11766,60 +11766,31 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('闸：在不在主干上都读不出，别的全好也红', gate({ trunk: { unknown: '读不到分支' } }).red, true)
 }
 {
-  // check.yml 的接线（workflowWiringFaults）：一份写全了的工作流，三种只报数的步骤各带 if 与 continue-on-error；
-  // 每条只改一处，看它红在那一处。玩具串：check 去掉变异与启动数两步就是 chain 那一行
+  // check.yml 的接线（workflowWiringFaults）：整份去掉整行注释与空行后与钉死的样子逐行相同。夹具就是钉死的那份，
+  // 中间插几行注释与空行、行尾带空白、换行写成 CRLF；每条只改一处，看它红在哪一行
   const check = 'npm run a && npm run shard-load && npm run mutate && npm run b && npm run launches'
-  const wf = ['name: check', 'jobs:', '  chain:', '    runs-on: ubuntu-latest', '    steps:', '      - uses: actions/checkout@v4',
-    '      # 注释里写的不算：- run: npm run mutate', '      - run: npm run a && npm run shard-load && npm run b',
-    '      - name: 欠条点名提醒（只提醒）', '        if: always()', '        continue-on-error: true', '        run: npm run -s debt-touch',
-    '      - run: lscpu', '        if: always()', '        continue-on-error: true',
-    '  mutate:', '    name: 变异（第 ${{ matrix.shard }}/3 份）', '    strategy:', '      fail-fast: false', '      matrix:', '        shard: [1, 2, 3]', '    steps:',
-    '      - run: npm run compile', '      - run: npm run mutate', '        env:', '          MUTATE_SHARD: ${{ matrix.shard }}/3', "          MUTATE_JOBS: '6'",
-    '      - uses: actions/upload-artifact@v4', '        with:', '          name: mutation-launches-${{ matrix.shard }}',
-    '          path: output/mutation-launches/launches-${{ matrix.shard }}-of-3.json', '      - run: lscpu', '        if: always()', '        continue-on-error: true',
-    '  check:', '    needs: [chain, mutate]', '    if: ${{ !cancelled() }}', '    steps:', '      - name: 都绿了才往下', '        env:',
-    '          CHAIN: ${{ needs.chain.result }}', '          MUTATE: ${{ needs.mutate.result }}', '        run: |', '          [ "$CHAIN" = success ] && [ "$MUTATE" = success ]',
-    '      - uses: actions/download-artifact@v4', '        with:', '          pattern: mutation-launches-*', '      - run: npm run launches',
-    '      - name: 墙钟对比（只报数）', '        continue-on-error: true', '        run: echo 1', ''].join('\n')
+  const pinned = pinnedWorkflow('npm run a && npm run shard-load && npm run b')
+  const wf = ['# 头注', ...pinned.flatMap((l, i) => i === 3 ? ['', '    # 缩进的整行注释', l] : [l])].join('\n') + '\n'
   const swap = (from: string, to: string): string => { if (!wf.includes(from)) throw new Error(`接线夹具里没有：${from}`); return wf.replace(from, to) }
   const faults = (text: string, script: string | undefined = check) => workflowWiringFaults(text, script)
-  const says = (text: string, part: string, script?: string) => faults(text, script).some(f => f.includes(part))
-  eq('接线：写全了的工作流一处都不报', faults(wf), [])
-  ok('接线：读不到 check 那一串，说读不到', workflowWiringFaults(wf, undefined).some(f => f.includes('读不到 package.json')))
-  ok('接线：check 那一串多了一步、chain 没跟上，说 chain 那一行出现 0 次', says(wf, '出现了 0 次', 'npm run a && npm run shard-load && npm run c && npm run mutate && npm run b && npm run launches'))
-  ok('接线：MUTATE_JOBS 改成 4，说那一行出现 0 次', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), "「MUTATE_JOBS: '6'」出现了 0 次"))
-  ok('接线：MUTATE_SHARD 写死成 1/3，说那一行出现 0 次', says(swap('MUTATE_SHARD: ${{ matrix.shard }}/3', 'MUTATE_SHARD: 1/3'), '「MUTATE_SHARD: ${{ matrix.shard }}/3」出现了 0 次'))
-  ok('接线：矩阵只剩两份，说矩阵那一行出现 0 次', says(swap('shard: [1, 2, 3]', 'shard: [1, 2]'), '「shard: [1, 2, 3]」出现了 0 次'))
-  ok('接线：变异那个 job 改了名，说记号不在 mutate 那个 job 里', says(swap('  mutate:\n', '  mutants:\n'), '「- run: npm run mutate」不在 mutate 那个 job 里'))
-  ok('接线：job 一级另写一行 MUTATE_JOBS，说写到它的有 2 行', says(swap('    strategy:\n      fail-fast', "    env:\n      MUTATE_JOBS: 4\n    strategy:\n      fail-fast"), '写到 MUTATE_JOBS 的行有 2 行'))
-  ok('接线：顶层另写一行 MUTATE_SHARD，说写到它的有 2 行', says(swap('name: check\n', 'name: check\nenv:\n  MUTATE_SHARD: 1/3\n'), '写到 MUTATE_SHARD 的行有 2 行'))
-  ok('接线：多一个矩阵，说 matrix 有 2 行', says(swap('  check:\n', '  check:\n    strategy:\n      matrix:\n        os: [a]\n'), '「matrix:」行有 2 行'))
-  ok('接线：变异那一步的 env 后面再写 continue-on-error，说那一步不是恰好只带 env', says(swap("          MUTATE_JOBS: '6'\n", "          MUTATE_JOBS: '6'\n        continue-on-error: true\n"), '那一步不是恰好只带 env 里那两行'))
-  ok('接线：变异那一步的 env 多一个变量，说那一步不是恰好只带 env', says(swap("          MUTATE_JOBS: '6'\n", "          MUTATE_JOBS: '6'\n          X: y\n"), '那一步不是恰好只带 env 里那两行'))
-  ok('接线：env 缩进不对（写成了那一步的兄弟），说那一步不是恰好只带 env', says(swap('      - run: npm run mutate\n        env:', '      - run: npm run mutate\n      - env:'), '那一步不是恰好只带 env 里那两行'))
-  eq('接线：env 里那两行换个先后，不报', faults(swap("          MUTATE_SHARD: ${{ matrix.shard }}/3\n          MUTATE_JOBS: '6'", "          MUTATE_JOBS: '6'\n          MUTATE_SHARD: ${{ matrix.shard }}/3")), [])
-  ok('接线：chain 那一步后面跟一个 continue-on-error，说 chain 那一步写了别的', says(swap('      - run: npm run a && npm run shard-load && npm run b\n', '      - run: npm run a && npm run shard-load && npm run b\n        continue-on-error: true\n'), 'chain 那一步除了 run 还写了别的'))
-  ok('接线：矩阵下面再写一个键，说矩阵不是恰好一行', says(swap('        shard: [1, 2, 3]\n', '        shard: [1, 2, 3]\n        node: [22]\n'), '矩阵不是恰好一行'))
-  ok('接线：矩阵那一行不在 matrix 底下，说矩阵不是恰好一行', says(swap('      matrix:\n        shard: [1, 2, 3]', '      matrix: {}\n    with:\n      shard: [1, 2, 3]'), '矩阵不是恰好一行'))
-  ok('接线：矩阵写了 exclude，说写了 exclude', says(swap('        shard: [1, 2, 3]\n', '        shard: [1, 2, 3]\n        exclude:\n          - shard: 2\n'), '写了 exclude'))
-  ok('接线：别的 job 写了 include，照样说写了 include', says(swap('  check:\n    needs', '  check:\n    strategy:\n      include:\n        - os: a\n    needs'), '写了 include'))
-  ok('接线：用了 YAML 锚点，说用了锚点', says(swap('  mutate:\n', '  mutate: &m\n'), '锚点、别名或合并'))
-  ok('接线：用了 YAML 别名，说用了别名', says(swap('    runs-on: ubuntu-latest\n', '    runs-on: *os\n'), '锚点、别名或合并'))
-  ok('接线：用了 YAML 合并，说用了合并', says(swap('    runs-on: ubuntu-latest\n', '    <<: { timeout-minutes: 1 }\n'), '锚点、别名或合并'))
-  ok('接线：一步写成别名，说用了别名', says(swap('      - run: npm run compile\n', '      - *compile\n'), '锚点、别名或合并'))
-  ok('接线：变异那一步的 env 只剩 MUTATE_SHARD 与别的、MUTATE_JOBS 挪到 job 一级，说那一步不是恰好只带 env', says(swap("          MUTATE_JOBS: '6'\n", '          X: y\n').replace('    strategy:\n      fail-fast', "    env:\n      MUTATE_JOBS: '6'\n    strategy:\n      fail-fast"), '那一步不是恰好只带 env 里那两行'))
-  ok('接线：变异那个 job 写 if: false，说 if 写在只报数的步骤以外', says(swap('    name: 变异（第', '    if: false\n    name: 变异（第'), '「if: false」写在只报数的步骤以外'))
-  ok('接线：变异那个 job 写 continue-on-error，说写在只报数的步骤以外', says(swap('    name: 变异（第', '    continue-on-error: true\n    name: 变异（第'), '「continue-on-error: true」写在只报数的步骤以外'))
-  ok('接线：编译那一步写 if: false，说写在只报数的步骤以外', says(swap('      - run: npm run compile\n', '      - run: npm run compile\n        if: false\n'), '「if: false」写在只报数的步骤以外'))
-  ok('接线：check 那个 job 的 if 改成 always，说写在只报数的步骤以外', says(swap('    if: ${{ !cancelled() }}', '    if: always()'), '「if: always()」写在只报数的步骤以外'))
-  ok('接线：都绿了才往下那一步写 continue-on-error，说写在只报数的步骤以外', says(swap('      - name: 都绿了才往下\n', '      - name: 都绿了才往下\n        continue-on-error: true\n'), '写在只报数的步骤以外'))
-  ok('接线：那一句判 CHAIN 与 MUTATE 的删掉，说出现 0 次', says(swap('[ "$CHAIN" = success ] && [ "$MUTATE" = success ]', 'true'), '出现了 0 次'))
-  ok('接线：check 等的 job 少了 mutate，说 needs 那一行出现 0 次', says(swap('needs: [chain, mutate]', 'needs: [chain]'), '「needs: [chain, mutate]」出现了 0 次'))
-  ok('接线：启动数那一步加了 || true，说出现 0 次', says(swap('      - run: npm run launches', '      - run: npm run launches || true'), '「- run: npm run launches」出现了 0 次'))
-  ok('接线：上传的构件名不对，说出现 0 次', says(swap('name: mutation-launches-${{ matrix.shard }}', 'name: launches-${{ matrix.shard }}'), '「name: mutation-launches-${{ matrix.shard }}」出现了 0 次'))
-  ok('接线：变异那一步写了两遍，说出现了 2 次', says(swap('      - run: npm run compile\n', '      - run: npm run compile\n      - run: npm run mutate\n'), '「- run: npm run mutate」出现了 2 次'))
-  ok('接线：没有 jobs，说认不出', says(wf.replace('jobs:', 'job:'), '「jobs:」有 0 个'))
-  ok('接线：job 写成四格缩进，记号认不出在哪个 job 里', says(wf.replace(/^ {2}(chain|mutate|check):$/gm, '    $1:'), '不在 mutate 那个 job 里'))
+  const says = (text: string, ...parts: string[]) => { const f = faults(text); return f.length === 1 && parts.every(p => f[0].includes(p)) }
+  ok('接线：钉死的样子按份数、worker 数与 chain 那一串填', pinned.includes('        shard: [1, 2, 3]') && pinned.includes('          MUTATE_SHARD: ${{ matrix.shard }}/3')
+    && pinned.includes("          MUTATE_JOBS: '6'") && pinned.includes('      - run: npm run a && npm run shard-load && npm run b')
+    && pinned.includes('          path: output/mutation-launches/launches-${{ matrix.shard }}-of-3.json') && !pinned.some(l => l.includes('«')))
+  eq('接线：与钉死的样子相同（夹着整行注释与空行），一处都不报', faults(wf), [])
+  eq('接线：行尾多了空白、换行写成 CRLF，不报', faults(wf.replace(/\n/g, '  \r\n')), [])
+  eq('接线：多加几行整行注释，不报', faults(swap('    needs: [chain, mutate]\n', '    # 等前两种\n    needs: [chain, mutate]\n      # 块里的 shell 注释\n')), [])
+  eq('接线：读不到 check 那一串，说读不到', workflowWiringFaults(wf, undefined), ['读不到 package.json 的 check 那一串'])
+  ok('接线：check 那一串多了一步、chain 没跟上，红在 chain 那一行', faults(wf, 'npm run a && npm run shard-load && npm run c && npm run mutate && npm run b && npm run launches')
+    .some(f => f.includes('应为「- run: npm run a && npm run shard-load && npm run c && npm run b」')))
+  ok('接线：MUTATE_JOBS 改成 4，说是第几行、应为什么', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), "是「MUTATE_JOBS: '4'」", "应为「MUTATE_JOBS: '6'」"))
+  ok('接线：报的行号是原文件里的行号（注释与空行照数）', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), `第 ${wf.split('\n').findIndex(l => l.includes('MUTATE_JOBS')) + 1} 行`))
+  ok('接线：引号括起来的键多写一行，红', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n    "continue-on-error": true\n'), '"continue-on-error": true'))
+  ok('接线：行内注释也比 —— 「#」紧贴着命令时它不是注释', says(swap('      - run: npm run launches\n', '      - run: npm run launches#|| true\n'), 'npm run launches#|| true'))
+  ok('接线：缩进改了，红', says(swap('    needs: [chain, mutate]\n', '      needs: [chain, mutate]\n')))
+  ok('接线：末尾多一行，说应为没有这一行', says(wf + '  extra:\n', '应为没有这一行'))
+  ok('接线：末尾少一行，说文件已经到头', says(wf.replace(/[^\n]*\n$/, ''), '文件已经到头'))
+  ok('接线：报的那一行说改钉死的那份', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), 'WORKFLOW_PIN'))
 }
 })
 await group('h-infra-rules', () => {

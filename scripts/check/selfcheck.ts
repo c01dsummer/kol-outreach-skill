@@ -7801,15 +7801,13 @@ group('shard-load-entry', [], () => {
     failed++; console.error(`  ✗ 负载闸门夹具${SELFCHECK_FIXTURE_MARK}：${cwd} 里 git ${args.join(' ')}：${r.error ?? r.stderr}`)
     return false
   }
-  const check = 'npm run anchors && npm run size && npm run shard-load && npm run mutate && npm run launches'
-  // 接线核对要的每一处恰好一次（workflowWiringFaults）：chain、三份变异、check 三个 job 各写到它要看的那几行
-  const workflow = (jobs: string) => ['jobs:', '  chain:', '    steps:', '      - run: npm run anchors && npm run size && npm run shard-load',
-    '  mutate:', '    strategy:', '      matrix:', '        shard: [1, 2, 3]', '    steps:', '      - run: npm run mutate', '        env:',
-    '          MUTATE_SHARD: ${{ matrix.shard }}/3', `          MUTATE_JOBS: '${jobs}'`, '      - uses: actions/upload-artifact@v4', '        with:',
-    '          name: mutation-launches-${{ matrix.shard }}', '          path: output/mutation-launches/launches-${{ matrix.shard }}-of-3.json',
-    '  check:', '    needs: [chain, mutate]', '    if: ${{ !cancelled() }}', '    steps:', '      - env:', '          CHAIN: ${{ needs.chain.result }}',
-    '          MUTATE: ${{ needs.mutate.result }}', '        run: |', '          [ "$CHAIN" = success ] && [ "$MUTATE" = success ]',
-    '      - uses: actions/download-artifact@v4', '        with:', '          pattern: mutation-launches-*', '      - run: npm run launches', ''].join('\n')
+  // 接线核对把工作流与钉死的样子逐行比（workflowWiringFaults）：玩具仓库照抄这棵树的 check.yml 与 package.json 的 check 那一串，
+  // 读不到就当夹具没造对。jobs 不是 '6' 时把变异那一步的 worker 数改掉，用来造「接线对不上」
+  const realCheck = ((): string => { try { return String((JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: { check: unknown } }).scripts.check) } catch { return '' } })()
+  const realWorkflow = ((): string => { try { return readFileSync(join('.github', 'workflows', 'check.yml'), 'utf8') } catch { return '' } })()
+  if (realCheck === '' || realWorkflow === '') { failed++; console.error(`  ✗ 负载闸门夹具${SELFCHECK_FIXTURE_MARK}：读不到这棵树的 package.json 或 .github/workflows/check.yml`) }
+  const check = realCheck
+  const workflow = (jobs: string) => realWorkflow.replace("MUTATE_JOBS: '6'", `MUTATE_JOBS: '${jobs}'`)
   const muts = (per: readonly number[]) => ({ mutations: per.flatMap((n, g) => Array.from({ length: n }, (_unused, i) =>
     ({ id: `M-T-${g + 1}-${i}`, req: 'X', why: 'w', file: 'a.ts', find: 'a', replace: 'b', by: 'test', kills: [`甲${g + 1}`] }))) })
   const write = (dir: string, per: readonly number[], jobs = '6', weights = '{"schema":"mutation-shard-weights/v1","runs":[],"defaults":{"test":{"base":1,"each":1},"selfcheck":{"base":10,"each":10}},"configs":{}}\n') => {
@@ -7881,6 +7879,23 @@ group('shard-load-entry', [], () => {
     if (commit(wiringTmp, 'fewer jobs') && git(wiringTmp, 'update-ref', 'refs/remotes/origin/main', 'HEAD')) {
       const wiring = runToolBoth('shard-load 接线对不上时主干上也以退出码 1 结束', 'shard-load', [], wiringTmp, { status: 1 })
       if (wiring.ok) named('shard-load 接线那一行说出是 MUTATE_JOBS', wiring.stdout.split('\n').some(l => l.startsWith('✗ 变异负载：check.yml 的接线对不上') && l.includes("MUTATE_JOBS: '6'")), wiring.stdout)
+    }
+  }
+  // 工作流读不到、package.json 里没有 check 那一串（写坏的 package.json 连 node 都起不来，造不出）：都算接线对不上，主干上也红，不当成没写错
+  const noWfTmp = join(tmp, 'shard-load-no-workflow')
+  if (repo(noWfTmp, false)) {
+    rmSync(join(noWfTmp, '.github'), { recursive: true, force: true })
+    if (commit(noWfTmp, 'no workflow') && git(noWfTmp, 'update-ref', 'refs/remotes/origin/main', 'HEAD')) {
+      const noWf = runToolBoth('shard-load 读不到工作流时主干上也以退出码 1 结束', 'shard-load', [], noWfTmp, { status: 1 })
+      if (noWf.ok) named('shard-load 读不到工作流时那一行说读不到哪个文件', noWf.stdout.split('\n').some(l => l.startsWith('✗ 变异负载：check.yml 的接线对不上') && l.includes('读不到 .github/workflows/check.yml')), noWf.stdout)
+    }
+  }
+  const noPkgTmp = join(tmp, 'shard-load-no-package')
+  if (repo(noPkgTmp, false)) {
+    writeFileSync(join(noPkgTmp, 'package.json'), '{"scripts":{}}', 'utf8')
+    if (commit(noPkgTmp, 'no check script') && git(noPkgTmp, 'update-ref', 'refs/remotes/origin/main', 'HEAD')) {
+      const noPkg = runToolBoth('shard-load package.json 里没有 check 时主干上也以退出码 1 结束', 'shard-load', [], noPkgTmp, { status: 1 })
+      if (noPkg.ok) named('shard-load package.json 里没有 check 时那一行说读不到 check 那一串', noPkg.stdout.includes('读不到 package.json 的 check 那一串'), noPkg.stdout)
     }
   }
   // 秒数文件认不得：不拿猜的数分，以 1 退出
