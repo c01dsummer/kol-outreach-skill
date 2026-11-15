@@ -175,36 +175,42 @@ const CURRENCY_SIGNS = '$€£¥₹'
 /** 机器能确定不是产品说法的形状：整段遮掉，不列也不当出处。 */
 const TIME_ZONES = 'pst|pdt|est|edt|cst|cdt|mst|mdt|cet|cest|gmt|utc|bst|ist|jst|aest|sgt|hkt'
 const WEEKDAYS = 'mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|today|tomorrow'
-const NOISE: readonly RegExp[] = [
+/**
+ * 噪音只排机器能确定的形状；拿不准的照列（带上下文让运营一眼看出是什么）。漏标比多标贵：
+ * 猜得越宽，越容易把真的规格、比例、价钱当噪音藏掉。所有形状都只在一行之内认，不跨行。
+ * 网址、邮箱最先遮（里面的日期、数字不算说法）。
+ */
+const LINKS: readonly RegExp[] = [
   /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+/gi,                                             // 邮箱
   /\bhttps?:\/\/\S+|\bwww\.\S+/gi,                                                  // 网址
   // 不带协议的网址：网址名里要有字母，后缀要小写（「$29.99.Shop now」「40 hours.Me and」是句号后漏了空格，不是网址）。
   /\b[\w-]*[a-zA-Z][\w-]*\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
-  /\b\d{1,2}(?::\d{2})?\s?(?:am|pm|a\.m\.|p\.m\.)(?![a-z\d])/gi,                   // 钟点 3pm、10:30 am（PM2.5 不是）
-  // 不带 am、pm 的「10:30」：两头都是钟点的区间（9:00-17:00、10:30 to 11:30），后面跟时区的（10:30 PST），
-  // 前面是星期几或 at、by、from 这类词的。比例（a 1:10 ratio、dilute to 1:10、at 1:10 with water）照列。
-  /\b\d{1,2}:\d{2}\s?(?:-|–|to|and|until|till)\s?\d{1,2}:\d{2}\b/gi,
-  new RegExp(`\\b\\d{1,2}:\\d{2}(?=\\s?(?:${TIME_ZONES})\\b)`, 'gi'),
-  new RegExp(`(?<=\\b(?:${WEEKDAYS}|at|by|from|until|till|before|after|around|between)\\s)\\d{1,2}:\\d{2}\\b(?!\\s?(?:ratio|with|dilution)\\b)`, 'gi'),
+]
+/**
+ * 钟点只认带确定标记的：后面跟 am、pm 或时区（3pm、10:30 am、10:30 PST、9:00-17:00 CET），前面是星期几（Friday 9:30）。
+ * 不带标记的「10:30」「9:00-17:00」「1:10」「1:10 to 1:20」分不清是钟点还是比例，照列。
+ */
+const CLOCK = `\\d{1,2}(?::\\d{2})?(?:[ \\t]?(?:-|to|until|till)[ \\t]?\\d{1,2}(?::\\d{2})?)?`
+const NOISE: readonly RegExp[] = [
+  new RegExp(`\\b${CLOCK}[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.|${TIME_ZONES})(?![a-z\\d])`, 'gi'),   // PM2.5 不是
+  new RegExp(`(?<=\\b(?:${WEEKDAYS})[ \\t])\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|until|till)[ \\t]?\\d{1,2}:\\d{2})?\\b`, 'gi'),
   /\b\d+(?:st|nd|rd|th)\b/gi,                                                       // 序数词 2nd
 ]
 /**
- * 电话的形状，合起来至少九位，可带分机（x123、ext. 12）：
- * - 带国际前缀的（+1 415 555 0199、+44 (0)20 7946 0958、00 44 20 7946 0958）；
- * - 区号带括号的（(415) 555-0199、1 (415) 555-0199）；三三四位用同一个连字符或点隔开的（415-555-0199、1-800-555-0199）；
- * - 0 开头的本地号（020 7946 0958、0800 123 4567、01 23 45 67 89）；
- * - 前面写了 Tel、Phone、Call、WhatsApp 这类提示词的，空格隔开也算（Call 415 555 0199）。
- * 后面紧跟单位的不是电话（250-500-1000 ml、(500) 750-1000 ml）；没有提示词、用空格隔开的一串数（500 750 1000 ml）和价钱区间照常扫。
+ * 电话只认确定的形状，合起来至少九位，都在一行之内，可带分机（x123、ext. 12）：
+ * - 带「+」国际前缀的（+1 415 555 0199、+44 (0)20 7946 0958）；
+ * - 区号带括号的（(415) 555-0199、1 (415) 555-0199）；
+ * - 三三四位用同一个连字符或点隔开的（415-555-0199、1-800-555-0199），后面紧跟的不能是别的词（「250-500-1000 lumens」是规格）。
+ * 空格隔开的（415 555 0199、020 7946 0958）分不清是电话还是一串规格（500 750 1000 ml），照列。
  */
-const PHONE_UNITS = W(Object.keys(UNIT_ALIASES).filter(u => u !== '%'))
+/** 三三四位那种电话后面可以接的词（分机、连词）；接别的词就当规格照列。 */
+const AFTER_PHONE = 'x\\d|ext\\b|or\\b|and\\b|to\\b|for\\b|anytime\\b|today\\b|now\\b'
 const PHONE_BODY = [
-  '(?:\\+|00)\\s?\\d{1,3}[\\s.-]?(?:\\(0\\)\\s?)?\\(?\\d{1,4}\\)?(?:[\\s.-]\\d{2,5}){1,4}',
-  '(?:1[\\s.-]?)?\\(\\d{3}\\)\\s?\\d{3}[\\s.-]\\d{4}',
-  '(?:1([.-]))?\\d{3}([.-])\\d{3}\\2\\d{4}',
-  '0\\d{1,4}(?:[\\s.-]\\d{2,4}){2,4}',
-  '(?<=\\b(?:tel|telephone|phone|call|text|whatsapp|mobile|cell|fax|m|t|p)\\.?:?\\s{0,3})[\\d(+][\\d\\s().-]{7,}\\d',
+  '\\+\\d{1,3}[ \\t.-]?(?:\\(0\\)[ \\t]?)?\\(?\\d{1,4}\\)?(?:[ \\t.-]\\d{2,5}){1,4}',
+  '(?:1[ \\t.-]?)?\\(\\d{3}\\)[ \\t]?\\d{3}[ \\t.-]\\d{4}',
+  `(?:1([.-]))?\\d{3}([.-])\\d{3}\\2\\d{4}(?![ \\t]?-?(?!${AFTER_PHONE})[a-z])`,
 ].join('|')
-const PHONE = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(?:${PHONE_BODY})(?:\\s?(?:x|ext\\.?)\\s?\\d{1,5})?(?![\\w%]|[.,]\\d|\\s?(?:${PHONE_UNITS})\\b)`, 'gi')
+const PHONE = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(?:${PHONE_BODY})(?:[ \\t]?(?:x|ext\\.?)[ \\t]?\\d{1,5})?(?![\\w%]|[.,]\\d)`, 'gi')
 const isPhone = (s: string) => (s.match(/\d/g) ?? []).length >= 9
 
 const MONTHS = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
@@ -213,7 +219,8 @@ const DATE = new RegExp(`\\b(?:\\d{1,2}/\\d{1,2}/\\d{2,4}|\\d{4}-\\d{1,2}-\\d{1,
 
 /** 价格：币符或币种在前（$29.99、$ 40、US$5、₹400、USD 40、CAD 40），或写在后面（40 dollars、50-dollar、40 USD、40$、40€）。 */
 const PRICE_BEFORE = new RegExp(`(?:US\\$|[${CURRENCY_SIGNS}][ \\t]?|\\b(?:usd|eur|gbp|cad|aud|inr)\\s?)(${DIGITS})(?:\\s?(k|m)\\b)?`, 'gi')
-const PRICE_AFTER = new RegExp(`(?<![\\w.])(${DIGITS})(?:[\\s-]?(?:${CURRENCY_WORDS})\\b|\\s?[${CURRENCY_SIGNS}])`, 'gi')
+// 币符写在后面只认贴着前一个数、又不贴着后一个数的（40$、129$ 40）；「2 $50」「59 $39」「129$40」里的 $ 归后面那个数。
+const PRICE_AFTER = new RegExp(`(?<![\\w.])(${DIGITS})(?:[ \\t-]?(?:${CURRENCY_WORDS})\\b|[${CURRENCY_SIGNS}](?!\\d))`, 'gi')
 /** 拼写的数加钱或百分号：fifty dollars、a fifty-dollar card、thirty bucks、fifty per cent。 */
 const SPELLED_PRICE = new RegExp(`\\b(${SPELLED})[\\s-](?:${CURRENCY_WORDS})\\b`, 'gi')
 const SPELLED_PERCENT = new RegExp(`\\b(${SPELLED})[\\s-](?:percent|per cent)\\b`, 'gi')
@@ -230,10 +237,10 @@ const PERCENT_WORDS = '%|percent\\b|per cent\\b|pct\\b'
  */
 const NUMBER = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(-?${DIGITS})(?:\\s?\\+|[\\s-]plus)?(?:(\\s?(?:${PERCENT_WORDS}))|(°\\s?[cf]\\b)|([a-z]+(?![\\w]))|(?:[\\s-](?:(?:more|extra|additional|full|whole|total|or more|plus)\\s+)?([a-z]+(?![\\w'])))?)(?!\\w|\\.\\d)`, 'gi')
 /**
- * 兜底用：前面各条都没认走、仍带数字的一串（连着的字母、数字、点、逗号、连字符、斜杠），去掉末尾的标点。
+ * 兜底用：前面各条都没认走、仍带数字的一串（连着的字母、数字、点、逗号、连字符、斜杠），去掉末尾的标点；紧跟的字母后缀（px、-inch）列出来但不进比对。
  * 数字起头的混合串（1920x1080、5V2A、3in1、1080p60、6.1x2.8）和点分日期（20.11.2026）都靠它整串列、整串对。
  */
-const LEFTOVER = /[\w.,/+-]*\d(?:[\w.,/+-]*[\w])?/g
+const LEFTOVER = /[\w.,/+-]*\d([a-z]*(?:[-/][a-z]+)*)/gi
 /** 型号串：字母起头又含数字的整词（IPX7、Qi2、H13、IPX-7）；「1-on-1」里的 on-1 不算。 */
 const ALNUM = /(?<![\w-])[a-z]+-?\d[a-z0-9]*\b/gi
 
@@ -249,7 +256,7 @@ const numberValue = (raw: string): string => {
  * 排版字符换成键盘上的写法：弯撇号 ’ ‘ 换成 '，几种连字符和短横换成 -（BPA‑free、world’s first、isn’t）。
  * 一个字符换一个字符，下标不变，前后文仍取草稿原文。
  */
-const plain = (text: string): string => text.replace(/[’‘ʼ]/g, "'").replace(/[‐‑‒–]/g, '-')
+const plain = (text: string): string => text.replace(/[’‘ʼ]/g, "'").replace(/[‐‑‒–—]/g, '-')
 
 /** {…} 占位符：只认同一行、40 字以内的，套着写的（{{price}}）由里往外剥。剥掉的位置补空白，下标不变。 */
 function placeholders(text: string): { rest: string; unmatched: boolean } {
@@ -273,7 +280,8 @@ export function claimsIn(text: string): Claim[] {
     })
   }
   // 先遮掉确定不是产品说法的形状；位数不够的「电话」原样留下照常扫。
-  // 日期最先认：「March 15th」里的 15th 不能先被当序数词遮掉。
+  // 网址、邮箱最先（链接里的日期不算）；日期在序数词前（「March 15th」里的 15th 不能先被当序数词遮掉）。
+  for (const re of LINKS) mask(re, () => undefined)
   mask(DATE, m => ({ text: m[0], key: `date:${m[0].toLowerCase().replace(/[\s,.]+/g, ' ')}` }))
   for (const re of NOISE) mask(re, () => undefined)
   mask(PHONE, m => isPhone(m[0]) ? undefined : 'keep')
@@ -303,7 +311,8 @@ export function claimsIn(text: string): Claim[] {
     return { text, key: `num:${numberValue(value)}:${unit}` }
   })
   // 兜底：上面哪条规则都没认走的数字（6.1x2.8、1.000.000、v1.2.3 里的 2.3）整串照列，不让它静默消失。
-  mask(LEFTOVER, m => ({ text: m[0], key: `raw:${m[0].toLowerCase()}` }))
+  // 比的是到最后一个数字为止的那一截：6.1x2.8-inch 与 6.1x2.8 inches、1920x1080px 与 1920x1080 算同一个（同型号串，不比单位）。
+  mask(LEFTOVER, m => ({ text: m[0], key: `raw:${m[0].slice(0, m[0].length - m[1].length).toLowerCase()}` }))
   // 列出来的是草稿原文那几个字（BPA‑free 里的不换行连字符照原样），比对用的 key 来自换过排版字符的文字。
   return out.map(c => ({ ...c, text: text.slice(c.at, c.at + c.text.length) })).sort((a, b) => a.at - b.at)
 }
