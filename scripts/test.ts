@@ -15123,7 +15123,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function keyed(): { viaConst: number; viaU1: number; viaU2: number; [symKey]: number; 7: number; viaNot: number } { return { viaConst: 1, viaU1: 2, viaU2: 3, [symKey]: 4, 7: 5, viaNot: 6 } }',
       'export function pick(n: 0): { value: number }', 'export function pick(n: 1): {}', 'export function pick(n: number): { value?: number } { return {} }',
       'export function ctor(): { new(): object; added: number } { return Object.assign(class {}, { added: 1 }) }',
-      'export function gen<T extends 0>(n: T): { value: number } // 字段不入断言：只能从子进程输出验到', 'export function gen<T extends 1>(n: T): {}', 'export function gen(n: number): { value?: number } { return {} }',
+      'export function gen<T extends 0>(n: T): {\n  value: number // 字段不入断言：只能从子进程输出验到\n}', 'export function gen<T extends 1>(n: T): {}', 'export function gen(n: number): { value?: number } { return {} }',
       "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
     ].join('\n'),
     'scripts/check/n.ts': 'export function nOnly(): { extless: number } { return { extless: 1 } }',
@@ -15238,8 +15238,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     fieldVerdict(grown.filter(f => f.key.startsWith('scripts/check/m.ts#pick')), more.filter(f => f.key.startsWith('scripts/check/m.ts#pick')).map(f => f.key)).unused.map(f => f.key), ['scripts/check/m.ts#pick(n: 1).value'])
   const genOf = (all: typeof more) => all.filter(f => f.key.startsWith('scripts/check/m.ts#gen'))
   eq('字段闸门：泛型重载只差类型参数的约束，名字里带上类型参数分开；旧的那处有豁免，不替新加的那处挡',
-    [genOf(grown).map(f => f.key).sort(), fieldVerdict(genOf(grown), genOf(more).map(f => f.key)).unused.map(f => f.key)],
-    [['scripts/check/m.ts#gen<T extends 0>(n: T).value', 'scripts/check/m.ts#gen<T extends 1>(n: T).value'], ['scripts/check/m.ts#gen<T extends 1>(n: T).value']])
+    [genOf(grown).map(f => [f.key, f.waiver]).sort(), fieldVerdict(genOf(grown), genOf(more).map(f => f.key)).unused.map(f => f.key)],
+    [[['scripts/check/m.ts#gen<T extends 0>(n: T).value', '只能从子进程输出验到'], ['scripts/check/m.ts#gen<T extends 1>(n: T).value', undefined]], ['scripts/check/m.ts#gen<T extends 1>(n: T).value']])
   eq('字段：instanceof 左边的对象字面量不算读到右边构造器上的字段', moreOf('m.ts#ctor.added')?.used, false)
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
