@@ -9,7 +9,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { basename } from 'node:path'
-import { IOU_NAME, iouBlocks } from './debt-rule.js'
+import { CONDITION, IOU_NAME, iouBlocks } from './debt-rule.js'
 import { quotedMask } from './quoted.js'
 
 /** 判定要问 git 的三件事。答不上来（文件不在、行号越界）给 undefined，判定按「取不到」办 */
@@ -65,40 +65,63 @@ function lineCount(text: string): number {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** 历史文件里「已重挂：<编号> 第 <行> 行 · …现行的是 <编号>「<名字>」」那几行的旧行号，按出现先后 */
-export function rehungLines(history: string, id: string, name: string): number[] {
-  const re = new RegExp(`已重挂：${escapeRe(id)} 第 (\\d+) 行 · .*现行的是 ${escapeRe(id)}「${escapeRe(name)}」`)
-  const out: number[] = []
+/** 历史文件里指到这张的一行「已重挂」：老写法按旧行号（`已重挂：<编号> 第 <行> 行`），老欠条本来有名字的按旧名字（`已重挂：<编号>「<旧名字>」`） */
+export type Rehung = { line: number } | { name: string }
+
+/** 历史文件里「已重挂：… · …现行的是 <编号>「<名字>」」那几行，两种写法都认，按出现先后（ADR-211 第一节） */
+export function rehungLines(history: string, id: string, name: string): Rehung[] {
+  const tail = ` · .*现行的是 ${escapeRe(id)}「${escapeRe(name)}」`
+  const byLine = new RegExp(`已重挂：${escapeRe(id)} 第 (\\d+) 行${tail}`)
+  const byName = new RegExp(`已重挂：${escapeRe(id)}「([^」\\n]*)」${tail}`)
+  const out: Rehung[] = []
   for (const l of history.split('\n')) {
-    const m = re.exec(l)
-    if (m) out.push(Number(m[1]))
+    const m = byLine.exec(l), n = byName.exec(l)
+    if (m) out.push({ line: Number(m[1]) })
+    else if (n) out.push({ name: n[1] })
   }
   return out
 }
 
+/** `text` 里名字是 `name` 的那张欠条，条件那一行（从 1 数）：块里第一行带「重启条件：」的，同台账抽的那一行；没有这张、或块里没条件，给 undefined */
+export function conditionLineOf(text: string, name: string): number | undefined {
+  const lines = text.split('\n'), quoted = quotedMask(text)
+  const b = iouBlocks(lines, quoted).find(b => IOU_NAME.exec(lines[b.start])?.[1] === name)
+  if (b) for (let i = b.start; i < b.end; i++) if (!quoted[i] && CONDITION.test(lines[i])) return i + 1
+  return undefined
+}
+
 /**
- * 一张欠条的登记日（提交时间，秒）与拆之前它在原文里的旧行号。
+ * 一张欠条的登记日（提交时间，秒）与拆之前它在原文里的旧身份（旧行号、旧名字）。
  *
  * - 登记日 = 条件那一行最后一次在主干上被改的提交时间。
  * - 拆过的记录（ADR-211）：拆的那次提交把原文整份挪进历史文件、开着的欠条重写进主文件，两处 blame 都只给得出拆的那天。
  *   历史文件里拆前那一段与原文逐行相同，取原文同一行；主文件里拆时重写、之后条件没再改过的那张
- *   （这一行最后改在拆的那次提交上），取历史文件「已重挂」指过去的原文第一行。
- * - 旧行号只要名字对得上就全给，不管条件拆后改没改过：「列过」按名字认，旧行号与名字是同一个口径。
+ *   （这一行最后改在拆的那次提交上），取历史文件里指过来的第一行「已重挂」在原文里的那一行：
+ *   按旧行号的就是那一行，按旧名字的是原文里那张同名欠条的条件行。
+ * - 旧身份只要名字对得上就全给，不管条件拆后改没改过：「列过」按名字认，旧身份与名字是同一个口径。
  */
-export function bornOf(git: Git, run: string, file: string, line: number, name: string): { time?: number; oldLines: number[] } {
+export function bornOf(git: Git, run: string, file: string, line: number, name: string): { time?: number; oldLines: number[]; oldNames: string[] } {
   const id = adrId(file)
   const main = `docs/adr/${basename(file)}`
   const history = `${HISTORY_DIR}${basename(file)}`
   const split = git.firstAdded(run, history)
-  let src = run, path = file, at = line, oldLines: number[] = []
+  let src = run, path = file, at: number | undefined = line, olds: Rehung[] = []
   if (split && file === history) {
     const original = git.show(`${split}^`, main)
     if (original !== undefined && line <= lineCount(original)) { src = `${split}^`; path = main }
   } else if (split && name) {
-    oldLines = rehungLines(git.show(run, history) ?? '', id, name)
-    if (oldLines.length && git.blame(run, file, line)?.commit === split) { src = `${split}^`; at = oldLines[0] }
+    olds = rehungLines(git.show(run, history) ?? '', id, name)
+    if (olds.length && git.blame(run, file, line)?.commit === split) {
+      src = `${split}^`; path = main
+      const first = olds[0]
+      at = 'line' in first ? first.line : conditionLineOf(git.show(src, main) ?? '', first.name)
+    }
   }
-  return { time: git.blame(src, path, at)?.time, oldLines }
+  return {
+    time: at === undefined ? undefined : git.blame(src, path, at)?.time,
+    oldLines: olds.flatMap(o => 'line' in o ? [o.line] : []),
+    oldNames: olds.flatMap(o => 'name' in o ? [o.name] : []),
+  }
 }
 
 /** 北京时间的日期 `YYYY-MM-DD` */
@@ -118,14 +141,28 @@ export function rowCompare(a: { date?: string; key: string }, b: { date?: string
   return Buffer.compare(Buffer.from(a.key), Buffer.from(b.key))
 }
 
-/** ADR-152 里「列过」的每一项：候选表第二栏，与「读过、没进候选」那一行，按「、」切开、去首尾的半角空格 */
+/** 按「、」切开，书名号里的「、」是名字的一部分、不切 */
+function splitItems(cell: string): string[] {
+  const out: string[] = []
+  let depth = 0, cur = ''
+  for (const ch of cell) {
+    if (ch === '、' && depth === 0) { out.push(cur); cur = ''; continue }
+    if (ch === '「') depth++
+    else if (ch === '」' && depth > 0) depth--
+    cur += ch
+  }
+  out.push(cur)
+  return out
+}
+
+/** ADR-152 里「列过」的每一项：候选表第二栏，与「读过、没进候选」那一行，按书名号外的「、」切开、去首尾的半角空格 */
 export function listedItems(adr152: string): Set<string> {
   const out = new Set<string>()
   for (const l of adr152.split('\n')) {
     const cell = l.startsWith('- 读过、没进候选：') ? l.slice('- 读过、没进候选：'.length)
       : /^\| [^|]+ \| ([^|]+) \|/.exec(l)?.[1]
     if (cell === undefined) continue
-    for (const item of cell.split('、')) out.add(item.replace(/^ +| +$/g, ''))
+    for (const item of splitItems(cell)) out.add(item.replace(/^ +| +$/g, ''))
   }
   return out
 }
@@ -143,14 +180,14 @@ export function periodicEntries(ledger: string): Array<{ file: string; line: num
 
 export interface DueRow { date?: string; key: string; aliases: string[] }
 
-/** 一张欠条在回访里怎么记、哪天登记、拆前叫什么：有短名字按 `<编号>「<名字>」`，没有按 `<编号> 第 <行> 行` */
+/** 一张欠条在回访里怎么记、哪天登记、拆前叫什么（旧行号、旧名字都算它的别名）：有短名字按 `<编号>「<名字>」`，没有按 `<编号> 第 <行> 行` */
 export function dueRow(git: Git, run: string, file: string, line: number, text: string): DueRow {
   const id = adrId(file), name = iouNameAt(text, line)
-  const { time, oldLines } = bornOf(git, run, file, line, name)
+  const { time, oldLines, oldNames } = bornOf(git, run, file, line, name)
   return {
     date: time === undefined ? undefined : beijingDate(time),
     key: name ? `${id}「${name}」` : `${id} 第 ${line} 行`,
-    aliases: oldLines.map(n => `${id} 第 ${n} 行`),
+    aliases: [...oldLines.map(n => `${id} 第 ${n} 行`), ...oldNames.map(n => `${id}「${n}」`)],
   }
 }
 

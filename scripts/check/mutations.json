@@ -26108,8 +26108,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "拆以后条件又改过，登记日照样取原文那天 —— 改过的条件不满四周也被当成到期，回访把它当老欠条列出来",
-      "find": "    if (oldLines.length && git.blame(run, file, line)?.commit === split) { src = `${split}^`; at = oldLines[0] }",
-      "replace": "    if (oldLines.length && true) { src = `${split}^`; at = oldLines[0] }",
+      "find": "    if (olds.length && git.blame(run, file, line)?.commit === split) {",
+      "replace": "    if (olds.length && true) {",
       "by": "test",
       "kills": ["拆以后条件又改过：登记日取改的那天，旧行号照给"]
     },
@@ -26118,8 +26118,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "条件拆后改过就丢了旧行号 —— 拆以前按行号列过的那张，回访又列一次",
-      "find": "    if (oldLines.length && git.blame(run, file, line)?.commit === split) { src = `${split}^`; at = oldLines[0] }",
-      "replace": "    if (oldLines.length && git.blame(run, file, line)?.commit === split) { src = `${split}^`; at = oldLines[0] } else oldLines = []",
+      "find": "      at = 'line' in first ? first.line : conditionLineOf(git.show(src, main) ?? '', first.name)\n    }\n  }",
+      "replace": "      at = 'line' in first ? first.line : conditionLineOf(git.show(src, main) ?? '', first.name)\n    } else olds = []\n  }",
       "by": "test",
       "kills": ["拆以后条件又改过：登记日取改的那天，旧行号照给"]
     },
@@ -26131,7 +26131,7 @@
       "find": "  const open = due.filter(r => ![r.key, ...r.aliases].some(k => listed.has(k))).sort(rowCompare).map(line)",
       "replace": "  const open = due.filter(r => ![r.key].some(k => listed.has(k))).sort(rowCompare).map(line)",
       "by": "test",
-      "kills": ["三个数与前几行：取不到登记日 1、满四周 3、没列过 1（名字列过、第二个旧行号列过的都算列过）"]
+      "kills": ["三个数与前几行：取不到登记日 1、满四周 4、没列过 1（名字列过、第二个旧行号列过、旧名字列过的都算列过）"]
     },
     {
       "id": "M-H211-am",
@@ -26168,10 +26168,10 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "「读过、没进候选」那一行不按「、」切 —— 一行里列了几张，一张也认不出列过",
-      "find": "    for (const item of cell.split('、')) out.add(item.replace(/^ +| +$/g, ''))",
+      "find": "    for (const item of splitItems(cell)) out.add(item.replace(/^ +| +$/g, ''))",
       "replace": "    for (const item of [cell]) out.add(item.replace(/^ +| +$/g, ''))",
       "by": "test",
-      "kills": ["列过的每一项：候选表第二栏、读过那一行按「、」切开，名字里的「」与括号原样"]
+      "kills": ["列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样"]
     },
     {
       "id": "M-H211-aq",
@@ -26192,6 +26192,56 @@
       "replace": "  if ((a.date === undefined) !== (b.date === undefined)) return a.date === undefined ? -1 : 1",
       "by": "test",
       "kills": ["先按日期，取不到日期的排最后", "两道门「过」的几张按登记日排，取不到登记日的（行号越界）排最后，不当成最老的先起草"]
+    },
+    {
+      "id": "M-H211-at",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "书名号里的「、」也切 —— 名字里带顿号的那张被切成两半，列过了也认不出，回访又列一次",
+      "find": "    if (ch === '、' && depth === 0) { out.push(cur); cur = ''; continue }",
+      "replace": "    if (ch === '、') { out.push(cur); cur = ''; continue }",
+      "by": "test",
+      "kills": ["列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样"]
+    },
+    {
+      "id": "M-H211-au",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "只认按旧行号的「已重挂」—— 老欠条本来有名字的，拆以后登记日变成拆的那天、按旧名字列过的又被列一次",
+      "find": "    else if (n) out.push({ name: n[1] })",
+      "replace": "    else if (false) out.push({ name: n![1] })",
+      "by": "test",
+      "kills": ["拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名", "已重挂两种写法都认、按出现先后"]
+    },
+    {
+      "id": "M-H211-av",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "按旧名字回溯时取块头那一行 —— 条件后来改过的，登记日早于台账上那一行真正写下的那天",
+      "find": "  if (b) for (let i = b.start; i < b.end; i++) if (!quoted[i] && CONDITION.test(lines[i])) return i + 1",
+      "replace": "  if (b) return b.start + 1",
+      "by": "test",
+      "kills": ["拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名"]
+    },
+    {
+      "id": "M-H211-aw",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "旧名字不当别名 —— ADR-152 里按旧名字列过的那张，拆以后换了新名字又被列一次",
+      "find": "    aliases: [...oldLines.map(n => `${id} 第 ${n} 行`), ...oldNames.map(n => `${id}「${n}」`)],",
+      "replace": "    aliases: [...oldLines.map(n => `${id} 第 ${n} 行`)],",
+      "by": "test",
+      "kills": ["拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名"]
+    },
+    {
+      "id": "M-H211-ax",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "只有 `>` 的一行把引用块截断 —— 块头与条件隔着这样一行的欠条，回访取不到短名字、改按行号记，孤儿闸门也把它当成没写条件",
+      "find": "           (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++",
+      "replace": "           (quotedBlock ? lines[end].trimStart().startsWith('>') && lines[end].trim() !== '>' : lines[end].trim() !== '')) end++",
+      "by": "test",
+      "kills": ["块头与条件隔着只有 > 的一行，仍按块头取名字（与孤儿闸门同一份定界）"]
     },
     {
       "id": "M-H211-as",

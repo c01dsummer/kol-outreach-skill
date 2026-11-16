@@ -40,7 +40,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
-import { beijingDate, bornReport, cliGit, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rowCompare } from './check/revisit-rule.js'
+import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
@@ -15435,6 +15435,13 @@ harness('周回访定期清点：欠条哪天登记、按什么名字认、列�
   const sha = () => g(null, 'rev-parse', 'HEAD').stdout.trim()
   g(null, 'init', '-q', '-b', 'main')
   const main = 'docs/adr/ADR-9-玩具.md', hist = 'docs/adr/历史/ADR-9-玩具.md', other = 'docs/adr/ADR-8-没拆.md'
+  // ADR-7：原文里那张本来就有名字（名字里带「、」），条件那一行比块头晚一天改；拆时主文件换新名字，状态行按旧名字写
+  const main7 = 'docs/adr/ADR-7-有名.md', hist7 = 'docs/adr/历史/ADR-7-有名.md'
+  const original7 = (cond: string) => `# ADR-7\n\n正文\n\n> ⚠️ 欠条「旧、名」：说明\n>\n> 重启条件：${cond}\n`
+  put(main7, original7('别的'))
+  commit('2026-01-03')
+  put(main7, original7('定期清点'))
+  commit('2026-01-04')
   // 原文：第 3、5 行两张没名字的欠条，都按定期清点重启
   const original = '# ADR-9\n\n> ⚠️ 欠条：甲 重启条件：定期清点\n\n> ⚠️ 欠条：乙 重启条件：定期清点\n'
   put(main, original)
@@ -15443,6 +15450,9 @@ harness('周回访定期清点：欠条哪天登记、按什么名字认、列�
   // 拆：原文整份挪进历史文件，后面接两行重挂到同一个名字；主文件重写成一张有名字的，块头与条件之间隔一行只有 `>` 的
   put(hist, original + '\n## 拆\n\n> ⚠️ 已重挂：ADR-9 第 3 行 · 现行的是 ADR-9「甲乙」\n\n> ⚠️ 已重挂：ADR-9 第 5 行 · 现行的是 ADR-9「甲乙」\n')
   put(main, '# ADR-9\n\n> ⚠️ 欠条「甲乙」：说明\n>\n> 重启条件：定期清点\n')
+  put(hist7, original7('定期清点') + '\n## 拆\n\n> ⚠️ 已重挂：ADR-7「旧、名」 · 现行的是 ADR-7「新名」\n')
+  // 条件那一行拆时也重写了字：一字不差的话 blame 顺着同一份文件认回原文那一行，走不到按旧名字回溯这一步
+  put(main7, '# ADR-7\n\n> ⚠️ 欠条「新名」：说明\n>\n> 重启条件：定期清点，拆时重写\n')
   commit('2026-03-10')
   const split = sha()
   const git = cliGit(repo, env)
@@ -15454,6 +15464,11 @@ harness('周回访定期清点：欠条哪天登记、按什么名字认、列�
     { date: '2026-01-05', key: 'ADR-8「丙(丁).*」', aliases: [] })
   eq('拆过、条件没再改：登记日取原文里被它接走的第一张，旧行号两张都给', at(main, 5),
     { date: '2026-01-05', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] })
+  eq('拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名', at(main7, 5),
+    { date: '2026-01-04', key: 'ADR-7「新名」', aliases: ['ADR-7「旧、名」'] })
+  eq('已重挂两种写法都认、按出现先后', rehungLines('> ⚠️ 已重挂：ADR-7 第 3 行 · 现行的是 ADR-7「新」\n> ⚠️ 已重挂：ADR-7「旧」 · 收尾，现行的是 ADR-7「新」\n> ⚠️ 已重挂：ADR-7「别」 · 现行的是 ADR-7「另」\n', 'ADR-7', '新'),
+    [{ line: 3 }, { name: '旧' }])
+  eq('原文里找不到那张同名欠条：给 undefined', conditionLineOf(original7('定期清点'), '没有这张'), undefined)
   eq('历史文件里拆前那一段：取原文同一行的登记日', at(hist, 3).date, '2026-01-05')
   eq('历史文件里拆时才补的那几行：照常取它自己那一行（拆的那天）', at(hist, 9).date, '2026-03-10')
   // 拆以后改条件：登记日跟着改的那天走，旧行号照给（「列过」按名字认，旧行号同一个口径）
@@ -15473,18 +15488,19 @@ harness('周回访定期清点：欠条哪天登记、按什么名字认、列�
     ['ADR-80 第 9 行', 'ADR-120 第 1 行'])
   eq('先按日期，取不到日期的排最后', [{ key: 'ADR-1 第 1 行' }, { date: '2026-02-01', key: 'ADR-1 第 2 行' }, { date: '2026-01-01', key: 'ADR-9 第 1 行' }].sort(rowCompare).map(r => r.key),
     ['ADR-9 第 1 行', 'ADR-1 第 2 行', 'ADR-1 第 1 行'])
-  const listed = listedItems('| 2026-01-01 | ADR-8「丙(丁).*」 | 句 |\n- 读过、没进候选：ADR-9 第 5 行、ADR-7 第 1 行\n')
-  eq('列过的每一项：候选表第二栏、读过那一行按「、」切开，名字里的「」与括号原样', [...listed].sort(),
-    ['ADR-7 第 1 行', 'ADR-8「丙(丁).*」', 'ADR-9 第 5 行'])
+  const listed = listedItems('| 2026-01-01 | ADR-8「丙(丁).*」、ADR-6「甲、乙」 | 句 |\n- 读过、没进候选：ADR-9 第 5 行、ADR-7「旧、名」、ADR-7 第 1 行\n')
+  eq('列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样', [...listed].sort(),
+    ['ADR-6「甲、乙」', 'ADR-7 第 1 行', 'ADR-7「旧、名」', 'ADR-8「丙(丁).*」', 'ADR-9 第 5 行'].sort())
   const rows = [
     { date: '2026-01-05', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] },
     { date: '2026-01-05', key: 'ADR-8「丙(丁).*」', aliases: [] },
+    { date: '2026-01-04', key: 'ADR-7「新名」', aliases: ['ADR-7「旧、名」'] },
     { date: '2026-01-06', key: 'ADR-80 第 2 行', aliases: [] },
     { date: '2026-02-01', key: 'ADR-1 第 1 行', aliases: [] },
     { key: 'ADR-2 第 2 行', aliases: [] },
   ]
-  eq('三个数与前几行：取不到登记日 1、满四周 3、没列过 1（名字列过、第二个旧行号列过的都算列过）',
-    dueReport(rows, '2026-01-31', listed), ['1', '3', '1', '2026-01-06 ADR-80 第 2 行'])
+  eq('三个数与前几行：取不到登记日 1、满四周 4、没列过 1（名字列过、第二个旧行号列过、旧名字列过的都算列过）',
+    dueReport(rows, '2026-01-31', listed), ['1', '4', '1', '2026-01-06 ADR-80 第 2 行'])
   eq('台账里只取「重启条件」写着定期清点的行，取文件与行号',
     periodicEntries('docs/adr/A.md:3  [重启条件]  定期清点\ndocs/adr/B.md:4  [死亡条件]  定期清点\ndocs/adr/C.md:5  [重启条件]  别的\nscripts/D.md:6  [重启条件]  定期清点\nx\n'),
     [{ file: 'docs/adr/A.md', line: 3 }])
