@@ -14079,9 +14079,13 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
     const groups = scanned.groups.map(g => g.id === id ? { ...g, needs: [] } : g)
     return said(judgeShares(groups, scanned.effects)).filter(f => !before.has(f))
   }
+  // 这一族共用的当前目录 `pipeCwd`（顶层写死的 tmp/pipeline，ADR-212）也算一处路径：五组都提到它，
+  // memory 自成一族之后，它与另外四组之间两个方向各报一条
   eq('真 selfcheck.ts 拿掉 memory 的 needs：它读 collect 写的 dir、render 写的 rendered，自成一族',
     dropped('memory'),
-    ['family dir: collect → memory', 'family rendered: render → memory'])
+    ['family dir: collect → memory', 'family rendered: render → memory',
+      ...['collect', 'enrich', 'render', 'resume-after-render-keeps-creators'].flatMap(g =>
+        [`family tmp/pipeline: ${g} → memory`, `family tmp/pipeline: memory → ${g}`])].sort())
   eq('真 selfcheck.ts 拿掉 enrich 的 needs：render 仍把它连在族里，只在选跑时读不到 dir',
     dropped('enrich'), ['closure dir: collect → enrich'])
   // 阳性对照（登记先后）：ADR-131 发现二复核者在副本里做过的那一挪 —— positive 挪到 reject 之后。

@@ -25682,7 +25682,7 @@
     {
       "id": "M-H212-f",
       "req": "harness",
-      "why": "当前目录只按原样比、不按真实路径比：macOS 上拿 realpathSync 过的目录起子进程，记不下来",
+      "why": "当前目录只按原样比、不按真实路径比：macOS 上 tmp 取的是真实路径、子进程的当前目录经软链给时，记不下来",
       "file": "scripts/check/share-rule.ts",
       "find": "const here = [...new Set([resolve(cwd), safe(real, resolve(cwd))])]",
       "replace": "const here = [resolve(cwd)]",
