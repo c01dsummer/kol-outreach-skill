@@ -18916,6 +18916,321 @@
       ]
     },
     {
+      "id": "M-H203-bn",
+      "req": "harness",
+      "why": "读不到 check 那一串时当成对得上 —— chain 那一行从此不核",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (checkScript === undefined) return ['读不到 package.json 的 check 那一串']",
+      "replace": "  if (checkScript === undefined) return []",
+      "by": "test",
+      "kills": [
+        "接线：读不到 check 那一串，说读不到"
+      ]
+    },
+    {
+      "id": "M-H203-bo",
+      "req": "harness",
+      "why": "chain 那一串只去掉变异一步、不去掉启动数 —— 照 package.json 推出的 chain 那一行永远对不上，真树也红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "step !== 'npm run mutate' && step !== 'npm run launches'",
+      "replace": "step !== 'npm run mutate'",
+      "by": "test",
+      "kills": [
+        "接线：与钉死的样子相同（夹着整行注释与空行），一处都不报"
+      ]
+    },
+    {
+      "id": "M-H203-bp",
+      "req": "harness",
+      "why": "tab 起头的行也当整行注释 —— tab 在 YAML 里不许作缩进，这样一行被去掉，YAML 却会报错或换了意思",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/^ *(#|$)/.test(raw[i])",
+      "replace": "/^\\s*(#|$)/.test(raw[i])",
+      "by": "test",
+      "kills": [
+        "接线：tab 缩进的注释行不算注释，红"
+      ]
+    },
+    {
+      "id": "M-H203-bq",
+      "req": "harness",
+      "why": "空行也拿去比 —— 多空一行就红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/^ *(#|$)/.test(raw[i])",
+      "replace": "/^ *#/.test(raw[i])",
+      "by": "test",
+      "kills": [
+        "接线：与钉死的样子相同（夹着整行注释与空行），一处都不报"
+      ]
+    },
+    {
+      "id": "M-H203-br",
+      "req": "harness",
+      "why": "CRLF 不先折成 LF —— 换个编辑器存一次就红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "workflow.replace(/\\r\\n/g, '\\n')",
+      "replace": "workflow",
+      "by": "test",
+      "kills": [
+        "接线：换行写成 CRLF，不报"
+      ]
+    },
+    {
+      "id": "M-H203-bs",
+      "req": "harness",
+      "why": "两头去掉空白再比 —— 缩进改了、一个键挪到别的层级也照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (got[i]?.text === want[i]) continue",
+      "replace": "    if (got[i]?.text.trim() === want[i]?.trim()) continue",
+      "by": "test",
+      "kills": [
+        "接线：缩进改了，红"
+      ]
+    },
+    {
+      "id": "M-H203-bt",
+      "req": "harness",
+      "why": "只比到工作流自己的最后一行 —— 末尾删掉几行（例如判 CHAIN 与 MUTATE 那一步）照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  for (let i = 0; i < Math.max(want.length, got.length); i++) {",
+      "replace": "  for (let i = 0; i < got.length; i++) {",
+      "by": "test",
+      "kills": [
+        "接线：末尾少一行，说文件已经到头"
+      ]
+    },
+    {
+      "id": "M-H203-bu",
+      "req": "harness",
+      "why": "只比到钉死那份的最后一行 —— 末尾多写一个 job 或一步照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  for (let i = 0; i < Math.max(want.length, got.length); i++) {",
+      "replace": "  for (let i = 0; i < want.length; i++) {",
+      "by": "test",
+      "kills": [
+        "接线：末尾多一行，说应为没有这一行"
+      ]
+    },
+    {
+      "id": "M-H203-bv",
+      "req": "harness",
+      "why": "报的行号从 0 数 —— 照着行号去找找错一行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "got.push({ n: i + 1, text: raw[i] })",
+      "replace": "got.push({ n: i, text: raw[i] })",
+      "by": "test",
+      "kills": [
+        "接线：报的行号是原文件里的行号（注释与空行照数）"
+      ]
+    },
+    {
+      "id": "M-H203-bw",
+      "req": "harness",
+      "why": "钉死那份的 worker 数不按 CI_MUTATE_JOBS 填",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    .replaceAll('«JOBS»', String(CI_MUTATE_JOBS))",
+      "replace": "    .replaceAll('«JOBS»', '4')",
+      "by": "test",
+      "kills": [
+        "接线：钉死的样子按份数、worker 数与 chain 那一串填"
+      ]
+    },
+    {
+      "id": "M-H203-bx",
+      "req": "harness",
+      "why": "钉死那份的矩阵从 0 数",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "Array.from({ length: SHARD_COUNT }, (_unused, i) => i + 1).join(', ')",
+      "replace": "Array.from({ length: SHARD_COUNT }, (_unused, i) => i).join(', ')",
+      "by": "test",
+      "kills": [
+        "接线：钉死的样子按份数、worker 数与 chain 那一串填"
+      ]
+    },
+    {
+      "id": "M-H203-by",
+      "req": "harness",
+      "why": "钉死那份的 chain 那一行不照 package.json 填",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "replaceAll('«CHAIN»', () => chain))",
+      "replace": "replaceAll('«CHAIN»', () => 'npm test'))",
+      "by": "test",
+      "kills": [
+        "接线：钉死的样子按份数、worker 数与 chain 那一串填"
+      ]
+    },
+    {
+      "id": "M-H203-bz",
+      "req": "harness",
+      "why": "不一样时不说改哪里 —— 改工作流的人不知道要同时改钉死的那份",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "      + ' —— 改了工作流就在同一条 PR 里改 shard-load-rule.ts 的 WORKFLOW_PIN']",
+      "replace": "      + '']",
+      "by": "test",
+      "kills": [
+        "接线：报的那一行说改钉死的那份"
+      ]
+    },
+    {
+      "id": "M-H203-ca",
+      "req": "harness",
+      "why": "不认 U+0085 —— YAML 1.1 把它当换行，一行注释里夹一个，后半截就成了真内容",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/[^\\S \\t\\n]|\\u0085/",
+      "replace": "/[^\\S \\t\\n]/",
+      "by": "test",
+      "kills": [
+        "接线：注释里夹一个 U+0085（YAML 1.1 当换行），红"
+      ]
+    },
+    {
+      "id": "M-H203-cb",
+      "req": "harness",
+      "why": "单独的 CR 当普通空白放过 —— YAML 把它当换行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/[^\\S \\t\\n]|\\u0085/",
+      "replace": "/[^\\S \\t\\n\\r]|\\u0085/",
+      "by": "test",
+      "kills": [
+        "接线：注释里夹一个单独的 CR（YAML 当换行），红"
+      ]
+    },
+    {
+      "id": "M-H203-cc",
+      "req": "harness",
+      "why": "全角空格当普通空白放过",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/[^\\S \\t\\n]|\\u0085/",
+      "replace": "/[^\\S \\t\\n\\u3000]|\\u0085/",
+      "by": "test",
+      "kills": [
+        "接线：全角空格起头的注释行，红"
+      ]
+    },
+    {
+      "id": "M-H203-cd",
+      "req": "harness",
+      "why": "不换行空格当普通空白放过",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/[^\\S \\t\\n]|\\u0085/",
+      "replace": "/[^\\S \\t\\n\\u00a0]|\\u0085/",
+      "by": "test",
+      "kills": [
+        "接线：不换行空格起头的注释行，红"
+      ]
+    },
+    {
+      "id": "M-H203-ce",
+      "req": "harness",
+      "why": "U+2028 当普通空白放过",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/[^\\S \\t\\n]|\\u0085/",
+      "replace": "/[^\\S \\t\\n\\u2028]|\\u0085/",
+      "by": "test",
+      "kills": [
+        "接线：注释里夹一个 U+2028，红"
+      ]
+    },
+    {
+      "id": "M-H203-cf",
+      "req": "harness",
+      "why": "行尾「\\」后面的注释行、空行照样去掉 —— shell 会把它连进命令，改了命令却照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "raw[i - 1].endsWith('\\\\')",
+      "replace": "raw[i - 1].endsWith('\\\\\\\\')",
+      "by": "test",
+      "kills": [
+        "接线：行尾「\\」后面插一行注释，红",
+        "接线：行尾「\\」后面插一个空行，红"
+      ]
+    },
+    {
+      "id": "M-H203-cg",
+      "req": "harness",
+      "why": "check 那一串什么样都拿去填 chain 那一行 —— 里面夹「\\ #」时 YAML 把后半截当注释，CI 只跑前几步、闸门照绿",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (!CHECK_SHAPE.test(checkScript)) return",
+      "replace": "  if (false) return",
+      "by": "test",
+      "kills": [
+        "接线：check 那一串里夹「\\ #」，红",
+        "接线：check 那一串里夹「$$」，红"
+      ]
+    },
+    {
+      "id": "M-H203-ch",
+      "req": "harness",
+      "why": "check 那一串的样子放宽到随便什么字 —— 「\\ #」「$$」都能混进去",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/^npm (test|run [a-z][\\w:-]*)( && npm (test|run [a-z][\\w:-]*))*$/",
+      "replace": "/^npm (test|run [a-z].*)( && npm (test|run [a-z][\\w:-]*))*$/",
+      "by": "test",
+      "kills": [
+        "接线：check 那一串里夹「\\ #」，红",
+        "接线：check 那一串里夹「$$」，红"
+      ]
+    },
+    {
+      "id": "M-H203-ci",
+      "req": "harness",
+      "why": "chain 那一串当替换串填 —— 里面的 $& 之类被换成别的字，工作流与 check 不一样也对得上",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "replaceAll('«CHAIN»', () => chain)",
+      "replace": "replaceAll('«CHAIN»', chain)",
+      "by": "test",
+      "kills": [
+        "接线：钉死的样子照字面填 chain，「$&」不被当成替换记号"
+      ]
+    },
+    {
+      "id": "M-H203-cj",
+      "req": "harness",
+      "why": "名字以 mutate 起头的步也从 chain 里去掉 —— 那一步在 CI 上就不跑了",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "step !== 'npm run mutate' &&",
+      "replace": "!step.startsWith('npm run mutate') &&",
+      "by": "test",
+      "kills": [
+        "接线：名字只是以 mutate 起头的那一步不去"
+      ]
+    },
+    {
+      "id": "M-H203-ck",
+      "req": "harness",
+      "why": "全是空格的行不算空行 —— 留一行空格就红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "/^ *(#|$)/.test(raw[i])",
+      "replace": "/^ *#|^$/.test(raw[i])",
+      "by": "test",
+      "kills": [
+        "接线：全是空格的行算空行，不报"
+      ]
+    },
+    {
+      "id": "M-H203-cl",
+      "req": "harness",
+      "why": "怪空白报的行号差一行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "const n = text.slice(0, odd.index).split('\\n').length,",
+      "replace": "const n = text.slice(0, odd.index).split('\\n').length - 1,",
+      "by": "test",
+      "kills": [
+        "接线：怪空白那一行报原文件的行号"
+      ]
+    },
+    {
+      "id": "M-H203-cm",
+      "req": "harness",
+      "why": "续行后的注释报的行号差一行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "return [`第 ${i + 1} 行是注释或空行",
+      "replace": "return [`第 ${i} 行是注释或空行",
+      "by": "test",
+      "kills": [
+        "接线：续行后的注释报它自己的行号"
+      ]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",

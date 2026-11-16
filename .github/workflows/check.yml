@@ -31,6 +31,8 @@ permissions:
 # 最后一步启动数闸门要变异一步与自检各写的那份计数，放在 check 那个 job 里，等前两种都绿了才跑。
 # 合起来跑的步骤、判红的条件与本地 `npm run check` 一样：哪一份红、哪一步红，这一跑就红。
 # 分份只在这里写：本地不写 MUTATE_SHARD，就是整份。
+# ⚠️ 这份文件钉死在 scripts/check/shard-load-rule.ts 的 WORKFLOW_PIN 里（ADR-203 第八节）：除了整行注释与空行，
+# 改一个字都要在同一条 PR 里改那一份，否则检查链第三步的变异负载闸门红在第一处不一样的那一行。
 jobs:
   chain:
     name: 检查链（变异以外各步）
@@ -74,7 +76,7 @@ jobs:
       # 之后那次审计请求
       - run: npm ci --prefer-offline --no-audit
       # 与本地 `npm run check` 同一串，只少了变异与启动数两步（各在下面的 job 里）
-      - run: npm run anchors && npm run size && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run compile && npm test && npm run selfcheck && npm run audit
+      - run: npm run anchors && npm run size && npm run shard-load && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run compile && npm test && npm run selfcheck && npm run audit
       # 只提醒：这一跑改到的文件被哪几条开着的欠条写进了正文（需求所有者 2026-11-14 要的，KOL-110；ADR-196）。
       # 汇总那一句打成一条 notice（PR 的 Checks 页与这一跑的总览上看得到），全文写进这一跑的 Summary。
       # 「改到的」与体量闸门同一个起点：PR 上是这次合并用的主干头，推 main 时是上一版。
@@ -153,7 +155,7 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - name: 变异以外各步与三份变异都绿了才往下
+      - name: 变异以外各步与各份变异都绿了才往下
         env:
           CHAIN: ${{ needs.chain.result }}
           MUTATE: ${{ needs.mutate.result }}
