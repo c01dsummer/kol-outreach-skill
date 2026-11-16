@@ -166,10 +166,12 @@ export function orphanIous(docs: Map<string, string>): Entry[] {
  *
  * 只认紧跟在「⚠️ 欠条」后面的那一对：块头别处提到的「接着某某的欠条「甲」」不是这张的名字 ——
  * 认了它，没起名字的这张就冒名顶替了「甲」，按名字关上「甲」时它也跟着不提醒。
+ * 所以从行首认起，和认块头的 `IOU_HEAD` 同一个起头：块头第一个「⚠️ 欠条」后面没有书名号，就是没起名字，
+ * 哪怕说明里又提到一个带名字的「⚠️ 欠条「甲」」。
  * 名字最长 `NAME_LIMIT` 个字；没起名字的老欠条交回 null，照旧只能按行号指。
  */
-export const IOU_NAME = /⚠️\s*\*{0,2}欠条\*{0,2}\s*「([^」\n]*)」/
-const IOU_NAME_OPEN = /⚠️\s*\*{0,2}欠条\*{0,2}\s*「/
+export const IOU_NAME = /^>?\s*\*{0,2}⚠️\s*\*{0,2}欠条\*{0,2}\s*「([^」\n]*)」/
+const IOU_NAME_OPEN = /^>?\s*\*{0,2}⚠️\s*\*{0,2}欠条\*{0,2}\s*「/
 export const NAME_LIMIT = 40
 export function iouName(head: string): string | null {
   const m = IOU_NAME.exec(head)

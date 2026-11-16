@@ -25661,11 +25661,24 @@
       "req": "harness",
       "file": "scripts/check/debt-rule.ts",
       "why": "块头别处提到的别的欠条名字也当成这张的名字 —— 一张没起名字的欠条冒名顶替了「甲」，按名字关上「甲」时它也跟着不提醒，或者和真「甲」报一条假重名",
-      "find": "export const IOU_NAME = /⚠️\\s*\\*{0,2}欠条\\*{0,2}\\s*「([^」\\n]*)」/",
+      "find": "export const IOU_NAME = /^>?\\s*\\*{0,2}⚠️\\s*\\*{0,2}欠条\\*{0,2}\\s*「([^」\\n]*)」/",
       "replace": "export const IOU_NAME = /欠条「([^」\\n]*)」/",
       "by": "test",
       "kills": [
         "块头别处提到的欠条名字不算这张的"
+      ]
+    },
+    {
+      "id": "M-H211-q",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "取名字不从行首认 —— 块头没起名字、说明里又引了一个带名字的「⚠️ 欠条「甲」」，就把「甲」当成这张的名字，拆过的记录里它躲过「没起名字」的硬失败",
+      "find": "export const IOU_NAME = /^>?\\s*\\*{0,2}⚠️",
+      "replace": "export const IOU_NAME = /⚠️",
+      "by": "test",
+      "kills": [
+        "块头第一个「⚠️ 欠条」没带名字，说明里再提一个带名字的块头也不算这张的",
+        "拆过的记录，主文件里这样的欠条照样报没起名字"
       ]
     },
     {
