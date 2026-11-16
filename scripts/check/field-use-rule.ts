@@ -1,6 +1,6 @@
 /**
  * 字段断言闸门的**判定**（ADR-198）：检查链里一处判定的返回值多了一个字段，
- * 却没有任何一条测试碰过它 —— 这件事从 ADR-70 第 2050 行起一直靠评审器逐个核，没有机器。
+ * 却没有任何一条测试碰过它 —— 这件事从 ADR-70 第二节第①条那张欠条起一直靠评审器逐个核，没有机器。
  *
  * 三件事都在这里，因为三件都决定这道闸门看得见什么（`docs/CONVENTIONS.md` 第十节）：
  *
@@ -194,13 +194,15 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const used = new Set<Ts.Declaration>()
   const mark = (s: Ts.Symbol | undefined): void => { for (const d of s?.declarations ?? []) used.add(d) }
   const calleeOf = (c: Ts.CallExpression): string => ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : ts.isIdentifier(c.expression) ? c.expression.text : ''
+  const unwrap = (e: Ts.Expression): Ts.Expression => ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) ? unwrap(e.expression) : e
   const split = (t: Ts.Type): readonly Ts.Type[] => t.isUnion() ? t.types : [t] // 可能为空的也只是联合里多一个 undefined，它上面没有属性
   /** 期望值对象 `lit` 对得上的那几个类型：联合拆开，只留写出来的键它都有、写出来的判别值（字符串字面量）也对得上的成员 —— 不让同名字段在别的成员上沾光 */
   const fit = (lit: Ts.ObjectLiteralExpression, types: readonly Ts.Type[]): readonly Ts.Type[] => types.flatMap(split).filter(t => lit.properties.every(m => {
     const name = ts.isPropertyAssignment(m) || ts.isShorthandPropertyAssignment(m) ? literalName(ts, m.name) : undefined, q = name === undefined ? undefined : t.getProperty(name)
     if (name === undefined || q === undefined) return name === undefined
-    const tags = split(tc.getTypeOfSymbol(q))
-    return !ts.isPropertyAssignment(m) || !ts.isStringLiteralLike(m.initializer) || !tags.every(x => x.isStringLiteral()) || tags.some(x => x.isStringLiteral() && x.value === (m.initializer as Ts.StringLiteralLike).text)
+    const tags = split(tc.getNonNullableType(tc.getTypeOfSymbol(q))) // 可选的判别属性带个 undefined，去掉再看是不是全是字符串字面量
+    const said = ts.isPropertyAssignment(m) ? unwrap(m.initializer) : undefined // 写出来的判别值，套着 as、satisfies、括号也认
+    return said === undefined || !ts.isStringLiteralLike(said) || !tags.every(x => x.isStringLiteral()) || tags.some(x => x.isStringLiteral() && x.value === said.text)
   }))
   /**
    * 期望值里这个位置该是什么类型：一路往上走到一次比对（`COMPARE` 里的调用）的实参，取同一次比对里**别的**实参的类型，再按键、按元素往下找回来。
@@ -209,7 +211,9 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const expectedOf = (e: Ts.Node): readonly Ts.Type[] => {
     const p = e.parent
     if (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isSatisfiesExpression(p)) return expectedOf(p)
-    if (ts.isCallExpression(p)) return COMPARE.has(calleeOf(p)) && p.arguments.includes(e as Ts.Expression) ? p.arguments.filter(a => a !== e).map(a => tc.getTypeAtLocation(a)) : []
+    if (ts.isCallExpression(p)) { // 只看被比的那两个实参：eq 第一个是标签，node:assert 第三个是出错时的消息，都不比
+      const sides = calleeOf(p) === 'eq' ? p.arguments.slice(1, 3) : p.arguments.slice(0, 2)
+      return COMPARE.has(calleeOf(p)) && sides.includes(e as Ts.Expression) ? sides.filter(a => a !== e).map(a => tc.getTypeAtLocation(a)) : [] }
     if (ts.isPropertyAssignment(p) && p.initializer === e && ts.isObjectLiteralExpression(p.parent)) {
       const name = literalName(ts, p.name)
       return name === undefined ? [] : fit(p.parent, expectedOf(p.parent)).flatMap(t => { const q = t.getProperty(name); return q === undefined ? [] : [tc.getTypeOfSymbol(q)] })

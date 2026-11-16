@@ -25393,8 +25393,8 @@
       "req": "harness",
       "why": "不是比对的函数调用，实参里的对象字面量也当期望值：为搭场景、过类型检查写的键算成碰到，漏网",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "COMPARE.has(calleeOf(p)) && p.arguments.includes",
-      "replace": "p.arguments.includes",
+      "find": "COMPARE.has(calleeOf(p)) && sides.includes",
+      "replace": "sides.includes",
       "by": "test",
       "kills": [
         "字段：交给返回 unknown 的规整函数、写进带类型的场景对象、写进别的（不是比对的）函数的实参，都不算"
@@ -26295,7 +26295,7 @@
       "req": "harness",
       "why": "期望值不看写出来的判别值：判别联合里别的成员上的同名字段也算碰到，漏网",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "|| tags.some(x => x.isStringLiteral() && x.value === (m.initializer as Ts.StringLiteralLike).text)",
+      "find": "|| tags.some(x => x.isStringLiteral() && x.value === said.text)",
       "replace": "|| true",
       "by": "test",
       "kills": [
@@ -26348,6 +26348,54 @@
       "by": "test",
       "kills": [
         "字段：assert 不是比对；期望值里回调返回的、展开进来的对象字面量，键都不算"
+      ]
+    },
+    {
+      "id": "M-H198-eh",
+      "req": "harness",
+      "why": "判别值外面套了 as const 就不认它是判别值：两个成员上同名的字段都算碰到，另一个成员新加的没人验也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "ts.isPropertyAssignment(m) ? unwrap(m.initializer) : undefined",
+      "replace": "ts.isPropertyAssignment(m) ? m.initializer : undefined",
+      "by": "test",
+      "kills": [
+        "字段：判别值套着 as const、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算"
+      ]
+    },
+    {
+      "id": "M-H198-ei",
+      "req": "harness",
+      "why": "判别属性是可选的就不按判别值过滤：期望值明写了是哪一个成员，同名字段照样算到每个成员头上",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "split(tc.getNonNullableType(tc.getTypeOfSymbol(q)))",
+      "replace": "split(tc.getTypeOfSymbol(q))",
+      "by": "test",
+      "kills": [
+        "字段：判别值套着 as const、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算"
+      ]
+    },
+    {
+      "id": "M-H198-ej",
+      "req": "harness",
+      "why": "node:assert 的第三个实参（出错时的消息）也当成被比的一边：消息里写的键算成碰到，漏网",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": ": p.arguments.slice(0, 2)",
+      "replace": ": p.arguments",
+      "by": "test",
+      "kills": [
+        "字段：判别值套着 as const、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算"
+      ]
+    },
+    {
+      "id": "M-H198-ek",
+      "req": "harness",
+      "why": "eq 的第一个实参（标签）也当成被比的一边：标签里写的键算成碰到，漏网",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "p.arguments.slice(1, 3) :",
+      "replace": "p.arguments.slice(0, 3) :",
+      "by": "test",
+      "kills": [
+        "字段：判别值套着 as const、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算"
       ]
     },
     {

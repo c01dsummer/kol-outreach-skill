@@ -15432,6 +15432,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function notCompare(): { assertK: number; cbK: number; spK: number } { return { assertK: 1, cbK: 2, spK: 3 } }',
       'export function optNest(): { opt?: { innerO: number } } { return {} }',
       'export function shorty(): { shK: number } { return { shK: 1 } }',
+      "export function sa(): { kind: 'a'; sa: number } | { kind: 'b'; sa: number } { return { kind: 'a', sa: 1 } }",
+      "export function so(): { kind?: 'a'; so: number } | { kind?: 'b'; so: number } { return { so: 1 } }",
+      'export function msg(): { msgK: number; lblK: number } { return { msgK: 1, lblK: 2 } }',
       "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
     ].join('\n'),
     'scripts/check/n.ts': 'export function nOnly(): { extless: number } { return { extless: 1 } }',
@@ -15454,10 +15457,12 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "deepStrictEqual(mm.nested(), { outer: { innerN: 1 } }); deepStrictEqual(mm.listed(), [{ inList: 1 }])",
       "deepStrictEqual(mm.su(), { kind: 'a', shared: 1 }); deepStrictEqual(mm.tupE(), [{ atPos: 1 }, { t1b: 2 }])",
       "deepStrictEqual(mm.viaAs(), { asK: 1 } as unknown); deepStrictEqual(mm.viaAs(), { satK: 2 } satisfies object); deepStrictEqual(mm.viaAs(), ({ parK: 3 }))",
-      "declare const nodeAssert: { deepStrictEqual(a: unknown, b: unknown): void }; declare function deepEqual(a: unknown, b: unknown): void; declare function strictEqual(a: unknown, b: unknown): void; declare function equal(a: unknown, b: unknown): void",
+      "declare const nodeAssert: { deepStrictEqual(a: unknown, b: unknown): void }; declare function deepEqual(a: unknown, b: unknown): void; declare function strictEqual(a: unknown, b: unknown, message?: unknown): void; declare function equal(a: unknown, b: unknown): void",
       "nodeAssert.deepStrictEqual(mm.viaNames(), { mK: 1 }); deepEqual(mm.viaNames(), { deK: 2 }); strictEqual(mm.viaNames(), { seK: 3 }); equal(mm.viaNames(), { eqK: 4 })",
       "assert(mm.notCompare(), { assertK: 1 }); deepStrictEqual(mm.notCompare(), [1].map(() => ({ cbK: 2 }))); deepStrictEqual(mm.notCompare(), { ...{ spK: 3 } })",
       "deepStrictEqual(mm.optNest(), { opt: { innerO: 1 } }); const shK = 1; deepStrictEqual(mm.shorty(), { shK })",
+      "deepStrictEqual(mm.sa(), { kind: 'a' as const, sa: 1 }); deepStrictEqual(mm.so(), { kind: 'a', so: 1 })",
+      "declare function eq(label: unknown, got: unknown, want: unknown): void; const r17 = mm.msg(); strictEqual(r17, r17, { msgK: 1 }); eq({ lblK: 2 }, r17, r17)",
       "const { 1: one, ['dlit']: dl } = mm.numeric()",
       "const js = [JSON.stringify(mm.withToJSON()), JSON.stringify(mm.withSym()), JSON.stringify(mm.filtered(), ['kept']), JSON.stringify(mm.nulled(), null, 2), JSON.stringify(mm.undef(), undefined, 2)]",
       'const crossedJs = JSON.stringify(mm.crossed()); deepStrictEqual(mm.crossedDeep(), {})',
@@ -15499,6 +15504,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     ['m.ts#SU.{kind=a}.shared', 'm.ts#SU.{kind=b}.shared', 'm.ts#tupE.[1].t1b', 'm.ts#tupE.[1].atPos'].map(k => moreOf(k)?.used), [true, false, true, false])
   eq('字段：期望值套着 as、satisfies、括号也认；node:assert 的方法写法、deepEqual、strictEqual、equal 都算比对；可选的嵌套、简写的键也认',
     ['viaAs.asK', 'viaAs.satK', 'viaAs.parK', 'viaNames.mK', 'viaNames.deK', 'viaNames.seK', 'viaNames.eqK', 'optNest.opt.innerO', 'shorty.shK'].map(k => moreOf(`m.ts#${k}`)?.used), [true, true, true, true, true, true, true, true, true])
+  eq('字段：判别值套着 as const、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算',
+    ['sa.{kind=a}.sa', 'sa.{kind=b}.sa', 'so.{kind=a}.so', 'so.{kind=b}.so', 'msg.msgK', 'msg.lblK'].map(k => moreOf(`m.ts#${k}`)?.used), [true, false, true, false, false, false])
   eq('字段：assert 不是比对；期望值里回调返回的、展开进来的对象字面量，键都不算',
     ['assertK', 'cbK', 'spK'].map(k => moreOf(`m.ts#notCompare.${k}`)?.used), [false, false, false])
   eq('字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算',
