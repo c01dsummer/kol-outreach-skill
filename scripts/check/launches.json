@@ -190,7 +190,7 @@
     {"config":"[\"test\",[\"p1-profile-state\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"p1-provider\"]]","launches":0,"maxPaid":null,"running":7,"stopping":0},
     {"config":"[\"test\",[\"p1-report-stat-counts\"]]","launches":0,"maxPaid":null,"running":4,"stopping":0},
-    {"config":"[\"test\",[\"p2-creator-sources\"]]","launches":1,"maxPaid":null,"running":55,"stopping":0},
+    {"config":"[\"test\",[\"p2-creator-sources\"]]","launches":1,"maxPaid":null,"running":56,"stopping":0},
     {"config":"[\"test\",[\"p2-draft-claims\"]]","launches":1,"maxPaid":null,"running":92,"stopping":0},
     {"config":"[\"test\",[\"p2-endorsement-claims\"]]","launches":0,"maxPaid":null,"running":42,"stopping":0},
     {"config":"[\"test\",[\"p2-placeholders\"]]","launches":1,"maxPaid":null,"running":8,"stopping":0},
