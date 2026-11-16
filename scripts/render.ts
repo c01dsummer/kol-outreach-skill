@@ -14,7 +14,7 @@
  */
 import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
-import { taskFile, taskId, loadTask, loadCreators, loadReviewCreatorInputs, loadEnrichment, persistListAndStatus } from './lib/task.js'
+import { taskFile, taskId, loadTask, loadReviewCreatorInputs, loadEnrichment, persistListAndStatus } from './lib/task.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
