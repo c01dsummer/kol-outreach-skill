@@ -900,6 +900,12 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
     !/[<>"]/.test(unsourcedTricky + postsTricky) && unsourcedTricky.includes('&lt;b&gt;') && unsourcedTricky.includes('&amp; 12-blade') &&
       postsTricky.includes('&lt;i&gt;series'))
   ok('P2.c 只开评审模式、不开双筛选时也出', lineOf(renderHtml(people, meta, { mode: 'review', facts: FACTS }), 'clean') === `出处对不上：无${SUFFIX}`)
+  // 手改过的名单里作品记录可以缺文案字段（校验只要求是对象），评审页照常出、当作没有文案。
+  const noDesc = [mk('tiktok', 'nodesc', { tier: 'A', score: 1, profile_url: 'https://example.com/nodesc', outreach_draft: 'Only $19.99 today.',
+    recent_posts: [{ plays: 1 }] as unknown as Creator['recent_posts'] })]
+  let noDescLine: string | undefined
+  try { noDescLine = lineOf(renderHtml(noDesc, meta, { mode: 'review', facts: FACTS }), 'nodesc') } catch { noDescLine = '<抛错>' }
+  eq('P2.c 作品记录缺文案字段时评审页照常出两行', bare(noDescLine), `出处对不上：$19.99${SUFFIX}`)
 
   // 比对口径逐条：[名字, 草稿, 已证实的产品事实, 博主作品文字, 期望列为对不上的, 期望列为只在作品里有的]（只比原写法）。
   const F = ['400ml portable blender', 'Rinses clean in 10 seconds', '$29.99', '1-year limited warranty', 'BPA-free Tritan jar', 'Battery lasts up to 40 hours', 'IPX7']
@@ -929,6 +935,7 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
       F, [], ['fifty dollars', 'thirty bucks', 'fifty per cent', 'half price', 'half off', 'double', 'twice', 'a dozen', 'a million'], []],
     ['复合拼写数按整个值读', 'Lasts twenty five hours, or two hundred hours.', ['5 hours', '200 hours'], [], ['twenty five hours'], []],
     ['不跟单位的拼写数（one post、five colors）不扫', 'One post, two stories, five colors.', F, [], [], []],
+    ['拼写数后面跟单个字母的单位（five L、ten g）也扫', 'It holds five L and weighs ten g.', ['Capacity: 1 L', 'Weight: 10 g'], [], ['five L'], []],
     // 承诺词表（取舍五）
     ['承诺词的变体与新扩的几类', "bestselling, bestseller, moneyback, guaranteeing, certify, warrantee, water proof, free gift, ships free, free US shipping, complimentary, discount, commission, cashback, CE marked, UL listed, FCC approved, USDA, non-GMO, gluten-free, all-natural, food-grade, lab-tested, doctor recommended, leakproof, dishwasher safe, top-rated, five-star, world's first, risk-free, easy returns",
       ['x'], [], ["bestselling, bestseller, moneyback, guaranteeing, certify, warrantee, water proof, free gift, ships free, free US shipping, complimentary, discount, commission, cashback, CE marked, UL listed, FCC approved, USDA, non-GMO, gluten-free, all-natural, food-grade, lab-tested, doctor recommended, leakproof, dishwasher safe, top-rated, five-star, world's first, risk-free, easy returns", 'bestselling', 'bestseller', 'moneyback', 'guaranteeing', 'warrantee', 'water proof', 'free gift', 'ships free', 'free US shipping', 'complimentary', 'discount', 'commission', 'cashback', 'non-GMO', 'gluten-free', 'all-natural', 'food-grade', 'leakproof', 'dishwasher safe', 'top-rated', 'five-star', "world's first", 'risk-free', 'easy returns'], []],
@@ -1140,6 +1147,7 @@ suite('P2', '开发信草稿里带认证说法的那一句要在产品资料里�
       ['NSF certified.', 'Award from Wired.', 'Certified by NSF.'], [], [], []],
     ['一行几千字没有句号的认证句不出错，只显示头尾', 'Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved.', ['Capacity 400 mL'], [],
       [('Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved').slice(9, 369) + '…' + ('we love your videos and '.repeat(400) + 'it is FDA approved').slice(-100)], []],
+    ['分号后面不空格也分句，和资料那边一致', 'NSF certified;FDA registered;CE marked.', ['NSF certified;FDA registered.'], [], ['CE marked'], []],
     ['比整句时词的边界照算：Untested by SGS 不给 Tested by SGS 作保', 'Tested by SGS.', ['Untested by SGS.'], [], ['Tested by SGS'], []],
     ['by、with、to 后面是我们自己或泛指的人不算认证说法；后面跟 them、us 的背书照核', 'All content is approved by us before posting. Highly recommended to anyone who travels. Doctors recommend them. Consumer Reports recommended us.',
       ['x'], [], ['Doctors recommend them', 'Consumer Reports recommended us'], []],

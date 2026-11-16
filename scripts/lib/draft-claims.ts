@@ -166,12 +166,12 @@ const NOT_PROMISE = /^(?:feel|stress|worry|hassle|commitment|obligation|string|s
 const ENDORSE = /(?<![\p{L}\d_])(?:certif(?:y|ied|ication|ications|icate|icates)|patent(?:s|ed)?|award(?:s|ed)?|approv(?:e|ed|al|als)|clear(?:ed|ance)|regist(?:ered|ration)|listed|complian(?:t|ce)|tested|recommend(?:ed|s)?|endorse(?:d|ment|ments)?|proven|accredit(?:ed|ation))(?![\p{L}\d_])/giu
 const ENDORSED = 'endorsed:'
 /**
- * 句子的边界：句号、分号、问叹号后跟空白，或换行。U.S. 这种连写的单字母缩写、Dr.、Inc.、Nov. 后面的点不算；
+ * 句子的边界：句号、问叹号后跟空白，分号（后面有没有空白都算，和资料那边一致），或换行。U.S. 这种连写的单字母缩写、Dr.、Inc.、Nov. 后面的点不算；
  * 50 m.、1 L. 这种数后面单个字母的点照常算（下一句的 not 不否定上一句）。草稿与资料两边分句用同一份。
  */
 const NOT_ABBREV = String.raw`(?<!\p{L}\.\p{L}|(?:^|[^\p{L}])(?:Dr|Mr|Mrs|Ms|Jr|Sr|St|vs|etc|Inc|Ltd|Co|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec))`
 const CLAUSE_END = new RegExp(`${NOT_ABBREV}[.;!?\\n]+(?:\\s|$)|[;!?\\n]`, 'u')
-const SENTENCE_END = new RegExp(`${NOT_ABBREV}[.;!?]+(?=\\s|$)|\\n`, 'gu')
+const SENTENCE_END = new RegExp(`${NOT_ABBREV}[.;!?]+(?=\\s|$)|;|\\n`, 'gu')
 /**
  * 认证类那一句比对用的写法：只留字母串和数字串（400ml 拆成 400 ml，IPX7 拆成 ipx 7），小写，字母串长过三个的去掉词尾 s（不去 ss），
  * 之间一个空格，首尾各补一个空格。这样空格、连字符、标点、列表符号、表情、大小写、单复数都不计；比的时候看资料那一句折好的写法里有没有整段，
@@ -292,7 +292,7 @@ const PRICE_AFTER = new RegExp(`(?<![\\w.])(${DIGITS})(?:[ \\t-]?(?:${CURRENCY_W
 const SPELLED_PRICE = new RegExp(`\\b(${SPELLED})[\\s-](?:${CURRENCY_WORDS})\\b`, 'gi')
 const SPELLED_PERCENT = new RegExp(`\\b(${SPELLED})[\\s-](?:percent|per cent)\\b`, 'gi')
 /** 拼写的数后面跟单位表里的单位：ten seconds、twenty five hours、a thousand-hour。 */
-const unitWords = W(Object.keys(UNIT_ALIASES).filter(u => u !== '%' && u.length > 1))
+const unitWords = W(Object.keys(UNIT_ALIASES).filter(u => u !== '%'))
 const SPELLED_UNIT = new RegExp(`\\b(${SPELLED})[\\s-](${unitWords})\\b`, 'gi')
 /** 开发信里最常被编的几种不带阿拉伯数字的数量：half off、double、twice、a dozen、several hundred、hundreds。 */
 const QUANTITY_PHRASES = /\b(?:half[- ](?:off|price)|double[sd]?|twice|(?:a|an|a few|several|many)[\s-](?:dozen|million|thousand|hundred)|millions|thousands|hundreds|dozens)\b/gi

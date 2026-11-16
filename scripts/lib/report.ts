@@ -268,7 +268,7 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
   // 只在这位博主作品文字里找得到的另列一行。只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-199、ADR-209）。
   const claimsLine = (c: Creator) => {
     const lines = options.mode === 'review'
-      ? claimsLines(c.outreach_draft, options.facts, (c.recent_posts ?? []).map(p => p.desc)) : undefined
+      ? claimsLines(c.outreach_draft, options.facts, (c.recent_posts ?? []).map(p => typeof p.desc === 'string' ? p.desc : '')) : undefined
     if (lines === undefined) return ''
     const posts = lines.postsOnly === undefined ? '' : `
     <div class="bio" data-draft-claims="posts-only">只在博主作品里有：${esc(lines.postsOnly)}（确认是在引用博主，不是在说产品）</div>`
