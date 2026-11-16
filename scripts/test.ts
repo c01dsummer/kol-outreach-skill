@@ -15397,16 +15397,18 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   const dup = (waiver?: string) => ({ key: 'k', file: 'f', line: 1, via: 'v', name: 'n', ...(waiver === undefined ? {} : { waiver }) })
   const one = mark('k', 'n: 1')
   eq('字段闸门：按名字排，不按找到的先后', fieldVerdict([{ ...dup(), key: 'b' }, { ...dup(), key: 'a' }], [], []).unmarked.map(f => f.key), ['a', 'b'])
-  eq('字段闸门：同名的几处要每处一条变异（分不出哪条守哪处，只数条数）；守全了的照样列在新增里，不算靠豁免放行',
-    [[one], [one, one]].map(ms => { const v = fieldVerdict([dup(), dup()], [], ms); return [v.unmarked.length, v.waived.length, v.fresh.length] }), [[1, 0, 1], [0, 0, 1]])
+  eq('字段闸门：只有一处的字段一条变异就守住，照样列在新增里、不算靠豁免放行；同名的几处分不出哪条变异守哪处，登记几条都不算',
+    ([[[dup()], [one]], [[dup(), dup()], [one]], [[dup(), dup()], [one, one]]] as [ReturnType<typeof dup>[], typeof one[]][]).map(([now, ms]) => { const v = fieldVerdict(now, [], ms); return [v.unmarked.length, v.waived.length, v.fresh.length] }),
+    [[0, 0, 1], [1, 0, 1], [1, 0, 1]])
+  eq('字段闸门：基线上一处、登记了两条变异，再加一处同名的，两条老变异不替新加的那处挡', fieldVerdict([dup(), dup()], ['k'], [one, one]).unmarked.map(f => f.key), ['k'])
   eq('字段闸门：同名的处数比基线多就按新增报，处数没变不报', [fieldVerdict([dup(), dup()], ['k'], []).fresh.length, fieldVerdict([dup(), dup()], ['k', 'k'], []).fresh.length], [1, 0])
-  eq('字段闸门：同名的几处，变异不够时没写豁免的每一处都要有变异，别处的豁免不替它挡', [[dup(), dup('子进程')], [dup('子进程'), dup('日志')], [dup(), dup('子进程')]]
-    .map((two, i) => { const v = fieldVerdict(two, [], i === 2 ? [one] : []); return [v.unmarked.length, v.waived.length] }), [[1, 0], [0, 1], [0, 1]])
+  eq('字段闸门：同名的几处要每一处都写豁免，别处的豁免、登记的变异都不替没写的那处挡', [[dup(), dup('子进程')], [dup('子进程'), dup('日志')], [dup(), dup('子进程')]]
+    .map((two, i) => { const v = fieldVerdict(two, [], i === 2 ? [one] : []); return [v.unmarked.length, v.waived.length] }), [[1, 0], [0, 1], [1, 0]])
   eq('字段闸门：有变异守着的新字段写了空理由的豁免，也算不成立；只有空白的理由同样不成立', [fieldVerdict([dup('')], [], [one]).unjustified.length, fieldVerdict([dup('  ')], [], []).unjustified.length], [1, 1])
   const at = (v: ReturnType<typeof fieldVerdict>) => [...v.unmarked, ...v.waived].map(f => [f.line, f.waiver])
   const place = (line: number, waiver?: string) => ({ ...dup(waiver), line })
-  eq('字段闸门：同名的几处，缺变异的报没写豁免的那一处（不带别处的理由），靠豁免放行的报写了豁免的那一处、带它的理由',
-    ...strict([at(fieldVerdict([place(1, '子进程'), place(2)], [], [])), at(fieldVerdict([place(1), place(2, '日志')], [], [one]))], [[[2, undefined]], [[2, '日志']]]))
+  eq('字段闸门：同名的几处，缺豁免报的是没写豁免的那一处、不带别处的理由；空理由报的是写了空理由的那一处',
+    ...strict([at(fieldVerdict([place(1, '子进程'), place(2)], [], [])), fieldVerdict([place(1), place(2, '')], [], []).unjustified.map(f => f.line)], [[[2, undefined]], [2]]))
   eq('字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红',
     [[dup('子进程'), dup('')], [dup(''), dup('子进程')]].flatMap(two => [[one, one], []].map(ms => { const v = fieldVerdict(two, [], ms); return [v.unjustified.length, v.waived.length, v.red] })),
     [[1, 0, true], [1, 0, true], [1, 0, true], [1, 0, true]])

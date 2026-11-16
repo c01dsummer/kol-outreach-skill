@@ -206,9 +206,9 @@ export interface FieldVerdict {
 
 /**
  * 名字可能撞（重载、同判别值的联合成员……写法列不完），所以按处数比：`base` 每处一个名字，`now` 里这个名字的处数比它多就算新增。
- * 一个名字的变异按条数算：没写豁免的那几处，每处要有一条 `field` 写着这个名字、`find` 里写得到字段名的变异 ——
- * 分不出哪条变异守哪一处，所以只数条数；撞了名最坏是多报红，不会漏。条数够的过；不够时，几处里有一处空理由就只进 `unjustified`；
- * 否则没写豁免的那几处条数够、靠豁免放行的进 `waived`，再不够的进 `unmarked`。不成立的豁免（标记后面空着）只看新增的；任一处写了空理由就算不成立。`unmarked` 或 `unjustified` 非空就红。
+ * 只有一处的名字，有一条 `field` 写着这个名字、`find` 里写得到字段名的变异就过。撞了名的（现在有两处以上）分不出哪条变异守哪一处，
+ * 变异一条都不算，只认豁免：每一处都写了成立的豁免进 `waived`；有一处空理由就只进 `unjustified`；还有没写豁免的进 `unmarked` ——
+ * 撞了名最坏是多报红（老的那几处也得补豁免），不会漏。不成立的豁免（标记后面空着）只看新增的；任一处写了空理由就算不成立。`unmarked` 或 `unjustified` 非空就红。
  * 「没展开完」那一条（`INCOMPLETE`）没有字段名，变异守不了，只认豁免，而且不按基线比、每次都判。
  */
 /** `find` 里写到了这个属性名：前后不能再接标识符的字符（`ok` 不算写在 `token` 里）；空名字算没写到 */
@@ -226,7 +226,7 @@ export function fieldVerdict(now: readonly Field[], base: readonly string[], mar
   const blank = (f: Field): boolean => f.waiver !== undefined && f.waiver.trim() === ''
   const judged = [...places.values()].map(fs => {
     const name = fs[0].name, open = fs.filter(f => f.waiver === undefined)
-    const held = name === undefined ? 0 : marks.filter(m => m.field === fs[0].key && writes(m.find, name)).length
+    const held = name === undefined || fs.length > 1 ? 0 : marks.filter(m => m.field === fs[0].key && writes(m.find, name)).length
     const state = held >= fs.length ? 'marked' as const : fs.some(blank) ? 'bare' as const : held < open.length ? 'unmarked' as const : 'waived' as const // 有空理由的先判，只进 unjustified
     // 报出来的是该看的那一处：缺变异的报没写豁免的那处，靠豁免放行的报写了豁免的那处；几处里有一处空理由，就带空理由
     const at = (state === 'unmarked' ? open.at(0) : fs.find(f => f.waiver !== undefined)) ?? fs[0], { waiver: _own, ...place } = at

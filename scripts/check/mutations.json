@@ -25764,8 +25764,8 @@
       "req": "harness",
       "why": "重载的签名不带参数：两个签名下的同名字段撞成一个名字，靠处数兜底才报出来，报出的名字分不清是哪个签名",
       "file": "scripts/check/field-use-rule.ts",
-      "find": ".length > 1 ?",
-      "replace": ".length > 9 ?",
+      "find": "d.body === undefined).length > 1 ?",
+      "replace": "d.body === undefined).length > 9 ?",
       "by": "test",
       "kills": [
         "字段闸门：重载里另一个签名也加上同名字段，按新增报；变异只守着旧的那个签名，照样红"
@@ -25943,13 +25943,14 @@
     {
       "id": "M-H198-er",
       "req": "harness",
-      "why": "同名的几处只要一条变异就全算守住了",
+      "why": "同名的几处也按变异条数算守住：登记了几条就当几处都守着，老变异能替新加的那处挡",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "held >= fs.length ? 'marked'",
-      "replace": "held >= 1 ? 'marked'",
+      "find": "name === undefined || fs.length > 1 ? 0",
+      "replace": "name === undefined ? 0",
       "by": "test",
       "kills": [
-        "字段闸门：同名的几处要每处一条变异（分不出哪条守哪处，只数条数）；守全了的照样列在新增里，不算靠豁免放行"
+        "字段闸门：只有一处的字段一条变异就守住，照样列在新增里、不算靠豁免放行；同名的几处分不出哪条变异守哪处，登记几条都不算",
+        "字段闸门：基线上一处、登记了两条变异，再加一处同名的，两条老变异不替新加的那处挡"
       ]
     },
     {
@@ -25981,8 +25982,8 @@
       "req": "harness",
       "why": "「没展开完」那一条也让变异守：停下的地方里面加了字段，一条点名的变异就把它放过去了",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "name === undefined ? 0 :",
-      "replace": "name === undefined ? marks.filter(m => m.field === fs[0].key).length :",
+      "find": "name === undefined || fs.length > 1 ? 0 :",
+      "replace": "fs.length > 1 ? 0 : name === undefined ? marks.filter(m => m.field === fs[0].key).length :",
       "by": "test",
       "kills": [
         "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条没有字段名的「没展开完」，变异守不了，照新增报红；函数前写了豁免就放行"
@@ -26046,7 +26047,7 @@
       "by": "test",
       "kills": [
         "字段闸门：有理由的豁免放行，空理由的单列",
-        "字段闸门：同名的几处，变异不够时没写豁免的每一处都要有变异，别处的豁免不替它挡"
+        "字段闸门：同名的几处要每一处都写豁免，别处的豁免、登记的变异都不替没写的那处挡"
       ]
     },
     {
@@ -26070,7 +26071,7 @@
       "replace": "held > fs.length ? 'marked'",
       "by": "test",
       "kills": [
-        "字段闸门：同名的几处要每处一条变异（分不出哪条守哪处，只数条数）；守全了的照样列在新增里，不算靠豁免放行"
+        "字段闸门：只有一处的字段一条变异就守住，照样列在新增里、不算靠豁免放行；同名的几处分不出哪条变异守哪处，登记几条都不算"
       ]
     },
     {
@@ -26148,25 +26149,25 @@
     {
       "id": "M-H198-fj",
       "req": "harness",
-      "why": "缺变异时报的是写了豁免的那一处，带着别处的理由，指错了位置",
+      "why": "缺豁免时报的是写了豁免的那一处，带着别处的理由，指错了位置",
       "file": "scripts/check/field-use-rule.ts",
       "find": "state === 'unmarked' ? open.at(0) : ",
       "replace": "",
       "by": "test",
       "kills": [
-        "字段闸门：同名的几处，缺变异的报没写豁免的那一处（不带别处的理由），靠豁免放行的报写了豁免的那一处、带它的理由"
+        "字段闸门：同名的几处，缺豁免报的是没写豁免的那一处、不带别处的理由；空理由报的是写了空理由的那一处"
       ]
     },
     {
       "id": "M-H198-fk",
       "req": "harness",
-      "why": "靠豁免放行时报的是第一处，不是写了豁免的那处，理由也丢了",
+      "why": "空理由的那处被报成第一处",
       "file": "scripts/check/field-use-rule.ts",
       "find": "fs.find(f => f.waiver !== undefined)) ?? fs[0]",
       "replace": "fs[0])",
       "by": "test",
       "kills": [
-        "字段闸门：同名的几处，缺变异的报没写豁免的那一处（不带别处的理由），靠豁免放行的报写了豁免的那一处、带它的理由"
+        "字段闸门：同名的几处，缺豁免报的是没写豁免的那一处、不带别处的理由；空理由报的是写了空理由的那一处"
       ]
     },
     {
@@ -26178,7 +26179,7 @@
       "replace": "judged.filter(({ field: f, state }) => state !== 'marked' && ",
       "by": "test",
       "kills": [
-        "字段闸门：同名的几处要每处一条变异（分不出哪条守哪处，只数条数）；守全了的照样列在新增里，不算靠豁免放行"
+        "字段闸门：只有一处的字段一条变异就守住，照样列在新增里、不算靠豁免放行；同名的几处分不出哪条变异守哪处，登记几条都不算"
       ]
     },
     {
