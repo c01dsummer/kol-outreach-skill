@@ -26317,7 +26317,7 @@
     {
       "id": "M-H198-ed",
       "req": "harness",
-      "why": "比对只认直接调用的函数名：assert.deepStrictEqual 这种方法写法里写出来的键算没碰，误红",
+      "why": "比对只认直接调用的函数名：写成「模块.比对函数(…)」的方法调用时，期望值里写出来的键算没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
       "find": "ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : ",
       "replace": "",
@@ -26329,7 +26329,7 @@
     {
       "id": "M-H198-ee",
       "req": "harness",
-      "why": "deepEqual、strictEqual、equal 不算比对：它们期望值里写出来的键算没碰，误红",
+      "why": "只认两个比对函数名，别的几种标准断言里的比对不算：它们期望值里写出来的键算没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
       "find": "'deepEqual', 'strictEqual', 'equal'",
       "replace": "'deepStrictEqual'",
