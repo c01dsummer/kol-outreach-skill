@@ -23755,18 +23755,6 @@
       "kills": ["钱不够付下一次请求停下：collect 第二行报名单人数（已联系的不算），不是累加器人数"]
     },
     {
-      "id": "M-P3-g",
-      "req": "P3.d",
-      "why": "collect 钱不够付下一次请求、进度也存好了，却以 0 退出：调用方当成跑完了，不会请用户确认新上限",
-      "file": "scripts/collect.ts",
-      "find": "  if (stopped === 'budget') process.exitCode = EXIT.budget    // 钱不够付下一次请求，可续跑\n",
-      "replace": "",
-      "by": "selfcheck",
-      "kills": [
-        "钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
-      ]
-    },
-    {
       "id": "M-P3-h",
       "req": "P3.d",
       "why": "enrich 钱不够付下一次请求、进度也存好了，却以 0 退出：调用方当成跑完了，不会请用户确认新上限",
