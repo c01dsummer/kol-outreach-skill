@@ -66,7 +66,7 @@ import {
   billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardKey, shardOf, shardPlan, shardWanted,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
-import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports } from './check/shard-load-rule.js'
+import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports, pinnedWorkflow, workflowWiringFaults } from './check/shard-load-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -11764,6 +11764,60 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('闸：接线不对，主干上也红', gate({ wiring: ['工作流里没有矩阵那一段'], trunk: { onTrunk: true } }).red, true)
   ok('闸：接线不对时报数行退到第二行', gate({ wiring: ['工作流里没有矩阵那一段'] }).lines[1]!.includes('2100 / 2099 / 2101'))
   eq('闸：在不在主干上都读不出，别的全好也红', gate({ trunk: { unknown: '读不到分支' } }).red, true)
+}
+{
+  // check.yml 的接线（workflowWiringFaults）：整份去掉整行注释与空行后与钉死的样子逐行相同。夹具就是钉死的那份，
+  // 中间插几行注释与空行、行尾带空白、换行写成 CRLF；每条只改一处，看它红在哪一行
+  const check = 'npm run a && npm run shard-load && npm run mutate && npm run b && npm run launches'
+  const pinned = pinnedWorkflow('npm run a && npm run shard-load && npm run b')
+  const wf = ['# 头注', ...pinned.flatMap((l, i) => i === 3 ? ['', '    # 缩进的整行注释', l] : [l])].join('\n') + '\n'
+  // 夹具里找不到要改的那一行时不抛（抛了整组死在半路，变异判成跑不起来）：记下来，交回空文件让那条用例自己红，末尾再点名
+  const missing: string[] = []
+  const swap = (from: string, to: string): string => { if (!wf.includes(from)) { missing.push(from); return '' } return wf.replace(from, to) }
+  const faults = (text: string, script: string | undefined = check) => workflowWiringFaults(text, script)
+  const says = (text: string, ...parts: string[]) => { const f = faults(text); return f.length === 1 && parts.every(p => f[0].includes(p)) }
+  ok('接线：钉死的样子按份数、worker 数与 chain 那一串填', pinned.includes('        shard: [1, 2, 3]') && pinned.includes('          MUTATE_SHARD: ${{ matrix.shard }}/3')
+    && pinned.includes("          MUTATE_JOBS: '6'") && pinned.includes('      - run: npm run a && npm run shard-load && npm run b')
+    && pinned.includes('          path: output/mutation-launches/launches-${{ matrix.shard }}-of-3.json') && !pinned.some(l => l.includes('«')))
+  eq('接线：与钉死的样子相同（夹着整行注释与空行），一处都不报', faults(wf), [])
+  eq('接线：换行写成 CRLF，不报', faults(wf.replace(/\n/g, '\r\n')), [])
+  ok('接线：行尾多了空白，红', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]  \n'), 'needs: [chain, mutate]'))
+  // 空格、tab 与换行以外的空白：去注释时会被当成空白吃掉，YAML 与 shell 却当真 —— 全角空格起头的「注释」其实接在上一行命令后面
+  const oddAt = (ch: string, where: string) => says(swap('    needs: [chain, mutate]\n', `    needs: [chain, mutate]\n${where}`), '以外的空白', `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`)
+  ok('接线：全角空格起头的注释行，红', oddAt('　', '          　# || true\n'))
+  ok('接线：不换行空格起头的注释行，红', oddAt(' ', '           # || true\n'))
+  ok('接线：注释里夹一个单独的 CR（YAML 当换行），红', oddAt('\r', '    # x\r    continue-on-error: true\n'))
+  ok('接线：注释里夹一个 U+0085（YAML 1.1 当换行），红', oddAt('\u0085', '    # x\u0085    continue-on-error: true\n'))
+  ok('接线：注释里夹一个 U+2028，红', oddAt(' ', '    # x     continue-on-error: true\n'))
+  ok('接线：tab 缩进的注释行不算注释，红', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n\t# x\n')))
+  const cont = wf.split('\n').find(l => l.endsWith('\\'))!
+  ok('接线：行尾「\\」后面插一行注释，红', says(swap(`${cont}\n`, `${cont}\n          # x\n`), '接在上一行行尾'))
+  ok('接线：行尾「\\」后面插一个空行，红', says(swap(`${cont}\n`, `${cont}\n\n`), '接在上一行行尾'))
+  eq('接线：多加几行整行注释，不报', faults(swap('    needs: [chain, mutate]\n', '    # 等前两种\n    needs: [chain, mutate]\n      # 块里的 shell 注释\n')), [])
+  eq('接线：读不到 check 那一串，说读不到', workflowWiringFaults(wf, undefined), ['读不到 package.json 的 check 那一串'])
+  // check 那一串原样填进 chain 那一行：带 `\ #` 时 YAML 把后半截当注释、CI 只跑前几步；带 `$$` 时替换会吃掉字符 —— 不是「npm run 某步 && …」就红
+  const shape = 'package.json 的 check 那一串不是「npm run 某步 && npm run 某步 …」的样子，不拿它填 chain 那一行'
+  eq('接线：check 那一串里夹「\\ #」，红', faults(pinnedWorkflow('npm run a && npm run shard-load && true \\ # && npm run b').join('\n'),
+    'npm run a && npm run shard-load && true \\ # && npm run b'), [shape])
+  eq('接线：check 那一串里夹「$$」，红', faults(pinnedWorkflow('npm run a && echo $$').join('\n'), 'npm run a && echo $$'), [shape])
+  eq('接线：钉死的样子照字面填 chain，「$&」不被当成替换记号', pinnedWorkflow('npm run a$&').filter(l => l.includes('npm run a')), ['      - run: npm run a$&'])
+  eq('接线：只去掉恰好是 mutate、launches 的那两步，放在开头也去', faults(wf, 'npm run launches && npm run a && npm run shard-load && npm run b && npm run mutate'), [])
+  ok('接线：名字只是以 mutate 起头的那一步不去', faults(wf, 'npm run a && npm run shard-load && npm run mutate-x && npm run b')
+    .some(f => f.includes('应为「- run: npm run a && npm run shard-load && npm run mutate-x && npm run b」')))
+  eq('接线：全是空格的行算空行，不报', faults(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n      \n')), [])
+  ok('接线：怪空白那一行报原文件的行号', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n    # x\u2028\n'), `第 ${wf.split('\n').indexOf('    needs: [chain, mutate]') + 2} 行`))
+  ok('接线：续行后的注释报它自己的行号', says(swap(`${cont}\n`, `${cont}\n          # x\n`), `第 ${wf.split('\n').indexOf(cont) + 2} 行`))
+  ok('接线：check 那一串多了一步、chain 没跟上，红在 chain 那一行', faults(wf, 'npm run a && npm run shard-load && npm run c && npm run mutate && npm run b && npm run launches')
+    .some(f => f.includes('应为「- run: npm run a && npm run shard-load && npm run c && npm run b」')))
+  ok('接线：MUTATE_JOBS 改成 4，说是第几行、应为什么', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), "是「MUTATE_JOBS: '4'」", "应为「MUTATE_JOBS: '6'」"))
+  ok('接线：报的行号是原文件里的行号（注释与空行照数）', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), `第 ${wf.split('\n').findIndex(l => l.includes('MUTATE_JOBS')) + 1} 行`))
+  ok('接线：引号括起来的键多写一行，红', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n    "continue-on-error": true\n'), '"continue-on-error": true'))
+  ok('接线：行内注释也比 —— 「#」紧贴着命令时它不是注释', says(swap('      - run: npm run launches\n', '      - run: npm run launches#|| true\n'), 'npm run launches#|| true'))
+  ok('接线：缩进改了，红', says(swap('    needs: [chain, mutate]\n', '      needs: [chain, mutate]\n')))
+  ok('接线：末尾多一行，说应为没有这一行', says(wf + '  extra:\n', '应为没有这一行'))
+  ok('接线：末尾少一行，说文件已经到头', says(wf.replace(/[^\n]*\n$/, ''), '文件已经到头'))
+  ok('接线：报的那一行说改钉死的那份', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), 'WORKFLOW_PIN'))
+  eq('接线：每条用例要改的那一行夹具里都有', missing, [])
 }
 })
 await group('h-infra-rules', () => {
