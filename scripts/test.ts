@@ -147,7 +147,7 @@ import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { request as templateHttpsRequest } from 'node:https'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
-import { Budget, BudgetInputError, startBudget, costView, type CostView } from './lib/budget.js'
+import { Budget, BudgetInputError, budgetStopLines, startBudget, costView, type CostView } from './lib/budget.js'
 import { readCostDocument, readCostLimit, setCostLimitField, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson, type CostState, type KeyDuplicate } from './lib/cost-json.js'
 import {
   CostError, CostLedgerUnavailable, createCostBudget, formatUsd, inspectExistingCostLedger,
@@ -15808,6 +15808,23 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
 
 })
 await group('p3-budget-token', () => {
+suite('D13', '钱不够付下一次请求、停下时的收尾三行：花了多少、存好了什么、怎么继续')
+{
+  // D13.x 的措辞由需求方 2026-11-15 选定（ADR-212）。两个入口真跑出来的三行由自检 cost-resume 组看着；
+  // 这里只看拼法：已花与上限各取各的数，费用无从确认时不编出金额。
+  const known = { cost_status: 'known', cost_estimate_usd: '1.998', budget_usd: '2', cost_problems: [] } as unknown as CostView
+  eq('收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去',
+    budgetStopLines(known, '已找到 7 位达人，已经拿到的下次不会再花钱重抓', 'npm run collect -- --resume output/x --budget <新总上限>'), [
+      '⛔ 剩下的钱不够付下一次请求了（已花 $1.998 / 上限 $2），已停下。',
+      '✅ 进度已存好：已找到 7 位达人，已经拿到的下次不会再花钱重抓。',
+      '👉 想继续：npm run collect -- --resume output/x --budget <新总上限>',
+    ])
+  const unknown = { cost_status: 'invalid-ledger', cost_estimate_usd: null, budget_usd: null,
+    cost_problems: [{ path: 'budget_usd', reason: '根预算与 cost_ledger 上限冲突' }] } as unknown as CostView
+  eq('费用无从确认时第一行说出原因，不写 $null',
+    budgetStopLines(unknown, 's', 'c')[0], '⛔ 剩下的钱不够付下一次请求了（花了多少无从确认：budget_usd: 根预算与 cost_ledger 上限冲突），已停下。')
+}
+
 suite('P3', '未经确认的预算输入不得取得付费额度')
 {
   let code: string | undefined
