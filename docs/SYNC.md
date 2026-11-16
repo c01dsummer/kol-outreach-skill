@@ -42,7 +42,7 @@
 | **改变变异全量/选组路由、`full_run` 解释或验证者分组配置** | `process/4-VERIFY.md`「只跑验证者的一部分时」那一条 · `process/6-INTEGRATE.md`「改验证成本时」的运行证据 · 实际变异目录与组/依赖/顺序配置 · `docs/ARCHITECTURE.md` 的维护判据、具体字段、基线及执行边界 · CI 可信基线传入 · 对应 ADR · `scripts/check/launches.json`（配置的集合变了：跑过 `npm run mutate` 后 `npm run launches -- --write` 写回，ADR-145 第三十五节） | 🔒 `mutate` 核真实基线变化与解释形状；解释语义和可比证据靠评审 |
 | **改变变异配置使用、基线复用或经过时间报告** | `docs/ARCHITECTURE.md` 的计量语义（公开验收）、具体取数、输出协议和观察/汇总边界 · `process/6-INTEGRATE.md`「改验证成本时」的可比证据 · 对应 ADR 与完整变化清单 | ✗ 报告只提供原料，不拿哪一跑的秒数判红（入口启动数另由 ADR-145 的闸门判，见下一行；变异负载另由 ADR-203 的闸门按树内秒数文件判，见下两行） |
 | **改变变异入口启动数的计数单位、计数预加载、启动数的输出或判法** | `docs/ARCHITECTURE.md` 的 `launch-rule.ts`、`launch-count.ts`、`launch-preload.ts`、`launches.ts` 四行与「入口启动数」那一段 · ADR-145（计数单位、两条线、第十三节的日志形状与输出协议）· 读 `output/mutation-launches/launches.json` 的那一侧（检查链最后一步 `launches.ts` 与它的判定 `launchGate`，以及自检组 `launch-count-entry`）· `scripts/check/launches.json`（它是启动数的产出：跑过 `npm run mutate` 后 `npm run launches -- --write` 写回，ADR-145 第三十五节） | 部分：`h-launch-preload`、`h-launch-preload-edge`、`h-launch-rule` 与自检组 `launch-count-entry` 守行为；文档靠执行 |
-| **改变异分份、变异负载闸门的线，或重写秒数文件** | `docs/ARCHITECTURE.md` 的 `shard-load.ts`、`shard-load-rule.ts`、`shard-weights.ts` 三行与 `MUTATE_SHARD` 那一段 · ADR-203（量法、三道线、死亡条件、什么时候重写秒数文件）· `.github/workflows/check.yml` 的份数与 worker 数（改份数要 `SHARD_COUNT` 一起改）· `scripts/check/shard-weights.json`（只由 `npm run shard-weights` 写，与别的改动分开提交） | 部分：`h-shard-load`、`h-jobs` 与自检组 `shard-load-entry` 守行为（闸门核 `check.yml` 接线的那一半另一条 PR 接）；线定得对不对、秒数文件准不准靠读报数行与 CI 墙钟 |
+| **改变异分份、变异负载闸门的线，或重写秒数文件** | `docs/ARCHITECTURE.md` 的 `shard-load.ts`、`shard-load-rule.ts`、`shard-weights.ts` 三行与 `MUTATE_SHARD` 那一段 · ADR-203（量法、三道线、死亡条件、什么时候重写秒数文件）· `.github/workflows/check.yml` 的份数与 worker 数（改份数要 `SHARD_COUNT` 一起改）· `scripts/check/shard-weights.json`（只由 `npm run shard-weights` 写，与别的改动分开提交） | 部分：`h-shard-load`、`h-jobs` 与自检组 `shard-load-entry` 守行为、闸门核 `check.yml` 接线（`check.yml` 除整行注释与空行外改一个字，同一条 PR 都要改 `shard-load-rule.ts` 的 `WORKFLOW_PIN`）；线定得对不对、秒数文件准不准靠读报数行与 CI 墙钟 |
 | **改两层的判别规则** | `process/README.md`「为什么要分两层」（原则）· `process/AGENTS.md.tpl` · `AGENTS.md` · 本表「一条判别规则」· `REVIEW.md` 那句指针 | ✗ 靠执行（替代「读」的，不建检查；判据见 `process/README.md` 第二层） |
 | **重命名／删掉 `process/` 或 `docs/` 下被 `REVIEW.md` 指到的那几份** | `REVIEW.md` 的指针（三份转发不用动，它们只指 `REVIEW.md`） | ✗ 靠执行 |
 | **改 `process/` 里任何一份** | 各工具的入口文件（`AGENTS.md`、`CLAUDE.md`）与 `process/AGENTS.md.tpl` 里指向 `process/` 章节的路由 · 改的是一条纪律（加、改、删）时另要的两样，见 `process/2-CHANGE.md`「文档同步规则」那张表的「改本目录里的任何一份」 | ✗ 靠执行 |
@@ -50,6 +50,7 @@
 | **改 `skill/references/` 下的文件（新增、删除、改名）、`package.json` 的命令名、`skill/` 下文档里写的 `npm run …` 或 `scripts/….ts`、SKILL.md 的 frontmatter 或指向 `skill/` 的两个软链** | `skill/SKILL.md` 的「参考文档」表与点名处 · `skill/` 下写着那个命令名或脚本路径的每份文档 · `.claude/skills/`、`.agents/skills/` 下名字等于 `name`、指向 `../../skill` 的软链（`docs/ARCHITECTURE.md`「新东西落在哪个目录」） | 🔒 `skill`：五样关系（ADR-156）；「参考文档」表的说明列与 reference 正文靠人读 |
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/SPEC.md`「尚未确定的」一节（手写，状态与证据边界常在这里） · `docs/adr/`：新裁决另开一条（多属事实证伪），陈述过旧结论的记录各在末尾追加 `⚠️` 更正 | 🔒 `adr` 验编号与索引 |
 | **改预算/成本逻辑** | `scripts/lib/cost-ledger.ts` · `cost-json.ts` · `budget.ts` · `task.ts` 费用检查点 · 价目与所有付费/费用出口 · `skill/SKILL.md` 成本闸门与相关 references · `docs/CONVENTIONS.md` 第 7 条 · `docs/ARCHITECTURE.md` · ADR-108/109 对外契约 | 部分 |
+| **新造一个词或一种编号写法，或者改了一个词的意思** | `docs/GLOSSARY.md` 加一行或改那一行（一句白话、一个例子、出处）· 出处那份文件里的定义 | ✗ 靠执行（ADR-207：写给人看的文字用白话、立术语表） |
 | **改对外能力、范围、当前状态或交付物** | 对应正本 · `README.md`（只做摘要，不定义新事实） | ✗ 靠执行 |
 | **评审中不修在本 PR 的一条发现（含驳回）** | 回复第一行的档与去向 · 线程 resolve · PR 描述末尾的索引 · 合入后的**欠条 PR** 往 `docs/adr/` 追加 `⚠️ 欠条`（写重启条件；驳回只做前三项，不进欠条；晚到的同类候选怎么写欠条，见 `docs/adr/README.md`「同类」）—— 本表唯一允许延后到下一条 PR 的一行：为登记再 push 会再起一轮评审，见 `6-INTEGRATE.md` | 🔒 `audit`：欠条块里没写重启条件当场红（ADR-86）；**写了的那些机器不读** —— 读懂条件是会随模型变强的那一侧，台账只抽取不匹配 |
 
@@ -72,6 +73,7 @@
 | `docs/adr/` | ADR，一条一个文件，追加不删改；欠条与就地更正以 `⚠️` 块追加 | 计划、待办（带重启条件的欠条不算：它写的是缺什么、什么条件下重启） |
 | `docs/REGRESSION.md` | 改了 `skill/` 的判断类文字以后，在几个冻结的真实任务上比新旧两版、看产出有没有变差的手工流程（ADR-159） | 每次跑的结果（在那条改 `skill/` 的 PR 正文里）；真实任务数据 |
 | `docs/REVISIT.md` | 回访例程照做的全部规则（例程往 ADR-152 追加台账；「候选句」两道门都过了、起草了的，另开一条候选句记录） | 例程以外的规则；每周的结果（在 ADR-152 与例程开的候选句记录里） |
+| `docs/GLOSSARY.md` | 术语表：编号怎么读、自造的词和普通词在这里的特定意思，每条一句白话、一个例子、出处 | 规则本身（只解释词，规则在出处那份）；外部任务工具的卡号 |
 | `DECISIONS.md` | **只做转发**，指向 `docs/adr/` | 任何记录本身 |
 | `README.md` | 给新接手者看的下游概览 | 只在 README 出现、无法追溯到正本的需求或事实 |
 | `AGENTS.md` / `CLAUDE.md` | **只做路由**，指向上面这些 | 任何具体规则 |

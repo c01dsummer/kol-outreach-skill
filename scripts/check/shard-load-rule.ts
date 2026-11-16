@@ -20,9 +20,9 @@
  * 读不到就红：主干上算不出、PR 基线的清单读不出来、秒数文件认不得，都不当成「没涨」。
  */
 
-/** CI 上变异一步分几份（`.github/workflows/check.yml` 里写死的几处与它对不对得上，另一条 PR 接；ADR-203 第四节） */
+/** CI 上变异一步分几份。`.github/workflows/check.yml` 里写死的几处与它对不对得上由 `workflowWiringFaults` 核（ADR-203 第八节） */
 export const SHARD_COUNT = 3
-/** CI 上每一份变异派几个 worker（ADR-200：4 核的 runner 上派 6 个）。闸门报接线对不上时说出它 */
+/** CI 上每一份变异派几个 worker（ADR-200：4 核的 runner 上派 6 个）。与 `check.yml` 对得上由 `workflowWiringFaults` 核 */
 export const CI_MUTATE_JOBS = 6
 
 /** 最重一份比平均值高多少就红 */
@@ -186,6 +186,228 @@ export function growthWaivers(trailers: readonly string[]): string[] {
   return reasons
 }
 
+/**
+ * `.github/workflows/check.yml` 钉死的样子（ADR-203 第八节）：整份去掉整行注释与空行之后，逐行就是这些。
+ * 份数、worker 数与 chain 那一串不写死，按 `SHARD_COUNT`、`CI_MUTATE_JOBS` 与 `package.json` 的 `check` 填（«N»、«LIST»、«JOBS»、«CHAIN»）。
+ * **改工作流就在同一条 PR 里改这里** —— 闸门红在第一处不一样的那一行，评审看得见这里改了什么。
+ */
+const WORKFLOW_PIN: readonly string[] = [
+  "name: check",
+  "on:",
+  "  push:",
+  "    branches: [main]",
+  "  pull_request:",
+  "concurrency:",
+  "  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}",
+  "  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}",
+  "permissions:",
+  "  contents: read",
+  "  actions: read",
+  "jobs:",
+  "  chain:",
+  "    name: 检查链（变异以外各步）",
+  "    runs-on: ubuntu-latest",
+  "    steps:",
+  "      - uses: actions/checkout@v4",
+  "        with:",
+  "          fetch-depth: 0",
+  "      - uses: actions/setup-node@v4",
+  "        with:",
+  "          node-version: '22'",
+  "          cache: npm",
+  "      - name: 装 bubblewrap（外层断网要它）",
+  "        run: |",
+  "          sudo apt-get update -q",
+  "          sudo apt-get install -y -q --no-install-recommends bubblewrap",
+  "          command -v bwrap",
+  "          bwrap --version",
+  "      - name: 关掉用户命名空间限制（bwrap 断网要它）",
+  "        run: |",
+  "          sysctl kernel.apparmor_restrict_unprivileged_userns",
+  "          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
+  "          sysctl kernel.apparmor_restrict_unprivileged_userns",
+  "      - run: npm ci --prefer-offline --no-audit",
+  "      - run: «CHAIN»",
+  "      - name: 欠条点名提醒（只提醒）",
+  "        if: always()",
+  "        continue-on-error: true",
+  "        timeout-minutes: 2",
+  "        run: npm run -s debt-touch",
+  "      - uses: actions/upload-artifact@v4",
+  "        with:",
+  "          name: selfcheck-launches",
+  "          path: output/selfcheck-launches/families.json",
+  "          if-no-files-found: error",
+  "          retention-days: 3",
+  "      - run: lscpu",
+  "        if: always()",
+  "        continue-on-error: true",
+  "  mutate:",
+  "    name: 变异（第 ${{ matrix.shard }}/«N» 份）",
+  "    runs-on: ubuntu-latest",
+  "    strategy:",
+  "      fail-fast: false",
+  "      matrix:",
+  "        shard: [«LIST»]",
+  "    steps:",
+  "      - uses: actions/checkout@v4",
+  "        with:",
+  "          fetch-depth: 0",
+  "      - uses: actions/setup-node@v4",
+  "        with:",
+  "          node-version: '22'",
+  "          cache: npm",
+  "      - name: 装 bubblewrap（外层断网要它）",
+  "        run: |",
+  "          sudo apt-get update -q",
+  "          sudo apt-get install -y -q --no-install-recommends bubblewrap",
+  "          command -v bwrap",
+  "          bwrap --version",
+  "      - name: 关掉用户命名空间限制（bwrap 断网要它）",
+  "        run: |",
+  "          sysctl kernel.apparmor_restrict_unprivileged_userns",
+  "          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
+  "          sysctl kernel.apparmor_restrict_unprivileged_userns",
+  "      - run: npm ci --prefer-offline --no-audit",
+  "      - run: npm run compile",
+  "      - run: npm run mutate",
+  "        env:",
+  "          MUTATE_SHARD: ${{ matrix.shard }}/«N»",
+  "          MUTATE_JOBS: '«JOBS»'",
+  "      - uses: actions/upload-artifact@v4",
+  "        with:",
+  "          name: mutation-launches-${{ matrix.shard }}",
+  "          path: output/mutation-launches/launches-${{ matrix.shard }}-of-«N».json",
+  "          if-no-files-found: error",
+  "          retention-days: 3",
+  "      - run: lscpu",
+  "        if: always()",
+  "        continue-on-error: true",
+  "  check:",
+  "    needs: [chain, mutate]",
+  "    if: ${{ !cancelled() }}",
+  "    runs-on: ubuntu-latest",
+  "    steps:",
+  "      - name: 变异以外各步与各份变异都绿了才往下",
+  "        env:",
+  "          CHAIN: ${{ needs.chain.result }}",
+  "          MUTATE: ${{ needs.mutate.result }}",
+  "        run: |",
+  "          echo \"chain：$CHAIN · mutate：$MUTATE\"",
+  "          [ \"$CHAIN\" = success ] && [ \"$MUTATE\" = success ]",
+  "      - uses: actions/checkout@v4",
+  "        with:",
+  "          fetch-depth: 0",
+  "      - uses: actions/setup-node@v4",
+  "        with:",
+  "          node-version: '22'",
+  "          cache: npm",
+  "      - run: npm ci --prefer-offline --no-audit",
+  "      - uses: actions/download-artifact@v4",
+  "        with:",
+  "          pattern: mutation-launches-*",
+  "          merge-multiple: true",
+  "          path: output/mutation-launches",
+  "      - uses: actions/download-artifact@v4",
+  "        with:",
+  "          name: selfcheck-launches",
+  "          path: output/selfcheck-launches",
+  "      - run: npm run launches",
+  "      - name: 墙钟对比（只报数）",
+  "        continue-on-error: true",
+  "        timeout-minutes: 2",
+  "        env:",
+  "          GH_TOKEN: ${{ github.token }}",
+  "          BASE_SHA: ${{ github.event.before }}",
+  "        run: |",
+  "          set +e",
+  "          out=\"$RUNNER_TEMP/wall.json\"",
+  "          auth=(); [ -n \"$GH_TOKEN\" ] && auth=(-H \"Authorization: Bearer $GH_TOKEN\")",
+  "          api() { curl -sS --max-time 20 -o \"$out\" -w '%{http_code}' \"${auth[@]}\" \\",
+  "                    -H 'Accept: application/vnd.github+json' \"$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/$1\"; }",
+  "          why() { if [ \"$2\" = 28 ]; then echo 超时; elif [ \"$1\" = 000 ]; then echo 连不上; else echo \"HTTP $1\"; fi; }",
+  "          cpu=$(export LC_ALL=C; lscpu 2>/dev/null | sed -n 's/^[[:space:]]*Model name://p' | head -n 1 \\",
+  "                  | tr -cd '[:alnum:] ()@.,_+/-' | tr -s ' ' | cut -c 1-80 | sed 's/^ //; s/ $//')",
+  "          [ -n \"$cpu\" ] || cpu=读不到",
+  "          count() { git show \"$1:scripts/check/mutations.json\" 2>/dev/null | jq -er '.mutations | arrays | length' 2>/dev/null; }",
+  "          muts=$(count HEAD); muts0=; mine=; base=$BASE_SHA",
+  "          [ \"$GITHUB_EVENT_NAME\" = pull_request ] && base=$(git rev-parse -q --verify 'HEAD^1' 2>/dev/null)",
+  "          [[ $base =~ ^[0-9a-f]{40}$ ]] && muts0=$(count \"$base\")",
+  "          work() {",
+  "            [ -n \"$muts\" ] || { echo \"变异：读不到\"; return; }",
+  "            local d=对照读不到 per=摊到每条：读不到",
+  "            [ -n \"$muts0\" ] && d=$(( muts - muts0 )) && { [ \"$d\" = 0 ] && d=±0 || d=$(printf '%+d' \"$d\"); }",
+  "            [ -n \"$mine\" ] && [ \"$muts\" -gt 0 ] && per=\"摊到每条 $(awk -v a=\"$mine\" -v b=\"$muts\" 'BEGIN { printf \"%.2f\", a / b }') 秒\"",
+  "            echo \"变异 $muts 条（$d） · $per\"",
+  "          }",
+  "          say() { local line=\"$1 · CPU：$cpu · $(work)\"",
+  "                  echo \"::notice title=墙钟::$line\"; echo \"$line\" >> \"$GITHUB_STEP_SUMMARY\"; exit 0; }",
+  "          mmss() { printf '%d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }",
+  "          code=$(api \"actions/runs/$GITHUB_RUN_ID\"); rc=$?",
+  "          [ \"$code\" = 200 ] || say \"墙钟：无从比较（取本跑的起跑时间：$(why \"$code\" \"$rc\")）\"",
+  "          created=$(jq -er .created_at \"$out\") && started=$(jq -er '.run_started_at | fromdate' \"$out\") \\",
+  "            || say \"墙钟：无从比较（本跑的记录里没有创建或起跑时间）\"",
+  "          mine=$(( $(date -u +%s) - started ))",
+  "          code=$(api \"actions/workflows/check.yml/runs?branch=main&event=push&status=success&per_page=5&created=%3C$created\"); rc=$?",
+  "          [ \"$code\" = 200 ] || say \"墙钟：无从比较（取主干前 5 次：$(why \"$code\" \"$rc\")）\"",
+  "          n=$(jq -er '.workflow_runs | length' \"$out\") || say \"墙钟：无从比较（主干的运行记录读不出来）\"",
+  "          [ \"$n\" = 5 ] || say \"墙钟：无从比较（本跑之前主干上只找到 $n 次成功跑）\"",
+  "          median=$(jq -er '[.workflow_runs[] | (.updated_at | fromdate) - (.run_started_at | fromdate)] | sort | .[2]' \"$out\") \\",
+  "            || say \"墙钟：无从比较（主干的运行记录里缺起跑或结束时间）\"",
+  "          [ \"$median\" -gt 0 ] || say \"墙钟：无从比较（主干前 5 次的中位是 $median 秒）\"",
+  "          say \"本跑 $(mmss \"$mine\") · 主干前 5 次中位 $(mmss \"$median\") · ×$(awk -v a=\"$mine\" -v b=\"$median\" 'BEGIN { printf \"%.2f\", a / b }')\"",
+  "      - run: lscpu",
+  "        if: always()",
+  "        continue-on-error: true",
+]
+
+/** 按眼下的份数、worker 数与 chain 那一串填好的 `WORKFLOW_PIN` */
+export function pinnedWorkflow(chain: string): string[] {
+  const list = Array.from({ length: SHARD_COUNT }, (_unused, i) => i + 1).join(', ')
+  return WORKFLOW_PIN.map(l => l.replaceAll('«N»', String(SHARD_COUNT)).replaceAll('«LIST»', list)
+    .replaceAll('«JOBS»', String(CI_MUTATE_JOBS)).replaceAll('«CHAIN»', () => chain))
+}
+
+/**
+ * `check.yml` 的接线对不对得上（ADR-203 第八节；需求所有者在选择卡上选的「整份钉死」）：整份去掉整行注释与空行后，逐行与 `pinnedWorkflow` 相同。
+ * **不从文字猜 YAML 的结构。** 先前两版都是找几行关键的字、再猜它们落在哪个 job、哪一步，评审一轮轮找到合法的 YAML 写法
+ * （引号括起来的键、接到下一行的命令、块里的假记号、流式写法……）让它猜错、悄悄放行。逐字相同就没有可猜的：
+ * 工作流里任何一处起作用的改动都红，改的人在同一条 PR 里改钉死的那份，评审看得见。最坏是误红。
+ * 整行注释（空格缩进之后以 `#` 起头的行）与空行（空的或全是空格）不比：这种行不改变 YAML 解析出的结构（缩进不够时让整份解析失败，
+ * GitHub 上看得见），落在 `run:` 块里是 shell 注释；行内注释、行尾空白照样比。
+ * 空格、tab 与换行以外的空白（单独的 `\r`、U+0085、U+2028、全角空格……）出现在哪里都红；注释或空行接在行尾 `\` 后面也红。
+ * `checkScript` 是 `package.json` 的 `check` 那一串，读不到（undefined）、或不是 `CHECK_SHAPE` 那种「npm run 某步 && …」也算对不上 ——
+ * 它原样填进 chain 那一行，里面要是有 `#`、`\`、`$` 之类，YAML 与 shell 读出来的就不是字面那一串。对得上交回 []。
+ */
+/** `package.json` 的 `check` 那一串只许这个样子：几步 `npm test`／`npm run 某名字` 用 ` && ` 连起来 */
+const CHECK_SHAPE = /^npm (test|run [a-z][\w:-]*)( && npm (test|run [a-z][\w:-]*))*$/
+
+export function workflowWiringFaults(workflow: string, checkScript: string | undefined): string[] {
+  if (checkScript === undefined) return ['读不到 package.json 的 check 那一串']
+  if (!CHECK_SHAPE.test(checkScript)) return ['package.json 的 check 那一串不是「npm run 某步 && npm run 某步 …」的样子，不拿它填 chain 那一行']
+  const want = pinnedWorkflow(checkScript.split(' && ').filter(step => step !== 'npm run mutate' && step !== 'npm run launches').join(' && '))
+  // 换行只认 \n 与 \r\n，空白只认空格与 tab：单独的 \r、U+0085、U+2028、全角空格、不换行空格……YAML 或 shell 会当真，
+  // 去注释、去空行时却可能被当成空白或换行吃掉，一律红（最坏是误红）
+  const text = workflow.replace(/\r\n/g, '\n'), odd = /[^\S \t\n]|\u0085/.exec(text)
+  if (odd !== null) {
+    const n = text.slice(0, odd.index).split('\n').length, code = odd[0].codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')
+    return [`第 ${n} 行有空格、tab 与换行以外的空白（U+${code}），去掉它再比`]
+  }
+  // 只有以空格缩进、# 起头的行算整行注释，只有空的或全是空格的行算空行；接在行尾「\」后面的不算 —— 那里一行注释或空行会改掉 shell 命令
+  const raw = text.split('\n'), got: { n: number; text: string }[] = []
+  for (let i = 0; i < raw.length; i++) {
+    if (!/^ *(#|$)/.test(raw[i])) { got.push({ n: i + 1, text: raw[i] }); continue }
+    if (i > 0 && got.at(-1)?.n === i && raw[i - 1].endsWith('\\')) return [`第 ${i + 1} 行是注释或空行，却接在上一行行尾的「\\」后面（shell 会把它连进命令）`]
+  }
+  for (let i = 0; i < Math.max(want.length, got.length); i++) {
+    if (got[i]?.text === want[i]) continue
+    const at = got[i] === undefined ? '文件已经到头' : `第 ${got[i].n} 行是「${got[i].text.trim()}」`
+    return [`与钉死的样子不一样（去掉整行注释与空行后逐行比）：${at}，应为${want[i] === undefined ? '没有这一行' : `「${want[i].trim()}」`}`
+      + ' —— 改了工作流就在同一条 PR 里改 shard-load-rule.ts 的 WORKFLOW_PIN']
+  }
+  return []
+}
+
 /** 闸门要的量。`trunk` 同启动数闸门：在不在主干上，或者问不出来 */
 export interface ShardLoadInput {
   /** 每一份的验证者秒数（`shardPlan` 交回的 `loads`），按份的编号排 */
@@ -195,7 +417,7 @@ export interface ShardLoadInput {
   readonly trunk: { readonly onTrunk: boolean } | { readonly unknown: string }
   /** 这条分支自己的提交里 `growthWaivers` 读出来的理由 */
   readonly waivers: readonly string[]
-  /** `check.yml` 接线对不上的几处（核对接线的那一半另一条 PR 接；本条的入口交 []） */
+  /** `workflowWiringFaults` 交回的：`check.yml` 接线对不上的几处 */
   readonly wiring: readonly string[]
 }
 export interface ShardLoadGate { readonly red: boolean; readonly lines: readonly string[] }
