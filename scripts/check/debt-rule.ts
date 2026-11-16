@@ -160,6 +160,92 @@ export function orphanIous(docs: Map<string, string>): Entry[] {
 }
 
 /**
+ * 欠条的短名字：块头的「⚠️ 欠条」后面紧跟一对书名号，`⚠️ 欠条「短名字」：…`（「欠条」两字可以加粗）。
+ * 状态行与别的欠条按名字指过来（`⚠️ 已还：ADR-N「短名字」`），不再按行号 —— 主文件重写成现行结论、
+ * 过程挪进历史文件以后，行号全变，名字不变（ADR-211，主文件只放现行结论那一份）。
+ *
+ * 只认紧跟在「⚠️ 欠条」后面的那一对：块头别处提到的「接着某某的欠条「甲」」不是这张的名字 ——
+ * 认了它，没起名字的这张就冒名顶替了「甲」，按名字关上「甲」时它也跟着不提醒。
+ * 所以从行首认起，和认块头的 `IOU_HEAD` 同一个起头：块头第一个「⚠️ 欠条」后面没有书名号，就是没起名字，
+ * 哪怕说明里又提到一个带名字的「⚠️ 欠条「甲」」。
+ * 名字最长 `NAME_LIMIT` 个字；没起名字的老欠条交回 null，照旧只能按行号指。
+ */
+export const IOU_NAME = /^>?\s*\*{0,2}⚠️\s*\*{0,2}欠条\*{0,2}\s*「([^」\n]*)」/
+const IOU_NAME_OPEN = /^>?\s*\*{0,2}⚠️\s*\*{0,2}欠条\*{0,2}\s*「/
+export const NAME_LIMIT = 40
+export function iouName(head: string): string | null {
+  const m = IOU_NAME.exec(head)
+  const name = m ? m[1].trim() : ''
+  return name && [...name].length <= NAME_LIMIT ? name : null
+}
+
+/**
+ * 块头起了名字、却取不出来时的原因：书名号没收尾、名字是空的、超过上限。取得出或根本没起名字交回 null。
+ * 取不出来不能静默当成没名字：写的人以为起了名字，按名字写的状态行却永远关不上它，重名查验也跳过它。
+ */
+export function iouNameFault(head: string): string | null {
+  if (!IOU_NAME_OPEN.test(head)) return null
+  const m = IOU_NAME.exec(head)
+  if (!m) return '书名号没收尾'
+  const name = m[1].trim()
+  if (!name) return '名字是空的'
+  if ([...name].length > NAME_LIMIT) return `名字超过 ${NAME_LIMIT} 个字`
+  return null
+}
+
+/** 「记录 + 短名字」的键。欠条那一侧与状态行那一侧都用这一个，免得两边各拼一份、拼法一变就对不上。 */
+export const recordKey = (num: number, name: string): string => `ADR-${num}「${name}」`
+
+/** 历史文件：`docs/adr/历史/` 下的那一份（ADR-211，主文件只放现行结论那一份）。 */
+export const isHistory = (file: string): boolean => /(?:^|\/)历史\/ADR-\d+-[^/]*$/.test(file)
+
+/** 哪几条记录拆过了：有历史文件的那些编号。 */
+export function splitRecords(docs: Map<string, string>): Set<number> {
+  const out = new Set<number>()
+  for (const file of docs.keys()) if (isHistory(file)) out.add(recordNum(file)!)
+  return out
+}
+
+/** 文件属于哪条记录：主文件 `docs/adr/ADR-86-….md` 与历史文件 `docs/adr/历史/ADR-86-….md` 都是 86；不是编号记录的文件交回 null。 */
+export function recordNum(file: string): number | null {
+  const m = /(?:^|\/)ADR-(\d+)-[^/]*$/.exec(file)
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * 短名字写坏了的欠条 —— 硬失败，三种：
+ * - 起了名字却取不出来（见 `iouNameFault`）；
+ * - 拆过的记录，主文件里的欠条没起名字：主文件重写过，按行号的状态行不算到它头上，没名字就永远关不上；
+ * - 同一条记录里两张用了同一个名字：状态行按名字指过来时分不清是哪一张，关上一张等于把另一张也当成关了。
+ *   主文件和它的历史文件算同一条记录：欠条挪进历史后名字还在用。报的是后出现的那一张（按文件路径、再按行排）。
+ * 交回的条目 `text` 以原因开头。
+ */
+export function iouNameFaults(docs: Map<string, string>): Entry[] {
+  const seen = new Set<string>()
+  const out: Entry[] = []
+  const split = splitRecords(docs)
+  for (const [file, text] of [...docs].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+    const num = recordNum(file)
+    if (num === null) continue
+    const lines = text.split('\n')
+    for (const { start } of iouBlocks(lines, quotedMask(text))) {
+      const head = lines[start]
+      const fault = iouNameFault(head)
+      if (fault !== null) { out.push({ file, line: start + 1, notation: '重启条件', text: `${fault}：${plain(head)}` }); continue }
+      const name = iouName(head)
+      if (name === null) {
+        if (split.has(num) && !isHistory(file)) out.push({ file, line: start + 1, notation: '重启条件', text: `拆过的记录，主文件里的欠条没起名字：${plain(head)}` })
+        continue
+      }
+      const key = recordKey(num, name)
+      if (seen.has(key)) out.push({ file, line: start + 1, notation: '重启条件', text: `和同一条记录里的另一张重名：${plain(head)}` })
+      else seen.add(key)
+    }
+  }
+  return out
+}
+
+/**
  * 报告里那一行。
  *
  * 怎么数、分几栏报都是判定，所以和 `coverageSummary` 一样留在判定模块里 ——
@@ -175,18 +261,23 @@ export function ledgerSummary(list: Entry[]): string {
 }
 
 /**
- * 全表：每条一行、孤儿另标一行、空一行、末尾汇总；有孤儿时另交回打在 stderr 的那一句。
+ * 全表：每条一行、孤儿与短名字有错的各另标一行、空一行、末尾汇总；有孤儿或短名字有错时另交回打在 stderr 的那一句。
  *
  * 两个入口打的是这一份 —— `npm run audit -- --debts` 与只读入口 `npm run adr-ledger`。
  * 各写一份的话，改了一处忘了另一处，症状是「同一份台账，两个入口说两样」。
- * 退出码跟着 `err` 走：有它就以 1 退出，孤儿是硬失败，只读入口也不放过。
+ * 退出码跟着 `err` 走：有它就以 1 退出，孤儿与短名字有错都是硬失败，只读入口也不放过。
  */
-export function ledgerReport(list: Entry[], orphans: Entry[]): { out: string[]; err?: string } {
+export function ledgerReport(list: Entry[], orphans: Entry[], badNames: Entry[] = []): { out: string[]; err?: string } {
   const out = [
     ...list.map(e => `${e.file}:${e.line}  [${e.notation}]  ${e.text}`),
     ...orphans.map(o => `${o.file}:${o.line}  [孤儿·没写重启条件]  ${o.text}`),
+    ...badNames.map(d => `${d.file}:${d.line}  [短名字有错]  ${d.text}`),
     '',
     `  ${ledgerSummary(list)}`,
   ]
-  return orphans.length ? { out, err: `\n✗ 欠条台账：${orphans.length} 张欠条没写重启条件` } : { out }
+  const errs = [
+    ...orphans.length ? [`${orphans.length} 张欠条没写重启条件`] : [],
+    ...badNames.length ? [`${badNames.length} 张欠条的短名字有错（重名或取不出）`] : [],
+  ]
+  return errs.length ? { out, err: `\n✗ 欠条台账：${errs.join('；')}` } : { out }
 }
