@@ -25280,37 +25280,25 @@
     {
       "id": "M-H198-d",
       "req": "harness",
-      "why": "交给 eq 的整个值不算碰到：整体比对已经守着的字段被报成没人碰，误红",
+      "why": "不是比对的函数调用，实参里的对象字面量也当期望值：为搭场景、过类型检查写的键算成碰到，漏网",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])",
-      "replace": "new Set(['assert', 'deepStrictEqual', 'stringify'])",
+      "find": "COMPARE.has(calleeOf(p)) && p.arguments.includes",
+      "replace": "p.arguments.includes",
       "by": "test",
       "kills": [
-        "字段：整个值交给 eq，逐层都算用到"
-      ]
-    },
-    {
-      "id": "M-H198-e",
-      "req": "harness",
-      "why": "先规整再比（canon 这类返回 unknown 的）不算整体比对：误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const opaque = (tc.getTypeAtLocation(n).flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) !== 0",
-      "replace": "const opaque = false",
-      "by": "test",
-      "kills": [
-        "字段：交给返回 unknown 的规整函数，也算整体比对"
+        "字段：交给返回 unknown 的规整函数、写进带类型的场景对象、写进别的（不是比对的）函数的实参，都不算"
       ]
     },
     {
       "id": "M-H198-f",
       "req": "harness",
-      "why": "按类型写成的期望值对象不算碰到：误红",
+      "why": "比对的期望值里写出来的键不算碰到：误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "for (const t of contextual.isUnion() ? contextual.types : [contextual]) mark(t.getProperty(name))",
-      "replace": "void 0",
+      "find": "expectedOf(n.parent).flatMap(split)) mark(t.getProperty(name))",
+      "replace": "expectedOf(n.parent).flatMap(split)) void t",
       "by": "test",
       "kills": [
-        "字段：按上下文类型写成的期望值对象，键算用到"
+        "字段：比对的期望值里写出来的键算用到（按同一次比对里另一边的类型认）"
       ]
     },
     {
@@ -25326,39 +25314,15 @@
       ]
     },
     {
-      "id": "M-H198-h",
-      "req": "harness",
-      "why": "没有按名字的兜底：黑盒重抄类型的测试读到的字段全算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "(used.has(decl) || byName(file, text))",
-      "replace": "(used.has(decl))",
-      "by": "test",
-      "kills": [
-        "字段：黑盒重抄类型时按名字兜底 —— 只认验证者 import 了的那个文件"
-      ]
-    },
-    {
-      "id": "M-H198-i",
-      "req": "harness",
-      "why": "按名字兜底不看 import：随便哪份测试里有个同名属性，别的文件里的新字段就算有人碰，漏网",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "files.has(file) && localNames.get(v)!.has(name)",
-      "replace": "localNames.get(v)!.has(name)",
-      "by": "test",
-      "kills": [
-        "字段：黑盒重抄类型时按名字兜底 —— 只认验证者 import 了的那个文件"
-      ]
-    },
-    {
       "id": "M-H198-j",
       "req": "harness",
-      "why": "整体比对只算最外一层：嵌在数组、对象里的字段被报成没人碰，误红",
+      "why": "期望值只认最外一层的键：嵌套对象里写出来的键被报成没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "        mark(p); whole(tc.getTypeOfSymbol(p), seen, inner)\n",
-      "replace": "        mark(p)\n",
+      "find": "return name === undefined ? [] : expectedOf(p.parent)",
+      "replace": "return name === undefined || true ? [] : expectedOf(p.parent)",
       "by": "test",
       "kills": [
-        "字段：整个值交给 eq，逐层都算用到"
+        "字段：期望值里嵌套的对象、数组元素里写出来的键也算用到"
       ]
     },
     {
@@ -25482,78 +25446,6 @@
       ]
     },
     {
-      "id": "M-H198-u",
-      "req": "harness",
-      "why": "整体比对不穿索引签名：Record 里的字段交给比对函数也算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, inner)\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
-      ]
-    },
-    {
-      "id": "M-H198-w",
-      "req": "harness",
-      "why": "按名字兜底不限重抄的那份类型：验证者里随便哪个同名属性都算，常见的名字（ok、kind、path）一律放过，漏网",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (copied.has(d)) names.add(s!.name)",
-      "replace": "names.add(s!.name)",
-      "by": "test",
-      "kills": [
-        "字段：按名字兜底只认重抄的那份类型，本文件别的同名属性不算"
-      ]
-    },
-    {
-      "id": "M-H198-x",
-      "req": "harness",
-      "why": "重抄的类型不走函数的返回值：黑盒测试读到的返回字段全算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "      for (const sig of t.getCallSignatures()) copy(tc.getReturnTypeOfSignature(sig), seen, inner)\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认"
-      ]
-    },
-    {
-      "id": "M-H198-y",
-      "req": "harness",
-      "why": "不认静态 import：只经 import 语句引的文件，按名字兜底不算，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) imported(n.moduleSpecifier.text)",
-      "replace": "if (ts.isImportDeclaration(n)) void 0",
-      "by": "test",
-      "kills": [
-        "字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认"
-      ]
-    },
-    {
-      "id": "M-H198-z",
-      "req": "harness",
-      "why": "不认动态 import()：只经 import() 引的文件，按名字兜底不算，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "&& n.arguments.length > 0 && ts.isStringLiteralLike(n.arguments[0])) imported(n.arguments[0].text)",
-      "replace": "&& n.arguments.length > 0) void 0",
-      "by": "test",
-      "kills": [
-        "字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认"
-      ]
-    },
-    {
-      "id": "M-H198-aa",
-      "req": "harness",
-      "why": "按名字兜底时认错了 import 的文件：经相对路径 import 的被测文件对不上号，重抄类型里读到的字段误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (hit !== undefined) mine.add(relOf(root, hit.resolvedFileName))",
-      "replace": "if (hit !== undefined) mine.add(spec)",
-      "by": "test",
-      "kills": [
-        "字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认"
-      ]
-    },
-    {
       "id": "M-H198-ab",
       "req": "harness",
       "why": "按下标读不算：r['x'] 这种读法算没人碰，误红",
@@ -25562,43 +25454,7 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算"
-      ]
-    },
-    {
-      "id": "M-H198-ac",
-      "req": "harness",
-      "why": "断言函数收下整个值不算整体比对：误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])",
-      "replace": "new Set(['eq', 'deepStrictEqual', 'stringify'])",
-      "by": "test",
-      "kills": [
-        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
-      ]
-    },
-    {
-      "id": "M-H198-ad",
-      "req": "harness",
-      "why": "深比较那种整体比对不算：误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])",
-      "replace": "new Set(['eq', 'assert', 'stringify'])",
-      "by": "test",
-      "kills": [
-        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
-      ]
-    },
-    {
-      "id": "M-H198-ae",
-      "req": "harness",
-      "why": "序列化成 JSON 再比不算整体比对：误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])",
-      "replace": "new Set(['eq', 'assert', 'deepStrictEqual'])",
-      "by": "test",
-      "kills": [
-        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
+        "字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算"
       ]
     },
     {
@@ -25616,13 +25472,13 @@
     {
       "id": "M-H198-ag",
       "req": "harness",
-      "why": "按类型写期望值时不拆联合：判别联合的期望值对象算没碰，误红",
+      "why": "期望值按类型认时不拆联合：判别联合的期望值对象算没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "contextual.isUnion() ? contextual.types : [contextual]",
-      "replace": "[contextual]",
+      "find": "n.isUnion() ? n.types : [n]",
+      "replace": "[n]",
       "by": "test",
       "kills": [
-        "字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算"
+        "字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算"
       ]
     },
     {
@@ -25634,7 +25490,7 @@
       "replace": "const name = literalName(ts, n.name)",
       "by": "test",
       "kills": [
-        "字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算"
+        "字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算"
       ]
     },
     {
@@ -25734,18 +25590,6 @@
       ]
     },
     {
-      "id": "M-H198-ar",
-      "req": "harness",
-      "why": "黑盒重抄的类型不穿索引签名：Record 里的字段读了也算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "      for (const info of tc.getIndexInfosOfType(t)) copy(info.type, seen, inner)\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：按名字兜底时重抄的类型也穿过索引签名（Record 里的字段）"
-      ]
-    },
-    {
       "id": "M-H198-as",
       "req": "harness",
       "why": "只被赋值的属性也算读到：测试只往字段里写、从不读它也放行",
@@ -25798,8 +25642,8 @@
       "req": "harness",
       "why": "套了括号的赋值左边当成读到：测试只往字段里写、从不读它也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isParenthesizedExpression(p) || ",
-      "replace": "",
+      "find": "if (ts.isParenthesizedExpression(p) || ts.isArrayLiteralExpression(p)",
+      "replace": "if (ts.isArrayLiteralExpression(p)",
       "by": "test",
       "kills": [
         "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
@@ -25906,8 +25750,8 @@
       "req": "harness",
       "why": "套着 as 断言的赋值左边当成读到：测试只往字段里写、从不读它也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isAsExpression(p) || ",
-      "replace": "",
+      "find": "if (ts.isNonNullExpression(p) || ts.isAsExpression(p) || ",
+      "replace": "if (ts.isNonNullExpression(p) || ",
       "by": "test",
       "kills": [
         "字段：套着 ! 与 as、<T> 类型断言的只写也不算读到"
@@ -25938,18 +25782,6 @@
       ]
     },
     {
-      "id": "M-H198-bj",
-      "req": "harness",
-      "why": "按名字兜底认不出不带扩展名的 import：重抄类型里读到的字段误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const hit = ts.resolveModuleName(spec, sf.fileName, program.getCompilerOptions(), ts.sys).resolvedModule",
-      "replace": "const hit = spec.endsWith('.js') ? ts.resolveModuleName(spec, sf.fileName, program.getCompilerOptions(), ts.sys).resolvedModule : undefined",
-      "by": "test",
-      "kills": [
-        "字段：按名字兜底认不带扩展名的 import（照程序自己的解析）"
-      ]
-    },
-    {
       "id": "M-H198-bi",
       "req": "harness",
       "why": "计算属性名的 [表达式] 也被加引号：它和名字恰好是这串字的字面量字段撞成同一个键",
@@ -25964,10 +25796,10 @@
     {
       "id": "M-H198-bk",
       "req": "harness",
-      "why": "按上下文类型写的期望值里，数字名与字面量计算属性名的键不算碰到：误红",
+      "why": "期望值里数字名与字面量计算属性名的键不算碰到：误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "const name = literalName(ts, n.name)\n        if (contextual",
-      "replace": "const name = ts.isIdentifier(n.name) || ts.isStringLiteral(n.name) ? n.name.text : undefined\n        if (contextual",
+      "find": "const name = literalName(ts, n.name) // 解构赋值",
+      "replace": "const name = ts.isIdentifier(n.name) ? n.name.text : undefined // 解构赋值",
       "by": "test",
       "kills": [
         "字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到"
@@ -26007,42 +25839,6 @@
       "by": "test",
       "kills": [
         "字段：推断出来的判别值带分隔符时同样写成带引号的一段"
-      ]
-    },
-    {
-      "id": "M-H198-br",
-      "req": "harness",
-      "why": "带 replacer 的 JSON.stringify 也当整体比对：被 replacer 滤掉的字段没人碰也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const filtered = callee === 'stringify'",
-      "replace": "const filtered = false && callee === 'stringify'",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
-      "id": "M-H198-bs",
-      "req": "harness",
-      "why": "replacer 写成 null 也当成滤过：照常整体序列化比对了的字段误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "second.kind !== ts.SyntaxKind.NullKeyword && ",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
-      "id": "M-H198-bt",
-      "req": "harness",
-      "why": "replacer 写成 undefined 也当成滤过：照常整体序列化比对了的字段误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " && !(ts.isIdentifier(second) && second.text === 'undefined')",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
       ]
     },
     {
@@ -26108,145 +25904,25 @@
     {
       "id": "M-H198-ce",
       "req": "harness",
-      "why": "解构赋值的键也按左边的上下文类型找：右边那个值的字段被读了却算没碰，误红",
+      "why": "解构赋值的键不按右边那个值找：右边那个值的字段被读了却算没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent && n.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken ?",
-      "replace": "false ?",
+      "find": "assigned ? split(tc.getTypeAtLocation(n.parent.parent.right)) : ",
+      "replace": "",
       "by": "test",
       "kills": [
         "字段：解构赋值的键读的是右边的字段（含改名），没解构的不算"
       ]
     },
     {
-      "id": "M-H198-cq",
-      "req": "harness",
-      "why": "类实例也往里走：深比较只看自有字段、JSON 只看可枚举的，原型上的成员没人读也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " && !((t.symbol?.flags ?? 0) & ts.SymbolFlags.Class)",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
-      "id": "M-H198-cr",
-      "req": "harness",
-      "why": "可调用的值也往里走：挂在函数上的字段两路都不比，没人读也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "      && t.getCallSignatures().length === 0 && t.getConstructSignatures().length === 0",
-      "replace": "      && t.getConstructSignatures().length === 0",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
-      "id": "M-H198-cs",
-      "req": "harness",
-      "why": "可构造的值也往里走：挂在构造器上的字段两路都不比，没人读也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " && t.getConstructSignatures().length === 0 && t.getProperty",
-      "replace": " && t.getProperty",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
-      "id": "M-H198-ct",
-      "req": "harness",
-      "why": "带 toJSON 的也往里走：序列化只认它的返回值，原样字段没人读也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " && t.getProperty('toJSON') === undefined",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
-      "id": "M-H198-cu",
-      "req": "harness",
-      "why": "库里的类型也往里走：Map、Promise、迭代结果里的字段两路都看不到，没人读也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "|| !fromLibrary(t))",
-      "replace": "|| true)",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
-      "id": "M-H198-cv",
-      "req": "harness",
-      "why": "映射类型也当库里的类型停下：Partial、Record 这类普通数据被整体比对了也报没碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "(((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped) !== 0 || !fromLibrary(t))",
-      "replace": "(!fromLibrary(t))",
-      "by": "test",
-      "kills": [
-        "字段：assert、deepStrictEqual、JSON.stringify 也算整体比对"
-      ]
-    },
-    {
-      "id": "M-H198-cw",
-      "req": "harness",
-      "why": "交叉类型只要有一块是纯数据就往里走：和数组、函数交叉出来的字段没人读也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "t.types.every(plain)",
-      "replace": "t.types.some(plain)",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
-      "id": "M-H198-cx",
-      "req": "harness",
-      "why": "符号键的字段也算整体比对碰到：两路都不比它，没人读也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "String(p.escapedName).startsWith('__@') || ",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
-      "id": "M-H198-cy",
-      "req": "harness",
-      "why": "函数值的字段也算整体比对碰到：深比较只比引用、JSON 直接丢掉，没人读也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " || pt.getCallSignatures().length + pt.getConstructSignatures().length > 0",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
-      ]
-    },
-    {
       "id": "M-H198-cz",
       "req": "harness",
-      "why": "整体比对不进数组：数组里元素的字段被比对了也报没碰，误红",
+      "why": "期望值不进数组元素：数组里写出来的键被报成没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, inner); return }\n",
-      "replace": "",
+      "find": "if (ts.isArrayLiteralExpression(p)) return expectedOf(p)",
+      "replace": "if (ts.isArrayLiteralExpression(p)) return []; if (p === undefined) return expectedOf(p)",
       "by": "test",
       "kills": [
-        "字段：整个值交给 eq，逐层都算用到"
-      ]
-    },
-    {
-      "id": "M-H198-da",
-      "req": "harness",
-      "why": "整体比对不拆联合：可能为空的字段被比对了也报没碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (t.isUnion()) { for (const u of t.types) whole(u, seen, inner); return }\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：整体比对只走纯数据 —— 类实例、可调用的、带 toJSON 的、库里的类型（Map、WeakMap、Promise、迭代结果、与数组交叉的）都停下，里面不算碰到；函数值与符号键的字段不算；带 replacer 的 stringify 不算整体比对，replacer 是 null 或 undefined 的照算；直接读的照算"
+        "字段：期望值里嵌套的对象、数组元素里写出来的键也算用到"
       ]
     },
     {
@@ -26347,18 +26023,6 @@
       ]
     },
     {
-      "id": "M-H198-dj",
-      "req": "harness",
-      "why": "整体比对只跳过调用签名、不跳过构造签名：值是构造器的属性 JSON 不写它，却被记成碰到",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " || pt.getCallSignatures().length + pt.getConstructSignatures().length > 0",
-      "replace": " || pt.getCallSignatures().length > 0",
-      "by": "test",
-      "kills": [
-        "字段：整体比对里值是构造器的属性不算碰到（JSON 不写它），同一个对象里的普通属性照算"
-      ]
-    },
-    {
       "id": "M-H198-dk",
       "req": "harness",
       "why": "找字段这一路对递归类型不设停：每层新实例，栈溢出",
@@ -26367,31 +26031,7 @@
       "replace": "    if (false) { if",
       "by": "test",
       "kills": [
-        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
-      ]
-    },
-    {
-      "id": "M-H198-dl",
-      "req": "harness",
-      "why": "重抄的类型这一路对递归类型不设停：每层新实例，栈溢出",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (inner === undefined || seen.has(t)) return; seen.add(t)\n",
-      "replace": "      if (seen.has(t)) return; seen.add(t)\n",
-      "by": "test",
-      "kills": [
-        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
-      ]
-    },
-    {
-      "id": "M-H198-dm",
-      "req": "harness",
-      "why": "整体比对这一路对递归类型不设停：每层新实例，栈溢出",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const inner = enter(depth); if (inner === undefined || seen.has(t))",
-      "replace": "const inner = enter(depth); if (seen.has(t))",
-      "by": "test",
-      "kills": [
-        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数记一条「没展开完」，算没用到"
       ]
     },
     {
@@ -26416,7 +26056,7 @@
       "replace": ": depth",
       "by": "test",
       "kills": [
-        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数记一条「没展开完」，算没用到"
       ]
     },
     {
@@ -26436,11 +26076,11 @@
       "req": "harness",
       "why": "「没展开完」那一条被调用函数的那次读取算成用到：停下了照样不报红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "used: !cut.has(decl) && (used.has(decl) || byName(file, text))",
-      "replace": "used: (used.has(decl) || byName(file, text))",
+      "find": "used: !cut.has(decl) && used.has(decl)",
+      "replace": "used: used.has(decl)",
       "by": "test",
       "kills": [
-        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
+        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
       ]
     },
     {

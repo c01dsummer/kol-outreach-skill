@@ -10,21 +10,18 @@
  *    一个字段的名字（`key`）从它的声明位置算，不从「走到它的路」算：文件 ＋ 往上每一层有名字的
  *    声明（接口、类型别名、函数、属性、变量；数字名与计算属性名也算名字），类型字面量若带一个取字符串字面量的属性（判别联合的 `kind`），
  *    记成 `{kind=…}`；推断出来的对象字面量同理，看那个属性推出来的类型是不是字符串字面量（`'a' as const`）。所以新加一个函数、走到旧字段的路变了，旧字段的名字不变。
- * 2. **哪些算「用到」**（也在 `fieldsOf` 里）：验证者文件（`isVerifierFile` 认的那几种）里任一处
- *    —— 读属性（`.x`、`['x']`；只写不读的不算，见 `writeOnly`）、解构、按上下文类型对得上的对象字面量键（期望值写成那个类型），
- *    解析到这个声明上；或把**整个值**交给整体比对：`eq`、`assert`、`deepStrictEqual`、`JSON.stringify`，
- *    以及返回 `unknown`/`any` 的调用（`canon` 这类先规整再比的）的实参，它类型里的属性逐层都算碰到
- *    （`Map`/`Set` 这类库泛型里面只有 `deepStrictEqual` 进得去，别的走 JSON，那里面成了 `{}`）——
- *    加了字段、期望值没跟着改，整体比对自己就会失败。
- *    另有一条按名字的兜底：验证者自己重抄了一份类型（`await import(…) as unknown as { … }` 的黑盒写法），
- *    读到的声明落在那份重抄的类型里；这时只要这个验证者 import 了字段所在的那个文件、读的名字相同，也算。
+ * 2. **哪些算「用到」**（也在 `fieldsOf` 里）：只认测试作者在验证者文件（`isVerifierFile` 认的那几种）里**写出来的**，
+ *    解析到这个声明上的：读属性（`.x`、`['x']`；只写不读的不算，见 `writeOnly`）、解构，
+ *    或比对（`COMPARE` 里的调用）实参里对象字面量写出来的键（期望值写成那个类型）。
+ *    不替比对去猜它读了什么：整个值交给 `eq`、`assert`、`JSON.stringify` 不算碰到里面的字段 ——
+ *    期望值是空数组、比对的那个值里根本没有这个可选字段、`eq(r, r)` 时，「加了字段比对自己会失败」都不成立。
+ *    只为搭场景、过类型检查写的对象字面量（传给别的函数的）也不算。黑盒测试自己重抄的那份类型读到的是重抄的声明，不算；要算就写豁免。
  * 3. **哪些是「新增」、红不红**（`fieldVerdict`）：名字的处数比基线（`size-rule.ts` 的 `resolveBaseline` 定的起点）
  *    上多的（撞名照样数得出来）；不是每处都用到、又没有具名豁免的，红。豁免写在字段声明前面独占几行的注释里、或那一行行尾的注释里：
  *    `字段不入断言：<理由>`，理由必填；写了标记没写理由的照样红。HEAD 在主干上只报数（入口管）。
  *
- * ⚠️ 证不了的（ADR-198 第三节）：「碰到」不等于「断言了」—— 只拿来搭场景的一次读取也算；
- * 打印出来的文字不是字段；不导出的函数、返回 `any` 的函数看不见；整体比对的认法会把
- * 交给 `eq` 的值里每一层都记成碰到，哪怕期望值是从实现那边算出来的。
+ * ⚠️ 证不了的（ADR-198 第三节）：「碰到」不等于「断言了」—— 只拿来搭场景的一次读取也算，
+ * 永远不跑的循环里的读取也算；打印出来的文字不是字段；不导出的函数、返回 `any` 的函数看不见。
  *
  * 纯函数，不读文件、不起进程：程序（`ts.Program`）由入口建好交进来。`typescript` 按需加载，
  * 同 `mutate-rule.ts`（只 import 本模块的验证者不必为它付编译器的加载时间）。
@@ -157,7 +154,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const rel = (sf: Ts.SourceFile) => relOf(root, sf.fileName)
   const argumentsOf = (t: Ts.Type): readonly Ts.Type[] =>
     ((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) ? tc.getTypeArguments(t as Ts.TypeReference) : []
-  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按层数停：往下每走一步（属性、元素、联合成员、类型实参……）算一层，不管类型是谁，到 `DEPTH` 层整个不展开；一次从头走总共超过 `BUDGET` 步也停（多路递归每层分叉）。所以必停。找字段这一路停下就报红（见 `cut`），不悄悄少找
+  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。找字段按层数停：往下每走一步（属性、元素、联合成员、类型实参……）算一层，不管类型是谁，到 `DEPTH` 层整个不展开；一次从头走总共超过 `BUDGET` 步也停（多路递归每层分叉）。所以必停。找字段这一路停下就报红（见 `cut`），不悄悄少找
   let spent = 0; const enter = (depth: number): number | undefined => (depth === 0 ? spent = 1 : ++spent) > BUDGET || depth >= DEPTH ? undefined : depth + 1 // `spent`：这一次从头（第 0 层）走起已经展开的步数
 
   // ── 1. 字段 ──
@@ -193,81 +190,32 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   }
 
   // ── 2. 用到 ──
+  // 只认测试作者白纸黑字写出来的：读属性、解构、比对的期望值里写出来的键（文件头第 2 条）。不替比对去猜它读了什么
   const used = new Set<Ts.Declaration>()
-  /** 验证者文件 → 它 import 的文件（相对仓库根）；按名字的兜底用 */
-  const imports = new Map<string, Set<string>>()
-  /** 验证者文件 → 它读到、而声明落在它自己重抄的那份类型（`import(…) as … as { … }` 里的类型）里的属性名 */
-  const localNames = new Map<string, Set<string>>()
+  const mark = (s: Ts.Symbol | undefined): void => { for (const d of s?.declarations ?? []) used.add(d) }
+  const calleeOf = (c: Ts.CallExpression): string => ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : ts.isIdentifier(c.expression) ? c.expression.text : ''
+  const split = (t: Ts.Type): readonly Ts.Type[] => { const n = tc.getNonNullableType(t); return n.isUnion() ? n.types : [n] }
+  /**
+   * 期望值里这个位置该是什么类型：一路往上走到一次比对（`COMPARE` 里的调用）的实参，取同一次比对里**别的**实参的类型，再按键、按元素往下找回来。
+   * 不在比对的实参里（只为搭场景、过类型检查写的）就是空 —— 那里写的键不算读到
+   */
+  const expectedOf = (e: Ts.Node): readonly Ts.Type[] => {
+    const p = e.parent
+    if (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isSatisfiesExpression(p)) return expectedOf(p)
+    if (ts.isCallExpression(p)) return COMPARE.has(calleeOf(p)) && p.arguments.includes(e as Ts.Expression) ? p.arguments.filter(a => a !== e).map(a => tc.getTypeAtLocation(a)) : []
+    if (ts.isPropertyAssignment(p) && p.initializer === e && ts.isObjectLiteralExpression(p.parent)) {
+      const name = literalName(ts, p.name)
+      return name === undefined ? [] : expectedOf(p.parent).flatMap(split).flatMap(t => { const q = t.getProperty(name); return q === undefined ? [] : [tc.getTypeOfSymbol(q)] })
+    }
+    if (ts.isArrayLiteralExpression(p)) return expectedOf(p).flatMap(split).flatMap(t => { const el = tc.getIndexTypeOfType(t, ts.IndexKind.Number); return el === undefined ? [] : [el] })
+    return []
+  }
+  // 下标读的键按类型认：字面量（常量、联合字面量）与 unique symbol 都换成属性的转义名，再到被索引对象的类型上找
+  const keysOf = (t: Ts.Type): Ts.__String[] => t.isUnion() ? t.types.flatMap(keysOf) : t.isStringLiteral() || t.isNumberLiteral() ? [ts.escapeLeadingUnderscores(String(t.value))]
+    : t.flags & ts.TypeFlags.UniqueESSymbol ? [(t as Ts.UniqueESSymbolType).escapedName] : []
   for (const sf of program.getSourceFiles()) {
-    const self = rel(sf)
-    if (!isVerifierFile(self)) continue
-    const mine = new Set<string>(), names = new Set<string>()
-    imports.set(self, mine); localNames.set(self, names)
-    // 按程序自己的解析认文件：`./x.js`、不带扩展名的 `./x` 都落到 `x.ts`
-    const imported = (spec: string) => {
-      if (!spec.startsWith('.')) return
-      const hit = ts.resolveModuleName(spec, sf.fileName, program.getCompilerOptions(), ts.sys).resolvedModule
-      if (hit !== undefined) mine.add(relOf(root, hit.resolvedFileName))
-    }
-    /**
-     * 重抄的类型：断言的值剥掉括号、`await` 与里层的 `as` 以后是一个 `import(…)` 调用。
-     * 从那份类型逐层走（属性、索引签名、数组、联合、函数的返回值），走到的、声明在本文件里的属性都算重抄的 ——
-     * 重抄常把形状另起成本文件里的类型别名再引用。
-     */
-    const copied = new Set<Ts.Declaration>()
-    const copy = (t: Ts.Type, seen: Set<Ts.Type>, depth = 0): void => {
-      const inner = enter(depth)
-      if (inner === undefined || seen.has(t)) return; seen.add(t)
-      if (t.isUnion() || t.isIntersection()) { for (const u of t.types) copy(u, seen, inner); return }
-      for (const a of argumentsOf(t)) copy(a, seen, inner)
-      for (const info of tc.getIndexInfosOfType(t)) copy(info.type, seen, inner)
-      if (fromLibrary(t)) return
-      for (const sig of t.getCallSignatures()) copy(tc.getReturnTypeOfSignature(sig), seen, inner)
-      for (const p of t.getProperties()) {
-        for (const d of p.declarations ?? []) if (d.getSourceFile() === sf) copied.add(d)
-        copy(tc.getTypeOfSymbol(p), seen, inner)
-      }
-    }
-    const findCopies = (n: Ts.Node): void => {
-      if (ts.isAsExpression(n)) {
-        let inner: Ts.Expression = n.expression
-        while (ts.isParenthesizedExpression(inner) || ts.isAwaitExpression(inner) || ts.isAsExpression(inner)) inner = inner.expression
-        if (ts.isCallExpression(inner) && inner.expression.kind === ts.SyntaxKind.ImportKeyword) copy(tc.getTypeFromTypeNode(n.type), new Set())
-      }
-      ts.forEachChild(n, findCopies)
-    }
-    findCopies(sf)
-    const mark = (s: Ts.Symbol | undefined): void => {
-      for (const d of s?.declarations ?? []) {
-        used.add(d)
-        if (copied.has(d)) names.add(s!.name)
-      }
-    }
-    // 整体比对只认纯数据：普通对象（含全由普通对象交叉出来的）、映射类型、数组、元组往下走，挂着的字段算碰到；
-    // 类实例、可调用的、带 toJSON 的、库里的类型（Map/Set/Promise/Date…）在哪儿都停下，里面不算碰到。
-    // JSON 与逐层深比较对这些各有各的规矩，宁可多报红（写豁免放行），不放过没读到的字段
-    const plain = (t: Ts.Type): boolean => t.isIntersection() ? t.types.every(plain) : (t.flags & ts.TypeFlags.Object) !== 0
-      && (((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped) !== 0 || !fromLibrary(t)) && !((t.symbol?.flags ?? 0) & ts.SymbolFlags.Class)
-      && t.getCallSignatures().length === 0 && t.getConstructSignatures().length === 0 && t.getProperty('toJSON') === undefined
-    const whole = (t: Ts.Type, seen: Set<Ts.Type>, depth = 0): void => {
-      const inner = enter(depth); if (inner === undefined || seen.has(t)) return; seen.add(t)
-      if (t.isUnion()) { for (const u of t.types) whole(u, seen, inner); return }
-      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, inner); return }
-      if (!plain(t)) return
-      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, inner)
-      for (const p of t.getProperties()) {
-        const pt = tc.getNonNullableType(tc.getTypeOfSymbol(p))
-        if (String(p.escapedName).startsWith('__@') || pt.getCallSignatures().length + pt.getConstructSignatures().length > 0) continue // 符号键、函数值、构造器值：两路各有各的读法，不算
-        mark(p); whole(tc.getTypeOfSymbol(p), seen, inner)
-      }
-    }
-    // 下标读的键按类型认：字面量（常量、联合字面量）与 unique symbol 都换成属性的转义名，再到被索引对象的类型上找
-    const keysOf = (t: Ts.Type): Ts.__String[] => t.isUnion() ? t.types.flatMap(keysOf) : t.isStringLiteral() || t.isNumberLiteral() ? [ts.escapeLeadingUnderscores(String(t.value))]
-      : t.flags & ts.TypeFlags.UniqueESSymbol ? [(t as Ts.UniqueESSymbolType).escapedName] : []
+    if (!isVerifierFile(rel(sf))) continue
     const visit = (n: Ts.Node): void => {
-      if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) imported(n.moduleSpecifier.text)
-      else if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword
-        && n.arguments.length > 0 && ts.isStringLiteralLike(n.arguments[0])) imported(n.arguments[0].text)
       if (ts.isPropertyAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.name)) }
       else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) for (const k of keysOf(tc.getTypeAtLocation(n.argumentExpression)))
         mark(tc.getNonNullableType(tc.getTypeAtLocation(n.expression)).getProperties().find(p => p.escapedName === k)) }
@@ -275,44 +223,32 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         const name = literalName(ts, n.propertyName ?? n.name)
         if (name !== undefined) mark(tc.getTypeAtLocation(n.parent).getProperty(name))
       } else if ((ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) && ts.isObjectLiteralExpression(n.parent)) {
-        const contextual = ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent && n.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken ? tc.getTypeAtLocation(n.parent.parent.right) : tc.getContextualType(n.parent) // 解构赋值：键读的是右边
-        const name = literalName(ts, n.name)
-        if (contextual !== undefined && name !== undefined)
-          for (const t of contextual.isUnion() ? contextual.types : [contextual]) mark(t.getProperty(name))
-      } else if (ts.isCallExpression(n)) {
-        const callee = ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text
-          : ts.isIdentifier(n.expression) ? n.expression.text : ''
-        const opaque = (tc.getTypeAtLocation(n).flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) !== 0
-        // JSON.stringify 带了 replacer：留下哪些字段由它定，不算整体比对
-        const second = n.arguments[1]
-        const filtered = callee === 'stringify' && second !== undefined && second.kind !== ts.SyntaxKind.NullKeyword && !(ts.isIdentifier(second) && second.text === 'undefined')
-        if ((WHOLE_COMPARE.has(callee) && !filtered) || opaque) for (const a of n.arguments) whole(tc.getTypeAtLocation(a), new Set())
+        const assigned = ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent && n.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        const name = literalName(ts, n.name) // 解构赋值：键读的是右边；期望值：键读的是同一次比对里别的实参
+        if (name !== undefined) for (const t of assigned ? split(tc.getTypeAtLocation(n.parent.parent.right)) : expectedOf(n.parent).flatMap(split)) mark(t.getProperty(name))
       }
       ts.forEachChild(n, visit)
     }
     visit(sf)
   }
-  const byName = (file: string, name: string): boolean =>
-    [...imports].some(([v, files]) => files.has(file) && localNames.get(v)!.has(name))
 
   return [...found].map(([decl, via]) => {
     const sf = decl.getSourceFile()
     const file = rel(sf)
-    const text = nameOf(ts, decl) ?? ''
     const waiver = waiverOf(ts, decl)
     return {
       key: `${keyOf(ts, tc, root, decl)}${cut.has(decl) ? INCOMPLETE : ''}`, file, via,
       line: sf.getLineAndCharacterOfPosition(decl.getStart()).line + 1,
-      used: !cut.has(decl) && (used.has(decl) || byName(file, text)),
+      used: !cut.has(decl) && used.has(decl),
       ...(waiver === undefined ? {} : { waiver }),
     }
   })
 }
 
-export const DEPTH = 16, BUDGET = 2000 // 三路往下展开的上限：层数（每走一步——属性、元素、联合成员、类型实参……——算一层；仓库里最深 7 层，2026-11-16 量，留一倍余量）与一次从头走总共展开的步数（多路递归每层分叉，层数没到也会指数爆）
+export const DEPTH = 16, BUDGET = 2000 // 找字段往下展开的上限：层数（每走一步——属性、元素、联合成员、类型实参……——算一层；仓库里最深 7 层，2026-11-16 量，留一倍余量）与一次从头走总共展开的步数（多路递归每层分叉，层数没到也会指数爆）
 export const INCOMPLETE = '<没展开完>' // 找字段展开到上限停下的函数记的那一条的名字尾巴：不按基线比、每次都判 —— 停下的地方里面加了字段，基线上那条挡不住
-/** 整个值交给它们就算逐层碰到（文件头第 2 条） */
-export const WHOLE_COMPARE: ReadonlySet<string> = new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])
+/** 比对：它们实参里的对象字面量是期望值，写出来的键算读到（文件头第 2 条） */
+export const COMPARE: ReadonlySet<string> = new Set(['eq', 'deepStrictEqual', 'deepEqual', 'strictEqual', 'equal'])
 
 export interface FieldVerdict {
   /** 这个名字的处数比基线多的（基线上没有就是 0 处），按 `key` 排 */
