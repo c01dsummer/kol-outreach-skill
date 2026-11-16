@@ -100,27 +100,39 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
    ```bash
    day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; run=$(git rev-parse origin/main); cut=$(date -d "$day -28 days" +%F)
    # 取短名字的正则用 .+? 不用 [^」]：POSIX 区域设置下 [^」] 按字节比，会把名字截断
-   born() {  # 一张欠条的登记日（秒）：$1 文件，$2 行号，$3 短名字（没有就空）
-     local f=$1 n=$2 nm=$3 a h s o src=$run m=$2
+   nm() {  # 第 $2 行所在那张欠条块头的短名字（没有就空）：从这一行往上找块头，空行（或只有 >）是块的边界
+     awk -v n="$2" 'NR <= n { if ($0 ~ /^>?[ \t]*$/) h = ""; else if ($0 ~ /⚠️[ \t*]*欠条/) h = $0 } NR == n { print h; exit }' "$1" |
+       grep -oP '⚠️\s*\**欠条\**\s*「\K.+?(?=」)' | head -n 1
+   }
+   born() {  # 打「登记日（秒） 旧行号」：$1 文件，$2 行号，$3 短名字；旧行号只有改取了原文那一行才有
+     local f=$1 n=$2 nm=$3 a h s c o='' src=$run m=$2
      a=$(basename "$f" | grep -oE '^ADR-[0-9]+'); h=docs/adr/历史/$(basename "$f")
      s=$(git log --first-parent --diff-filter=A --format=%H "$run" -- "$h" | tail -n 1)
      if [ -n "$s" ] && [ "$f" = "$h" ]; then   # 历史文件：拆之前那一段原样是原文，行号对得上
        [ "$n" -le "$(git show "$s^:docs/adr/$(basename "$f")" | wc -l)" ] && { src=$s^; f=docs/adr/$(basename "$f"); }
-     elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写的那张：取原文里被它接走的第一张
-       o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | head -n 1)
+     elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写、之后没再改过的那张：取原文里被它接走的第一张
+       c=$(git blame --first-parent --porcelain -L "$n,$n" "$run" -- "$f" | head -n 1 | cut -d' ' -f1)
+       [ "$c" = "$s" ] && o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | head -n 1)
        [ -n "$o" ] && { src=$s^; m=$o; }
      fi
-     git blame --first-parent --porcelain -L "$m,$m" "$src" -- "$f" | awk '/^committer-time /{print $2; exit}'
+     echo "$(git blame --first-parent --porcelain -L "$m,$m" "$src" -- "$f" | awk '/^committer-time /{print $2; exit}') $o"
    }
+   : > "$tmp/旧行号"
    grep '^docs/adr/' "$tmp/新台账" | grep '  \[重启条件\]  ' | grep '定期清点' | while IFS= read -r l; do
-     f=${l%%:*}; n=${l#*:}; n=${n%%  *}; a=$(basename "$f" | grep -oE '^ADR-[0-9]+')
-     nm=$(grep -oP '⚠️\s*\**欠条\**\s*「\K.+?(?=」)' <<<"$l" | head -n 1)
-     t=$(born "$f" "$n" "$nm")
-     echo "$(TZ=Asia/Shanghai date -d @"$t" +%F) $a$([ -n "$nm" ] && echo "「$nm」" || echo " 第 $n 行")"
+     f=${l%%:*}; n=${l#*:}; n=${n%%  *}; a=$(basename "$f" | grep -oE '^ADR-[0-9]+'); k=$(nm "$f" "$n")
+     read -r t o <<<"$(born "$f" "$n" "$k")"
+     if [ -n "$k" ]; then k="$a「$k」"; else k="$a 第 $n 行"; fi
+     [ -n "$o" ] && printf '%s\t%s\n' "$k" "$a 第 $o 行" >> "$tmp/旧行号"
+     echo "$(TZ=Asia/Shanghai date -d @"$t" +%F) $k"
    done | sort -V > "$tmp/定期清点"
    awk -v c="$cut" '$1 <= c' "$tmp/定期清点" > "$tmp/满四周"
+   # 列过的：候选表第二栏与「读过、没进候选」那一行里的每一项，按字面整项比（名字里有括号也不当正则）
+   listed() { grep -hE '^\| |^- 读过、没进候选：' docs/adr/ADR-152-*.md | sed -E 's/^- 读过、没进候选：//; s/^\| [^|]+ \| ([^|]+) \|.*/\1/' |
+     # 按「、」切用 sed 不用 tr：tr 按字节换，会把「」也切开
+     sed 's/、/\n/g' | sed -E 's/^ +| +$//g' | grep -qxF -- "$1"; }
    while read -r t k; do
-     grep -qE "^\| [^|]+ \| $k \||^- 读过、没进候选：(.*、)?$k(、|$)" docs/adr/ADR-152-*.md || echo "$t $k"
+     al=$(awk -F'\t' -v k="$k" '$1 == k { print $2; exit }' "$tmp/旧行号")
+     listed "$k" || { [ -n "$al" ] && listed "$al"; } || echo "$t $k"
    done < "$tmp/满四周" > "$tmp/没列过"
    grep -vc '^20[0-9][0-9]-' "$tmp/定期清点"; wc -l < "$tmp/满四周"; wc -l < "$tmp/没列过"; head -n 5 "$tmp/没列过"
    ```
@@ -129,12 +141,12 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
      `--first-parent`：经合并提交进来的，记合进主干那一次，不记分支上写下那一次。
    - **拆过的记录**（`docs/adr/历史/` 里有同名文件，ADR-211）：拆的那次提交把原文整份挪进历史文件、开着的欠条重写进主文件，
      这两处的 blame 都只给得出拆的那天。`born` 改取拆之前那份原文：历史文件里拆前那一段与原文逐行相同，取原文同一行；
-     主文件里重写过的那张，历史文件末尾有一行 `已重挂：<编号> 第 <行> 行 · …现行的是 <编号>「<短名字>」`，取原文那一行（几行都指它，取第一行）。
+     主文件里重写过、之后条件没再改过的那张（当前那一行最后改在拆的那次提交上），历史文件末尾有一行 `已重挂：<编号> 第 <行> 行 · …现行的是 <编号>「<短名字>」`，取原文那一行（几行都指它，取第一行）；拆以后条件又改过，就按改的那天算。短名字从条件那一行往上找块头取（`nm`），块头与条件不在同一行也取得到。
      找不到那一行的（拆以后新写的欠条），照常取它自己那一行。
    - **有短名字的欠条**（块头 `⚠️ 欠条「…」`）按 `<编号>「<短名字>」` 记，不按行号 —— 主文件每次重写都可能挪行。
    - **满四周** = 登记日在 `<日期>` 往前 28 天那天或更早（命令里的 `cut`）：这一行 28 天里没被改过。
    - **列过** = ADR-152 里有一条候选行的「欠条」栏、或「读过、没进候选」那一行里，写着同一个 `<编号> 第 <行> 行`。
-     有短名字的是同一个 `<编号>「<短名字>」`。命令里那条 grep 就是这个判据；候选那一句里顺带写到的行号不算。每张欠条的每个条件，在 ADR-152 里至多出现一次。
+     有短名字的是同一个 `<编号>「<短名字>」`，或者拆之前它在原文里的 `<编号> 第 <行> 行`（拆以前列过的，换了名字也不再列，命令里的 `旧行号`）；按字面整项比。命令里那条 grep 就是这个判据；候选那一句里顺带写到的行号不算。每张欠条的每个条件，在 ADR-152 里至多出现一次。
    - **取**：「没列过」的前 5 行，就是命令最后打出来的那几行（登记日从早到晚，同一天按编号）。截在同一登记日中间也只取 5 行；
      没取到的下周排在最前。
    - 命令打出的头三个数依次是：取不到登记日的行数，应为 0，不是 0 就照「做不了的时候」写 `无从确认：取不到登记日`；
@@ -312,22 +324,27 @@ awk -F'|' '{ match($1, /ADR-[0-9]+/); print substr($1, RSTART, RLENGTH) " 第 " 
 
   ```bash
   day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; run=$(git rev-parse origin/main)
-  # born 与「周一」(b) 第 2 步那段同一份：拆过的记录改取拆之前原文的那一行
-  born() {  # 一张欠条的登记日（秒）：$1 文件，$2 行号，$3 短名字（没有就空）
-    local f=$1 n=$2 nm=$3 a h s o src=$run m=$2
+  # nm、born 与「周一」(b) 第 2 步那段同一份：拆过的记录改取拆之前原文的那一行
+  # 取短名字的正则用 .+? 不用 [^」]：POSIX 区域设置下 [^」] 按字节比，会把名字截断
+  nm() {  # 第 $2 行所在那张欠条块头的短名字（没有就空）：从这一行往上找块头，空行（或只有 >）是块的边界
+    awk -v n="$2" 'NR <= n { if ($0 ~ /^>?[ \t]*$/) h = ""; else if ($0 ~ /⚠️[ \t*]*欠条/) h = $0 } NR == n { print h; exit }' "$1" |
+      grep -oP '⚠️\s*\**欠条\**\s*「\K.+?(?=」)' | head -n 1
+  }
+  born() {  # 打「登记日（秒） 旧行号」：$1 文件，$2 行号，$3 短名字；旧行号只有改取了原文那一行才有
+    local f=$1 n=$2 nm=$3 a h s c o='' src=$run m=$2
     a=$(basename "$f" | grep -oE '^ADR-[0-9]+'); h=docs/adr/历史/$(basename "$f")
     s=$(git log --first-parent --diff-filter=A --format=%H "$run" -- "$h" | tail -n 1)
     if [ -n "$s" ] && [ "$f" = "$h" ]; then   # 历史文件：拆之前那一段原样是原文，行号对得上
       [ "$n" -le "$(git show "$s^:docs/adr/$(basename "$f")" | wc -l)" ] && { src=$s^; f=docs/adr/$(basename "$f"); }
-    elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写的那张：取原文里被它接走的第一张
-      o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | head -n 1)
+    elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写、之后没再改过的那张：取原文里被它接走的第一张
+      c=$(git blame --first-parent --porcelain -L "$n,$n" "$run" -- "$f" | head -n 1 | cut -d' ' -f1)
+      [ "$c" = "$s" ] && o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | head -n 1)
       [ -n "$o" ] && { src=$s^; m=$o; }
     fi
-    git blame --first-parent --porcelain -L "$m,$m" "$src" -- "$f" | awk '/^committer-time /{print $2; exit}'
+    echo "$(git blame --first-parent --porcelain -L "$m,$m" "$src" -- "$f" | awk '/^committer-time /{print $2; exit}') $o"
   }
   awk -F'|' '$5 == "过"' "$tmp/两道门" | while IFS='|' read -r f n N S v p; do
-    nm=$(sed -n "${n}p" "$f" | grep -oP '⚠️\s*\**欠条\**\s*「\K.+?(?=」)' | head -n 1)
-    t=$(born "$f" "$n" "$nm")
+    read -r t o <<<"$(born "$f" "$n" "$(nm "$f" "$n")")"
     echo "$(TZ=Asia/Shanghai date -d @"$t" +%F) $(basename "$f" | grep -oE '^ADR-[0-9]+') 第 $n 行"
   done | sort -V
   ```

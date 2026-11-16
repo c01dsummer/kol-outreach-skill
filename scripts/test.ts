@@ -15306,11 +15306,13 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   // 决策记录以外的文件（脚本注释、说明书、流程）要指它，只许写短名字或节 —— 行号指过去会落到重写后无关的一行
   const splitNums = new Set(readdirSync('docs/adr/历史').map(f => Number(/^ADR-(\d+)-/.exec(f)?.[1])).filter(n => n > 0))
   const lineRefs: string[] = []
+  // 自己走目录，不问 git：变异与分片跑在不带 .git 的副本里。带 .git 条目的子目录是另一份检出（嵌套工作树、
+  // .claude/worktrees 下的那些），与 git 自己认嵌套仓库的规矩一样整个跳过，不把别人的检出当成本仓库的文件（评审指出）
   const walkRefs = (d: string): void => {
     for (const e of readdirSync(d)) {
       const p = d === '.' ? e : `${d}/${e}`
       if (['node_modules', '.git', '.check-cache', 'docs/adr', 'dist', 'out', 'output'].includes(p)) continue
-      if (statSync(p).isDirectory()) { walkRefs(p); continue }
+      if (statSync(p).isDirectory()) { if (!existsSync(`${p}/.git`)) walkRefs(p); continue }
       if (!/\.(ts|md|ya?ml|json|sh)$/.test(e)) continue
       rf(p, 'utf8').split('\n').forEach((l, i) => {
         for (const m of l.matchAll(/ADR-0*(\d+) ?第 ?\d+(?:[–-]\d+)? ?行/g)) if (splitNums.has(Number(m[1]))) lineRefs.push(`${p}:${i + 1} ${m[0]}`)
