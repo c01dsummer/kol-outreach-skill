@@ -26399,8 +26399,8 @@
       "req": "harness",
       "why": "层数上限定得太小：正常套几层的类型，最里面的字段就找不到了",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "export const DEPTH = 16 ",
-      "replace": "export const DEPTH = 3 ",
+      "find": "export const DEPTH = 16,",
+      "replace": "export const DEPTH = 3,",
       "by": "test",
       "kills": [
         "字段：同一个泛型套三层，没到层数上限，照常展开、最里面的字段找得到",
@@ -26496,11 +26496,35 @@
       "req": "harness",
       "why": "层数上限定得太大：真递归下去要很久才停、悄悄多展开，故意套二十层的也不报「没展开完」",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "export const DEPTH = 16 ",
-      "replace": "export const DEPTH = 64 ",
+      "find": "export const DEPTH = 16,",
+      "replace": "export const DEPTH = 64,",
       "by": "test",
       "kills": [
         "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
+      ]
+    },
+    {
+      "id": "M-H198-dw",
+      "req": "harness",
+      "why": "不设步数上限：多路递归每层分叉，层数没到就指数爆（内存耗尽）",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "(depth === 0 ? spent = 1 : ++spent) > BUDGET || ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：层数没到上限、但每层分叉一次从头走的步数超了上限，同样停下、记「没展开完」；后面的函数从头另算，不受牵连"
+      ]
+    },
+    {
+      "id": "M-H198-dx",
+      "req": "harness",
+      "why": "每次从头走（第 0 层）步数不清零：前面的函数用掉的步数算到后面的头上，后面的函数被冤枉停下",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "depth === 0 ? spent = 1 : ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：层数没到上限、但每层分叉一次从头走的步数超了上限，同样停下、记「没展开完」；后面的函数从头另算，不受牵连"
       ]
     },
     {

@@ -15316,6 +15316,11 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   const exposed = (() => { try { return fieldToy(files => {
     files['scripts/check/r.ts'] = `import * as selfR from './r.js'\nexport function expose(): typeof selfR { return selfR }\nexport interface Box<T> { boxed: T }\nexport function deep(): ${box12} { return null as never }`
   }).filter(f => f.key.endsWith('<没展开完>')).map(f => f.key) } catch (e) { return String(e).slice(0, 60) } })()
+  const fanned = (() => { try { return fieldToy(files => { // 不递归、只有十二层，但每层分两叉、类型实参各不相同 —— 一共四千多步，只有步数上限会停
+    const levels = Array.from({ length: 12 }, (_, i) => `export interface L${i}<T> { a: L${i + 1}<[T]>; b: L${i + 1}<{ x: T }> }`).join('\n')
+    files['scripts/check/r.ts'] = `${levels}\nexport interface L12<T> { end: number }\nexport function fanned(): L0<0> { return null as never }\nexport function after(): { ok: number } { return { ok: 1 } }`
+  }).filter(f => f.key.endsWith('<没展开完>')).map(f => f.key) } catch (e) { return String(e).slice(0, 60) } })()
+  eq('字段：层数没到上限、但每层分叉一次从头走的步数超了上限，同样停下、记「没展开完」；后面的函数从头另算，不受牵连', fanned, ['scripts/check/r.ts#fanned<没展开完>'])
   eq('字段：函数先被别的导出（返回整个模块）记过一次，自己找字段停下时照样记「没展开完」', exposed, ['scripts/check/r.ts#deep<没展开完>'])
   eq('字段：同一个泛型套三层，没到层数上限，照常展开、最里面的字段找得到', moreOf('m.ts#boxes.inBox') !== undefined, true)
   const edge = (() => { try { const n = DEPTH - 1; return fieldToy(files => { // 深的那条路正好在 Leaf2 那一层碰到上限，浅的那条随后走到同一个 Leaf2

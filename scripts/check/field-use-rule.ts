@@ -157,8 +157,8 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const rel = (sf: Ts.SourceFile) => relOf(root, sf.fileName)
   const argumentsOf = (t: Ts.Type): readonly Ts.Type[] =>
     ((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) ? tc.getTypeArguments(t as Ts.TypeReference) : []
-  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按层数停：往下每走一步（属性、元素、联合成员、类型实参……）算一层，不管类型是谁，到 `DEPTH` 层整个不展开，所以必停。找字段这一路停下就报红（见 `cut`），不悄悄少找
-  const enter = (depth: number): number | undefined => depth >= DEPTH ? undefined : depth + 1
+  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按层数停：往下每走一步（属性、元素、联合成员、类型实参……）算一层，不管类型是谁，到 `DEPTH` 层整个不展开；一次从头走总共超过 `BUDGET` 步也停（多路递归每层分叉）。所以必停。找字段这一路停下就报红（见 `cut`），不悄悄少找
+  let spent = 0; const enter = (depth: number): number | undefined => (depth === 0 ? spent = 1 : ++spent) > BUDGET || depth >= DEPTH ? undefined : depth + 1 // `spent`：这一次从头（第 0 层）走起已经展开的步数
 
   // ── 1. 字段 ──
   // `cut`：找字段时展开到上限停下的导出函数 —— 里面可能还有字段没找到，记成这个函数名下一个没人用过的「字段」，照新增字段报红（可在函数前写豁免）
@@ -309,7 +309,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   })
 }
 
-export const DEPTH = 16 // 三路往下展开的层数上限：每走一步（属性、元素、联合成员、类型实参……）算一层。仓库里最深的返回类型 7 层（2026-11-16 量），留一倍余量
+export const DEPTH = 16, BUDGET = 2000 // 三路往下展开的上限：层数（每走一步——属性、元素、联合成员、类型实参……——算一层；仓库里最深 7 层，2026-11-16 量，留一倍余量）与一次从头走总共展开的步数（多路递归每层分叉，层数没到也会指数爆）
 export const INCOMPLETE = '<没展开完>' // 找字段展开到上限停下的函数记的那一条的名字尾巴：不按基线比、每次都判 —— 停下的地方里面加了字段，基线上那条挡不住
 /** 整个值交给它们就算逐层碰到（文件头第 2 条） */
 export const WHOLE_COMPARE: ReadonlySet<string> = new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])
