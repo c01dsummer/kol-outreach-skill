@@ -15810,7 +15810,7 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
 await group('p3-budget-token', () => {
 suite('D13', '钱不够付下一次请求、停下时的收尾三行：花了多少、存好了什么、怎么继续')
 {
-  // D13.x 的措辞由需求方 2026-11-15 选定（ADR-212）。两个入口真跑出来的三行由自检 cost-resume 组看着；
+  // D13.x 的措辞由需求方 2026-11-15 选定（ADR-213）。两个入口真跑出来的三行由自检 cost-resume 组看着；
   // 这里只看拼法：已花与上限各取各的数，费用无从确认时不编出金额。
   const known = { cost_status: 'known', cost_estimate_usd: '1.998', budget_usd: '2', cost_problems: [] } as unknown as CostView
   eq('收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去',

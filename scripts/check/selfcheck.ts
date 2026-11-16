@@ -1341,7 +1341,7 @@ group('cost-resume', [], () => {
           cost_http_200_usd: 0.004, cost_unknown_result_usd: 0.002, cost_pending_usd: 0,
           budget_usd: 0.006, cost_status: 'known', cost_scope: 'task' }),
       `${entry}: status=${changed.status}, attempts=${fetchAttempts(f.log).length}, summary=${changed.stdout}`)
-    // D13.x：剩下的钱不够付下一次请求、停下时，两个入口在 stderr 末尾打同一套三行（措辞由需求方 2026-11-15 选定，ADR-212）。
+    // D13.x：剩下的钱不够付下一次请求、停下时，两个入口在 stderr 末尾打同一套三行（措辞由需求方 2026-11-15 选定，ADR-213）。
     // 第一行的金额与 stdout 汇总同源；第二行说存了多少（collect 说名单里几位，enrich 说查好几个账号、共几个）；
     // 第三行是照抄就能续跑的命令，必须带 --budget —— 光续跑会立刻再撞一次 3。
     const tail = changed.stderr.trimEnd().split('\n').slice(-3), told = summaryOf(changed.stdout)
@@ -2662,7 +2662,7 @@ group('collect-resume', [], () => {
     // 后一条**由 `P3.b` 这条夹具抓到** —— 违反的是谁、被谁抓到，不必是同一条。
     // 「捕获」今天拿不到负片，理由是判定层的结论，记在 ADR-70；「退出码 3」那件在入口改成设 exitCode 之后
     // enrich 一侧有了负片 `M-P3-h`（`cost-resume` 组那条三行断言抓）；collect 一侧去掉设 3 的那一行，先撞上的是
-    // 好几处按「必须退 3」起的跑，判成跑不起来而不是被断言抓到，仍拿不到干净的负片（ADR-212）。
+    // 好几处按「必须退 3」起的跑，判成跑不起来而不是被断言抓到，仍拿不到干净的负片（ADR-213）。
     criterion('P3.d')
   }
 })

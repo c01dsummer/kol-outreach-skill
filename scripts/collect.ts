@@ -581,7 +581,7 @@ async function main() {
     console.error('\n' + budgetStopLines(budget.view(), `已找到 ${fin.kept.length} 位达人，已经拿到的搜索结果和已补完资料的达人下次不会再花钱重抓`,
       `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\n'))
   }
-  // 三种收尾都设 exitCode、自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（ADR-193、ADR-212）
+  // 三种收尾都设 exitCode、自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（ADR-193、ADR-213）
   if (stopped === 'budget') process.exitCode = EXIT.budget    // 钱不够付下一次请求，可续跑
   if (stopped === 'error') process.exitCode = errorExit
   if (stopped === 'target') process.exitCode = EXIT.target
