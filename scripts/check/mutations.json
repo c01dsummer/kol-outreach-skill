@@ -695,6 +695,7 @@
     {"id": "M-P2-b4", "req": "P2.b", "why": "评审行（render 写 kol.csv 与 kol.xlsx 用的那一行）里草稿的空占位符 {} 被删掉", "file": "scripts/lib/rows.ts", "find": "  const row = toRow(c)\n  if (c.score === undefined) row[1] = '未查询'", "replace": "  const row = toRow(c)\n  row[HEADERS.indexOf('outreach_draft')] = String(row[HEADERS.indexOf('outreach_draft')]).replace(/\\{\\}/g, '')\n  if (c.score === undefined) row[1] = '未查询'", "by": "test", "kills": ["P2.b 真起 render：kol.csv 里每封草稿在自己那一行逐字相同（空占位符 {} 也在）", "P2.b 真起 render：kol.xlsx 里每封草稿在自己那一行逐字相同（空占位符 {} 也在）"]},
     {"id": "M-P2-b5", "req": "P2.b", "why": "CSV 转义时把空占位符 {} 吃掉 —— kol.csv 里的草稿少了一处待填", "file": "scripts/lib/csv.ts", "find": "  const s = String(v ?? '')\n  return /[\",\\n\\r]/", "replace": "  const s = String(v ?? '').replace(/\\{\\}/g, '')\n  return /[\",\\n\\r]/", "by": "test", "kills": ["P2.b 真起 render：kol.csv 里每封草稿在自己那一行逐字相同（空占位符 {} 也在）"]},
     {"id": "M-P2-b6", "req": "P2.b", "why": "XLSX 写格时把空占位符 {} 吃掉 —— kol.xlsx 里的草稿少了一处待填", "file": "scripts/lib/xlsx.ts", "find": "    const s = String(v ?? '')\n    if (!s) return ''", "replace": "    const s = String(v ?? '').replace(/\\{\\}/g, '')\n    if (!s) return ''", "by": "test", "kills": ["P2.b 真起 render：kol.xlsx 里每封草稿在自己那一行逐字相同（空占位符 {} 也在）"]},
+    {"id": "M-P2-b7", "req": "P2.b", "why": "名单写回任务目录时把空占位符 {} 吃掉 —— 交付的 creators.json 里草稿少了一处待填，下一次 render 读进来的也是删过的", "file": "scripts/lib/task.ts", "find": "writeFileAtomic(join(dir, 'creators.json'), JSON.stringify(creators, null, 2))", "replace": "writeFileAtomic(join(dir, 'creators.json'), JSON.stringify(creators.map(c => ({ ...c, outreach_draft: c.outreach_draft?.replace(/\\{\\}/g, '') })), null, 2))", "by": "test", "kills": ["P2.b 真起 render：写回任务目录的 creators.json 里每封草稿逐字相同（空占位符 {} 也在）"]},
     {"id": "M-P2-c1", "req": "P2.c", "why": "评审 HTML 不再出「出处对不上」那一行 —— 编出来的参数混在草稿里，运营看不出哪句没出处", "file": "scripts/lib/report.ts", "find": "    return `\n    <div class=\"bio\" data-draft-claims=\"unsourced\">", "replace": "    return '' && `\n    <div class=\"bio\" data-draft-claims=\"unsourced\">", "by": "test", "kills": ["P2.c 产品资料对得上的（换写法也算）、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出，每条带前后几个词"]},
     {"id": "M-P2-c2", "req": "P2.c", "why": "render 不把任务里的已证实产品事实交给报告 —— 有出处的说法也全被标成对不上，真编的那几条淹在里面", "file": "scripts/render.ts", "find": "const facts = verifiedFacts(state.brand_calibration)", "replace": "const facts: string[] = []", "by": "test", "kills": ["P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样"]},
     {"id": "M-P2-c3", "req": "P2.c", "why": "品牌偏好也被当成出处 —— 品牌想给的保修、想说的卖点没在商品页证实，却不再被标出", "file": "scripts/lib/draft-claims.ts", "find": "filter(s => s.kind === 'verified_product_fact')", "replace": "filter(s => s.kind !== undefined)", "by": "test", "kills": ["P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样"]},
@@ -11154,7 +11155,7 @@
       "why": "拒绝坏任务之前已经把当前名单写入跨任务推荐记忆",
       "file": "scripts/render.ts",
       "find": "if (badTasks.length) {",
-      "replace": "if (badTasks.length) {\n  recordRecommendations(loadCreators(dir), state.product, taskId(dir))",
+      "replace": "if (badTasks.length) {\n  recordRecommendations((await import('./lib/task.js')).loadCreators(dir), state.product, taskId(dir))",
       "by": "selfcheck",
       "kills": [
         "render 输入：坏任务不改任何已有文件，也不创建名单交付物或记忆"
@@ -18378,6 +18379,126 @@
       "kills": ["准入读物入口：没有硬退出的调用，拒收时打出的那几百行不会被截掉"]
     },
     {
+      "id": "M-H202-bj",
+      "req": "harness",
+      "why": "测试脚本也当入口 —— 包里多出一份测试的 import，写测试的上下文读到了现有测试引用了什么",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "if (m[1] !== 'test') found.add",
+      "replace": "found.add",
+      "by": "test",
+      "kills": ["准入读物入口：检查链 scripts/check/ 下的、测试 scripts/test.ts 都不算入口"]
+    },
+    {
+      "id": "M-H202-bk",
+      "req": "harness",
+      "why": "入口按命令出现的先后排、不排序 —— 同一个仓库换个命令顺序，包里的文件清单就变",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "return [...found].sort()",
+      "replace": "return [...found]",
+      "by": "test",
+      "kills": ["准入读物入口：命令里指到 scripts/ 下一层的 .ts 是入口，去重、排序"]
+    },
+    {
+      "id": "M-H202-bl",
+      "req": "harness",
+      "why": "别的目录下的 scripts/ 也当入口 —— 指到 vendor/scripts/ 的命令被收成本仓库的入口",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "(?<![\\w./-])(?:\\.\\/)?scripts",
+      "replace": "(?:\\.\\/)?scripts",
+      "by": "test",
+      "kills": ["准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算"]
+    },
+    {
+      "id": "M-H202-bm",
+      "req": "harness",
+      "why": ".ts 后面还连着字也当入口 —— 指到 .tsx 或备份文件的命令被收成入口",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "\\.ts(?![\\w/.-])",
+      "replace": "\\.ts",
+      "by": "test",
+      "kills": ["准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算"]
+    },
+    {
+      "id": "M-H202-bn",
+      "req": "harness",
+      "why": "命令不是字符串时照样去匹配 —— package.json 里有一项写成了数字，整个入口就出错",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "if (typeof command !== 'string') continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["准入读物入口：命令不是字符串的那一项跳过，别的照认"]
+    },
+    {
+      "id": "M-H202-bo",
+      "req": "harness",
+      "why": "入口那一份把所有 import 都抄进包 —— 检查链与第三方包引用了什么也让写测试的上下文看见",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "return sources.some(s => target.startsWith(`${s}/`))",
+      "replace": "return target !== undefined",
+      "by": "test",
+      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包（连看着像源目录路径的包名）的 import 都不抄"]
+    },
+    {
+      "id": "M-H202-bp",
+      "req": "harness",
+      "why": "名字以源目录名开头的别的目录也当源目录 —— 那里的 import 也抄进包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "target.startsWith(`${s}/`)",
+      "replace": "target.startsWith(s)",
+      "by": "test",
+      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包（连看着像源目录路径的包名）的 import 都不抄"]
+    },
+    {
+      "id": "M-H202-bq",
+      "req": "harness",
+      "why": "入口那一份把入口的全部语句都带进包 —— 写测试的上下文读到了入口的代码",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "file.statements.filter(ts.isImportDeclaration).filter",
+      "replace": "file.statements.filter",
+      "by": "test",
+      "kills": ["准入读物入口那一份：只抄指到源目录的 import 原文，按原先后，末尾 export {}"]
+    },
+    {
+      "id": "M-H202-br",
+      "req": "harness",
+      "why": "入口那一份连 import 上方与行尾的注释一起抄 —— 注释里写的实现细节随它进了包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": ".map(d => d.getText(file))",
+      "replace": ".map(d => d.getFullText(file).trim())",
+      "by": "test",
+      "kills": ["准入读物入口那一份：import 上方与行尾的注释不随它进包，只抄 import 语句本身"]
+    },
+    {
+      "id": "M-H202-bs",
+      "req": "harness",
+      "why": "名字以 scripts 结尾的别的目录也当入口所在 —— 指到 xscripts/ 的命令被收成本仓库的入口",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "(?<![\\w./-])(?:\\.\\/)?scripts",
+      "replace": "(?<![./-])(?:\\.\\/)?scripts",
+      "by": "test",
+      "kills": ["准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算"]
+    },
+    {
+      "id": "M-H202-bt",
+      "req": "harness",
+      "why": "带 ./ 的命令写法不当入口 —— tsx ./scripts/render.ts 指到的入口没有那一份，准入照样放行",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "(?:\\.\\/)?scripts",
+      "replace": "scripts",
+      "by": "test",
+      "kills": ["准入读物入口：带 ./ 的写法也算入口，../ 指到仓库外的不算"]
+    },
+    {
+      "id": "M-H202-bu",
+      "req": "harness",
+      "why": "非相对的 import 也按路径拼 —— 名叫 lib/a.js 的第三方包被拼成 scripts/lib/a.js，抄进入口那一份",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "if (!spec.startsWith('./') && !spec.startsWith('../')) return false",
+      "replace": "if (spec === '') return false",
+      "by": "test",
+      "kills": ["准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包（连看着像源目录路径的包名）的 import 都不抄"]
+    },
+    {
       "id": "M-H203-a",
       "req": "harness",
       "why": "配置照对象原型链上有没有这个键查 —— 对象自带的方法名被当成一种实测过的配置，一摞的秒数算成 NaN",
@@ -23679,6 +23800,16 @@
       "kills": [
         "独立黑盒测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格"
       ]
+    },
+    {
+      "id": "M-D13-ai",
+      "req": "D13.u",
+      "why": "collect 以 --config 新建任务时把 --budget 与默认 $2（或配置里的上限）取大 —— 用户给的比默认小的总预算被无视，照默认花钱",
+      "file": "scripts/collect.ts",
+      "find": "    if (replacementLimit !== undefined) freshLimit = replacementLimit\n",
+      "replace": "    if (replacementLimit !== undefined) freshLimit = replacementLimit > freshLimit ? replacementLimit : freshLimit\n",
+      "by": "selfcheck",
+      "kills": ["新建任务的 --budget 比默认 $2 小时就是总上限，不打默认说明"]
     },
     {
       "id": "M-D13-ah",
