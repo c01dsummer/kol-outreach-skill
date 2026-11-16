@@ -99,61 +99,24 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
 
    ```bash
    day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; run=$(git rev-parse origin/main); cut=$(date -d "$day -28 days" +%F)
-   tsx=$PWD/node_modules/.bin/tsx
-   nm() {  # 第 $2 行所在那张欠条的短名字（没有就空）：块怎么定界直接用检查链的 iouBlocks，不在这里另写一份
-     F=$1 N=$2 "$tsx" -e '
-       import { readFileSync } from "node:fs"; import { iouBlocks, IOU_NAME } from "./scripts/check/debt-rule.ts"; import { quotedMask } from "./scripts/check/quoted.ts"
-       const text = readFileSync(process.env.F!, "utf8"), lines = text.split("\n"), i = Number(process.env.N) - 1
-       const b = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i && i < b.end).at(-1)
-       if (b) console.log(IOU_NAME.exec(lines[b.start])?.[1] ?? "")'
-   }
-   born() {  # 打「登记日（秒） 旧行号…」：$1 文件，$2 行号，$3 短名字；旧行号 = 拆时重挂到这个名字的原文行号，全打（去重用）
-     local f=$1 n=$2 nm=$3 a h s c o='' src=$run m=$2
-     a=$(basename "$f" | grep -oE '^ADR-[0-9]+'); h=docs/adr/历史/$(basename "$f")
-     s=$(git log --first-parent --diff-filter=A --format=%H "$run" -- "$h" | tail -n 1)
-     if [ -n "$s" ] && [ "$f" = "$h" ]; then   # 历史文件：拆之前那一段原样是原文，行号对得上
-       [ "$n" -le "$(git show "$s^:docs/adr/$(basename "$f")" | wc -l)" ] && { src=$s^; f=docs/adr/$(basename "$f"); }
-     elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写的那张：旧行号总要；日期只在条件拆后没再改过时取原文第一张
-       o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | tr '\n' ' ')
-       c=$(git blame --first-parent --porcelain -L "$n,$n" "$run" -- "$f" | head -n 1 | cut -d' ' -f1)
-       [ -n "$o" ] && [ "$c" = "$s" ] && { src=$s^; m=${o%% *}; }
-     fi
-     echo "$(git blame --first-parent --porcelain -L "$m,$m" "$src" -- "$f" | awk '/^committer-time /{print $2; exit}') $o"
-   }
-   : > "$tmp/旧行号"
-   grep '^docs/adr/' "$tmp/新台账" | grep '  \[重启条件\]  ' | grep '定期清点' | while IFS= read -r l; do
-     f=${l%%:*}; n=${l#*:}; n=${n%%  *}; a=$(basename "$f" | grep -oE '^ADR-[0-9]+'); k=$(nm "$f" "$n")
-     read -r t o <<<"$(born "$f" "$n" "$k")"
-     if [ -n "$k" ]; then k="$a「$k」"; else k="$a 第 $n 行"; fi
-     for x in $o; do printf '%s\t%s\n' "$k" "$a 第 $x 行"; done >> "$tmp/旧行号"
-     echo "$(TZ=Asia/Shanghai date -d @"$t" +%F) $k"
-   done | sort -V > "$tmp/定期清点"
-   awk -v c="$cut" '$1 <= c' "$tmp/定期清点" > "$tmp/满四周"
-   # 列过的：候选表第二栏与「读过、没进候选」那一行里的每一项，按字面整项比（名字里有括号也不当正则）
-   listed() { grep -hE '^\| |^- 读过、没进候选：' docs/adr/ADR-152-*.md | sed -E 's/^- 读过、没进候选：//; s/^\| [^|]+ \| ([^|]+) \|.*/\1/' |
-     # 按「、」切用 sed 不用 tr：tr 按字节换，会把「」也切开
-     sed 's/、/\n/g' | sed -E 's/^ +| +$//g' | grep -qxF -- "$1"; }
-   while read -r t k; do
-     hit=; listed "$k" && hit=1
-     while IFS= read -r al; do [ -z "$hit" ] && listed "$al" && hit=1; done < <(awk -F'\t' -v k="$k" '$1 == k { print $2 }' "$tmp/旧行号")
-     [ -n "$hit" ] || echo "$t $k"
-   done < "$tmp/满四周" > "$tmp/没列过"
-   grep -vc '^20[0-9][0-9]-' "$tmp/定期清点"; wc -l < "$tmp/满四周"; wc -l < "$tmp/没列过"; head -n 5 "$tmp/没列过"
+   "$PWD/node_modules/.bin/tsx" scripts/check/revisit-due.ts --due "$cut" --run "$run" < "$tmp/新台账"
    ```
 
+   - 判定在 `scripts/check/revisit-rule.ts`，有需求测试守着；下面几条是它的口径。
    - **登记日**是那一行最后一次在主干上被改动的那天（北京时间）；一般就是它进主干那天。
      `--first-parent`：经合并提交进来的，记合进主干那一次，不记分支上写下那一次。
    - **拆过的记录**（`docs/adr/历史/` 里有同名文件，ADR-211）：拆的那次提交把原文整份挪进历史文件、开着的欠条重写进主文件，
-     这两处的 blame 都只给得出拆的那天。`born` 改取拆之前那份原文：历史文件里拆前那一段与原文逐行相同，取原文同一行；
-     主文件里重写过、之后条件没再改过的那张（当前那一行最后改在拆的那次提交上），历史文件末尾有一行 `已重挂：<编号> 第 <行> 行 · …现行的是 <编号>「<短名字>」`，取原文那一行（几行都指它，取第一行）；拆以后条件又改过，就按改的那天算。短名字按条件那一行所在的欠条块取（`nm`，块的定界就是检查链里孤儿闸门用的那一份），块头与条件不在同一行、中间隔着只有 `>` 的行也取得到。
+     这两处的 blame 都只给得出拆的那天。脚本改取拆之前那份原文：历史文件里拆前那一段与原文逐行相同，取原文同一行；
+     主文件里重写过、之后条件没再改过的那张（当前那一行最后改在拆的那次提交上），历史文件末尾有一行 `已重挂：<编号> 第 <行> 行 · …现行的是 <编号>「<短名字>」`，取原文那一行（几行都指它，取第一行）；拆以后条件又改过，就按改的那天算。短名字按条件那一行所在的欠条块取（块的定界就是检查链里孤儿闸门用的那一份），块头与条件不在同一行、中间隔着只有 `>` 的行也取得到。
      找不到那一行的（拆以后新写的欠条），照常取它自己那一行。
+     这套取法认的是「拆」在主干上是一次提交（PR 压成一次合入）：拆分分几次提交直接进主干的话，后几次挪进历史文件的那几张会取到挪的那天。
    - **有短名字的欠条**（块头 `⚠️ 欠条「…」`）按 `<编号>「<短名字>」` 记，不按行号 —— 主文件每次重写都可能挪行。
    - **满四周** = 登记日在 `<日期>` 往前 28 天那天或更早（命令里的 `cut`）：这一行 28 天里没被改过。
    - **列过** = ADR-152 里有一条候选行的「欠条」栏、或「读过、没进候选」那一行里，写着同一个 `<编号> 第 <行> 行`。
-     有短名字的是同一个 `<编号>「<短名字>」`，或者拆之前它在原文里的 `<编号> 第 <行> 行`（拆以前列过的，换了名字也不再列，命令里的 `旧行号`；几张旧欠条重挂到同一个名字的，哪一个旧行号列过都算；拆以后条件改过也照样认旧行号，与按名字认同一个口径）；按字面整项比。命令里那条 grep 就是这个判据；候选那一句里顺带写到的行号不算。每张欠条的每个条件，在 ADR-152 里至多出现一次。
-   - **取**：「没列过」的前 5 行，就是命令最后打出来的那几行（登记日从早到晚，同一天按编号）。截在同一登记日中间也只取 5 行；
+     有短名字的是同一个 `<编号>「<短名字>」`，或者拆之前它在原文里的 `<编号> 第 <行> 行`（拆以前列过的，换了名字也不再列；几张旧欠条重挂到同一个名字的，哪一个旧行号列过都算；拆以后条件改过也照样认旧行号，与按名字认同一个口径）；按字面整项比。脚本就按这个判据认；候选那一句里顺带写到的行号不算。每张欠条的每个条件，在 ADR-152 里至多出现一次。
+   - **取**：「没列过」的前 5 行，就是脚本最后打出来的那几行（登记日从早到晚，同一天按编号）。截在同一登记日中间也只取 5 行；
      没取到的下周排在最前。
-   - 命令打出的头三个数依次是：取不到登记日的行数，应为 0，不是 0 就照「做不了的时候」写 `无从确认：取不到登记日`；
+   - 脚本打出的头三个数依次是：取不到登记日的行数，应为 0，不是 0 就照「做不了的时候」写 `无从确认：取不到登记日`；
      满四周的条数；没列过的条数。
 
    只认条件那一行：「定期清点」写在条件续行里的，这里列不到（是哪几张，ADR-151 的历史文件第十一节第 10 条与第十二节那块更正点了名）。
@@ -328,35 +291,11 @@ awk -F'|' '{ match($1, /ADR-[0-9]+/); print substr($1, RSTART, RLENGTH) " 第 " 
 
   ```bash
   day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; run=$(git rev-parse origin/main)
-  # nm、born 与「周一」(b) 第 2 步那段同一份：拆过的记录改取拆之前原文的那一行
-  tsx=$PWD/node_modules/.bin/tsx
-  nm() {  # 第 $2 行所在那张欠条的短名字（没有就空）：块怎么定界直接用检查链的 iouBlocks，不在这里另写一份
-    F=$1 N=$2 "$tsx" -e '
-      import { readFileSync } from "node:fs"; import { iouBlocks, IOU_NAME } from "./scripts/check/debt-rule.ts"; import { quotedMask } from "./scripts/check/quoted.ts"
-      const text = readFileSync(process.env.F!, "utf8"), lines = text.split("\n"), i = Number(process.env.N) - 1
-      const b = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i && i < b.end).at(-1)
-      if (b) console.log(IOU_NAME.exec(lines[b.start])?.[1] ?? "")'
-  }
-  born() {  # 打「登记日（秒） 旧行号…」：$1 文件，$2 行号，$3 短名字；旧行号 = 拆时重挂到这个名字的原文行号，全打（去重用）
-    local f=$1 n=$2 nm=$3 a h s c o='' src=$run m=$2
-    a=$(basename "$f" | grep -oE '^ADR-[0-9]+'); h=docs/adr/历史/$(basename "$f")
-    s=$(git log --first-parent --diff-filter=A --format=%H "$run" -- "$h" | tail -n 1)
-    if [ -n "$s" ] && [ "$f" = "$h" ]; then   # 历史文件：拆之前那一段原样是原文，行号对得上
-      [ "$n" -le "$(git show "$s^:docs/adr/$(basename "$f")" | wc -l)" ] && { src=$s^; f=docs/adr/$(basename "$f"); }
-    elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写的那张：旧行号总要；日期只在条件拆后没再改过时取原文第一张
-      o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | tr '\n' ' ')
-      c=$(git blame --first-parent --porcelain -L "$n,$n" "$run" -- "$f" | head -n 1 | cut -d' ' -f1)
-      [ -n "$o" ] && [ "$c" = "$s" ] && { src=$s^; m=${o%% *}; }
-    fi
-    echo "$(git blame --first-parent --porcelain -L "$m,$m" "$src" -- "$f" | awk '/^committer-time /{print $2; exit}') $o"
-  }
-  awk -F'|' '$5 == "过"' "$tmp/两道门" | while IFS='|' read -r f n N S v p; do
-    read -r t o <<<"$(born "$f" "$n" "$(nm "$f" "$n")")"
-    echo "$(TZ=Asia/Shanghai date -d @"$t" +%F) $(basename "$f" | grep -oE '^ADR-[0-9]+') 第 $n 行"
-  done | sort -V
+  # 登记日的取法与「周一」(b) 第 2 步同一份（scripts/check/revisit-rule.ts）
+  awk -F'|' '$5 == "过" { print $1 "|" $2 }' "$tmp/两道门" | "$PWD/node_modules/.bin/tsx" scripts/check/revisit-due.ts --born --run "$run"
   ```
 
-  第一行就是这一跑起草的那张（上面读过、判成不起草的跳过）。别的不用记：下周两道门照样算得出它们。
+  第一行就是这一跑起草的那张（上面读过、判成不起草的跳过）；取不到登记日的日期栏空着、排在最后，不当成最老的。别的不用记：下周两道门照样算得出它们。
   浅克隆（「每次开始」第 1 步没补全）时 blame 给的是浅克隆边界那次提交的日期，不是登记日：过的只有一张，照常起草；不止一张，块里那一行写 `无从确认：浅克隆`，不起草。
 
 **起草什么。** 一条新记录。编号是主干上 `docs/adr/` 里最大的编号加一；开着的 PR（不论分支）、关了没合的 `claude/candidate-` PR 里新增过这个号的记录文件

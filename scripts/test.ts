@@ -40,6 +40,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
+import { beijingDate, bornReport, cliGit, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
@@ -327,6 +328,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-records', needs: [] },
   { id: 'h-blackbox-many-task-files', needs: [] },
   { id: 'h-iou-file-reminder', needs: [] },
+  { id: 'h-revisit-entry', needs: [] },
   { id: 'h-iou-file-reminder-entry', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
@@ -15419,6 +15421,75 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
     readdirSync('docs/adr').filter(f => FILE_RE.test(f)).map(f => `docs/adr/${f}`).sort())
 }
 
+harness('周回访定期清点：欠条哪天登记、按什么名字认、列过没有（拆过的记录取拆之前那一行）')
+{
+  // 一张欠条三种处境各钉一次：没拆过、拆过且条件没再改、拆过以后条件又改了。日期按提交时间钉死，北京时间不跨日
+  const day = (d: string) => `${d}T04:00:00+00:00`
+  const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-'))
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
+  const g = (date: string | null, ...a: string[]) => spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
+    { encoding: 'utf8', env: date ? { ...env, GIT_AUTHOR_DATE: day(date), GIT_COMMITTER_DATE: day(date) } : env })
+  const put = (rel: string, body: string) => { mkdirSync(join(repo, dirname(rel)), { recursive: true }); writeFileSync(join(repo, rel), body, 'utf8') }
+  const commit = (date: string) => { g(null, 'add', '-A'); g(date, 'commit', '-q', '-m', date) }
+  const sha = () => g(null, 'rev-parse', 'HEAD').stdout.trim()
+  g(null, 'init', '-q', '-b', 'main')
+  const main = 'docs/adr/ADR-9-玩具.md', hist = 'docs/adr/历史/ADR-9-玩具.md', other = 'docs/adr/ADR-8-没拆.md'
+  // 原文：第 3、5 行两张没名字的欠条，都按定期清点重启
+  const original = '# ADR-9\n\n> ⚠️ 欠条：甲 重启条件：定期清点\n\n> ⚠️ 欠条：乙 重启条件：定期清点\n'
+  put(main, original)
+  put(other, '# ADR-8\n\n> ⚠️ 欠条「丙(丁).*」：说明\n>\n> 重启条件：定期清点\n')
+  commit('2026-01-05')
+  // 拆：原文整份挪进历史文件，后面接两行重挂到同一个名字；主文件重写成一张有名字的，块头与条件之间隔一行只有 `>` 的
+  put(hist, original + '\n## 拆\n\n> ⚠️ 已重挂：ADR-9 第 3 行 · 现行的是 ADR-9「甲乙」\n\n> ⚠️ 已重挂：ADR-9 第 5 行 · 现行的是 ADR-9「甲乙」\n')
+  put(main, '# ADR-9\n\n> ⚠️ 欠条「甲乙」：说明\n>\n> 重启条件：定期清点\n')
+  commit('2026-03-10')
+  const split = sha()
+  const git = cliGit(repo, env)
+  const at = (file: string, line: number) => dueRow(git, 'HEAD', file, line, rf(join(repo, file), 'utf8'))
+
+  eq('块头与条件隔着只有 > 的一行，仍按块头取名字（与孤儿闸门同一份定界）', iouNameAt('> ⚠️ 欠条「甲」：x\n>\n> 重启条件：y\n', 3), '甲')
+  eq('隔着空行的下一块不借上一块的名字', iouNameAt('> ⚠️ 欠条「甲」：x\n\n> 重启条件：y\n', 3), '')
+  eq('没拆过的记录：登记日就是条件那一行进主干那天，按名字记，没有旧行号', at(other, 5),
+    { date: '2026-01-05', key: 'ADR-8「丙(丁).*」', aliases: [] })
+  eq('拆过、条件没再改：登记日取原文里被它接走的第一张，旧行号两张都给', at(main, 5),
+    { date: '2026-01-05', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] })
+  eq('历史文件里拆前那一段：取原文同一行的登记日', at(hist, 3).date, '2026-01-05')
+  eq('历史文件里拆时才补的那几行：照常取它自己那一行（拆的那天）', at(hist, 9).date, '2026-03-10')
+  // 拆以后改条件：登记日跟着改的那天走，旧行号照给（「列过」按名字认，旧行号同一个口径）
+  put(main, '# ADR-9\n\n> ⚠️ 欠条「甲乙」：说明\n>\n> 重启条件：定期清点，改过\n')
+  commit('2026-04-20')
+  eq('拆以后条件又改过：登记日取改的那天，旧行号照给', at(main, 5),
+    { date: '2026-04-20', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] })
+  eq('拆的那次提交是历史文件第一次加进来的那次', git.firstAdded('HEAD', hist), split)
+  const rd = (file: string) => rf(join(repo, file), 'utf8')
+  eq('两道门「过」的几张按登记日排，取不到登记日的（行号越界）排最后，不当成最老的先起草',
+    bornReport(git, 'HEAD', [{ file: main, line: 5, text: rd(main) }, { file: other, line: 99, text: rd(other) }, { file: other, line: 5, text: rd(other) }]),
+    ['2026-01-05 ADR-8 第 5 行', '2026-04-20 ADR-9 第 5 行', ' ADR-8 第 99 行'])
+  rmSync(repo, { recursive: true, force: true })
+
+  eq('北京时间：UTC 16:00 已是第二天', beijingDate(Date.UTC(2026, 0, 1, 16) / 1000), '2026-01-02')
+  eq('同一天按编号的数比：ADR-80 排在 ADR-120 前面', [{ date: '2026-01-01', key: 'ADR-120 第 1 行' }, { date: '2026-01-01', key: 'ADR-80 第 9 行' }].sort(rowCompare).map(r => r.key),
+    ['ADR-80 第 9 行', 'ADR-120 第 1 行'])
+  eq('先按日期，取不到日期的排最后', [{ key: 'ADR-1 第 1 行' }, { date: '2026-02-01', key: 'ADR-1 第 2 行' }, { date: '2026-01-01', key: 'ADR-9 第 1 行' }].sort(rowCompare).map(r => r.key),
+    ['ADR-9 第 1 行', 'ADR-1 第 2 行', 'ADR-1 第 1 行'])
+  const listed = listedItems('| 2026-01-01 | ADR-8「丙(丁).*」 | 句 |\n- 读过、没进候选：ADR-9 第 5 行、ADR-7 第 1 行\n')
+  eq('列过的每一项：候选表第二栏、读过那一行按「、」切开，名字里的「」与括号原样', [...listed].sort(),
+    ['ADR-7 第 1 行', 'ADR-8「丙(丁).*」', 'ADR-9 第 5 行'])
+  const rows = [
+    { date: '2026-01-05', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] },
+    { date: '2026-01-05', key: 'ADR-8「丙(丁).*」', aliases: [] },
+    { date: '2026-01-06', key: 'ADR-80 第 2 行', aliases: [] },
+    { date: '2026-02-01', key: 'ADR-1 第 1 行', aliases: [] },
+    { key: 'ADR-2 第 2 行', aliases: [] },
+  ]
+  eq('三个数与前几行：取不到登记日 1、满四周 3、没列过 1（名字列过、第二个旧行号列过的都算列过）',
+    dueReport(rows, '2026-01-31', listed), ['1', '3', '1', '2026-01-06 ADR-80 第 2 行'])
+  eq('台账里只取「重启条件」写着定期清点的行，取文件与行号',
+    periodicEntries('docs/adr/A.md:3  [重启条件]  定期清点\ndocs/adr/B.md:4  [死亡条件]  定期清点\ndocs/adr/C.md:5  [重启条件]  别的\nscripts/D.md:6  [重启条件]  定期清点\nx\n'),
+    [{ file: 'docs/adr/A.md', line: 3 }])
+}
+
 })
 await group('p1-provider', async () => {
 suite('P1', '适配器的缺失、查过为空与真实值保持可区分')
@@ -22231,6 +22302,33 @@ await group('h-iou-file-reminder', () => {
 })
 
 // 入口单列一组：它每跑起 6 次入口，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
+await group('h-revisit-entry', () => {
+  harness('周回访定期清点的入口：在玩具仓库里真起 --due 与 --born')
+  // 真起单独成组：判定在 h-check-rules 里直接调；入口每起一次，都会乘上那一组的全部变异（启动数闸门，ADR-145）
+  const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-entry-'))
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
+  const g = (date: string | null, ...a: string[]) => spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
+    { encoding: 'utf8', env: date ? { ...env, GIT_AUTHOR_DATE: `${date}T04:00:00+00:00`, GIT_COMMITTER_DATE: `${date}T04:00:00+00:00` } : env })
+  const put = (rel: string, body: string) => { mkdirSync(join(repo, dirname(rel)), { recursive: true }); writeFileSync(join(repo, rel), body, 'utf8') }
+  g(null, 'init', '-q', '-b', 'main')
+  const a8 = 'docs/adr/ADR-8-甲.md', a9 = 'docs/adr/ADR-9-乙.md'
+  put(a8, '# ADR-8\n\n> ⚠️ 欠条「丙(丁).*」：说明\n>\n> 重启条件：定期清点\n')
+  put('docs/adr/ADR-152-候选.md', '- 读过、没进候选：ADR-9 第 3 行\n')
+  g(null, 'add', '-A'); g('2026-01-05', 'commit', '-q', '-m', 'a')
+  put(a9, '# ADR-9\n\n> ⚠️ 欠条：乙 重启条件：定期清点\n')
+  g(null, 'add', '-A'); g('2026-01-02', 'commit', '-q', '-m', 'b')
+  const entry = (args: string[], input: string) => spawnSync(...tsxCommand([join(process.cwd(), 'scripts/check/revisit-due.ts'), ...args]),
+    { cwd: repo, env, input, encoding: 'utf8', timeout: 30_000 })
+  // 台账里列着、工作区没有的文件不让整份断掉：记一条取不到登记日，别的照常
+  const due = entry(['--due', '2026-03-31', '--run', 'HEAD'],
+    `${a8}:5  [重启条件]  > 重启条件：定期清点\n${a9}:3  [重启条件]  > ⚠️ 欠条：乙 重启条件：定期清点\ndocs/adr/ADR-7-不在.md:3  [重启条件]  定期清点\n`)
+  eq('入口 --due：取不到 1（文件不在）、满四周 2、没列过 1（ADR-152 里读的那一行列过 ADR-9 第 3 行），打出那一行',
+    [due.status, due.stdout], [0, '1\n2\n1\n2026-01-05 ADR-8「丙(丁).*」\n'])
+  const born = entry(['--born', '--run', 'HEAD'], `${a8}|5|N|S|过|\n${a9}|3|N|S|过|\n`)
+  eq('入口 --born：按「|」切出文件与行号，按登记日排', [born.status, born.stdout], [0, '2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8 第 5 行\n'])
+  rmSync(repo, { recursive: true, force: true })
+})
 await group('h-iou-file-reminder-entry', () => {
   harness('欠条点名提醒的入口：在玩具仓库里真起，改名、CI 输出、无从比较各情形都以 0 退出')
   // 入口：在玩具仓库里真起一次 —— 改被点名的文件列出那条、改别的不列，两次都以 0 退出；不是仓库时说无从比较，也以 0 退出
