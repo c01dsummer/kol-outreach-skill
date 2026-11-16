@@ -16,7 +16,7 @@ export const EXIT = {
   runtime: 1,
   /** 输入问题（开跑前查出、或跑到一半才查出的缺 key／费用账问题、收尾时的评审文件问题）：把具体哪里不对报给用户 */
   input: 2,
-  /** 钱花到上限、下一请求付不起：collect／enrich 进度已存好（stderr 最后三行，见 budget.ts 的 budgetStopLines）；probe 已出部分结果 */
+  /** 剩下的钱不够付下一次请求：collect／enrich 进度已存好（stderr 最后三行，见 budget.ts 的 budgetStopLines）；probe 已出部分结果 */
   budget: 3,
   /** collect 达标停下 */
   target: 4,

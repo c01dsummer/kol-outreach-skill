@@ -1341,17 +1341,62 @@ group('cost-resume', [], () => {
           cost_http_200_usd: 0.004, cost_unknown_result_usd: 0.002, cost_pending_usd: 0,
           budget_usd: 0.006, cost_status: 'known', cost_scope: 'task' }),
       `${entry}: status=${changed.status}, attempts=${fetchAttempts(f.log).length}, summary=${changed.stdout}`)
-    // D13.x：钱花到上限停下时，两个入口在 stderr 末尾打同一套三行（措辞由需求方 2026-11-15 选定，ADR-212）。
+    // D13.x：剩下的钱不够付下一次请求、停下时，两个入口在 stderr 末尾打同一套三行（措辞由需求方 2026-11-15 选定，ADR-212）。
     // 第一行的金额与 stdout 汇总同源；第二行说存了多少（collect 说名单里几位，enrich 说查好几个账号、共几个）；
     // 第三行是照抄就能续跑的命令，必须带 --budget —— 光续跑会立刻再撞一次 3。
     const tail = changed.stderr.trimEnd().split('\n').slice(-3), told = summaryOf(changed.stdout)
-    named('钱花到上限停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令',
-      changed.status === 3 && tail[0] === '⛔ 钱花到上限了（已花 $0.006 / 上限 $0.006），已停下。'
+    named('钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令',
+      changed.status === 3 && tail[0] === '⛔ 剩下的钱不够付下一次请求了（已花 $0.006 / 上限 $0.006），已停下。'
         && tail[1] === (entry === 'collect'
-          ? `✅ 进度已存好：已找到 ${told?.collected} 位达人，下次接着跑不会重复花钱。`
-          : `✅ 进度已存好：已查好 ${told?.accounts_selected} 个达人账号的数据（共 4 个要查），下次接着跑不会重复花钱。`)
+          ? `✅ 进度已存好：已找到 ${told?.collected} 位达人，已经拿到的下次不会再花钱重抓。`
+          : `✅ 进度已存好：已查好 ${told?.accounts_selected} 个达人账号的数据（共 4 个要查），已经拿到的下次不会再花钱重抓。`)
         && tail[2] === `👉 想继续：npm run ${entry} -- ${entry === 'collect' ? '--resume' : '--dir'} ${f.taskDir} --budget <新总上限>`,
       `${entry}: ${tail.join(' | ')}`)
+  }
+
+  // D13.x 的数取自夹具、不取自同一跑的输出（上面那条是对着汇总 JSON 比的，夹具里几个数又恰好相等，分不出取错了数）：
+  // collect 累加器 4 人、其中 1 人在记忆里标了已联系，名单 3 人；enrich 4 个账号里 1 个已有缓存样本，额度只够再查 1 个，
+  // 已查好 2 个、本跑新查 1 个；带 --refresh 时缓存的也重查，说的是这次刷新了几个、续跑命令带上 --refresh。
+  {
+    const contacted = (h: string) => ({ platform: 'tiktok', handle: h, nickname: h, followers: 10000, first_seen: '2026-01-01',
+      recommendations: [], contacted: true, replied: false, blocked: false, note: 'operator marked' })
+    const lc = costFixture('stop-lines-collect', knownCosts(0, []),
+      { budget_usd: 0, done: [], offsets: {}, pages: {}, answered: {}, found: {} },
+      Array.from({ length: 4 }, (_, i) => costPerson('tiktok', `stop_${i}`)))
+    writeFileSync(join(lc.cwd, 'memory', 'creators.json'),
+      JSON.stringify({ version: 1, updated_at: '2026-01-01', creators: { 'tiktok:stop_0': contacted('stop_0') } }))
+    const cr = runBoth('collect 钱不够付第一次请求就停下（记忆里有一人已联系）', [S('collect.ts'), '--resume', lc.taskDir], lc.cwd,
+      { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, costEnv(lc.log))
+    if (cr.ok) named('钱不够付下一次请求停下：collect 第二行报名单人数（已联系的不算），不是累加器人数',
+      cr.status === 3 && fetchAttempts(lc.log).length === 0
+        && cr.stderr.trimEnd().split('\n').slice(-2)[0] === '✅ 进度已存好：已找到 3 位达人，已经拿到的下次不会再花钱重抓。',
+      cr.stderr.trimEnd().split('\n').slice(-3).join(' | '))
+    const cachedAccount = {
+      'tiktok:stop_0': { platform: 'tiktok', handle: 'stop_0', followers: 10000, following: 100,
+        sample: { status: 'measured', value: Array.from({ length: 6 }, (_, i) => ({
+          id: `stop-${i}`, views: 1000 + i, likes: 20, comments: 1,
+          published_at: `2026-01-0${i + 1}T00:00:00.000Z`, is_pinned: false })),
+        source: { kind: 'public_api', provider: 'tikhub', endpoint: TT_POSTS },
+        observed_at: '2026-01-07T00:00:00.000Z', sample_size: 6, basis: 'cached six posts' } },
+    }
+    for (const refresh of [false, true]) {
+      const le = costFixture(`stop-lines-enrich-${refresh}`, knownCosts(1000, []), { budget_usd: 0.001 },
+        Array.from({ length: 4 }, (_, i) => costPerson('tiktok', `stop_${i}`)))
+      writeFileSync(join(le.taskDir, 'enrichment.json'),
+        JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', accounts: cachedAccount }))
+      const er = runBoth(`enrich 钱只够再查一个就停下${refresh ? '（--refresh）' : ''}`,
+        [S('enrich.ts'), '--dir', le.taskDir, ...(refresh ? ['--refresh'] : [])], le.cwd,
+        { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, costEnv(le.log))
+      if (!er.ok) continue
+      const tail = er.stderr.trimEnd().split('\n').slice(-2)
+      named('钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它',
+        er.status === 3 && fetchAttempts(le.log).length === 1
+          && tail[0] === (refresh
+            ? '✅ 进度已存好：这次刷新了 1 个达人账号的数据（共 4 个要刷新），刷新接不上上次的进度，再刷会从头重查。'
+            : '✅ 进度已存好：已查好 2 个达人账号的数据（共 4 个要查），已经拿到的下次不会再花钱重抓。')
+          && tail[1] === `👉 想继续：npm run enrich -- --dir ${le.taskDir}${refresh ? ' --refresh' : ''} --budget <新总上限>`,
+        `refresh=${refresh}: ${tail.join(' | ')}`)
+    }
   }
   criterion('D13.j', 'D13.k', 'D6.o', 'D13.x')
 
@@ -1775,7 +1820,7 @@ group('cost-durable', [], () => {
       }
       named('费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出6',
         injected.length > 0 && result.status === 6 && result.stdout.trim() === ''
-          && !/断点已保存|已保存.*(?:续跑|继续)|进度已存好|接着跑|追加预算|续跑不产生|续跑会继续/.test(result.stderr)
+          && !/断点已保存|已保存.*(?:续跑|继续)|进度已存好|重抓|追加预算|续跑不产生|续跑会继续/.test(result.stderr)
           && result.stderr.includes('test durable cost save denied')
           && fileText(join(f.taskDir, 'creators.json')) === beforePeople, why)
     }
@@ -1998,7 +2043,7 @@ group('cost-save-errors', [], () => {
       named('运行中费用错误穿透入口，退出1且不再请求，不伪装成输入或余额不足',
         fileText(mark).split('\n').filter(line => line === 'injected').length === 1 && result.status === 1
           && fetchAttempts(f.log).length === (method === 'reserve' ? 0 : 1)
-          && !/追加预算|加钱|余额不足/.test(result.stderr),
+          && !/追加预算|加钱|余额不足|不够付下一次|已存好/.test(result.stderr),
         `${entry}/${method}: injected=${fileText(mark)}, status=${result.status}, attempts=${JSON.stringify(fetchAttempts(f.log))}, stderr=${result.stderr}`)
     }
   }
@@ -2603,7 +2648,8 @@ group('collect-resume', [], () => {
     // ⚠️ 名下的负片各守各的一件：`M-P3-b` 守断点记的内容（`P3.b`）；
     // `M-D6-m` 守续跑的预算从断点起算、`M-D6-n` 守断点还在契约点名的那个文件名（都是 `D6.a`）。
     // 后一条**由 `P3.b` 这条夹具抓到** —— 违反的是谁、被谁抓到，不必是同一条。
-    // 「捕获」与「退出码 3」两件今天拿不到负片，理由是判定层的结论，记在 ADR-70。
+    // 「捕获」今天拿不到负片，理由是判定层的结论，记在 ADR-70；「退出码 3」那件在入口改成设 exitCode 之后
+    // 有了负片 `M-P3-g`、`M-P3-h`，由 `cost-resume` 组那条三行断言抓（ADR-212）。
     criterion('P3.d')
   }
 })
@@ -3127,10 +3173,10 @@ group('memory', ['collect', 'render'], () => {
         failed++
         console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
       } else console.log('  ✓ 续跑的代价按实际剩余工作量说话')
-      // 钱花到上限时，光 --resume 会再退 3（F7.d、D13）；
-      // 无待查项时不该要求改额，有「钱也花到上限了」这句时修复命令必须带 --budget，两者同进同出。
-      const budgetInsufficient = /钱也花到上限了/.test(stderr)
-      const cmdHasBudget = /修好它再跑:.*--budget <新额度>/.test(stderr)
+      // 钱不够付下一次请求时，光 --resume 会再退 3（F7.d、D13）；
+      // 无待查项时不该要求改额，有「剩下的钱也不够付下一次请求了」这句时修复命令必须带 --budget，两者同进同出。
+      const budgetInsufficient = /剩下的钱也不够付下一次请求/.test(stderr)
+      const cmdHasBudget = /修好它再跑:.*--budget <新总上限>/.test(stderr)
       if (budgetInsufficient !== cmdHasBudget) {
         failed++
         console.error('  ✗ 恢复命令与预算状态不一致 —— 用户照着敲会立刻再撞一次退出码 3')
@@ -11386,7 +11432,7 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
   try { sf = runBoth('评审正本真实只读保存失败', entry('collect', save), save.cwd, { status: 6, soft: [0, 1, 2, 3, 4, 7] }, observed(save)) }
   finally { chmodSync(join(save.taskDir, agentName), 0o644) }
   named('CLI 正本保存失败退出6且不提前覆盖名单', sf!.ok && sf!.status === 6 && sf!.stderr.includes(agentName) &&
-    !/断点.*已保存|已保存.*断点|已存好|预算不足|花到上限/.test(sf!.stderr) && unchanged(saveBefore) && positive && noPaid(save), '保存失败伪装输入、预算或成功')
+    !/断点.*已保存|已保存.*断点|已存好|预算不足|不够付下一次/.test(sf!.stderr) && unchanged(saveBefore) && positive && noPaid(save), '保存失败伪装输入、预算或成功')
   const stop = fixture('budget-stop', [], { budget_usd: 0, ...knownCosts(0, []), done: [], offsets: {}, answered: {}, found: {}, pages: {} })
   const bs = runBoth('评审入口预算不足断点', entry('collect', stop), stop.cwd, { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, observed(stop))
   named('CLI 预算不足仍退出3保存真实断点', bs.ok && bs.status === 3 && bs.stderr.includes('✅ 进度已存好') && jsonFile(stop.task)?.done?.length === 0 &&

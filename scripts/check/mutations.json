@@ -23693,19 +23693,17 @@
     {
       "id": "M-D13-aj",
       "req": "D13.x",
-      "why": "钱花到上限停下时第二行「进度已存好」没了：用户不知道已经找到的人存住了没有，P3.d 的「声明已保存」也没说",
+      "why": "钱不够付下一次请求、停下时第二行「进度已存好」没了：用户不知道已经找到的人存住了没有，P3.d 的「声明已保存」也没说",
       "file": "scripts/lib/budget.ts",
-      "find": "    `✅ 进度已存好：${saved}，下次接着跑不会重复花钱。`,\n",
+      "find": "    `✅ 进度已存好：${saved}。`,\n",
       "replace": "",
       "by": "test",
-      "kills": [
-        "收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去"
-      ]
+      "kills": ["收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去"]
     },
     {
       "id": "M-D13-ak",
       "req": "D13.x",
-      "why": "第一行把总上限当成已花：没花满也说花满了，用户以为额度一分不剩",
+      "why": "第一行把总上限当成已花：没花满也说花满了，用户以为额度一分不剩（F7.d 不许没占满说成用满）",
       "file": "scripts/lib/budget.ts",
       "find": "    ? `已花 $${view.cost_estimate_usd} / 上限 $${view.budget_usd}`",
       "replace": "    ? `已花 $${view.budget_usd} / 上限 $${view.budget_usd}`",
@@ -23731,35 +23729,89 @@
       "req": "D13.x",
       "why": "collect 的续跑命令丢了 --budget：用户照抄会立刻再撞一次退出码 3",
       "file": "scripts/collect.ts",
-      "find": "      `npm run collect -- --resume ${dir} --budget <新总上限>`).join('\\n'))",
-      "replace": "      `npm run collect -- --resume ${dir}`).join('\\n'))",
+      "find": "      `npm run collect -- --resume ${dir}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\\n'))",
+      "replace": "      `npm run collect -- --resume ${dir}${ignoreMemory ? ' --ignore-memory' : ''}`).join('\\n'))",
       "by": "selfcheck",
-      "kills": [
-        "钱花到上限停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
-      ]
+      "kills": ["钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"]
     },
     {
       "id": "M-D13-an",
       "req": "D13.x",
       "why": "enrich 把要查的总数说成已查好的数：没查完也像查完了",
       "file": "scripts/enrich.ts",
-      "find": "`已查好 ${selected.length} 个达人账号的数据（共 ${refs.size} 个要查）`",
-      "replace": "`已查好 ${refs.size} 个达人账号的数据（共 ${refs.size} 个要查）`",
+      "find": "`已查好 ${selected.length} 个达人账号的数据（共 ${refs.size} 个要查），已经拿到的下次不会再花钱重抓`",
+      "replace": "`已查好 ${refs.size} 个达人账号的数据（共 ${refs.size} 个要查），已经拿到的下次不会再花钱重抓`",
       "by": "selfcheck",
-      "kills": [
-        "钱花到上限停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
-      ]
+      "kills": ["钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"]
     },
     {
       "id": "M-D13-ao",
       "req": "D13.x",
       "why": "collect 说存好的人数取了累加器而不是名单：被筛掉的人也算进「已找到」",
       "file": "scripts/collect.ts",
-      "find": "`已找到 ${fin.kept.length} 位达人`",
-      "replace": "`已找到 ${creators.size + 1} 位达人`",
+      "find": "`已找到 ${fin.kept.length} 位达人，已经拿到的下次不会再花钱重抓`",
+      "replace": "`已找到 ${creators.size} 位达人，已经拿到的下次不会再花钱重抓`",
+      "by": "selfcheck",
+      "kills": ["钱不够付下一次请求停下：collect 第二行报名单人数（已联系的不算），不是累加器人数"]
+    },
+    {
+      "id": "M-P3-g",
+      "req": "P3.d",
+      "why": "collect 钱不够付下一次请求、进度也存好了，却以 0 退出：调用方当成跑完了，不会请用户确认新上限",
+      "file": "scripts/collect.ts",
+      "find": "  if (stopped === 'budget') process.exitCode = EXIT.budget    // 钱不够付下一次请求，可续跑\n",
+      "replace": "",
       "by": "selfcheck",
       "kills": [
-        "钱花到上限停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
+        "钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
+      ]
+    },
+    {
+      "id": "M-P3-h",
+      "req": "P3.d",
+      "why": "enrich 钱不够付下一次请求、进度也存好了，却以 0 退出：调用方当成跑完了，不会请用户确认新上限",
+      "file": "scripts/enrich.ts",
+      "find": "    process.exitCode = EXIT.budget\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
+      ]
+    },
+    {
+      "id": "M-D13-ap",
+      "req": "D13.x",
+      "why": "enrich 把本跑新查的数当成已查好的数：以前查过、存在缓存里的账号不算进去，用户以为还差很多",
+      "file": "scripts/enrich.ts",
+      "find": "`已查好 ${selected.length} 个达人账号的数据",
+      "replace": "`已查好 ${newlyQueried} 个达人账号的数据",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它"
+      ]
+    },
+    {
+      "id": "M-D13-aq",
+      "req": "D13.x",
+      "why": "enrich 带 --refresh 停下时续跑命令丢了 --refresh：照抄一个请求都不发、以 0 结束，没刷新的账号就停在旧数据上",
+      "file": "scripts/enrich.ts",
+      "find": "`npm run enrich -- --dir ${dir}${refresh ? ' --refresh' : ''} --budget <新总上限>`",
+      "replace": "`npm run enrich -- --dir ${dir} --budget <新总上限>`",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它"
+      ]
+    },
+    {
+      "id": "M-D13-ar",
+      "req": "D13.x",
+      "why": "enrich 带 --refresh 停下时照常说「已查好全部、不会重抓」：旧数据被当成这次刷新过的，用户以为刷完了",
+      "file": "scripts/enrich.ts",
+      "find": "    const saved = refresh\n",
+      "replace": "    const saved = false\n",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它"
       ]
     },
     {

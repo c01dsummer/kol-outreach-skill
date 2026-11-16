@@ -508,7 +508,7 @@ async function main() {
     // 无条件说「续跑不会重复花费」，是把「已抓到的不重抓」说成了「续跑免费」，
     // 而剩下的关键词照样要花钱（ADR-22）。
     if (stopped === 'error') console.error(`\n   ⚠️ 本轮采集也没跑完：${errorMsg}`)
-    if (stopped === 'budget') console.error(`\n   ⚠️ 本轮钱也花到上限了，续跑时要用 --budget 给新的总上限`)
+    if (stopped === 'budget') console.error(`\n   ⚠️ 本轮剩下的钱也不够付下一次请求了，续跑时要用 --budget 给新的总上限`)
     // 「续跑要不要花钱」有**两种**没干完的活，只数关键词会漏掉后一种：
     // 关键词全跑完了，但只要还有人没补 profile，续跑第一件事就是去补，
     // 那是付费端点（ADR-25）。
@@ -523,7 +523,7 @@ async function main() {
     // 预算用尽时光 --resume 会立刻再退 3，所以命令里得把 --budget 一起给出来。
     // 写成 npm run 的形式：tsx 只在 npm script 里才在 PATH 上，而且 .env 也只有那条路会读
     console.error(`\n   修好它再跑: npm run collect -- --resume ${dir}` +
-                  (stopped === 'budget' ? ' --budget <新额度>' : ''))
+                  (stopped === 'budget' ? ' --budget <新总上限>' : ''))
     // 逃生口要打出来，但只打出来 —— 走不走它是用户的取舍，不是这里替他选（ADR-15）
     console.error(`   或明知重复打扰的风险仍要出名单: 上面那条命令加 --ignore-memory`)
     process.exit(EXIT.memory)
@@ -577,12 +577,12 @@ async function main() {
 
   if (stopped === 'budget') {
     // 走到这里，上面的每次保存都成功了（失败的那一路以 6 退出），所以第二行「进度已存好」说得起（P3.d）
-    console.error('\n' + budgetStopLines(budget.view(), `已找到 ${fin.kept.length} 位达人`,
-      `npm run collect -- --resume ${dir} --budget <新总上限>`).join('\n'))
-    process.exit(EXIT.budget)    // 预算用尽，可续跑
+    console.error('\n' + budgetStopLines(budget.view(), `已找到 ${fin.kept.length} 位达人，已经拿到的下次不会再花钱重抓`,
+      `npm run collect -- --resume ${dir}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\n'))
   }
-  if (stopped === 'error') process.exit(errorExit)
-  // 达标用 exitCode 自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（budget、error 两支见 ADR-193 第六节那张欠条）
+  // 三种收尾都设 exitCode、自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（ADR-193、ADR-212）
+  if (stopped === 'budget') process.exitCode = EXIT.budget    // 钱不够付下一次请求，可续跑
+  if (stopped === 'error') process.exitCode = errorExit
   if (stopped === 'target') process.exitCode = EXIT.target
 }
 
