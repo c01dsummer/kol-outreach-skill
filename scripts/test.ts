@@ -57,7 +57,7 @@ import {
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
-import { fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile } from './check/field-use-rule.js'
+import { fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, type Field as UseField } from './check/field-use-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -15179,7 +15179,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function ctor(): { new(): object; added: number } { return Object.assign(class {}, { added: 1 }) }',
       'export function ctorProp(): { made: new () => object; plainP: number } { return { made: class {}, plainP: 1 } }',
       'export interface Box<T> { boxed: T }', 'export function boxes(): Box<Box<Box<{ inBox: number }>>> { return { boxed: { boxed: { boxed: { inBox: 1 } } } } }',
-      'export interface Leaf { leafF: number }', 'export function twice(): { deep?: Box<Box<Box<Box<Leaf>>>>; flat: Box<Leaf> } { return { flat: { boxed: { leafF: 1 } } } }',
+      'export function nestedMap(): Map<0, Map<0, Map<0, Map<0, { mapDeep: number }>>>> { return new Map() }', 'export interface Leaf { leafF: number }', '// 字段不入断言：故意套四层\nexport function twice(): { deep?: Box<Box<Box<Box<Leaf>>>>; flat: Box<Leaf> } { return { flat: { boxed: { leafF: 1 } } } }',
       'export function gen<T extends 0>(n: T): {\n  value: number // 字段不入断言：只能从子进程输出验到\n}', 'export function gen<T extends 1>(n: T): {}', 'export function gen(n: number): { value?: number } { return {} }',
       "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
     ].join('\n'),
@@ -15303,15 +15303,21 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   const chained = (() => { // 递归泛型：每展开一层都是新实例；三路（找字段、整体比对、重抄的类型）都要停得下来，停不下来就是栈溢出
     try {
       return fieldToy(files => {
-        files['scripts/check/r.ts'] = 'export interface Chain<T> { link: T; next?: Chain<T[]> }\nexport function chain(): Chain<{ deepLink: number }> { return { link: { deepLink: 1 } } }\nexport type Loop<T> = Loop<T[]>[]\nexport function loop(): Loop<{ inLoop: number }> { return [] }'
-        files['scripts/test.ts'] += "\nimport { chain, loop } from './check/r.js'\neq('ch', chain(), {})\neq('lp', loop(), [])\ntype Local<T> = { l: T; n?: Local<T[]> }\ntype LocalLoop<T> = LocalLoop<T[]>[]\nconst lc = (await import('./check/r.js') as unknown as { chain: () => Local<number>; loop: () => LocalLoop<number> }).chain().l"
+        files['scripts/check/r.ts'] = 'export interface Chain<T> { link: T; next?: Chain<T[]> }\nexport function chain(): Chain<{ deepLink: number }> { return { link: { deepLink: 1 } } }\nexport type Loop<T> = Loop<T[]>[]\nexport function loop(): Loop<{ inLoop: number }> { return [] }\nexport type Tup<T> = [Tup<T[]>]\nexport function tup(): Tup<0> { return null as never }'
+        files['scripts/test.ts'] += "\nimport { chain, loop, tup } from './check/r.js'\neq('ch', chain(), {})\neq('lp', loop(), [])\neq('tp', tup(), [])\ntype Local<T> = { l: T; n?: Local<T[]> }\ntype LocalLoop<T> = LocalLoop<T[]>[]\ntype LocalTup<T> = [LocalTup<T[]>]\nconst lc = (await import('./check/r.js') as unknown as { chain: () => Local<number>; loop: () => LocalLoop<number>; tup: () => LocalTup<0> }).chain().l"
       }).filter(f => f.file === 'scripts/check/r.ts').map(f => [f.key, f.used]).sort()
     } catch (e) { return String(e).slice(0, 60) }
   })()
-  eq('字段：递归泛型（每展开一层都是新实例）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段', chained,
-    [['scripts/check/r.ts#Chain.link', true], ['scripts/check/r.ts#Chain.next', true], ['scripts/check/r.ts#chain.deepLink', true]])
+  eq('字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到',
+    chained, [['scripts/check/r.ts#Chain.link', true], ['scripts/check/r.ts#Chain.next', true], ['scripts/check/r.ts#chain.deepLink', true],
+      ['scripts/check/r.ts#chain<没展开完>', false], ['scripts/check/r.ts#loop<没展开完>', false], ['scripts/check/r.ts#tup<没展开完>', false]])
   eq('字段：同一个泛型套三层照常展开，最里面的字段找得到（第四层起才停）', moreOf('m.ts#boxes.inBox') !== undefined, true)
   eq('字段：在深处被停下的类型，从浅处走到照样展开', moreOf('m.ts#Leaf.leafF') !== undefined, true)
+  eq('字段：库里的泛型（Map 这类）不按递归层数停，套四层照样找到最里面的字段', [moreOf('m.ts#nestedMap.mapDeep') !== undefined, moreOf('m.ts#nestedMap<没展开完>')], [true, undefined])
+  const cutOf = (fs: readonly UseField[]) => fs.filter(f => f.key.endsWith('<没展开完>') && f.file === 'scripts/check/m.ts')
+  eq('字段闸门：同一个泛型套到第四层停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行',
+    [cutOf(more).map(f => [f.key, f.used, f.waiver]), fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), []).red, fieldVerdict(cutOf(more), []).waived.length],
+    [[['scripts/check/m.ts#twice<没展开完>', false, '故意套四层']], true, 1])
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
   eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),

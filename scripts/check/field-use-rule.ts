@@ -144,8 +144,8 @@ function waiverOf(ts: typeof Ts, decl: Ts.Declaration): string | undefined {
   return undefined
 }
 
-const fromLibrary = (t: Ts.Type): boolean =>
-  (t.symbol?.declarations ?? []).some(d => /[\\/]node_modules[\\/]/.test(d.getSourceFile().fileName))
+const inLibrary = (s: Ts.Symbol | undefined): boolean => (s?.declarations ?? []).some(d => /[\\/]node_modules[\\/]/.test(d.getSourceFile().fileName))
+const fromLibrary = (t: Ts.Type): boolean => inLibrary(t.symbol)
 
 /**
  * 字段的全集，连同用没用到、有没有豁免。`root` 是仓库根的绝对路径（程序里的文件名以它开头）。
@@ -157,16 +157,18 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const rel = (sf: Ts.SourceFile) => relOf(root, sf.fileName)
   const argumentsOf = (t: Ts.Type): readonly Ts.Type[] =>
     ((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) ? tc.getTypeArguments(t as Ts.TypeReference) : []
-  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按一条停：同一个声明（别名、接口、类型字面量；普通数组元组不算）
-  // 在这条路上已经开着三层（TypeScript 自己判「嵌套过深」也用三层），这一层整个不展开。声明有限、每个至多三层，所以必停；代价见 ADR-198 第四节
-  const recursion = (t: Ts.Type): Ts.Symbol | undefined => t.aliasSymbol ?? (tc.isArrayType(t) || tc.isTupleType(t) ? undefined : t.symbol)
+  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按一条停：同一个仓库里的声明（别名、接口、类型字面量；普通数组元组、库里的不算）
+  // 在这条路上已经开着三层（TypeScript 自己判「嵌套过深」也用三层），这一层整个不展开。声明有限、每个至多三层，所以必停。找字段这一路停下就报红（见 `cut`），不悄悄少找
+  const recursion = (t: Ts.Type): Ts.Symbol | undefined => { const k = t.aliasSymbol ?? (tc.isArrayType(t) || tc.isTupleType(t) ? undefined : t.symbol); return inLibrary(k) ? undefined : k }
   const enter = (t: Ts.Type, open: readonly Ts.Symbol[]): readonly Ts.Symbol[] | undefined => { const k = recursion(t); return k === undefined ? open : open.filter(s => s === k).length >= 3 ? undefined : [...open, k] }
 
   // ── 1. 字段 ──
-  const found = new Map<Ts.Declaration, string>()
+  // `cut`：找字段时展开到上限停下的导出函数 —— 里面可能还有字段没找到，记成这个函数名下一个没人用过的「字段」，照新增字段报红（可在函数前写豁免）
+  const found = new Map<Ts.Declaration, string>(), cut = new Set<Ts.Declaration>(); let owner: Ts.Declaration | undefined
   const walk = (t: Ts.Type, via: string, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
     const inner = enter(t, open)
-    if (inner === undefined || seen.has(t)) return; seen.add(t) // 先判层数再记 seen：在深处被停下的，从浅处走到照样展开
+    if (inner === undefined) { if (owner !== undefined && !found.has(owner)) { found.set(owner, `${via}…`); cut.add(owner) } return }
+    if (seen.has(t)) return; seen.add(t) // 先判层数再记 seen：在深处被停下的，从浅处走到照样展开
     if (t.isUnion() || t.isIntersection()) { for (const u of t.types) walk(u, via, seen, inner); return }
     if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) walk(a, `${via}[]`, seen, inner); return }
     if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen, inner); return } // 按约束找：调用处读的是实参那份，宁可多报红
@@ -185,7 +187,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     for (const exported of tc.getExportsOfModule(module)) {
       const s = exported.flags & ts.SymbolFlags.Alias ? tc.getAliasedSymbol(exported) : exported
       const decl = s.valueDeclaration
-      if (decl === undefined) continue
+      if (decl === undefined) continue; owner = decl
       for (const sig of tc.getTypeOfSymbolAtLocation(s, decl).getCallSignatures()) {
         walk(tc.getReturnTypeOfSignature(sig), `${s.name}()`, new Set())
       }
@@ -301,9 +303,9 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     const text = nameOf(ts, decl) ?? ''
     const waiver = waiverOf(ts, decl)
     return {
-      key: keyOf(ts, tc, root, decl), file, via,
+      key: `${keyOf(ts, tc, root, decl)}${cut.has(decl) ? '<没展开完>' : ''}`, file, via,
       line: sf.getLineAndCharacterOfPosition(decl.getStart()).line + 1,
-      used: used.has(decl) || byName(file, text),
+      used: !cut.has(decl) && (used.has(decl) || byName(file, text)),
       ...(waiver === undefined ? {} : { waiver }),
     }
   })

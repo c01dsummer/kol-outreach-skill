@@ -25330,8 +25330,8 @@
       "req": "harness",
       "why": "没有按名字的兜底：黑盒重抄类型的测试读到的字段全算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "used: used.has(decl) || byName(file, text),",
-      "replace": "used: used.has(decl),",
+      "find": "(used.has(decl) || byName(file, text))",
+      "replace": "(used.has(decl))",
       "by": "test",
       "kills": [
         "字段：黑盒重抄类型时按名字兜底 —— 只认验证者 import 了的那个文件"
@@ -26363,11 +26363,11 @@
       "req": "harness",
       "why": "找字段这一路对递归类型不设停：每层新实例，栈溢出",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "    if (inner === undefined || seen.has(t)) return; seen.add(t) //",
-      "replace": "    if (seen.has(t)) return; seen.add(t) //",
+      "find": "    if (inner === undefined) { if",
+      "replace": "    if (false) { if",
       "by": "test",
       "kills": [
-        "字段：递归泛型（每展开一层都是新实例）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段"
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
       ]
     },
     {
@@ -26379,7 +26379,7 @@
       "replace": "      if (seen.has(t)) return; seen.add(t)\n",
       "by": "test",
       "kills": [
-        "字段：递归泛型（每展开一层都是新实例）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段"
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
       ]
     },
     {
@@ -26391,7 +26391,7 @@
       "replace": "const inner = enter(t, open); if (seen.has(t))",
       "by": "test",
       "kills": [
-        "字段：递归泛型（每展开一层都是新实例）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段"
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
       ]
     },
     {
@@ -26415,7 +26415,7 @@
       "replace": "(",
       "by": "test",
       "kills": [
-        "字段：递归泛型（每展开一层都是新实例）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段"
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
       ]
     },
     {
@@ -26423,11 +26423,59 @@
       "req": "harness",
       "why": "先记 seen 再判层数：在深处被停下的类型记进了 seen，从浅处再走到它时被当成走过，里面的字段找不到",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "    if (inner === undefined || seen.has(t)) return; seen.add(t) //",
-      "replace": "    if (seen.has(t)) return; seen.add(t); if (inner === undefined) return //",
+      "find": "cut.add(owner) } return }",
+      "replace": "cut.add(owner) } seen.add(t); return }",
       "by": "test",
       "kills": [
         "字段：在深处被停下的类型，从浅处走到照样展开"
+      ]
+    },
+    {
+      "id": "M-H198-dq",
+      "req": "harness",
+      "why": "「没展开完」那一条被调用函数的那次读取算成用到：停下了照样不报红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "used: !cut.has(decl) && (used.has(decl) || byName(file, text))",
+      "replace": "used: (used.has(decl) || byName(file, text))",
+      "by": "test",
+      "kills": [
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
+      ]
+    },
+    {
+      "id": "M-H198-dr",
+      "req": "harness",
+      "why": "找字段停下时悄悄停、不记「没展开完」：最里面的字段漏了也不红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "{ if (owner !== undefined && !found.has(owner)) { found.set(owner, `${via}…`); cut.add(owner) } return }",
+      "replace": "return",
+      "by": "test",
+      "kills": [
+        "字段闸门：同一个泛型套到第四层停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
+      ]
+    },
+    {
+      "id": "M-H198-ds",
+      "req": "harness",
+      "why": "「没展开完」那一条不带记号，名字与函数本身撞在一起，看不出是停下了",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "${cut.has(decl) ? '<没展开完>' : ''}",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段闸门：同一个泛型套到第四层停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
+      ]
+    },
+    {
+      "id": "M-H198-dt",
+      "req": "harness",
+      "why": "库里的泛型也按递归层数停：Map 套四层就停、报「没展开完」，最里面的字段找不到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "return inLibrary(k) ? undefined : k",
+      "replace": "return k",
+      "by": "test",
+      "kills": [
+        "字段：库里的泛型（Map 这类）不按递归层数停，套四层照样找到最里面的字段"
       ]
     },
     {
