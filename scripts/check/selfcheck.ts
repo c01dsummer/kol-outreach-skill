@@ -12866,7 +12866,7 @@ if (shardChild) {
   if (said.length === 0) console.log('  ✓ 各组子进程的当前目录不与别族碰到的 tmp 路径重叠')
   else {
     failed += said.length
-    console.error(`\n  ✗ 各组子进程的当前目录与别族碰到的 tmp 路径重叠 ${said.length} 处\n`)
+    console.error(`\n  ✗ 各组子进程的当前目录不与别族碰到的 tmp 路径重叠：${said.length} 处不成立\n`)
     for (const x of said) console.error(`  · ${x}`)
     console.error('\n  给报出来的组各分一个只归它用的目录当当前目录，不要补假依赖（share-rule.ts 头注）。')
   }
