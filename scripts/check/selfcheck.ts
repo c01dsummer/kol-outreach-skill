@@ -1348,7 +1348,7 @@ group('cost-resume', [], () => {
     named('钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令',
       changed.status === 3 && tail[0] === '⛔ 剩下的钱不够付下一次请求了（已花 $0.006 / 上限 $0.006），已停下。'
         && tail[1] === (entry === 'collect'
-          ? `✅ 进度已存好：已找到 ${told?.collected} 位达人，已经拿到的搜索结果和补好外链的达人资料下次不会再花钱重抓。`
+          ? `✅ 进度已存好：已找到 ${told?.collected} 位达人，已经拿到的搜索结果和已补完资料的达人下次不会再花钱重抓。`
           : `✅ 进度已存好：已查好 ${told?.accounts_selected} 个达人账号的数据（共 4 个要查），已经拿到的下次不会再花钱重抓。`)
         && tail[2] === `👉 想继续：npm run ${entry} -- ${entry === 'collect' ? '--resume' : '--dir'} ${f.taskDir} --budget <新总上限>`,
       `${entry}: ${tail.join(' | ')}`)
@@ -1370,7 +1370,7 @@ group('cost-resume', [], () => {
       { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, costEnv(lc.log))
     if (cr.ok) named('钱不够付下一次请求停下：collect 第二行报名单人数（已联系的不算），不是累加器人数',
       cr.status === 3 && fetchAttempts(lc.log).length === 0
-        && cr.stderr.trimEnd().split('\n').slice(-2)[0] === '✅ 进度已存好：已找到 3 位达人，已经拿到的搜索结果和补好外链的达人资料下次不会再花钱重抓。',
+        && cr.stderr.trimEnd().split('\n').slice(-2)[0] === '✅ 进度已存好：已找到 3 位达人，已经拿到的搜索结果和已补完资料的达人下次不会再花钱重抓。',
       cr.stderr.trimEnd().split('\n').slice(-3).join(' | '))
     if (cr.ok) {
       const cmd = cr.stderr.trimEnd().split('\n').at(-1)!.replace(/^👉 想继续：/, '')

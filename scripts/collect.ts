@@ -577,8 +577,8 @@ async function main() {
 
   if (stopped === 'budget') {
     // 走到这里，上面的每次保存都成功了（失败的那一路以 6 退出），所以第二行「进度已存好」说得起（P3.d）
-    // 「已经拿到的」只说搜索结果和补到外链的人：没补到外链的人续跑还会再查 profile、再花钱（needsProfile，上面那句续跑要不要花钱数的就是他们）
-    console.error('\n' + budgetStopLines(budget.view(), `已找到 ${fin.kept.length} 位达人，已经拿到的搜索结果和补好外链的达人资料下次不会再花钱重抓`,
+    // 「已经拿到的」只说搜索结果和已补完资料的人：资料没补完的（needsProfile：没有简介或外链为空）续跑还会再查 profile、再花钱，上面那句续跑要不要花钱数的就是他们
+    console.error('\n' + budgetStopLines(budget.view(), `已找到 ${fin.kept.length} 位达人，已经拿到的搜索结果和已补完资料的达人下次不会再花钱重抓`,
       `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\n'))
   }
   // 三种收尾都设 exitCode、自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（ADR-193、ADR-212）
