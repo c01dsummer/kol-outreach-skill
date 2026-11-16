@@ -1348,7 +1348,7 @@ group('cost-resume', [], () => {
     named('钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令',
       changed.status === 3 && tail[0] === '⛔ 剩下的钱不够付下一次请求了（已花 $0.006 / 上限 $0.006），已停下。'
         && tail[1] === (entry === 'collect'
-          ? `✅ 进度已存好：已找到 ${told?.collected} 位达人，已经拿到的下次不会再花钱重抓。`
+          ? `✅ 进度已存好：已找到 ${told?.collected} 位达人，已经拿到的搜索结果和补好外链的达人资料下次不会再花钱重抓。`
           : `✅ 进度已存好：已查好 ${told?.accounts_selected} 个达人账号的数据（共 4 个要查），已经拿到的下次不会再花钱重抓。`)
         && tail[2] === `👉 想继续：npm run ${entry} -- ${entry === 'collect' ? '--resume' : '--dir'} ${f.taskDir} --budget <新总上限>`,
       `${entry}: ${tail.join(' | ')}`)
@@ -1360,7 +1360,8 @@ group('cost-resume', [], () => {
   {
     const contacted = (h: string) => ({ platform: 'tiktok', handle: h, nickname: h, followers: 10000, first_seen: '2026-01-01',
       recommendations: [], contacted: true, replied: false, blocked: false, note: 'operator marked' })
-    const lc = costFixture('stop-lines-collect', knownCosts(0, []),
+    // 目录名带空格和单引号：续跑命令里的目录得是 shell 的一个参数，照抄才续得上（#498 上 CodeRabbit 第一轮）
+    const lc = costFixture("stop lines collect's", knownCosts(0, []),
       { budget_usd: 0, done: [], offsets: {}, pages: {}, answered: {}, found: {} },
       Array.from({ length: 4 }, (_, i) => costPerson('tiktok', `stop_${i}`)))
     writeFileSync(join(lc.cwd, 'memory', 'creators.json'),
@@ -1369,8 +1370,17 @@ group('cost-resume', [], () => {
       { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, costEnv(lc.log))
     if (cr.ok) named('钱不够付下一次请求停下：collect 第二行报名单人数（已联系的不算），不是累加器人数',
       cr.status === 3 && fetchAttempts(lc.log).length === 0
-        && cr.stderr.trimEnd().split('\n').slice(-2)[0] === '✅ 进度已存好：已找到 3 位达人，已经拿到的下次不会再花钱重抓。',
+        && cr.stderr.trimEnd().split('\n').slice(-2)[0] === '✅ 进度已存好：已找到 3 位达人，已经拿到的搜索结果和补好外链的达人资料下次不会再花钱重抓。',
       cr.stderr.trimEnd().split('\n').slice(-3).join(' | '))
+    if (cr.ok) {
+      const cmd = cr.stderr.trimEnd().split('\n').at(-1)!.replace(/^👉 想继续：/, '')
+      const argv = cmd.startsWith('npm run collect -- --resume ')
+        // 照用户会做的那样先把 <新总上限> 换成一个数（尖括号在 shell 里是重定向），再交给 shell 拆参数
+        ? spawnSync('sh', ['-c', `printf '%s\\n' ${cmd.slice('npm run collect -- --resume '.length).replace('<新总上限>', '3')}`], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean)
+        : []
+      named('钱不够付下一次请求停下：续跑命令里带空格、单引号的目录照抄进 shell 还是同一个目录',
+        argv.length === 3 && argv[0] === lc.taskDir && argv[1] === '--budget' && argv[2] === '3', cmd)
+    }
     const cachedAccount = {
       'tiktok:stop_0': { platform: 'tiktok', handle: 'stop_0', followers: 10000, following: 100,
         sample: { status: 'measured', value: Array.from({ length: 6 }, (_, i) => ({
@@ -1378,6 +1388,8 @@ group('cost-resume', [], () => {
           published_at: `2026-01-0${i + 1}T00:00:00.000Z`, is_pinned: false })),
         source: { kind: 'public_api', provider: 'tikhub', endpoint: TT_POSTS },
         observed_at: '2026-01-07T00:00:00.000Z', sample_size: 6, basis: 'cached six posts' } },
+      // 没有样本的旧条目：续跑照样会查它，不能算进「已查好」（#498 上 CodeRabbit 第一轮）
+      'tiktok:stop_2': { platform: 'tiktok', handle: 'stop_2', followers: 10000, following: 100 },
     }
     for (const refresh of [false, true]) {
       const le = costFixture(`stop-lines-enrich-${refresh}`, knownCosts(1000, []), { budget_usd: 0.001 },

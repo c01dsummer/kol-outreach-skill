@@ -17,7 +17,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
-import { Budget, BudgetInputError, budgetStopLines, startBudget, type PersistCost } from './lib/budget.js'
+import { Budget, BudgetInputError, budgetStopLines, shellArg, startBudget, type PersistCost } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
@@ -522,7 +522,7 @@ async function main() {
 
     // 预算用尽时光 --resume 会立刻再退 3，所以命令里得把 --budget 一起给出来。
     // 写成 npm run 的形式：tsx 只在 npm script 里才在 PATH 上，而且 .env 也只有那条路会读
-    console.error(`\n   修好它再跑: npm run collect -- --resume ${dir}` +
+    console.error(`\n   修好它再跑: npm run collect -- --resume ${shellArg(dir)}` +
                   (stopped === 'budget' ? ' --budget <新总上限>' : ''))
     // 逃生口要打出来，但只打出来 —— 走不走它是用户的取舍，不是这里替他选（ADR-15）
     console.error(`   或明知重复打扰的风险仍要出名单: 上面那条命令加 --ignore-memory`)
@@ -577,8 +577,9 @@ async function main() {
 
   if (stopped === 'budget') {
     // 走到这里，上面的每次保存都成功了（失败的那一路以 6 退出），所以第二行「进度已存好」说得起（P3.d）
-    console.error('\n' + budgetStopLines(budget.view(), `已找到 ${fin.kept.length} 位达人，已经拿到的下次不会再花钱重抓`,
-      `npm run collect -- --resume ${dir}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\n'))
+    // 「已经拿到的」只说搜索结果和补到外链的人：没补到外链的人续跑还会再查 profile、再花钱（needsProfile，上面那句续跑要不要花钱数的就是他们）
+    console.error('\n' + budgetStopLines(budget.view(), `已找到 ${fin.kept.length} 位达人，已经拿到的搜索结果和补好外链的达人资料下次不会再花钱重抓`,
+      `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\n'))
   }
   // 三种收尾都设 exitCode、自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（ADR-193、ADR-212）
   if (stopped === 'budget') process.exitCode = EXIT.budget    // 钱不够付下一次请求，可续跑

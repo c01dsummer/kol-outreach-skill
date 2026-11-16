@@ -23802,6 +23802,42 @@
       ]
     },
     {
+      "id": "M-D13-as",
+      "req": "D13.x",
+      "why": "enrich 把没有样本的旧条目也算进「已查好」：续跑照样会查、会花钱，用户以为这些已经拿到了",
+      "file": "scripts/enrich.ts",
+      "find": "`已查好 ${selected.filter(a => a.sample).length} 个达人账号的数据",
+      "replace": "`已查好 ${selected.length} 个达人账号的数据",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它"
+      ]
+    },
+    {
+      "id": "M-D13-at",
+      "req": "D13.x",
+      "why": "collect 续跑命令里的目录不包引号：目录名带空格或单引号时照抄进 shell 被拆成几段，续不上",
+      "file": "scripts/collect.ts",
+      "find": "      `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\\n'))",
+      "replace": "      `npm run collect -- --resume ${dir}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\\n'))",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：续跑命令里带空格、单引号的目录照抄进 shell 还是同一个目录"
+      ]
+    },
+    {
+      "id": "M-D13-au",
+      "req": "D13.x",
+      "why": "目录里的单引号不转义：包了引号也会在单引号处断开，照抄续不上",
+      "file": "scripts/lib/budget.ts",
+      "find": "`'${value.replaceAll(\"'\", `'\\\\''`)}'`",
+      "replace": "`'${value}'`",
+      "by": "test",
+      "kills": [
+        "续跑命令里的目录：普通目录原样，带空格、单引号的包成一个参数"
+      ]
+    },
+    {
       "id": "M-D13-aj",
       "req": "D13.x",
       "why": "钱不够付下一次请求、停下时第二行「进度已存好」没了：用户不知道已经找到的人存住了没有，P3.d 的「声明已保存」也没说",
@@ -23840,8 +23876,8 @@
       "req": "D13.x",
       "why": "collect 的续跑命令丢了 --budget：用户照抄会立刻再撞一次退出码 3",
       "file": "scripts/collect.ts",
-      "find": "      `npm run collect -- --resume ${dir}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\\n'))",
-      "replace": "      `npm run collect -- --resume ${dir}${ignoreMemory ? ' --ignore-memory' : ''}`).join('\\n'))",
+      "find": "      `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\\n'))",
+      "replace": "      `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''}`).join('\\n'))",
       "by": "selfcheck",
       "kills": ["钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"]
     },
@@ -23850,7 +23886,7 @@
       "req": "D13.x",
       "why": "enrich 把要查的总数说成已查好的数：没查完也像查完了",
       "file": "scripts/enrich.ts",
-      "find": "`已查好 ${selected.length} 个达人账号的数据（共 ${refs.size} 个要查），已经拿到的下次不会再花钱重抓`",
+      "find": "`已查好 ${selected.filter(a => a.sample).length} 个达人账号的数据（共 ${refs.size} 个要查），已经拿到的下次不会再花钱重抓`",
       "replace": "`已查好 ${refs.size} 个达人账号的数据（共 ${refs.size} 个要查），已经拿到的下次不会再花钱重抓`",
       "by": "selfcheck",
       "kills": ["钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"]
@@ -23860,8 +23896,8 @@
       "req": "D13.x",
       "why": "collect 说存好的人数取了累加器而不是名单：被筛掉的人也算进「已找到」",
       "file": "scripts/collect.ts",
-      "find": "`已找到 ${fin.kept.length} 位达人，已经拿到的下次不会再花钱重抓`",
-      "replace": "`已找到 ${creators.size} 位达人，已经拿到的下次不会再花钱重抓`",
+      "find": "`已找到 ${fin.kept.length} 位达人，已经拿到的搜索结果和补好外链的达人资料下次不会再花钱重抓`",
+      "replace": "`已找到 ${creators.size} 位达人，已经拿到的搜索结果和补好外链的达人资料下次不会再花钱重抓`",
       "by": "selfcheck",
       "kills": ["钱不够付下一次请求停下：collect 第二行报名单人数（已联系的不算），不是累加器人数"]
     },
@@ -23882,7 +23918,7 @@
       "req": "D13.x",
       "why": "enrich 把本跑新查的数当成已查好的数：以前查过、存在缓存里的账号不算进去，用户以为还差很多",
       "file": "scripts/enrich.ts",
-      "find": "`已查好 ${selected.length} 个达人账号的数据",
+      "find": "`已查好 ${selected.filter(a => a.sample).length} 个达人账号的数据",
       "replace": "`已查好 ${newlyQueried} 个达人账号的数据",
       "by": "selfcheck",
       "kills": [
@@ -23894,8 +23930,8 @@
       "req": "D13.x",
       "why": "enrich 带 --refresh 停下时续跑命令丢了 --refresh：照抄一个请求都不发、以 0 结束，没刷新的账号就停在旧数据上",
       "file": "scripts/enrich.ts",
-      "find": "`npm run enrich -- --dir ${dir}${refresh ? ' --refresh' : ''} --budget <新总上限>`",
-      "replace": "`npm run enrich -- --dir ${dir} --budget <新总上限>`",
+      "find": "`npm run enrich -- --dir ${shellArg(dir)}${refresh ? ' --refresh' : ''} --budget <新总上限>`",
+      "replace": "`npm run enrich -- --dir ${shellArg(dir)} --budget <新总上限>`",
       "by": "selfcheck",
       "kills": [
         "钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它"
@@ -24599,8 +24635,8 @@
       "req": "harness",
       "why": "enrich 先读命令行参数、再写就绪记录：参数不对就退出的那一跑没有 ready 记录",
       "file": "scripts/enrich.ts",
-      "find": "obsReady('enrich')\n\nconst argv = process.argv\nconst arg = (name: string) => {\n  const i = argv.indexOf(name)\n  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : undefined\n}\n\nconst dir = arg('--dir')\nif (!dir || !existsSync(taskFile(dir))) {\n  console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')\n  process.exit(2)\n}\n",
-      "replace": "const argv = process.argv\nconst arg = (name: string) => {\n  const i = argv.indexOf(name)\n  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : undefined\n}\n\nconst dir = arg('--dir')\nif (!dir || !existsSync(taskFile(dir))) {\n  console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')\n  process.exit(2)\n}\nobsReady('enrich')\n",
+      "find": "obsReady('enrich')\n\nconst argv = process.argv\nconst arg = (name: string) => {\n  const i = argv.indexOf(name)\n  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : undefined\n}\n\nconst dir: string = arg('--dir') ?? ''   // 缺席记成空串，下一行照样以 2 拒收；续跑命令拼它时才有确定的类型\nif (!dir || !existsSync(taskFile(dir))) {\n  console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')\n  process.exit(2)\n}\n",
+      "replace": "const argv = process.argv\nconst arg = (name: string) => {\n  const i = argv.indexOf(name)\n  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : undefined\n}\n\nconst dir: string = arg('--dir') ?? ''   // 缺席记成空串，下一行照样以 2 拒收；续跑命令拼它时才有确定的类型\nif (!dir || !existsSync(taskFile(dir))) {\n  console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')\n  process.exit(2)\n}\nobsReady('enrich')\n",
       "by": "selfcheck",
       "kills": [
         "enrich 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 enrich"

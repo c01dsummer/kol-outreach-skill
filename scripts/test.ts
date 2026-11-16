@@ -147,7 +147,7 @@ import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { request as templateHttpsRequest } from 'node:https'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
-import { Budget, BudgetInputError, budgetStopLines, startBudget, costView, type CostView } from './lib/budget.js'
+import { Budget, BudgetInputError, budgetStopLines, shellArg, startBudget, costView, type CostView } from './lib/budget.js'
 import { readCostDocument, readCostLimit, setCostLimitField, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson, type CostState, type KeyDuplicate } from './lib/cost-json.js'
 import {
   CostError, CostLedgerUnavailable, createCostBudget, formatUsd, inspectExistingCostLedger,
@@ -15823,6 +15823,10 @@ suite('D13', '钱不够付下一次请求、停下时的收尾三行：花了多
     cost_problems: [{ path: 'budget_usd', reason: '根预算与 cost_ledger 上限冲突' }] } as unknown as CostView
   eq('费用无从确认时第一行说出原因，不写 $null',
     budgetStopLines(unknown, 's', 'c')[0], '⛔ 剩下的钱不够付下一次请求了（花了多少无从确认：budget_usd: 根预算与 cost_ledger 上限冲突），已停下。')
+  // 续跑命令里的目录：普通目录原样，带空格或单引号的包成 shell 的一个参数（#498 上 CodeRabbit 第一轮）
+  eq('续跑命令里的目录：普通目录原样，带空格、单引号的包成一个参数',
+    [shellArg('output/anker-powerbank-202611161521'), shellArg('output/my shop-202611161521'), shellArg("output/bob's-1")],
+    ['output/anker-powerbank-202611161521', "'output/my shop-202611161521'", "'output/bob'\\''s-1'"])
 }
 
 suite('P3', '未经确认的预算输入不得取得付费额度')

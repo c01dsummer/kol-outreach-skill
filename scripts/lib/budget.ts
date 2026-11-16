@@ -162,6 +162,15 @@ export class Budget {
 }
 
 /**
+ * 续跑命令里的目录写成 shell 的一个参数：只有字母、数字和 `_-./:@%+=,` 时原样，否则用单引号包住、
+ * 值里的单引号写成 `'\''`。目录名由产品名拼成，产品名可以带空格和引号（D29 只挡 `/`、`\`、NUL），
+ * 原样拼进去用户照抄就续不上（ADR-212，#498 上 CodeRabbit 第一轮）。
+ */
+export function shellArg(value: string): string {
+  return /^[A-Za-z0-9_\-./:@%+=,]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+/**
  * 剩下的钱不够付下一次请求、停下时 collect 和 enrich 共用的收尾三行（D13.x；措辞由需求方 2026-11-15 选定，ADR-212）：
  * 花了多少、存好了什么、想继续敲哪条命令。两边原先各说各的，还用了「断点」「enrichment.json」这种内部词。
  *

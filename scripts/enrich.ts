@@ -20,7 +20,7 @@ import {
   TikHubError,
 } from './providers/tikhub.js'
 import {
-  Budget, BudgetInputError, budgetStopLines,
+  Budget, BudgetInputError, budgetStopLines, shellArg,
 } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { sourceDuplicateKeys, sourceDuplicates, stringifyCostJson } from './lib/cost-json.js'
@@ -67,7 +67,7 @@ const arg = (name: string) => {
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : undefined
 }
 
-const dir = arg('--dir')
+const dir: string = arg('--dir') ?? ''   // 缺席记成空串，下一行照样以 2 拒收；续跑命令拼它时才有确定的类型
 if (!dir || !existsSync(taskFile(dir))) {
   console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')
   process.exit(2)
@@ -311,9 +311,10 @@ async function main() {
     // --refresh 那一跑接不上进度：照抄带 --refresh 的命令会从头重查，第二行得照实说（ADR-212 第一节）
     const saved = refresh
       ? `这次刷新了 ${newlyQueried} 个达人账号的数据（共 ${refs.size} 个要刷新），刷新接不上上次的进度，再刷会从头重查`
-      : `已查好 ${selected.length} 个达人账号的数据（共 ${refs.size} 个要查），已经拿到的下次不会再花钱重抓`
+      // 「已查好」只数有样本的：enrichment.json 里没有样本的旧条目续跑照样会查（assess 只跳过有样本的）
+      : `已查好 ${selected.filter(a => a.sample).length} 个达人账号的数据（共 ${refs.size} 个要查），已经拿到的下次不会再花钱重抓`
     console.error('\n' + budgetStopLines(budget.view(), saved,
-      `npm run enrich -- --dir ${dir}${refresh ? ' --refresh' : ''} --budget <新总上限>`).join('\n'))
+      `npm run enrich -- --dir ${shellArg(dir)}${refresh ? ' --refresh' : ''} --budget <新总上限>`).join('\n'))
     // 设 exitCode、自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（ADR-193、ADR-212）
     process.exitCode = EXIT.budget
   }
