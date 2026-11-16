@@ -112,7 +112,7 @@ export function checkAll(adrs: Adr[]): string[] {
 
 /**
  * 历史文件所在的子目录：`docs/adr/历史/`。一条记录的主文件只放现行结论，
- * 过程原样搬进这里一份**同名**文件（ADR-211）。
+ * 过程原样搬进这里一份**同名**文件（ADR-211，主文件只放现行结论那一份）。
  */
 export const HISTORY_DIR = '历史'
 

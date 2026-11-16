@@ -25537,7 +25537,7 @@
       "req": "harness",
       "file": "scripts/check/debt-rule.ts",
       "why": "欠条重名只在同一个文件里查，不把主文件和它的历史文件当同一条记录 —— 挪进历史的那张和主文件里新写的一张同名，按名字关上一张就把另一张也当成关了",
-      "find": "      const key = `ADR-${num}「${name}」`\n      if (seen.has(key))",
+      "find": "      const key = recordKey(num, name)\n      if (seen.has(key))",
       "replace": "      const key = `${file}「${name}」`\n      if (seen.has(key))",
       "by": "test",
       "kills": [
@@ -25548,25 +25548,25 @@
       "id": "M-H211-d",
       "req": "harness",
       "file": "scripts/check/debt-rule.ts",
-      "why": "块头写了空名字 `欠条「 」` 也当成一个名字 —— 几张这样的欠条全叫同一个空名字，状态行按名字指过来时分不清是哪一张",
-      "find": "  return m && m[1].trim() ? m[1].trim() : null",
-      "replace": "  return m ? m[1].trim() : null",
+      "why": "名字过了上限也照收 —— 写的人看不出名字太长，查重名与按名字关上都按一个台账上报不出的长名字走，和「取不出」那道硬失败对不上",
+      "find": "  return name && [...name].length <= NAME_LIMIT ? name : null",
+      "replace": "  return name ? name : null",
       "by": "test",
       "kills": [
-        "块头写了短名字就取出来，没写交回 null"
+        "名字到上限照收，过了上限交回 null"
       ]
     },
     {
       "id": "M-H211-e",
       "req": "harness",
       "file": "scripts/check/debt-rule.ts",
-      "why": "只有重名欠条时台账不交回报错那一句 —— 只读入口以 0 退出，重名这道硬失败在周回访那边被绕过去",
-      "find": "    ...dupes.length ? [`${dupes.length} 张欠条和同一条记录里的另一张重名`] : [],",
+      "why": "只有短名字有错时台账不交回报错那一句 —— 只读入口以 0 退出，这道硬失败在周回访那边被绕过去",
+      "find": "    ...badNames.length ? [`${badNames.length} 张欠条的短名字有错（重名或取不出）`] : [],",
       "replace": "",
       "by": "test",
       "kills": [
-        "只有重名：照样交回那一句",
-        "孤儿和重名都有：stderr 那一句两样都说"
+        "只有短名字有错：照样交回那一句",
+        "孤儿和短名字有错都有：stderr 那一句两样都说"
       ]
     },
     {
@@ -25586,7 +25586,7 @@
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",
       "why": "按短名字写的状态行不认 —— 欠条挪进历史文件、行号全变以后，已经还了的欠条照样被当成开着的反复提醒",
-      "find": "      for (const m of line.matchAll(CLOSING_BY_NAME)) out.add(`ADR-${Number(m[2])}「${m[3].trim()}」`)\n",
+      "find": "      for (const m of line.matchAll(CLOSING_BY_NAME)) out.add(recordKey(Number(m[2]), m[3].trim()))\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -25598,22 +25598,22 @@
       "id": "M-H211-h",
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",
-      "why": "历史文件里的条目和主文件用同一种行号键 —— 老状态行写「ADR-N 第 M 行」关上的是主文件那一张，历史文件同一行号的另一张开着的欠条也被当成关了、不再提醒",
-      "find": "  return m ? `ADR-${Number(m[2])}${m[1] ? '·历史' : ''}:${e.line}` : null",
-      "replace": "  return m ? `ADR-${Number(m[2])}:${e.line}` : null",
+      "why": "拆过的记录，主文件的条目照旧给行号键 —— 主文件重写后第 M 行恰好是另一张开着的欠条时，一行指旧正文第 M 行的老状态行就把它静默算成已关、不再提醒",
+      "find": "  if (!isHistory(e.file) && split.has(num)) return null\n",
+      "replace": "",
       "by": "test",
       "kills": [
-        "历史文件里的条目行号键另带「历史」，不和主文件同一行号撞",
-        "老写法按行号指主文件那一行，不顺带关上历史文件同一行号的那张"
+        "行号键：没拆过的主文件、拆过的历史文件有，拆过的主文件没有",
+        "拆过的记录：老状态行按行号关的是历史文件那张，不顺带关上主文件同一行号的那张"
       ]
     },
     {
       "id": "M-H211-i",
       "req": "harness",
-      "file": "scripts/check/debt-touch-rule.ts",
-      "why": "名字键不带记录编号 —— 别的记录里一张同名欠条的状态行，把这一张也当成关了",
-      "find": "  return num === null || name === null ? null : `ADR-${num}「${name}」`",
-      "replace": "  return num === null || name === null ? null : `「${name}」`",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "「记录 + 短名字」的键不带记录编号 —— 别的记录里一张同名欠条的状态行，把这一张也当成关了",
+      "find": "export const recordKey = (num: number, name: string): string => `ADR-${num}「${name}」`",
+      "replace": "export const recordKey = (num: number, name: string): string => `「${name}」`",
       "by": "test",
       "kills": [
         "名字对上但记录编号不同：照旧算开着"
@@ -25624,11 +25624,72 @@
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",
       "why": "判已关时只看行号键、不看名字键 —— 按名字写的状态行形同没写，已还的欠条照样被提醒",
-      "find": "    const keys = [entryKey(entry), nameKey(entry.file, name)]",
-      "replace": "    const keys = [entryKey(entry), null]",
+      "find": "    const keys = [entryKey(entry, split), nameKey(entry.file, name)]",
+      "replace": "    const keys = [entryKey(entry, split), null]",
       "by": "test",
       "kills": [
         "挪进历史文件的欠条，按名字关上：不列，只计数"
+      ]
+    },
+    {
+      "id": "M-H211-k",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "两张欠条没隔开时，后一张的条目拿到前一张的短名字 —— 按名字关上前一张，后一张开着的欠条也不再提醒",
+      "find": "      const block = blocks.filter(b => b.start <= i && i < b.end).at(-1)",
+      "replace": "      const block = blocks.find(b => b.start <= i && i < b.end)",
+      "by": "test",
+      "kills": [
+        "两张没隔开的欠条各拿自己的名字",
+        "两张没隔开的欠条：只关前一张，后一张照旧提醒"
+      ]
+    },
+    {
+      "id": "M-H211-l",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "块头起了名字却取不出来（空的、超过上限、书名号没收尾）时不报 —— 写的人以为起了名字，按名字写的状态行永远关不上它，重名查验也跳过它",
+      "find": "      if (fault !== null) { out.push(",
+      "replace": "      if (false) { out.push(",
+      "by": "test",
+      "kills": [
+        "起了名字却取不出：空的、超过上限、书名号没收尾，各报一条"
+      ]
+    },
+    {
+      "id": "M-H211-m",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "块头别处提到的别的欠条名字也当成这张的名字 —— 一张没起名字的欠条冒名顶替了「甲」，按名字关上「甲」时它也跟着不提醒，或者和真「甲」报一条假重名",
+      "find": "export const IOU_NAME = /⚠️\\s*\\*{0,2}欠条\\*{0,2}「([^」\\n]*)」/",
+      "replace": "export const IOU_NAME = /欠条「([^」\\n]*)」/",
+      "by": "test",
+      "kills": [
+        "块头别处提到的欠条名字不算这张的"
+      ]
+    },
+    {
+      "id": "M-H211-n",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "判已关时不看哪些记录拆过 —— 拆过的记录主文件照旧按行号认，一行指旧正文的老状态行把主文件同一行号的另一张开着的欠条静默关上",
+      "find": "  const split = splitRecords(docs)\n",
+      "replace": "  const split = new Set<number>()\n",
+      "by": "test",
+      "kills": [
+        "拆过的记录：老状态行按行号关的是历史文件那张，不顺带关上主文件同一行号的那张"
+      ]
+    },
+    {
+      "id": "M-H211-o",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "按名字写的「收尾」状态行不认 —— 需求所有者定了不做、已收尾的欠条照样被当成开着的反复提醒",
+      "find": "export const CLOSING_BY_NAME = new RegExp(`⚠️\\\\s*\\\\*{0,2}(已还|已重挂|收尾)",
+      "replace": "export const CLOSING_BY_NAME = new RegExp(`⚠️\\\\s*\\\\*{0,2}(已还|已重挂)",
+      "by": "test",
+      "kills": [
+        "状态行按短名字指：三种都认，键是记录加名字"
       ]
     }
   ],

@@ -39,8 +39,8 @@ import {
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
-import { adrDocs, duplicateIouNames, entries, iouName, ledgerReport, ledgerSummary, orphanIous, recordNum } from './check/debt-rule.js'
-import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
+import { adrDocs, entries, iouName, iouNameFaults, ledgerReport, ledgerSummary, orphanIous, recordNum } from './check/debt-rule.js'
+import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, splitRecords, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -14899,29 +14899,37 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   eq('有孤儿时交回打在 stderr 的那一句', full.err, '\n✗ 欠条台账：1 张欠条没写重启条件')
   eq('没有孤儿时不交回那一句', ledgerReport([debt], []).err, undefined)
 
-  // 欠条的短名字（ADR-211）：块头 `⚠️ 欠条「名字」：…`，状态行按名字指，文件重写、挪进历史都不变
-  eq('块头写了短名字就取出来，没写交回 null', [iouName('> ⚠️ 欠条「缓存没人守」：缺 x'), iouName('> ⚠️ 欠条：缺 x'), iouName('> ⚠️ 欠条「 」：x')],
-    ['缓存没人守', null, null])
+  // 欠条的短名字（ADR-211，欠条用短名字互指那一份）：块头 `⚠️ 欠条「名字」：…`，状态行按名字指，文件重写、挪进历史都不变
+  eq('块头写了短名字就取出来，没写交回 null', [iouName('> ⚠️ 欠条「缓存没人守」：缺 x'), iouName('> ⚠️ **欠条**「加粗也认」：x'), iouName('> ⚠️ 欠条：缺 x'), iouName('> ⚠️ 欠条「 」：x')],
+    ['缓存没人守', '加粗也认', null, null])
+  // 只认紧跟在「⚠️ 欠条」后面的那一对：块头别处提到的别的欠条名字不是这张的
+  eq('块头别处提到的欠条名字不算这张的', [iouName('> ⚠️ 欠条：接着 ADR-9 的欠条「甲」留下的尾巴'), iouName('> ⚠️ 欠条（重挂本记录的欠条「甲」）：x')], [null, null])
+  eq('名字到上限照收，过了上限交回 null', [iouName(`> ⚠️ 欠条「${'名'.repeat(40)}」：x`), iouName(`> ⚠️ 欠条「${'名'.repeat(41)}」：x`)], ['名'.repeat(40), null])
   eq('主文件与历史文件属于同一条记录，别的文件不属于', [recordNum('docs/adr/ADR-86-x.md'), recordNum('docs/adr/历史/ADR-86-x.md'), recordNum('docs/adr/README.md')],
     [86, 86, null])
   const named = (main: string, hist: string) => new Map([['docs/adr/ADR-5-x.md', main], ['docs/adr/历史/ADR-5-x.md', hist]])
-  eq('同一条记录里名字各不相同：不报', duplicateIouNames(named('> ⚠️ 欠条「甲」：x · 重启条件：y', '> ⚠️ 欠条「乙」：x · 重启条件：y')), [])
-  eq('主文件和它的历史文件里同名：报后一张', duplicateIouNames(named('> ⚠️ 欠条「甲」：x · 重启条件：y', '# ADR-5 x\n\n> ⚠️ 欠条「甲」：z · 重启条件：w'))
-    .map(d => `${d.file}:${d.line}`), ['docs/adr/历史/ADR-5-x.md:3'])
-  eq('同一个文件里两张同名：报后一张', duplicateIouNames(new Map([['docs/adr/ADR-5-x.md', '> ⚠️ 欠条「甲」：x · 重启条件：y\n\n> ⚠️ 欠条「甲」：z · 重启条件：w']]))
-    .map(d => d.line), [3])
-  eq('不同记录里同名不算重名，没写名字的不算', duplicateIouNames(new Map([['docs/adr/ADR-5-x.md', '> ⚠️ 欠条「甲」：x · 重启条件：y\n\n> ⚠️ 欠条：z · 重启条件：w\n\n> ⚠️ 欠条：z · 重启条件：w'],
+  const faultsAt = (docs: Map<string, string>) => iouNameFaults(docs).map(d => `${d.file}:${d.line} ${d.text.split('：')[0]}`)
+  eq('同一条记录里名字各不相同：不报', iouNameFaults(named('> ⚠️ 欠条「甲」：x · 重启条件：y', '> ⚠️ 欠条「乙」：x · 重启条件：y')), [])
+  eq('主文件和它的历史文件里同名：报后一张', faultsAt(named('> ⚠️ 欠条「甲」：x · 重启条件：y', '# ADR-5 x\n\n> ⚠️ 欠条「甲」：z · 重启条件：w')),
+    ['docs/adr/历史/ADR-5-x.md:3 和同一条记录里的另一张重名'])
+  eq('同一个文件里两张同名：报后一张', faultsAt(new Map([['docs/adr/ADR-5-x.md', '> ⚠️ 欠条「甲」：x · 重启条件：y\n\n> ⚠️ 欠条「甲」：z · 重启条件：w']])),
+    ['docs/adr/ADR-5-x.md:3 和同一条记录里的另一张重名'])
+  eq('不同记录里同名不算重名，没写名字的不算', iouNameFaults(new Map([['docs/adr/ADR-5-x.md', '> ⚠️ 欠条「甲」：x · 重启条件：y\n\n> ⚠️ 欠条：z · 重启条件：w\n\n> ⚠️ 欠条：z · 重启条件：w'],
     ['docs/adr/ADR-6-y.md', '> ⚠️ 欠条「甲」：x · 重启条件：y']])), [])
-  eq('围栏里演示的同名块不算', duplicateIouNames(new Map([['docs/adr/ADR-5-x.md', '> ⚠️ 欠条「甲」：x · 重启条件：y\n\n```\n> ⚠️ 欠条「甲」：示例\n```']])), [])
-  const dupe = { file: 'docs/adr/Z.md', line: 7, notation: '重启条件' as const, text: '⚠️ 欠条「甲」：z' }
+  eq('围栏里演示的同名块不算', iouNameFaults(new Map([['docs/adr/ADR-5-x.md', '> ⚠️ 欠条「甲」：x · 重启条件：y\n\n```\n> ⚠️ 欠条「甲」：示例\n```']])), [])
+  // 起了名字却取不出来：静默当成没名字的话，按名字写的状态行永远关不上它
+  eq('起了名字却取不出：空的、超过上限、书名号没收尾，各报一条', faultsAt(new Map([['docs/adr/ADR-5-x.md',
+    `> ⚠️ 欠条「 」：x · 重启条件：y\n\n> ⚠️ 欠条「${'名'.repeat(41)}」：x · 重启条件：y\n\n> ⚠️ 欠条「没收尾：x · 重启条件：y`]])),
+    ['docs/adr/ADR-5-x.md:1 名字是空的', 'docs/adr/ADR-5-x.md:3 名字超过 40 个字', 'docs/adr/ADR-5-x.md:5 书名号没收尾'])
+  const dupe = { file: 'docs/adr/Z.md', line: 7, notation: '重启条件' as const, text: '和同一条记录里的另一张重名：⚠️ 欠条「甲」：z' }
   const withDupe = ledgerReport([debt], [lone], [dupe])
-  eq('全表：重名另标一行，排在孤儿后面', withDupe.out.slice(1, 3), [
+  eq('全表：短名字有错的另标一行，排在孤儿后面', withDupe.out.slice(1, 3), [
     'docs/adr/Y.md:5  [孤儿·没写重启条件]  ⚠️ 欠条：缺 z',
-    'docs/adr/Z.md:7  [重名·同一条记录里已有这个短名字]  ⚠️ 欠条「甲」：z',
+    'docs/adr/Z.md:7  [短名字有错]  和同一条记录里的另一张重名：⚠️ 欠条「甲」：z',
   ])
-  eq('孤儿和重名都有：stderr 那一句两样都说', withDupe.err, '\n✗ 欠条台账：1 张欠条没写重启条件；1 张欠条和同一条记录里的另一张重名')
-  eq('只有重名：照样交回那一句', ledgerReport([debt], [], [dupe]).err, '\n✗ 欠条台账：1 张欠条和同一条记录里的另一张重名')
-  eq('真仓库里没有重名欠条', duplicateIouNames(adrDocs()).map(d => `${d.file}:${d.line}`), [])
+  eq('孤儿和短名字有错都有：stderr 那一句两样都说', withDupe.err, '\n✗ 欠条台账：1 张欠条没写重启条件；1 张欠条的短名字有错（重名或取不出）')
+  eq('只有短名字有错：照样交回那一句', ledgerReport([debt], [], [dupe]).err, '\n✗ 欠条台账：1 张欠条的短名字有错（重名或取不出）')
+  eq('真仓库里没有短名字有错的欠条', iouNameFaults(adrDocs()).map(d => `${d.file}:${d.line}`), [])
 
   // 读哪些文件也是判定：两个入口各走各的目录的话，一边多收或少收一份，两份台账就对不上
   const adrTmp = mkdtempSync(join(tmpdir(), 'kol-adr-docs-'))
@@ -21743,14 +21751,28 @@ await group('h-iou-file-reminder', () => {
     ['ADR-1「甲」', 'ADR-2「乙」', 'ADR-6「丙」'])
   eq('名字键：主文件与历史文件同一个，没写名字或不是编号记录没有', [nameKey('docs/adr/ADR-1-x.md', '甲'), nameKey('docs/adr/历史/ADR-1-x.md', '甲'),
     nameKey('docs/adr/ADR-1-x.md', null), nameKey('docs/adr/README.md', '甲')], ['ADR-1「甲」', 'ADR-1「甲」', null, null])
-  eq('历史文件里的条目行号键另带「历史」，不和主文件同一行号撞', entryKey({ file: 'docs/adr/历史/ADR-86-x.md', line: 118, notation: '重启条件', text: '' }), 'ADR-86·历史:118')
+  // 拆过的记录：旧正文原样搬进历史文件，老状态行的行号指的是那里；主文件重写过，它的条目没有行号键
+  eq('拆过的记录：有历史文件的那些编号', [...splitRecords(new Map([['docs/adr/ADR-1-x.md', ''], ['docs/adr/历史/ADR-1-x.md', ''], ['docs/adr/ADR-2-y.md', '']]))], [1])
+  const at = (file: string) => ({ file, line: 3, notation: '重启条件' as const, text: '' })
+  eq('行号键：没拆过的主文件、拆过的历史文件有，拆过的主文件没有', [entryKey(at('docs/adr/ADR-2-y.md'), new Set([1])), entryKey(at('docs/adr/历史/ADR-1-x.md'), new Set([1])),
+    entryKey(at('docs/adr/ADR-1-x.md'), new Set([1]))], ['ADR-2:3', 'ADR-1:3', null])
   const namedOpen = new Map([['docs/adr/历史/ADR-1-x.md', '# ADR-1 x\n\n> ⚠️ 欠条「a 少一道核」：`scripts/a.ts` · 重启条件：下一条碰它的 PR\n']])
   eq('挪进历史文件的欠条，按名字关上：不列，只计数', (r => [r.hits, r.closed])(touchReport(
     new Map([...namedOpen, ['docs/adr/ADR-2-y.md', '> ⚠️ 已还：ADR-1「a 少一道核」 · 还在 #1']]), files, ['scripts/a.ts'])), [[], 1])
   eq('名字对不上：照旧算开着', touchReport(new Map([...namedOpen, ['docs/adr/ADR-2-y.md', '> ⚠️ 已还：ADR-1「b 少一道核」']]), files, ['scripts/a.ts']).hits.length, 1)
   eq('名字对上但记录编号不同：照旧算开着', touchReport(new Map([...namedOpen, ['docs/adr/ADR-2-y.md', '> ⚠️ 已还：ADR-3「a 少一道核」']]), files, ['scripts/a.ts']).hits.length, 1)
-  eq('老写法按行号指主文件那一行，不顺带关上历史文件同一行号的那张', touchReport(
-    new Map([...namedOpen, ['docs/adr/ADR-2-y.md', '> ⚠️ 已还：ADR-1 第 3 行']]), files, ['scripts/a.ts']).hits.length, 1)
+  // 两张带名字的欠条没隔开时，前一张的块延到后一张里面；后一张的条目要拿自己的名字，不是前一张的
+  const adjacent = new Map([['docs/adr/ADR-1-x.md', '> ⚠️ 欠条「甲」：`scripts/a.ts` · 重启条件：x\n> ⚠️ 欠条「乙」：`scripts/a.ts` · 重启条件：y']])
+  eq('两张没隔开的欠条各拿自己的名字', entryTexts(adjacent).map(t => t.name), ['甲', '乙'])
+  eq('两张没隔开的欠条：只关前一张，后一张照旧提醒', touchReport(new Map([...adjacent, ['docs/adr/ADR-2-y.md', '> ⚠️ 已还：ADR-1「甲」']]), files, ['scripts/a.ts'])
+    .hits.map(h => h.entry.line), [2])
+  // 拆过之后：重写的主文件第 3 行恰好是另一张开着的欠条，历史文件第 3 行是原来那张、已有老状态行关上
+  const splitDocs = new Map([
+    ['docs/adr/ADR-1-x.md', '# ADR-1 x\n\n> ⚠️ 欠条「新的」：`scripts/a.ts` · 重启条件：x\n'],
+    ['docs/adr/历史/ADR-1-x.md', '# ADR-1 x\n\n> ⚠️ 欠条：`scripts/a.ts` 老的 · 重启条件：y\n\n> ⚠️ 已还：ADR-1 第 3 行\n'],
+  ])
+  eq('拆过的记录：老状态行按行号关的是历史文件那张，不顺带关上主文件同一行号的那张', touchReport(splitDocs, files, ['scripts/a.ts'])
+    .hits.map(h => h.entry.file), ['docs/adr/ADR-1-x.md'])
 
   // 正文太长时截短，末尾接「…」；有命中又有已关的，汇总两样都说
   const long = touchReport(adr('> ⚠️ 欠条：`scripts/a.ts` ' + '长'.repeat(300) + ' · 重启条件：x'), files, ['scripts/a.ts'])
@@ -21797,7 +21819,8 @@ await group('h-iou-file-reminder', () => {
     selfcheckForms.every(f => namesSelfcheck.test(`改 ${f}。`) && namesSelfcheck.test(`见${f}.`))
       && ['scripts/selfcheck.ts', 'x/check/selfcheck.ts', 'selfcheck.tsx', 'selfcheck.ts.bak', 'scripts/check/selfcheck.tsx']
         .every(t => !namesSelfcheck.test(`改 ${t} 时`)))
-  const stillOpen = entryTexts(realDocs).some(t => !realClosed.has(entryKey(t.entry) ?? '') && namesSelfcheck.test(t.text))
+  const realSplit = splitRecords(realDocs)
+  const stillOpen = entryTexts(realDocs).some(t => ![entryKey(t.entry, realSplit), nameKey(t.entry.file, t.name)].some(k => k !== null && realClosed.has(k)) && namesSelfcheck.test(t.text))
   ok('真仓库：改 selfcheck.ts 时列得出，列出的每一条正文里都写着 selfcheck.ts',
     (real.hits.length > 0) === stillOpen && real.hits.every(h => namesSelfcheck.test(realText.get(`${h.entry.file}:${h.entry.line}`) ?? '')))
 

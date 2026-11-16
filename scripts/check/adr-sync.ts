@@ -35,7 +35,7 @@ const errors: string[] = []
 const adrs: Adr[] = []
 for (const file of readdirSync(DIR).sort()) {
   if (file === 'README.md') continue
-  // 历史文件不是记录、不进索引，只核它跟着的那条主文件在不在（ADR-211）
+  // 历史文件不是记录、不进索引，只核它跟着的那条主文件在不在（ADR-211，主文件只放现行结论那一份）
   if (file === HISTORY_DIR && statSync(join(DIR, file)).isDirectory()) continue
   const m = FILE_RE.exec(file)
   if (!m) { errors.push(`${file} 文件名不合格式，应为 ADR-<编号>-<标题>.md`); continue }
@@ -47,7 +47,11 @@ for (const file of readdirSync(DIR).sort()) {
 errors.push(...checkAll(adrs))
 const historyDir = join(DIR, HISTORY_DIR)
 if (existsSync(historyDir)) {
-  const history = readdirSync(historyDir).sort()
+  const names = readdirSync(historyDir).sort()
+  const isFile = (f: string) => statSync(join(historyDir, f)).isFile()
+  // 不是文件的（子目录）先报出来，不去读它 —— 读一个目录会直接抛错，报的就不是哪里不对了
+  for (const f of names.filter(f => !isFile(f))) errors.push(`${HISTORY_DIR}/${f} 不是文件 —— 历史目录里只放与主文件同名的历史文件`)
+  const history = names.filter(isFile)
     .map(file => ({ file, first: readFileSync(join(historyDir, file), 'utf8').split('\n')[0] }))
   errors.push(...historyFaults(adrs.map(a => a.file), history))
 }

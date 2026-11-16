@@ -9211,6 +9211,18 @@ group('adr-ledger-entry', [], () => {
       + '  被引表 3 条记录 · 被引 3 次及以上 0 · 1–2 次 1 · 0 次 2 · 有教训栏 0 · 前十条里有教训栏 0 —— 只报数，不设阈值，也不判哪几条是同一类\n'
       && readdirSync(root).join() === 'docs' && readdirSync(join(root, 'docs')).join() === 'adr',
     `退出码 ${cites.status}；输出：\n${cites.stdout}stderr 末几行：${stderrTail(cites.stderr)}；玩具树根下：${readdirSync(root).join('、')}`)
+  // 欠条短名字有错（ADR-211，欠条用短名字互指那一份）与孤儿同是硬失败：入口要把第三样交给全表、跟着以 1 退出。
+  // 同一条记录的两张欠条一张在主文件、一张在历史文件里，名字相同 —— 入口要走含子目录的那份读法才看得见
+  try {
+    mkdirSync(join(adr, '历史'))
+    writeFileSync(join(adr, 'ADR-4-重名.md'), '# ADR-4 重名\n\n> ⚠️ 欠条「甲」：x · 重启条件：y\n')
+    writeFileSync(join(adr, '历史', 'ADR-4-重名.md'), '# ADR-4 重名\n\n> ⚠️ 欠条「甲」：z · 重启条件：w\n')
+  } catch (e) { failed++; console.error(`  ✗ 台账入口重名夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`); return }
+  const dup = runToolBoth('adr-ledger 在多两张同名欠条的玩具树上跑', 'adr-ledger', [], root, { status: 1, soft: [0] })
+  if (dup.ok) named('台账入口：主文件与历史文件里两张欠条同名时列出历史文件那张、stderr 说短名字有错，以 1 退出',
+    dup.status === 1 && dup.stdout.includes('docs/adr/历史/ADR-4-重名.md:3  [短名字有错]  和同一条记录里的另一张重名：⚠️ 欠条「甲」：z · 重启条件：w\n')
+      && dup.stderr.includes('1 张欠条的短名字有错（重名或取不出）'),
+    `退出码 ${dup.status}；输出：\n${dup.stdout}stderr 末几行：${stderrTail(dup.stderr)}`)
 })
 
 // ---- 派工那条路：真起 worker，真在隔离目录里跑 ----
