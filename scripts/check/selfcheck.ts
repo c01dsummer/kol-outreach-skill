@@ -38,7 +38,7 @@ import { createRequire as entrySelfcheckCreateRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
-import { isDeepStrictEqual } from 'node:util'
+import { isDeepStrictEqual, promisify } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import { asTsx, brandObserverEnv, fixtureLoader, prebuiltCommand } from './prebuilt.js'
 import {
@@ -131,19 +131,26 @@ const cwds = new Map<string, Set<string>>()
 let runningGroup: string | undefined
 {
   const req = createRequire(import.meta.url)
-  const cp = req('node:child_process') as Record<string, (...a: unknown[]) => unknown>
+  type Fn = (...a: unknown[]) => unknown
+  const cp = req('node:child_process') as Record<string, Fn & { [promisify.custom]?: Fn }>
+  const note = (a: unknown[]): void => {
+    if (runningGroup === undefined) return
+    const options = a.find(x => typeof x === 'object' && x !== null && !Array.isArray(x)) as { cwd?: unknown } | undefined
+    const raw = options?.cwd
+    const at = cwdUnder(tmp, raw === undefined || raw === null ? process.cwd()
+      : raw instanceof URL ? fileURLToPath(raw) : String(raw), realpathSync)
+    if (at !== undefined) cwds.set(runningGroup, (cwds.get(runningGroup) ?? new Set()).add(at))
+  }
+  const noted = (f: Fn): Fn => function (this: unknown, ...a: unknown[]) { note(a); return f.apply(this, a) }
   for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']) {
     const original = cp[name]
-    cp[name] = function (this: unknown, ...a: unknown[]) {
-      if (runningGroup !== undefined) {
-        const options = a.find(x => typeof x === 'object' && x !== null && !Array.isArray(x)) as { cwd?: unknown } | undefined
-        const raw = options?.cwd
-        const at = cwdUnder(tmp, raw === undefined || raw === null ? process.cwd()
-          : raw instanceof URL ? fileURLToPath(raw) : String(raw), realpathSync)
-        if (at !== undefined) cwds.set(runningGroup, (cwds.get(runningGroup) ?? new Set()).add(at))
-      }
-      return original.apply(this, a)
-    }
+    const wrapped = noted(original)
+    Object.defineProperty(wrapped, 'name', { value: original.name })
+    // `exec`、`execFile` 带着自己的 promisify 版本（交回 `{ stdout, stderr }`）：一并带过来，也记一笔，
+    // 否则 `promisify(execFile)` 拿到的结果形状会变（与 `launch-preload.ts` 同一个做法）
+    const custom = original[promisify.custom]
+    if (typeof custom === 'function') Object.defineProperty(wrapped, promisify.custom, { value: noted(custom) })
+    cp[name] = wrapped
   }
   ;(req('node:module') as typeof import('node:module')).syncBuiltinESMExports()
 }
