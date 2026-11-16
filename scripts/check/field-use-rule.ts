@@ -157,24 +157,25 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const rel = (sf: Ts.SourceFile) => relOf(root, sf.fileName)
   const argumentsOf = (t: Ts.Type): readonly Ts.Type[] =>
     ((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) ? tc.getTypeArguments(t as Ts.TypeReference) : []
-  // 递归泛型（`next?: Chain<T[]>`）每展开一层都是新实例，seen 拦不住：同一个声明在这条路上已经展开过三层（TypeScript 自己判「嵌套过深」也用三层），属性的声明与外层是同一批，不再展开属性。找字段、找重抄的两路还走它的类型参数（新东西只能从那里来，往下只会变小）；整体比对就停（宁可少记碰到）
-  const again = (t: Ts.Type, open: readonly Ts.Symbol[]) => t.symbol !== undefined && open.filter(s => s === t.symbol).length >= 3
+  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按一条停：同一个声明（别名、接口、类型字面量；普通数组元组不算）
+  // 在这条路上已经开着三层（TypeScript 自己判「嵌套过深」也用三层），这一层整个不展开。声明有限、每个至多三层，所以必停；代价见 ADR-198 第四节
+  const recursion = (t: Ts.Type): Ts.Symbol | undefined => t.aliasSymbol ?? (tc.isArrayType(t) || tc.isTupleType(t) ? undefined : t.symbol)
+  const enter = (t: Ts.Type, open: readonly Ts.Symbol[]): readonly Ts.Symbol[] | undefined => { const k = recursion(t); return k === undefined ? open : open.filter(s => s === k).length >= 3 ? undefined : [...open, k] }
 
   // ── 1. 字段 ──
   const found = new Map<Ts.Declaration, string>()
   const walk = (t: Ts.Type, via: string, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
-    if (seen.has(t)) return
-    seen.add(t)
-    if (t.isUnion() || t.isIntersection()) { for (const u of t.types) walk(u, via, seen, open); return }
-    if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) walk(a, `${via}[]`, seen, open); return }
-    if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen, open); return } // 按约束找：调用处读的是实参那份，宁可多报红
+    const inner = enter(t, open)
+    if (inner === undefined || seen.has(t)) return; seen.add(t) // 先判层数再记 seen：在深处被停下的，从浅处走到照样展开
+    if (t.isUnion() || t.isIntersection()) { for (const u of t.types) walk(u, via, seen, inner); return }
+    if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) walk(a, `${via}[]`, seen, inner); return }
+    if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen, inner); return } // 按约束找：调用处读的是实参那份，宁可多报红
     if (!(t.flags & ts.TypeFlags.Object)) return
-    if (again(t, open)) { for (const a of t.aliasTypeArguments ?? argumentsOf(t)) walk(a, `${via}<>`, seen, open); return }
-    if (fromLibrary(t)) for (const a of argumentsOf(t)) walk(a, `${via}<>`, seen, open)
-    for (const info of tc.getIndexInfosOfType(t)) walk(info.type, `${via}[*]`, seen, [...open, t.symbol])
+    if (fromLibrary(t)) for (const a of argumentsOf(t)) walk(a, `${via}<>`, seen, inner)
+    for (const info of tc.getIndexInfosOfType(t)) walk(info.type, `${via}[*]`, seen, inner)
     for (const p of t.getProperties()) {
       for (const d of p.declarations ?? []) if (isJudgedFile(rel(d.getSourceFile())) && !found.has(d)) found.set(d, `${via}.${p.name}`)
-      walk(tc.getTypeOfSymbol(p), `${via}.${p.name}`, seen, [...open, t.symbol])
+      walk(tc.getTypeOfSymbol(p), `${via}.${p.name}`, seen, inner)
     }
   }
   for (const sf of program.getSourceFiles()) {
@@ -215,11 +216,10 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
      */
     const copied = new Set<Ts.Declaration>()
     const copy = (t: Ts.Type, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
-      if (seen.has(t)) return
-      seen.add(t)
-      if (t.isUnion() || t.isIntersection()) { for (const u of t.types) copy(u, seen, open); return }
-      for (const a of argumentsOf(t)) copy(a, seen, open)
-      if (again(t, open)) return; const inner = [...open, t.symbol]
+      const inner = enter(t, open)
+      if (inner === undefined || seen.has(t)) return; seen.add(t)
+      if (t.isUnion() || t.isIntersection()) { for (const u of t.types) copy(u, seen, inner); return }
+      for (const a of argumentsOf(t)) copy(a, seen, inner)
       for (const info of tc.getIndexInfosOfType(t)) copy(info.type, seen, inner)
       if (fromLibrary(t)) return
       for (const sig of t.getCallSignatures()) copy(tc.getReturnTypeOfSignature(sig), seen, inner)
@@ -250,11 +250,10 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       && (((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped) !== 0 || !fromLibrary(t)) && !((t.symbol?.flags ?? 0) & ts.SymbolFlags.Class)
       && t.getCallSignatures().length === 0 && t.getConstructSignatures().length === 0 && t.getProperty('toJSON') === undefined
     const whole = (t: Ts.Type, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
-      if (seen.has(t)) return; seen.add(t)
-      if (t.isUnion()) { for (const u of t.types) whole(u, seen, open); return }
-      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, open); return }
-      if (!plain(t) || again(t, open)) return
-      const inner = [...open, t.symbol]
+      const inner = enter(t, open); if (inner === undefined || seen.has(t)) return; seen.add(t)
+      if (t.isUnion()) { for (const u of t.types) whole(u, seen, inner); return }
+      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, inner); return }
+      if (!plain(t)) return
       for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, inner)
       for (const p of t.getProperties()) {
         const pt = tc.getNonNullableType(tc.getTypeOfSymbol(p))
