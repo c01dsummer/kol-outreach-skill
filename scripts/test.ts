@@ -78,7 +78,7 @@ import {
 import { HARNESS, attributionFault, duplicateIds, orphanAttributions } from './check/attribution-rule.js'
 import { orderBindingFaults, type OrderFault, type OrderMutation } from './check/order-rule.js'
 import { skillFaults, type IndexEntry, type SkillDoc, type SkillFault, type SkillFaultKind, type SkillInput } from './check/skill-rule.js'
-import { briefSheet, declarationFindings, insideRoot, requirementSheet } from './check/admission-rule.js'
+import { briefSheet, declarationFindings, entryScripts, entrySheet, insideRoot, requirementSheet } from './check/admission-rule.js'
 import {
   CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault,
   claimsWellFormed,
@@ -839,6 +839,12 @@ suite('P2', '开发信占位符必须原样保留到产出物')
     eq('P2.b 真起 render：kol.xlsx 里每封草稿在自己那一行逐字相同（空占位符 {} 也在）', byHandle(sheetRows, xlsxHead), drafts)
     eq('P2.b 真起 render：report.html 里每张卡片自己的草稿块与草稿逐字相同（空占位符 {} 也在）',
       handles.map(h => preOf(read('report.html'), h)), drafts.map(htmlEsc))
+    // render 把名单写回任务目录的 creators.json（D30.e 点名的交付物，下一次 render 又从它读进来）
+    const saved = (() => { try { return JSON.parse(read('creators.json')) as { handle?: unknown; outreach_draft?: unknown }[] } catch { return [] } })()
+    // 夹具先放了一份草稿相同的 creators.json：先确认这一份是 render 写回的（字节与种子不同），不然「没写回」也照绿
+    eq('P2.b 真起 render：写回任务目录的 creators.json 里每封草稿逐字相同（空占位符 {} 也在）',
+      [read('creators.json') !== JSON.stringify(list), handles.map(h => (Array.isArray(saved) ? saved : []).find(c => c.handle === h)?.outreach_draft)],
+      [true, drafts])
   } finally { rmSync(root, { recursive: true, force: true }) }
   criterion('P2.b')
 }
@@ -13074,9 +13080,9 @@ eq('Skill 结构：没有软链、不是软链、软链指错了三种问题的�
   { broken: [], kinds: ['no-link', 'not-link', 'wrong-target'] })
 })
 await group('h-admission', () => {
-harness('准入读物包的四个纯判定：需求单、变异说明、签名扫描、包目录在不在仓库里（ADR-202）')
+harness('准入读物包的纯判定：需求单、变异说明、签名扫描、包目录在不在仓库里（ADR-202），哪些是入口、入口那一份抄哪几行（ADR-208）')
 // 期望值只从 ADR-202 第二到第五节手推（第二节的版式与认法、第三节的三种、第四节的判法、第五节的接口）；
-// 写时 admission-rule.ts 是抛错的桩，没有函数体可读，也没有输出可抄。整组只调第五节那四个纯函数，0 次启动、不读文件。
+// 写时 admission-rule.ts 是抛错的桩，没有函数体可读，也没有输出可抄。整组只调第五节那四个纯函数与 ADR-208 后加的 entryScripts、entrySheet 两个，共六个纯函数，0 次启动、不读文件。
 // 经 guard 调：抛错时返回哨兵 ['抛错', 消息]，每条断言各自红、整组不崩（ADR-156 第七节的先例）。
 // eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第 242 行）。
 // 写这一组时问出的含糊处已回写进 ADR-202 第二、三节（3db4b85），后补的断言照回写后的原文手推。
@@ -13646,6 +13652,44 @@ eq('准入读物：名字以仓库目录名开头的兄弟不在里面', inside(
 eq('准入读物：上级目录不在里面', inside('/a/repo', '/a'), false) // '..'
 eq('准入读物：不相干的目录不在里面', inside('/a/repo', '/b/c'), false) // '../../b/c'
 eq('准入读物：仓库根是文件系统根时任何目录都在里面', inside('/', '/tmp/pkg'), true) // 'tmp/pkg'
+
+// ── 入口脚本（ADR-206 第五节、ADR-208）：package.json 的命令指到 scripts/ 下一层的 .ts；检查链与 scripts/test.ts 不算
+const entries = (pkg: unknown): unknown => guard(() => entryScripts(pkg))
+eq('准入读物入口：命令里指到 scripts/ 下一层的 .ts 是入口，去重、排序', entries({ scripts: {
+  render: 'node --env-file-if-exists=.env node_modules/.bin/tsx scripts/render.ts',
+  collect: 'tsx scripts/collect.ts', again: 'tsx scripts/render.ts --dir x', 'probe:ig': 'tsx scripts/probe-ig-paging.ts',
+} }), ['scripts/collect.ts', 'scripts/probe-ig-paging.ts', 'scripts/render.ts'])
+eq('准入读物入口：检查链 scripts/check/ 下的、测试 scripts/test.ts 都不算入口', entries({ scripts: {
+  size: 'tsx scripts/check/size.ts', test: 'tsx scripts/test.ts', check: 'npm run size && npm test',
+} }), [])
+eq('准入读物入口：一条命令里点了两个入口，两个都算', entries({ scripts: { both: 'tsx scripts/a.ts && tsx scripts/b.ts' } }),
+  ['scripts/a.ts', 'scripts/b.ts'])
+eq('准入读物入口：别的目录下的 scripts/、.tsx、.ts 后面还连着字的都不算', entries({ scripts: {
+  x: 'tsx vendor/scripts/a.ts', y: 'tsx scripts/b.tsx', z: 'tsx scripts/c.ts.bak', w: 'tsx xscripts/d.ts', v: 'tsx my-scripts/e.ts',
+} }), [])
+eq('准入读物入口：带 ./ 的写法也算入口，../ 指到仓库外的不算', entries({ scripts: {
+  dot: 'tsx ./scripts/render.ts', up: 'tsx ../scripts/up.ts',
+} }), ['scripts/render.ts'])
+eq('准入读物入口：命令不是字符串的那一项跳过，别的照认', entries({ scripts: { bad: 7, ok: 'tsx scripts/a.ts' } }), ['scripts/a.ts'])
+eq('准入读物入口：package.json 读不出、不是对象、没有 scripts 或 scripts 不是对象时没有入口',
+  [entries(undefined), entries(null), entries('x'), entries({}), entries({ scripts: 'tsx scripts/a.ts' })], [[], [], [], [], []])
+// 入口那一份：只抄指到源目录的 import 原文。import 的路径放进变量再拼（同 selfcheck 那一组，ADR-202 第十七节）
+const bareLib = 'lib/a.js', libA = './lib/a.js', provB = './providers/b.js', checkC = './check/c.js', libxD = './libx/d.js', backE = './check/../lib/e.js'
+const entryText = [`import { a } from '${libA}'`, `import type { B } from '${provB}'`, `import { c } from '${checkC}'`,
+  `import { d } from '${libxD}'`, `import { e } from '${backE}'`, "import { readFileSync } from 'node:fs'",
+  "import ts from 'typescript'", 'const x = a(c())', 'function run() { return d(e) }', 'run()'].join('\n')
+const sheetOf = (text: string): unknown => guard(() => entrySheet('scripts/run.ts', text, ['scripts/lib', 'scripts/providers']))
+eq('准入读物入口那一份：只抄指到源目录的 import 原文，按原先后，末尾 export {}', sheetOf(entryText), [
+  '// 入口 scripts/run.ts：不导出函数。下面只是它从 scripts/lib、scripts/providers 引用的导出（import 原文），不是它的代码；import 了不等于每个都用到。',
+  `import { a } from '${libA}'`, `import type { B } from '${provB}'`, `import { e } from '${backE}'`, 'export {};', ''].join('\n'))
+eq('准入读物入口那一份：import 上方与行尾的注释不随它进包，只抄 import 语句本身',
+  sheetOf(['// 这里读名单走 a，内部细节写在注释里', `import { a } from '${libA}' // 行尾的说明`].join('\n')), [
+  '// 入口 scripts/run.ts：不导出函数。下面只是它从 scripts/lib、scripts/providers 引用的导出（import 原文），不是它的代码；import 了不等于每个都用到。',
+  `import { a } from '${libA}'`, 'export {};', ''].join('\n'))
+eq('准入读物入口那一份：检查链、名字以源目录名开头的别的目录、node 内置与第三方包（连看着像源目录路径的包名）的 import 都不抄', [checkC, libxD, 'node:fs', 'typescript', bareLib]
+  .map(spec => sheetOf(`import { z } from '${spec}'`)), [checkC, libxD, 'node:fs', 'typescript', bareLib].map(() => [
+  '// 入口 scripts/run.ts：不导出函数。下面只是它从 scripts/lib、scripts/providers 引用的导出（import 原文），不是它的代码；import 了不等于每个都用到。',
+  'export {};', ''].join('\n')))
 })
 await group('h-admission-exit-code', () => {
 harness('准入读物包的入口只设退出码、不当场退出（ADR-202 第十六、十七节，KOL-45 关单标准第 4 条）')
@@ -13654,7 +13698,7 @@ harness('准入读物包的入口只设退出码、不当场退出（ADR-202 第
 // 行为上的那一半由自检组 admission-entry 的「夹带 300 处、一行不少」证，可它经 tsx 起入口，把入口改回当场退出 300 到 6 万行都照样收全
 // （复核实测，原因没查清），抓不到这种坏法。于是这里补一道读源码的：入口正文里没有硬退出的调用。
 // 认法借 mutate-rule.ts 的 exitRace（按语法树认 process.exit 与 process['exit'] 的调用，注释、字符串里写全了的不算）；
-// 先赋给别的名字再调的认不出，那是它写明了的窄头。不并进 h-admission：那一组头注说整组只调四个纯函数、不读文件。
+// 先赋给别的名字再调的认不出，那是它写明了的窄头。不并进 h-admission：那一组头注说整组只调纯函数、不读文件。
 eq('准入读物入口：没有硬退出的调用，拒收时打出的那几百行不会被截掉', exitRace(rf('scripts/check/admission.ts', 'utf8')), [])
 })
 await group('h-group', () => {

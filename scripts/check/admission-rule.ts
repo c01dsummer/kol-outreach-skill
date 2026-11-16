@@ -8,7 +8,7 @@
  */
 import type * as Ts from 'typescript'
 import { createRequire } from 'node:module'
-import { isAbsolute, relative, sep } from 'node:path'
+import { isAbsolute, posix, relative, sep } from 'node:path'
 import type { Req } from './spec-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
@@ -154,4 +154,40 @@ export function insideRoot(root: string, dir: string): boolean {
   const r = relative(root, dir)
   // 本身（`r` 是空串）也在里面。名字以 `..` 开头的子目录（`..cache`）在里面：只认整段的 `..`
   return r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r)
+}
+
+/**
+ * 入口脚本：`package.json` 的 `scripts` 里指到 `scripts/` 下一层的 `.ts`（`scripts/check/` 下的是检查链，不算；
+ * `scripts/test.ts` 是测试，不算）。它们不导出函数，签名里没有它们，写测试的人就不知道入口走哪个函数（ADR-206 第五节）。
+ * 交回去重、排好序的相对路径；`package.json` 读不出或没有 `scripts` 时交回空数组。
+ */
+export function entryScripts(pkg: unknown): string[] {
+  const scripts = typeof pkg === 'object' && pkg !== null ? (pkg as { scripts?: unknown }).scripts : undefined
+  if (typeof scripts !== 'object' || scripts === null) return []
+  const found = new Set<string>()
+  for (const command of Object.values(scripts)) {
+    if (typeof command !== 'string') continue
+    for (const m of command.matchAll(/(?<![\w./-])(?:\.\/)?scripts\/([\w.-]+)\.ts(?![\w/.-])/g))
+      if (m[1] !== 'test') found.add(`scripts/${m[1]}.ts`)
+  }
+  return [...found].sort()
+}
+
+/**
+ * 入口那一份（ADR-208）：只抄入口里指到源目录（`sources`，相对仓库根）的 import 原文，指到别处的（检查链、node 内置、
+ * 第三方包）不抄，函数体与别的语句一行不带。`path` 是入口相对仓库根的路径，用 `/` 分隔
+ */
+export function entrySheet(path: string, text: string, sources: readonly string[]): string {
+  loadCompiler()
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true)
+  const kept = file.statements.filter(ts.isImportDeclaration).filter(d => {
+    const spec = ts.isStringLiteral(d.moduleSpecifier) ? d.moduleSpecifier.text : ''
+    // 非相对的（`node:fs`、第三方包，连 `lib/a.js` 这种看着像路径的包名）不收：只有 `./`、`../` 开头的才按路径拼
+    if (!spec.startsWith('./') && !spec.startsWith('../')) return false
+    const target = posix.join(posix.dirname(path), spec)
+    return sources.some(s => target.startsWith(`${s}/`))
+  }).map(d => d.getText(file))
+  return [
+    `// 入口 ${path}：不导出函数。下面只是它从 ${sources.join('、')} 引用的导出（import 原文），不是它的代码；import 了不等于每个都用到。`,
+    ...kept, 'export {};', ''].join('\n')
 }
