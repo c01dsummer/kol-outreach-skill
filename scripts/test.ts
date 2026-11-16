@@ -935,6 +935,7 @@ suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评�
       F, [], ['fifty dollars', 'thirty bucks', 'fifty per cent', 'half price', 'half off', 'double', 'twice', 'a dozen', 'a million'], []],
     ['复合拼写数按整个值读', 'Lasts twenty five hours, or two hundred hours.', ['5 hours', '200 hours'], [], ['twenty five hours'], []],
     ['不跟单位的拼写数（one post、five colors）不扫', 'One post, two stories, five colors.', F, [], [], []],
+    ['a hundred and five 这类 a 开头的复合拼写数按整个值读', 'Lasts a hundred and five hours.', ['Battery: 105 hours'], [], [], []],
     ['拼写数后面跟单个字母的单位（five L、ten g）也扫', 'It holds five L and weighs ten g.', ['Capacity: 1 L', 'Weight: 10 g'], [], ['five L'], []],
     // 承诺词表（取舍五）
     ['承诺词的变体与新扩的几类', "bestselling, bestseller, moneyback, guaranteeing, certify, warrantee, water proof, free gift, ships free, free US shipping, complimentary, discount, commission, cashback, CE marked, UL listed, FCC approved, USDA, non-GMO, gluten-free, all-natural, food-grade, lab-tested, doctor recommended, leakproof, dishwasher safe, top-rated, five-star, world's first, risk-free, easy returns",
@@ -1147,6 +1148,7 @@ suite('P2', '开发信草稿里带认证说法的那一句要在产品资料里�
       ['NSF certified.', 'Award from Wired.', 'Certified by NSF.'], [], [], []],
     ['一行几千字没有句号的认证句不出错，只显示头尾', 'Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved.', ['Capacity 400 mL'], [],
       [('Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved').slice(9, 369) + '…' + ('we love your videos and '.repeat(400) + 'it is FDA approved').slice(-100)], []],
+    ['缩写不分大小写：DR. 后面的名字照样在同一句里核', 'Tested by DR. Jones. Approved by Dr. Smith.', ['Tested by Dr. Smith.', 'Approved by DR. Smith.'], [], ['Tested by DR. Jones'], []],
     ['分号后面不空格也分句，和资料那边一致', 'NSF certified;FDA registered;CE marked.', ['NSF certified;FDA registered.'], [], ['CE marked'], []],
     ['比整句时词的边界照算：Untested by SGS 不给 Tested by SGS 作保', 'Tested by SGS.', ['Untested by SGS.'], [], ['Tested by SGS'], []],
     ['by、with、to 后面是我们自己或泛指的人不算认证说法；后面跟 them、us 的背书照核', 'All content is approved by us before posting. Highly recommended to anyone who travels. Doctors recommend them. Consumer Reports recommended us.',

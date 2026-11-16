@@ -84,8 +84,8 @@ function spelledValue(phrase: string): number | undefined {
 const W = (words: readonly string[]) => [...words].sort((a, b) => b.length - a.length).join('|')
 /** 一组拼写数字：「twenty five」「twenty-five」「two hundred」「a thousand」「a dozen」；必须以数词开头。 */
 const NUM_WORDS = W([...ONES, ...TEENS, ...TENS])
-/** 「and」只在 hundred、thousand、million 后面才连着读（one hundred and five）；「five and ten minutes」是两个数。 */
-const SPELLED = `(?:(?:a|an)[\\s-]+(?:dozen|hundred|thousand|million)|(?:${NUM_WORDS})(?:[\\s-]+(?:${NUM_WORDS}|hundred|thousand|million|dozen)|(?<=hundred|thousand|million)\\s+and(?=\\s+(?:${NUM_WORDS})))*)`
+/** 「and」只在 hundred、thousand、million 后面才连着读（one hundred and five、a hundred and five）；「five and ten minutes」是两个数。 */
+const SPELLED = `(?:(?:(?:a|an)[\\s-]+(?:dozen|hundred|thousand|million)|(?:${NUM_WORDS}))(?:[\\s-]+(?:${NUM_WORDS}|hundred|thousand|million|dozen)|(?<=hundred|thousand|million)\\s+and(?=\\s+(?:${NUM_WORDS})))*)`
 
 /** 「BPA free」「leak proof」这样中间带空格写时认的前缀；连写或带连字符的不受这两张表限制。 */
 const FREE_PREFIXES = 'bpa|cruelty|gluten|sugar|dairy|lactose|fat|parabens?|sulfates?|fragrance|latex|nut|soy|alcohol|phthalates?|' +
@@ -166,12 +166,12 @@ const NOT_PROMISE = /^(?:feel|stress|worry|hassle|commitment|obligation|string|s
 const ENDORSE = /(?<![\p{L}\d_])(?:certif(?:y|ied|ication|ications|icate|icates)|patent(?:s|ed)?|award(?:s|ed)?|approv(?:e|ed|al|als)|clear(?:ed|ance)|regist(?:ered|ration)|listed|complian(?:t|ce)|tested|recommend(?:ed|s)?|endorse(?:d|ment|ments)?|proven|accredit(?:ed|ation))(?![\p{L}\d_])/giu
 const ENDORSED = 'endorsed:'
 /**
- * 句子的边界：句号、问叹号后跟空白，分号（后面有没有空白都算，和资料那边一致），或换行。U.S. 这种连写的单字母缩写、Dr.、Inc.、Nov. 后面的点不算；
+ * 句子的边界（缩写不分大小写：DR. 和 Dr. 一样不算句末）：句号、问叹号后跟空白，分号（后面有没有空白都算，和资料那边一致），或换行。U.S. 这种连写的单字母缩写、Dr.、Inc.、Nov. 后面的点不算；
  * 50 m.、1 L. 这种数后面单个字母的点照常算（下一句的 not 不否定上一句）。草稿与资料两边分句用同一份。
  */
 const NOT_ABBREV = String.raw`(?<!\p{L}\.\p{L}|(?:^|[^\p{L}])(?:Dr|Mr|Mrs|Ms|Jr|Sr|St|vs|etc|Inc|Ltd|Co|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec))`
-const CLAUSE_END = new RegExp(`${NOT_ABBREV}[.;!?\\n]+(?:\\s|$)|[;!?\\n]`, 'u')
-const SENTENCE_END = new RegExp(`${NOT_ABBREV}[.;!?]+(?=\\s|$)|;|\\n`, 'gu')
+const CLAUSE_END = new RegExp(`${NOT_ABBREV}[.;!?\\n]+(?:\\s|$)|[;!?\\n]`, 'iu')
+const SENTENCE_END = new RegExp(`${NOT_ABBREV}[.;!?]+(?=\\s|$)|;|\\n`, 'giu')
 /**
  * 认证类那一句比对用的写法：只留字母串和数字串（400ml 拆成 400 ml，IPX7 拆成 ipx 7），小写，字母串长过三个的去掉词尾 s（不去 ss），
  * 之间一个空格，首尾各补一个空格。这样空格、连字符、标点、列表符号、表情、大小写、单复数都不计；比的时候看资料那一句折好的写法里有没有整段，
