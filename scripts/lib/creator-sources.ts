@@ -78,7 +78,7 @@ function salutationWords(creator: CreatorText): Set<string> {
   }
   return words
 }
-/** 第一个非空行以 Subject: 开头时是主题行，冒号后面那段自成一句，不和下面的正文接起来（同 U13.a）。 */
+/** 第一个非空行以 Subject: 开头时是主题行，冒号后面那段自成一句，不和下面的正文接起来（和拆主题列的规矩 U13.a 一致）。 */
 const SUBJECT = /^subject\s*[:：]\s*/i
 /** 列表行（-、*、•、1. 1) 开头）各自成句，不和上下行接起来。 */
 const LIST_ITEM = /^(?:[-*•·]|\d+[.)])\s+/
