@@ -15312,7 +15312,10 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
     for (const e of readdirSync(d)) {
       const p = d === '.' ? e : `${d}/${e}`
       if (['node_modules', '.git', '.check-cache', 'docs/adr', 'dist', 'out', 'output'].includes(p)) continue
-      if (statSync(p).isDirectory()) { if (!existsSync(`${p}/.git`)) walkRefs(p); continue }
+      // 软链不跟（lstat）：指回本仓库或上层目录的软链会让它一直绕下去（评审指出）。仓库里受控的软链只有技能目录那两个，指向的正文在别处照样扫到
+      const st = lstatSync(p)
+      if (st.isSymbolicLink()) continue
+      if (st.isDirectory()) { if (!existsSync(`${p}/.git`)) walkRefs(p); continue }
       if (!/\.(ts|md|ya?ml|json|sh)$/.test(e)) continue
       rf(p, 'utf8').split('\n').forEach((l, i) => {
         for (const m of l.matchAll(/ADR-0*(\d+) ?第 ?\d+(?:[–-]\d+)? ?行/g)) if (splitNums.has(Number(m[1]))) lineRefs.push(`${p}:${i + 1} ${m[0]}`)
