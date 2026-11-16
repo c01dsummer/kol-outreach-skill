@@ -7,10 +7,10 @@
  *
  * ⚠️ 证不了记录写得对。它保证的是编号唯一、文件名与正文一致、索引不漂移。
  */
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  type Adr, FILE_RE, HEAD_RE, checkAll, markerFault,
+  type Adr, FILE_RE, HEAD_RE, HISTORY_DIR, checkAll, historyFaults, markerFault,
   renderIndex,
 } from './adr-rule.js'
 import { quotedMask } from './quoted.js'
@@ -35,6 +35,8 @@ const errors: string[] = []
 const adrs: Adr[] = []
 for (const file of readdirSync(DIR).sort()) {
   if (file === 'README.md') continue
+  // 历史文件不是记录、不进索引，只核它跟着的那条主文件在不在（ADR-211）
+  if (file === HISTORY_DIR && statSync(join(DIR, file)).isDirectory()) continue
   const m = FILE_RE.exec(file)
   if (!m) { errors.push(`${file} 文件名不合格式，应为 ADR-<编号>-<标题>.md`); continue }
   const first = readFileSync(join(DIR, file), 'utf8').split('\n')[0]
@@ -43,6 +45,12 @@ for (const file of readdirSync(DIR).sort()) {
   adrs.push({ file, num: Number(h[1]), title: h[2] })
 }
 errors.push(...checkAll(adrs))
+const historyDir = join(DIR, HISTORY_DIR)
+if (existsSync(historyDir)) {
+  const history = readdirSync(historyDir).sort()
+    .map(file => ({ file, first: readFileSync(join(historyDir, file), 'utf8').split('\n')[0] }))
+  errors.push(...historyFaults(adrs.map(a => a.file), history))
+}
 
 /** 拆开之后 `DECISIONS.md` 只做转发。写回整册就是把冲突面又装回去。 */
 if (existsSync(LEGACY)) {

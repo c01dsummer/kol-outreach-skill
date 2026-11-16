@@ -19,7 +19,7 @@ import {
   type Claims,
 } from './claims.js'
 import { citeSummary, citeTable } from './cite-rule.js'
-import { ADR_DIR, adrDocs, entries as debtEntries, ledgerReport, ledgerSummary, orphanIous } from './debt-rule.js'
+import { ADR_DIR, adrDocs, duplicateIouNames, entries as debtEntries, ledgerReport, ledgerSummary, orphanIous } from './debt-rule.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 import {
   REDLINE_CAT, criteriaCell, mutationCell, requirementVerdict, tensionEvidence, tensionVerdict,
@@ -266,8 +266,14 @@ for (const o of orphans) {
   gaps.push(`${o.file}:${o.line} 写了欠条却没写重启条件 —— ` +
             '没有重启条件的登记不是登记，是免责声明（process/6-INTEGRATE.md）')
 }
+const dupes = duplicateIouNames(adrs)
+for (const d of dupes) {
+  hard++
+  gaps.push(`${d.file}:${d.line} 欠条的短名字和同一条记录里的另一张重了 —— ` +
+            '状态行按名字指过来时分不清是哪一张（ADR-211）')
+}
 if (process.argv.includes('--debts')) {
-  const { out, err } = ledgerReport(debts, orphans)
+  const { out, err } = ledgerReport(debts, orphans, dupes)
   // 等写完再退。全表一百多 KB，接在管道上时打完就硬退出，还在排队的那一截会被丢掉 ——
   // 实测截到约 60 KB、汇总行没了、退出码照样是 0（独立复核，ADR-151 第六节）
   const flushed = (s: NodeJS.WriteStream, text: string) => new Promise<void>(done => s.write(text, () => done()))

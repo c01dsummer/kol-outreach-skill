@@ -14,7 +14,7 @@
  * 免得两边对「哪些是欠条」说两样。已还／已重挂／收尾那几种状态行（写法见 ADR-167 第四节第 1 小节）
  * 台账今天还不读（ADR-167 第 107 行那一片），这里先按同一写法读，只用来不列已关的那些。
  */
-import { entries, iouBlocks, type Entry } from './debt-rule.js'
+import { entries, iouBlocks, iouName, recordNum, type Entry } from './debt-rule.js'
 import { quotedMask } from './quoted.js'
 
 /** git 的一次调用：参数进、标准输出出，失败就抛。入口给真的 git，测试给假的。 */
@@ -86,10 +86,14 @@ export function namedFiles(text: string, names: Map<string, string>): string[] {
 }
 
 /**
- * 已关上的那几张：`⚠️ 已还／已重挂／收尾：ADR-N 第 M 行` 指到的「记录 + 行号」，键写成 `ADR-N:M`。
+ * 已关上的那几张，两种指法：
+ * - 老写法 `⚠️ 已还／已重挂／收尾：ADR-N 第 M 行` 指到「记录 + 行号」，键写成 `ADR-N:M`；
+ * - 新写法 `⚠️ 已还：ADR-N「短名字」` 指到「记录 + 欠条的短名字」，键写成 `ADR-N「短名字」`（ADR-211）。
+ *   名字不随文件重写或挪进历史文件而变，所以新写的状态行都用这一种。
  * 围栏与 HTML 注释里的不算 —— ADR-167 第四节第 1 小节自己就在围栏里演示了这几种写法。
  */
 export const CLOSING = /⚠️\s*\*{0,2}(已还|已重挂|收尾)\*{0,2}\s*[：:]\s*ADR-(\d+)\s*第\s*(\d+)\s*行/g
+export const CLOSING_BY_NAME = /⚠️\s*\*{0,2}(已还|已重挂|收尾)\*{0,2}\s*[：:]\s*ADR-(\d+)\s*「([^」\n]{1,40})」/g
 export function closedKeys(docs: Map<string, string>): Set<string> {
   const out = new Set<string>()
   for (const text of docs.values()) {
@@ -97,15 +101,26 @@ export function closedKeys(docs: Map<string, string>): Set<string> {
     lines.forEach((line, i) => {
       if (quoted[i]) return
       for (const m of line.matchAll(CLOSING)) out.add(`ADR-${Number(m[2])}:${Number(m[3])}`)
+      for (const m of line.matchAll(CLOSING_BY_NAME)) out.add(`ADR-${Number(m[2])}「${m[3].trim()}」`)
     })
   }
   return out
 }
 
-/** 条目所在的那条记录的编号键：`docs/adr/ADR-86-….md` 第 118 行 → `ADR-86:118`；不是编号记录的文件交回 null。 */
+/**
+ * 条目的行号键：`docs/adr/ADR-86-….md` 第 118 行 → `ADR-86:118`；不是编号记录的文件交回 null。
+ * 历史文件（`docs/adr/历史/ADR-86-….md`）里的条目键写成 `ADR-86·历史:118` —— 老状态行写的
+ * 「ADR-86 第 118 行」指的是主文件那一行，不能顺带把历史文件同一行号的另一张欠条也算成关了。
+ */
 export function entryKey(e: Entry): string | null {
-  const m = /(?:^|\/)ADR-(\d+)-[^/]*$/.exec(e.file)
-  return m ? `ADR-${Number(m[1])}:${e.line}` : null
+  const m = /(?:^|\/)(历史\/)?ADR-(\d+)-[^/]*$/.exec(e.file)
+  return m ? `ADR-${Number(m[2])}${m[1] ? '·历史' : ''}:${e.line}` : null
+}
+
+/** 条目的名字键：所在欠条块的块头写了短名字时是 `ADR-86「短名字」`，主文件与历史文件同一个键；没写名字交回 null。 */
+export function nameKey(file: string, name: string | null): string | null {
+  const num = recordNum(file)
+  return num === null || name === null ? null : `ADR-${num}「${name}」`
 }
 
 export interface Hit {
@@ -127,8 +142,8 @@ export interface TouchReport {
  * 每条欠条拿来找名字的正文：条目在某个 `⚠️ 欠条` 块里时是整个块（块头写缺什么、条件写什么时候回来，
  * 两处都可能点文件），否则就是条目那一行。块里被遮住的行（围栏示例）不算。
  */
-export function entryTexts(docs: Map<string, string>): Array<{ entry: Entry; text: string }> {
-  const out: Array<{ entry: Entry; text: string }> = []
+export function entryTexts(docs: Map<string, string>): Array<{ entry: Entry; text: string; name: string | null }> {
+  const out: Array<{ entry: Entry; text: string; name: string | null }> = []
   for (const [file, text] of docs) {
     const lines = text.split('\n'), quoted = quotedMask(text)
     const blocks = iouBlocks(lines, quoted)
@@ -137,7 +152,7 @@ export function entryTexts(docs: Map<string, string>): Array<{ entry: Entry; tex
       const block = blocks.find(b => b.start <= i && i < b.end)
       out.push({ entry, text: block
         ? lines.slice(block.start, block.end).filter((_, k) => !quoted[block.start + k]).join('\n')
-        : lines[i] })
+        : lines[i], name: block ? iouName(lines[block.start]) : null })
     }
   }
   return out
@@ -153,11 +168,11 @@ export function touchReport(docs: Map<string, string>, files: string[], changed:
   const closed = closedKeys(docs)
   const hits: Hit[] = []
   let closedHits = 0
-  for (const { entry, text } of entryTexts(docs)) {
+  for (const { entry, text, name } of entryTexts(docs)) {
     const both = namedFiles(text, names).filter(f => touched.has(f))
     if (!both.length) continue
-    const key = entryKey(entry)
-    if (key !== null && closed.has(key)) { closedHits++; continue }
+    const keys = [entryKey(entry), nameKey(entry.file, name)]
+    if (keys.some(k => k !== null && closed.has(k))) { closedHits++; continue }
     hits.push({ entry, files: both })
   }
   return { hits, closed: closedHits, changed: touched.size }

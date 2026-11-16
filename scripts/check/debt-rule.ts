@@ -160,6 +160,46 @@ export function orphanIous(docs: Map<string, string>): Entry[] {
 }
 
 /**
+ * 欠条的短名字：块头写成 `⚠️ 欠条「短名字」：…`。状态行与别的欠条按名字指过来（`⚠️ 已还：ADR-N「短名字」`），
+ * 不再按行号 —— 主文件重写成现行结论、过程挪进历史文件以后，行号全变，名字不变（ADR-211）。
+ * 名字最长 40 个字；没写名字的老欠条交回 null，照旧只能按行号指。
+ */
+export const IOU_NAME = /欠条「([^」\n]{1,40})」/
+export function iouName(head: string): string | null {
+  const m = IOU_NAME.exec(head)
+  return m && m[1].trim() ? m[1].trim() : null
+}
+
+/** 文件属于哪条记录：主文件 `docs/adr/ADR-86-….md` 与历史文件 `docs/adr/历史/ADR-86-….md` 都是 86；不是编号记录的文件交回 null。 */
+export function recordNum(file: string): number | null {
+  const m = /(?:^|\/)ADR-(\d+)-[^/]*$/.exec(file)
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * 同一条记录里两张欠条用了同一个短名字 —— 硬失败：状态行按名字指过来时分不清是哪一张，
+ * 关上一张等于把另一张也当成关了。主文件和它的历史文件算同一条记录：欠条挪进历史后名字还在用。
+ * 报的是后出现的那一张（按文件路径、再按行排）。
+ */
+export function duplicateIouNames(docs: Map<string, string>): Entry[] {
+  const seen = new Set<string>()
+  const out: Entry[] = []
+  for (const [file, text] of [...docs].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+    const num = recordNum(file)
+    if (num === null) continue
+    const lines = text.split('\n')
+    for (const { start } of iouBlocks(lines, quotedMask(text))) {
+      const name = iouName(lines[start])
+      if (name === null) continue
+      const key = `ADR-${num}「${name}」`
+      if (seen.has(key)) out.push({ file, line: start + 1, notation: '重启条件', text: plain(lines[start]) })
+      else seen.add(key)
+    }
+  }
+  return out
+}
+
+/**
  * 报告里那一行。
  *
  * 怎么数、分几栏报都是判定，所以和 `coverageSummary` 一样留在判定模块里 ——
@@ -175,18 +215,23 @@ export function ledgerSummary(list: Entry[]): string {
 }
 
 /**
- * 全表：每条一行、孤儿另标一行、空一行、末尾汇总；有孤儿时另交回打在 stderr 的那一句。
+ * 全表：每条一行、孤儿与重名各另标一行、空一行、末尾汇总；有孤儿或重名时另交回打在 stderr 的那一句。
  *
  * 两个入口打的是这一份 —— `npm run audit -- --debts` 与只读入口 `npm run adr-ledger`。
  * 各写一份的话，改了一处忘了另一处，症状是「同一份台账，两个入口说两样」。
- * 退出码跟着 `err` 走：有它就以 1 退出，孤儿是硬失败，只读入口也不放过。
+ * 退出码跟着 `err` 走：有它就以 1 退出，孤儿与重名都是硬失败，只读入口也不放过。
  */
-export function ledgerReport(list: Entry[], orphans: Entry[]): { out: string[]; err?: string } {
+export function ledgerReport(list: Entry[], orphans: Entry[], dupes: Entry[] = []): { out: string[]; err?: string } {
   const out = [
     ...list.map(e => `${e.file}:${e.line}  [${e.notation}]  ${e.text}`),
     ...orphans.map(o => `${o.file}:${o.line}  [孤儿·没写重启条件]  ${o.text}`),
+    ...dupes.map(d => `${d.file}:${d.line}  [重名·同一条记录里已有这个短名字]  ${d.text}`),
     '',
     `  ${ledgerSummary(list)}`,
   ]
-  return orphans.length ? { out, err: `\n✗ 欠条台账：${orphans.length} 张欠条没写重启条件` } : { out }
+  const errs = [
+    ...orphans.length ? [`${orphans.length} 张欠条没写重启条件`] : [],
+    ...dupes.length ? [`${dupes.length} 张欠条和同一条记录里的另一张重名`] : [],
+  ]
+  return errs.length ? { out, err: `\n✗ 欠条台账：${errs.join('；')}` } : { out }
 }
