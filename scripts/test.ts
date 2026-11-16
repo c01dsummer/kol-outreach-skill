@@ -157,7 +157,7 @@ import {
   TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
 } from './providers/tikhub-pricing.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
-import { unsourcedLine } from './lib/draft-claims.js'
+import { claimsLines, draftClaims, NO_FACTS, NOT_ENGLISH, UNMATCHED_BRACES } from './lib/draft-claims.js'
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
@@ -195,6 +195,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-plays', needs: [] },
   { id: 'p2-placeholders', needs: [] },
   { id: 'p2-draft-claims', needs: [] },
+  { id: 'p2-endorsement-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
@@ -843,11 +844,12 @@ suite('P2', '开发信占位符必须原样保留到产出物')
 
 })
 await group('p2-draft-claims', () => {
-suite('P2', '开发信草稿里对不上出处的数字与承诺词在评审 HTML 里标出，不拦')
+suite('P2', '开发信草稿里对不上产品资料的数字与承诺词在评审 HTML 里标出，不拦')
 {
-  // P2.c（ADR-199）：期望只取自判据原文与下面写进夹具的字面值。对照是已证实的产品事实，加上这位博主自己作品的文字。
-  // 阳性对照：出处里有的说法（换了写法也算：400 mL ↔ 400ml、10 seconds ↔ ten seconds、29.99 USD ↔ $29.99）不报；
-  // 第一句引用博主作品里的数字（3-ingredient）不报；{…} 占位符里的字不算说法。负片：编出来的 2-year、warranty、IPX7、30% 要报。
+  // P2.c（ADR-199，规则 ADR-209）：期望只取自判据原文与下面写进夹具的字面值。只有已证实的产品事实能让说法过关；
+  // 只在这位博主作品文字里找得到的另列「只在博主作品里有」。
+  // 阳性对照：产品资料里有的说法（换了写法也算：400 mL ↔ 400ml、10 seconds ↔ ten seconds、29.99 USD ↔ $29.99）不报；
+  // {…} 占位符里的字不算说法。负片：编出来的 2-year、warranty、IPX7、30% 要报；引用博主作品的 3-ingredient 单列。
   const FACTS = ['400 mL capacity portable blender', 'Rinses clean in 10 seconds', 'BPA-free Tritan jar', 'Price: 29.99 USD']
   const DRAFT = 'Subject: Your 3-ingredient smoothie series\n\nHi Mei,\n\nYour 3-ingredient smoothie series is great.\n\n' +
     "I'm {name} from Brightly. We make a 400ml blender that rinses in about ten seconds, BPA-free, only $29.99, " +
@@ -862,50 +864,186 @@ suite('P2', '开发信草稿里对不上出处的数字与承诺词在评审 HTM
     mk('tiktok', 'none', { tier: 'A', score: 1, profile_url: 'https://example.com/none' }),
   ]
   const before = structuredClone(people)
-  const lineOf = (page: string, handle: string): string | undefined => {
+  const lineOf = (page: string, handle: string, which = 'unsourced'): string | undefined => {
     const card = page.split('<div class="card ').find(chunk => chunk.includes(`href="https://example.com/${handle}"`))
-    const m = card === undefined ? null : /<div class="bio" data-draft-claims="unsourced">([^<]*)<\/div>/.exec(card)
+    const m = card === undefined ? null : new RegExp(`<div class="bio" data-draft-claims="${which}">([^<]*)</div>`).exec(card)
     return m === null ? undefined : m[1]
   }
+  /** 去掉每条后面的「（前后文）」，只比列了哪些说法。 */
+  const bare = (line: string | undefined) => line?.replace(/（[^（）]*）(?=；|（)/g, '')
   const SUFFIX = '（只查数字和承诺词，其余说法仍要自己看）'
+  const POSTS_SUFFIX = '（确认是在引用博主，不是在说产品）'
   const review = renderHtml(people, meta, { mode: 'review', filters: 'dual', facts: FACTS })
-  eq('P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出',
-    lineOf(review, 'claims'), `出处对不上：2-year；warranty；IPX7；30%${SUFFIX}`)
-  eq('P2.c 有草稿、扫完没有对不上的写「无」，没草稿或草稿全是空白的卡片不出这一行',
-    ['clean', 'blank', 'none'].map(h => lineOf(review, h)), [`出处对不上：无${SUFFIX}`, undefined, undefined])
+  eq('P2.c 产品资料对得上的（换写法也算）、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出，每条带前后几个词',
+    lineOf(review, 'claims'), '出处对不上：2-year（$29.99, with a 2-year warranty, IPX7 rated,）；warranty（with a 2-year warranty, IPX7 rated, now）；' +
+      `IPX7（a 2-year warranty, IPX7 rated, now 30%）；30%（IPX7 rated, now 30% off.）${SUFFIX}`)
+  eq('P2.c 只在博主作品文字里找得到的另列一行「只在博主作品里有」，不放过也不混进对不上的那一组',
+    lineOf(review, 'claims', 'posts-only'), `只在博主作品里有：3-ingredient（Subject: Your 3-ingredient smoothie series）${POSTS_SUFFIX}`)
+  eq('P2.c 有草稿、扫完没有对不上的写「无」，没有只在作品里的不出那一行；没草稿或草稿全是空白的卡片两行都不出',
+    ['clean', 'blank', 'none'].map(h => [lineOf(review, h), lineOf(review, h, 'posts-only')]),
+    [[`出处对不上：无${SUFFIX}`, undefined], [undefined, undefined], [undefined, undefined]])
   ok('P2.c 只标不改：草稿原文逐字在 HTML 里，占位符一个不少，输入名单不变',
     review.includes(DRAFT.replace(/&/g, '&amp;').replace(/'/g, '&#39;')) && isDeepStrictEqual(people, before))
   const noFacts = renderHtml(people, meta, { mode: 'review', filters: 'dual' })
-  eq('P2.c 任务里没有已证实的产品事实时，草稿里的说法全列出来，前面写明没有可对的',
-    lineOf(noFacts, 'claims'), `出处对不上：任务里没有已证实的产品事实可对：400ml；ten seconds；BPA-free；$29.99；2-year；warranty；IPX7；30%${SUFFIX}`)
-  const legacy = renderHtml(people, meta)
-  ok('P2.c 默认模式 HTML 不出这一行（U9.a）', !legacy.includes('data-draft-claims'))
-  // 比对口径逐条：每一行是 [草稿, 已证实的产品事实, 期望]；作品文字都给空，只看对出处这一边。
-  const rules: Array<[string, string, string[], string | undefined]> = [
-    ['数字按值与单位比：单位冲突对不上', 'A 400ml jar.', ['Weighs 400 g'], '400ml'],
-    ['数字按值与单位比：单位别名归一（mL、ounces、hrs）', 'A 400 mL jar, 16 ounces, 10 hrs.', ['400ml', '16 oz', '10 hours'], '无'],
-    ['草稿带单位、出处没写单位：同数即可', 'A 400ml jar.', ['Capacity: 400'], '无'],
-    ['草稿没写单位、出处带单位：同数即可', 'Holds 400, weighs 400 g.', ['400 g'], '无'],
-    ['千分位与小数归一，后面跟的逗号不算数的一部分', 'Packs 1,000 mAh, 2.50 lb.', ['1000mAh', '2.5 lb'], '无'],
-    ['数后面跟的逗号不吃进说法', 'Holds 500, weighs 500 g.', ['x'], '500；500 g'],
-    ['不写单位的数对得上出处里同数的价格', 'Only 29 dollars.', ['$29'], '无'],
-    ['k 跟在数后面整串算一条', 'Reached 120k views.', ['x'], '120k'],
-    ['k 算单位：120k 与 120 K 对得上', 'Reached 120k views.', ['120 K views'], '无'],
-    ['「.5」这样的小数也扫', 'Weighs just .5 kg.', ['Weighs 1 kg'], '.5 kg'],
-    ['价格对价格或不带单位的同数，不对带单位的同数', 'Only $29, $35 and $40.', ['Price 29', '$35', '40 g'], '$40'],
-    ['拼写的数字：十三到十九、七十、八十、连写的二十五、thousand', 'Runs seventy hours, eighty percent quieter, sixteen ounces, twenty-five minutes, a thousand-hour motor.', ['x'], 'seventy hours；eighty percent；sixteen ounces；twenty-five minutes；thousand-hour'],
-    ['连写的拼写数字按整数比，不拆成个位', 'Brews in twenty-five minutes.', ['Brews in 5 minutes'], 'twenty-five minutes'],
-    ['型号串整串对，不按子串', 'An H1 chip and IPX7 rating.', ['H13 HEPA filter', 'IPX7'], 'H1'],
-    ['多字承诺词出处里逐字有就对得上', 'A 30-day return policy, and our returns window is generous.', ['30-day return policy', 'Returns window: 30 days'], '无'],
-    ['数字开头的型号串整串对：1080p 不拆出 1080', 'Shoots 1080p, has a 2nd lens.', ['1080 lumens', '2 lenses'], '1080p；2nd'],
-    ['数字开头的型号串出处里整串有就对得上', 'Shoots 1080p video.', ['Records 1080p'], '无'],
-    ['负数带负号比；区间与连字符词里的不算负号', 'Works to -20 degrees, lasts 3-5 years, COVID-19 safe.', ['Rated to 20 degrees', '3 to 5 years', 'COVID-19'], '-20'],
-    ['多字承诺词各对各的：出处里的 free trial 不是 free shipping 的出处', 'Free shipping and a free trial.', ['30-day free trial'], 'Free shipping'],
-    ['同一写法只列一次（不分大小写）', 'A 400ml jar. Yes, 400ml. 400ML!', ['x'], '400ml'],
-    ['任务里没有已证实的产品事实、又没扫到说法时也写明没有可对的', 'Hi Ana, love your videos.', [], '任务里没有已证实的产品事实可对：无'],
+  eq('P2.c 任务里没有已证实的产品事实时，说法全列出来、前面写明没有可对的；只在作品里有的照样另列',
+    [bare(lineOf(noFacts, 'claims')), bare(lineOf(noFacts, 'claims', 'posts-only'))],
+    [`出处对不上：任务里没有已证实的产品事实可对：400ml；ten seconds；BPA-free；$29.99；2-year；warranty；IPX7；30%${SUFFIX}`,
+      `只在博主作品里有：3-ingredient${POSTS_SUFFIX}`])
+  ok('P2.c 默认模式 HTML 不出这两行（U9.a）', !renderHtml(people, meta).includes('data-draft-claims'))
+  // 两行里每条带草稿原文的前后几个词，草稿里的 <、&、引号要经转义才能进页面（U12）。
+  const tricky = [mk('tiktok', 'tricky', { tier: 'A', score: 1, profile_url: 'https://example.com/tricky',
+    outreach_draft: 'Now <b>"best"</b> & 12-blade motor, your 3-ingredient <i>series</i>',
+    recent_posts: [{ desc: '3-ingredient smoothie', plays: 1 }] as unknown as Creator['recent_posts'] })]
+  const trickyPage = renderHtml(tricky, meta, { mode: 'review', facts: FACTS })
+  const unsourcedTricky = lineOf(trickyPage, 'tricky') ?? '<缺>', postsTricky = lineOf(trickyPage, 'tricky', 'posts-only') ?? '<缺>'
+  ok('P2.c 两行带出的草稿前后文经过转义：<、>、& 与引号不原样进页面',
+    !/[<>"]/.test(unsourcedTricky + postsTricky) && unsourcedTricky.includes('&lt;b&gt;') && unsourcedTricky.includes('&amp; 12-blade') &&
+      postsTricky.includes('&lt;i&gt;series'))
+  ok('P2.c 只开评审模式、不开双筛选时也出', lineOf(renderHtml(people, meta, { mode: 'review', facts: FACTS }), 'clean') === `出处对不上：无${SUFFIX}`)
+  // 手改过的名单里作品记录可以缺文案字段（校验只要求是对象），评审页照常出、当作没有文案。
+  const noDesc = [mk('tiktok', 'nodesc', { tier: 'A', score: 1, profile_url: 'https://example.com/nodesc', outreach_draft: 'Only $19.99 today.',
+    recent_posts: [{ plays: 1 }] as unknown as Creator['recent_posts'] })]
+  let noDescLine: string | undefined
+  try { noDescLine = lineOf(renderHtml(noDesc, meta, { mode: 'review', facts: FACTS }), 'nodesc') } catch { noDescLine = '<抛错>' }
+  eq('P2.c 作品记录缺文案字段时评审页照常出两行', bare(noDescLine), `出处对不上：$19.99${SUFFIX}`)
+
+  // 比对口径逐条：[名字, 草稿, 已证实的产品事实, 博主作品文字, 期望列为对不上的, 期望列为只在作品里有的]（只比原写法）。
+  const F = ['400ml portable blender', 'Rinses clean in 10 seconds', '$29.99', '1-year limited warranty', 'BPA-free Tritan jar', 'Battery lasts up to 40 hours', 'IPX7']
+  const P = ['My 3-ingredient smoothie series, day 5!', 'Top 10 kitchen hacks for 2024 #fyp',
+    'trying this organic vegan protein, 30 day challenge, 20% off with my code', 'waterproof mascara test - 100 likes and I do part 2']
+  const rules: Array<[string, string, string[], string[], string[], string[]]> = [
+    // 只有产品资料能让说法过关（取舍一）
+    ['作品里的小数字不再让带单位的说法过关', 'It charges in 3 hours and has 3 speeds.', F, P, ['3 hours', '3 speeds'], []],
+    ['博主自己的折扣不是产品资料', 'Your followers get 20% off. We offer 30-day returns.', F, P, [], ['20%', '30-day']],
+    ['作品里的承诺词只能进「只在博主作品里有」', 'Our blender is waterproof, and the powder is organic and vegan.', F, P, [], ['waterproof', 'organic', 'vegan']],
+    ['整封编造的信不再显示「无」', 'Hi! Love your 3-ingredient series. Our 12-blade motor charges in 2 hours and lasts 30 days on standby, vegan-leather strap, ships free, half off, 3 years.',
+      F.slice(0, 5), ['My 3-ingredient smoothie series ep 5', 'What I eat in a day as a mom of 2 #vegan', '30 day smoothie challenge, day 12'],
+      ['12-blade', '2 hours', 'ships free', 'half off', '3 years'], ['3-ingredient', '30 days', 'vegan']],
+    // 写了单位就要同数同单位（取舍二）
+    ['不认识的单位按字面比：dB、RPM、blades 对不上同数的别的单位', 'Only 40 dB of noise, spins at 400 RPM, has 10 blades.', F, [], ['40 dB', '400 RPM', '10 blades'], []],
+    ['单位别名、贴写与分写、单复数算同一个', 'A 400 mL, 400ML, 400-ml, 400 milliliters jar; ten seconds, 10s, 10 sec, 10-second; 40h, 40hrs, forty hours; 500mg; 3 colors, 2 boxes.',
+      [...F, '500 mg vitamin C', '3 color options', '2 box set'], [], [], []],
+    ['草稿带单位、出处只有裸数：对不上', 'A 400ml jar.', ['Capacity: 400'], [], ['400ml'], []],
+    ['草稿是裸数、出处带单位：同数即可；虚词不算单位', 'Holds 400, weighs 400 g, ships in 2 to 3 weeks.', ['400 g', '2 weeks', '3 weeks'], [], [], []],
+    ['不做换算', 'A 1.5L jar with a 12-month warranty.', ['1500ml jar', '1-year limited warranty'], [], ['1.5L', '12-month'], []],
+    // 价钱只认标明是价钱的（取舍三）
+    ['价钱不能被资料里同数的非价钱对上', 'Only $40.', ['Lasts 40'], [], ['$40'], []],
+    ['价钱对标明是价钱的同数（币符、币种）；约数不算', 'Only 29 dollars and $35, about $30.', ['$29', '35 USD', '$29.99'], [], ['$30'], []],
+    ['草稿的裸数对得上出处里的价钱', 'Just 29.99 today.', ['$29.99'], [], [], []],
+    // 拼写数量（取舍四）
+    ['数词加钱、百分比，与常被编的数量写法', 'It retails for fifty dollars, or thirty bucks; fifty per cent off; half price, half off, double the battery, twice as fast; a dozen blades, a million users.',
+      F, [], ['fifty dollars', 'thirty bucks', 'fifty per cent', 'half price', 'half off', 'double', 'twice', 'a dozen', 'a million'], []],
+    ['复合拼写数按整个值读', 'Lasts twenty five hours, or two hundred hours.', ['5 hours', '200 hours'], [], ['twenty five hours'], []],
+    ['不跟单位的拼写数（one post、five colors）不扫', 'One post, two stories, five colors.', F, [], [], []],
+    ['a hundred and five 这类 a 开头的复合拼写数按整个值读', 'Lasts a hundred and five hours.', ['Battery: 105 hours'], [], [], []],
+    ['拼写数后面跟单个字母的单位（five L、ten g）也扫', 'It holds five L and weighs ten g.', ['Capacity: 1 L', 'Weight: 10 g'], [], ['five L'], []],
+    // 承诺词表（取舍五）
+    ['承诺词的变体与新扩的几类', "bestselling, bestseller, moneyback, guaranteeing, certify, warrantee, water proof, free gift, ships free, free US shipping, complimentary, discount, commission, cashback, CE marked, UL listed, FCC approved, USDA, non-GMO, gluten-free, all-natural, food-grade, lab-tested, doctor recommended, leakproof, dishwasher safe, top-rated, five-star, world's first, risk-free, easy returns",
+      ['x'], [], ["bestselling, bestseller, moneyback, guaranteeing, certify, warrantee, water proof, free gift, ships free, free US shipping, complimentary, discount, commission, cashback, CE marked, UL listed, FCC approved, USDA, non-GMO, gluten-free, all-natural, food-grade, lab-tested, doctor recommended, leakproof, dishwasher safe, top-rated, five-star, world's first, risk-free, easy returns", 'bestselling', 'bestseller', 'moneyback', 'guaranteeing', 'warrantee', 'water proof', 'free gift', 'ships free', 'free US shipping', 'complimentary', 'discount', 'commission', 'cashback', 'non-GMO', 'gluten-free', 'all-natural', 'food-grade', 'leakproof', 'dishwasher safe', 'top-rated', 'five-star', "world's first", 'risk-free', 'easy returns'], []],
+    ['不是在说产品的 -free 不算承诺词', "No strings, it's free, stress-free, hassle-free.", ['x'], [], [], []],
+    ['多字承诺词各对各的：出处里的 free trial 不是 free shipping 的出处', 'Free shipping and a free trial.', ['30-day free trial'], [], ['Free shipping'], []],
+    // 承诺词要整词对上、资料里带否定的那一句不算（取舍六）
+    ['资料里写「Not waterproof」不给「waterproof」当出处', 'It is fully waterproof.', ['Not waterproof; do not submerge'], [], ['waterproof'], []],
+    ['资料里带 no、not 的句子不给退款、保证当出处', 'Full refund, money-back guarantee.', ['No refunds on opened items. Not guaranteed to fit.'], [], ['refund', 'money-back', 'guarantee'], []],
+    ['Patent pending 不给 patented 当出处', 'Our patented blade.', ['Patent pending'], [], ['Our patented blade'], []],
+    ['inorganic 不给 organic 当出处（整词）', 'Made with organic fruit.', ['Made of inorganic pigments'], [], ['organic'], []],
+    ['终身保修整组对：battery lifetime 与 warranty void 都不是它的出处', 'Lifetime warranty.', ['Battery lifetime 500 cycles; warranty void if opened'], [], ['Lifetime warranty'], []],
+    ['承诺词自己带的 non- 不算否定', 'BPA-free, non-toxic and waterproof.', ['Non-toxic BPA-free jar', 'Waterproof base'], [], [], []],
+    // 噪音（取舍七）
+    ['网址、邮箱不列；序数词、钟点、电话各整串一条照列', 'Loved your 2nd video and the 3pm routine. Reach me at yu2024@brightly.com, +1 415 555 0199, https://brightly.com/p/b400?utm=kol7 or bit.ly/3xYz9 by 10:30 am.',
+      F, [], ['2nd', '3pm', '+1 415 555 0199', '10:30 am'], []],
+    ['日期整串算一条', 'Saw your March 15 post; replying by 11/20/2026 or 2026-11-20.', F, [], ['March 15', '11/20/2026', '2026-11-20'], []],
+    ['年份、粉丝数照列', 'Your 120k followers since 2015.', F, [], ['120k', '2015'], []],
+    // 占位符与其他口径（取舍九、十及原有）
+    ['没闭合的 { 不吞后面的字', 'Hi {name — we give 50% off and a lifetime warranty. Best, Yu}', F, [], ['50%', 'lifetime warranty'], []],
+    ['跨行的 {…} 不算占位符', 'Hi {name\n\nWe give 50% off\n}', F, [], ['50%'], []],
+    ['同一行 40 字以内的 {…} 里的字不扫，套着写的也剥掉', '{n}% off and {n}-year warranty; {{price}} is $19', F, [], ['$19'], []],
+    ['千分位与小数归一；数后面跟的逗号不吃进说法', 'Packs 1,000 mAh, 2.50 lb. Holds 500, weighs 500 g.', ['1000mAh', '2.5 lb'], [], ['500', '500 g'], []],
+    ['型号串整串对，不按子串；IPX-7 与 IPX7 算同一个', 'An H1 chip, IPX-7 rated.', ['H13 HEPA filter', 'IPX7'], [], ['H1'], []],
+    ['数字开头的型号串整串对：1080p 不拆出 1080', 'Shoots 1080p.', ['1080 lumens'], [], ['1080p'], []],
+    ['数字开头的型号串出处里整串有就对得上；k 与 K 算同一个', 'Shoots 1080p, 120k views.', ['Records 1080p', '120 K views'], [], [], []],
+    ['负数带负号比；区间与连字符词里的不算负号', 'Works to -20 degrees, lasts 3-5 years, COVID-19 safe.', ['Rated to 20 degrees', '3 to 5 years', 'COVID-19'], [], ['-20 degrees'], []],
+    ['「.5」这样的小数也扫', 'Weighs just .5 kg.', ['Weighs 1 kg'], [], ['.5 kg'], []],
+    ['同一写法只列一次（不分大小写），列先出现的', 'A 400ml jar. Yes, 400ml. 400ML!', ['x'], [], ['400ml'], []],
+    ['反方向：出处里的裸数 1080 不给 1080p 当出处，出处里的 -20 不给 20 当出处', 'Shoots 1080p, rated to 20.', ['Resolution 1080', 'Rated to -20'], [], ['1080p', '20'], []],
+    // 独立复核第二轮找出的漏标与误标
+    ['中间带空格的 -free、-proof 也认；it\'s totally free 照旧不算', "Our jar is BPA free and cruelty free, leak proof, and it's totally free.", ['Tritan jar'], [], ['BPA free', 'cruelty free', 'leak proof'], []],
+    ['数字起头、字母后又跟数字的串整串列', 'Display is 1920x1080, charges 5V2A, a 3in1 design, 1080p60.', ['OLED display'], [], ['1920x1080', '5V2A', '3in1', '1080p60'], []],
+    ['数字起头的混合串出处里整串有就对上', 'A 3in1 design, 4K60 video.', ['3in1 blender', 'Shoots 4k60'], [], [], []],
+    ['价钱区间不当一串；空格隔开的一串满九位合成一条照列', 'Priced at $129.99-149.99. Comes in 500 750 1000 ml sizes.', ['Tritan jar'], [], ['$129.99', '-149.99', '500 750 1000'], []],
+    ['电话各整串一条照列，不藏', 'Call (415) 555-0199 or 415.555.0199 or +44 20 7946 0958.', ['x'], [], ['(415) 555-0199', '415.555.0199', '+44 20 7946 0958'], []],
+    ['1- 前缀、(0) 都并进同一串；分机另列', 'Call 415-555-0199 x123, 1-800-555-0199 or +44 (0)20 7946 0958.', ['x'], [], ['415-555-0199', 'x123', '1-800-555-0199', '+44 (0)20 7946 0958'], []],
+    ['空格隔开的电话也是整串一条', 'Call 415 555 0199 or 020 7946 0958.', ['x'], [], ['415 555 0199', '020 7946 0958'], []],
+    ['一串数字只在一行之内合并，下一行的说法照列', 'Call 415-555-0199 day or night. Tel: 415-555-0199\n12 blades. +44 20 7946 0958\n30 colors. 300-600-1200 lumens.', ['x'], [],
+      ['415-555-0199', '12 blades', '+44 20 7946 0958', '30 colors', '300-600-1200'], []],
+    ['不满九位的不合并，一个个列', 'Ask +1 23 45 67 now. Available in 250-500-1000 ml sizes.', ['x'], [], ['1', '23', '45', '67', '250-500-1000'], []],
+    ['40+ hours、40 more hours 带着单位比', 'Enjoy 40+ hours, or 40 more hours of battery.', ['Only 40 dB of noise'], [], ['40+ hours', '40 more hours'], []],
+    ['40-plus、40 plus、40 or more、40 + 、40 extra 也带着单位比', 'Enjoy 40-plus hours, 40 plus hours, 40 or more hours, 40 + hours, 40 extra hours.', ['Only 40 dB of noise'], [], ['40-plus hours', '40 plus hours', '40 or more hours', '40 + hours', '40 extra hours'], []],
+    ['币符在后的价钱先认，不把后面的数拼成价钱', 'Just 129$ 40 hours of battery.', ['$129', 'Bundle $40'], [], ['40 hours'], []],
+    ['币符隔着空格、贴着后一个数时归后一个数；资料里并排的价钱各是价钱', 'Get 2 $50 gift cards. Was $59 $39, now $49.', ['50 ml jar', '2 lids', 'Runs 39 hours', 'Weighs 59 g', 'Small $29 $39 $49'], [], ['$50', '$59'], []],
+    ['哪条规则都没认走的数字整串照列（带小数的尺寸、点分的大数）', 'It measures 6.1x2.8 inches, 1.000.000 users.', ['x'], [], ['6.1x2.8', '1.000.000'], []],
+    ['带序数的日期、点分日期整串算一条', 'See you March 15th or 15th March or the 20th of March, 20.11.2026.', ['x'], [], ['March 15th', '15th March', '20th of March', '20.11.2026'], []],
+    ['短横归一；50-dollar 是价钱；INR 也是币种；小写 .shop 前面没字母不当网址', 'A 10–second rinse, a 50-dollar card, INR 400, only $29.99.shop now.', ['10 minutes', '$50', '400 ml'], [], ['10–second', 'INR 400', '$29.99'], []],
+    ['none、neither、nor 各自都是否定', 'It is waterproof, dustproof, shockproof.', ['Waterproof: none', 'Dustproof: neither model', 'Shockproof, nor this one'], [], ['waterproof', 'dustproof', 'shockproof'], []],
+    ['one hundred and five 连读，two dozen 读成 24', 'Lasts one hundred and five hours, two dozen blades.', ['105 hours', '24 blades'], [], [], []],
+    ['币符在后、币种在前、币符后空一格、卢比、连字符写的钱都算价钱', 'Only 40$ or 40€ or CAD 40, $ 41, ₹400, a fifty-dollar card, 50-dollar.', ['Battery lasts up to 40 hours'], [],
+      ['40$', '40€', 'CAD 40', '$ 41', '₹400', 'fifty-dollar', '50-dollar'], []],
+    ['弯撇号、不换行连字符照键盘写法比；neither、nor 也是否定；列出的是草稿原写法', 'It’s fully waterproof and dustproof, a BPA‑free jar, world’s first, 10‑second rinse.',
+      ['This product isn’t waterproof.', 'Neither dustproof nor shockproof.', 'BPA-free', '10 minutes'], [], ['waterproof', 'dustproof', 'world’s first', '10‑second'], []],
+    ['钟点连同区间、am/pm、时区整串一条照列', 'Thursday 10:30 PST or 14:00 CET; Friday 9:30; 9:00-17:00 CET; 3pm.', ['x'], [], ['10:30 PST', '14:00 CET', '9:30', '9:00-17:00 CET', '3pm'], []],
+    ['比例区间与钟点同形状，整串一条照列', 'Meet between 10:30 and 11:30 or 9:00—17:00. Ratios 1:10 to 1:20.', ['x'], [], ['10:30 and 11:30', '9:00', '17:00', '1:10 to 1:20'], []],
+    ['币符隔一个空格写在后面也是价钱（40 €）', 'Only 40 € today, 29 £ set, get 2 $50 cards.', ['Runs 40 hours', '29 cm tall', '50 ml', '2 lids'], [], ['40 €', '29 £', '$50'], []],
+    ['括号开头的一串、带时区缩写的数照列', 'Sizes (500) 750-1000 ml, 2 JST connectors, 30 est. servings, 12 EST.', ['x'], [], ['(500) 750-1000', '2 JST', '30 est', '12 EST'], []],
+    ['长破折号当空格：40 hours—5 不拼成一个串', 'Runs 40 hours—5 more than rivals.', ['Only 40 dB'], [], ['40 hours', '5'], []],
+    ['@ 后面是数字的不是邮箱；£10 pm 不当钟点', 'Shoots 4K@59.94fps, 5V@2.4A, mail yu@brand.com. Plans from £10 pm.', ['x'], [], ['4K', '59.94fps', '5V', '2.4A', '£10'], []],
+    ['两组满九位也合成一条', 'Mob: 07700 900123.', ['x'], [], ['07700 900123'], []],
+    ['合成的一串照原串比，后面紧跟的单位也比', 'Comes in 250 500 750 1000 oz, 250-500-1000 ml, 15 25 35 45 55 L. Charges in 1:30 hours, mix at 1:10 ml.',
+      ['Sizes: 250 500 750 1000 ml', 'Range 250-500-1000 lumens', '1.5 2.5 3.5 4.5 5.5 L', 'Charge time 1:30 minutes', 'mix at 1:10 oz'], [],
+      ['250 500 750 1000', '250-500-1000', '15 25 35 45 55', '1:30', '1:10'], []],
+    ['同一串、同单位或后面是虚词的对得上；句号加空格不连成一串', 'Mix 1:10 to 1:20 with water. Launched in 2024. 10000 hours battery.', ['Dilute 1:10 to 1:20', 'Launched in 2024. 10000 mAh battery'], [], ['10000 hours'], []],
+    ['数字前的长破折号当负号，词后的当空格', 'Works at —20°C, runs 40 hours—5 more.', ['Works at 20°C', 'Only 40 dB'], [], ['—20°C', '40 hours', '5'], []],
+    ['合成的一串取单位与普通数字同一口径：度数、+、more、extra、币符', 'Oven-safe to 100 200 300 400°F. Sizes 250 500 750 1000+ oz. Brews in 1:30+ hours, tiers 100 250 500 1000$, packs 20 40 60 80 100 extra oz.',
+      ['Oven-safe to 100 200 300 400°C', 'Sizes 250 500 750 1000+ ml', 'Brews in 1:30+ minutes', 'tiers 100 250 500 1000', 'packs 20 40 60 80 100 extra ml'], [],
+      ['100 200 300 400', '250 500 750 1000', '1:30', '100 250 500 1000', '20 40 60 80 100'], []],
+    ['斜杠写的三档规格后面的单位也比', 'Comes in 10/20/30 oz bottles, 3/4/12 months plan.', ['Sizes: 10/20/30 ml', '3/4/12 weeks plan'], [], ['10/20/30', '3/4/12'], []],
+    ['合成的一串：连字符隔开的单位、单复数、点隔开的电话、大小写都与出处一致才对上', 'Sizes 250 500 750 1000-oz; 20 40 60 80 100 hours. Call 415.555.0199 at 10:30 AM PST, 100 200 300 45%.',
+      ['250 500 750 1000-ml', '20 40 60 80 100 hour', 'Support 415.555.0199, 10:30 am pst', '100 200 300 45 hours'], [], ['250 500 750 1000', '100 200 300', '45%'], []],
+    ['后缀大写或数字起头的不当邮箱；yu@163.com 是邮箱', 'Shoots 1080p@60fps.It rocks, mail yu@163.com.', ['x'], [], ['1080p', '60fps'], []],
+    ['单位后面带撇号（2 years\' warranty）单位照算；it\'s、don\'t 不当单位', "Backed by 2 years' warranty and 24 hours’ battery, 5 it's done.", ['1 year warranty', 'Charges in 2 hours', '24 colors', '5 modes'], [], ['2 years', '24 hours'], []],
+    ['月份名、年月日写法的日期不比后面的词；不以数字结尾的一串也比单位', 'Preorders open March 15! Ends 2026-11-30 midnight. Sizes 100 200 300 (400) ml.',
+      ['Opens March 15 in the US', 'Ends 2026-11-30 at noon', 'Sizes 100 200 300 (400) oz'], [], ['100 200 300 (400)'], []],
+    ['链接里的日期不列', 'See https://brand.com/blog/2026-11-20/launch or brand.com/2026-11-21.', ['x'], [], [], []],
+    ['兜底比的是到最后一个数字为止：px、-inch 这类后缀不进比对', 'A 6.1x2.8 inches screen, 3in1 design, 1920x1080px.', ['6.1x2.8-inch screen', '3in1-design', '1920x1080 display'], [], [], []],
+    ['dilute to 1:10 照列', 'Dilute to 1:10.', ['x'], [], ['1:10'], []],
+    ['at 1:10 with water 照列', 'Mix at 1:10 with water.', ['x'], [], ['1:10'], []],
+    ['比例照列，PM2.5 不当下午', 'Mix at a 1:10 ratio, removes 99 PM2.5 particles, call at 10:30.', ['x'], [], ['1:10', '99', 'PM2', '.5 particles', '10:30'], []],
+    ['句号后漏空格不当网址', 'Only $29.99.Shop now. Runs 40 hours.Me and you.', ['x'], [], ['$29.99', '40 hours'], []],
+    ['「five and ten minutes」不读成 15', 'Ready in between five and ten minutes.', ['15 minutes'], [], ['ten minutes'], []],
+    ['单复数折法两边一致：calories 与 calorie、sizes 与 size；$1.2k 读成 1200', '100 calories, 3 sizes, 30 doses, 2 batteries, $1.2k.',
+      ['100-calorie pack', '3-size set', '30-dose bottle', '2 battery pack', '$1200'], [], [], []],
+    ['承诺词一项里的几种写法各对各的：non-toxic 不认 Non-GMO，FDA approved 不认 FDA registered', 'It is non-toxic. FDA approved, medical-grade, free returns, CE marked, UL listed.',
+      ['Non-GMO ingredients', 'FDA registered facility', 'Food-grade silicone', 'Easy returns', 'CE certified', 'UL certified'], [],
+      ['non-toxic', 'FDA approved, medical-grade, free returns, CE marked, UL listed', 'medical-grade', 'free returns'], []],
+    ['同一个承诺词单复数、空格连字符不计：awards 认 Award，free returns 认 Free return', 'Award winners. Free returns, leakproof.', ['Award winner 2024', 'Free return within 30 days', 'Leak-proof lid'], [], [], []],
+    ['免费送货各对各的；several hundred、hundreds 这类没有阿拉伯数字的大数也列', 'Free 2-day shipping. Lasts several hundred hours, loved by hundreds.',
+      ['Free shipping over $50', 'Battery lasts hours'], [], ['Free 2-day shipping', 'several hundred', 'hundreds'], []],
+    ['草稿里的复数、免费送货的几种说法互认', 'Ships free, free gifts, free trials, recommended by dermatologists, loved by dermatologists.',
+      ['Free shipping', 'x'], [], ['Ships free, free gifts, free trials, recommended by dermatologists, loved by dermatologists', 'free gifts', 'free trials'], []],
   ]
-  eq('P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实',
-    rules.map(([name, draft, facts]) => [name, unsourcedLine(draft, facts, [])]), rules.map(([name, , , want]) => [name, want]))
+  const texts = (draft: string, facts: string[], posts: string[]) => {
+    const found = draftClaims(draft, facts, posts)
+    return [found.unsourced.map(f => f.text), found.postsOnly.map(f => f.text)]
+  }
+  eq('P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重',
+    rules.map(([name, draft, facts, posts]) => [name, ...texts(draft, facts, posts)]),
+    rules.map(([name, , , , unsourced, postsOnly]) => [name, unsourced, postsOnly]))
+  eq('P2.c 那一行的写法：前后各三个词、不跨行；没有前后词时只写原写法；没事实、资料不是英文、括号没配对各加一句',
+    [claimsLines('Our 12-blade motor spins fast\nand quiet', ['x'], []), claimsLines('40 dB', ['x'], []),
+      claimsLines('Hi Ana, love your videos.', [], []), claimsLines('A 400ml blender.', ['容量400毫升'], []),
+      claimsLines('Hi {name, 50% off', F, []), claimsLines('Ten seconds to clean.', F, ['ten seconds']), claimsLines(' \n', F, []), claimsLines(undefined, F, [])],
+    [{ unsourced: '12-blade（Our 12-blade motor spins fast）' }, { unsourced: '40 dB' }, { unsourced: `${NO_FACTS}：无` },
+      { unsourced: `${NOT_ENGLISH}：400ml（A 400ml blender.）` }, { unsourced: `50%（Hi {name, 50% off）；${UNMATCHED_BRACES}` },
+      { unsourced: '无' }, undefined, undefined])
   criterion('P2.c'); tension('U9', 'P2')
 }
 {
@@ -934,9 +1072,109 @@ suite('P2', '开发信草稿里对不上出处的数字与承诺词在评审 HTM
     const line = /<div class="bio" data-draft-claims="unsourced">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
     eq('P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样',
       [r.status, line, read('kol.csv').includes(DRAFT.replace(/"/g, '""'))],
-      [0, '出处对不上：5-year；warranty（只查数字和承诺词，其余说法仍要自己看）', true])
+      [0, '出处对不上：5-year（blender with a 5-year warranty, waterproof.）；warranty（with a 5-year warranty, waterproof.）（只查数字和承诺词，其余说法仍要自己看）', true])
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
   } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+
+await group('p2-endorsement-claims', () => {
+suite('P2', '开发信草稿里带认证说法的那一句要在产品资料里原样找得到')
+{
+  // P2.c 认证类说法（ADR-209 第二十二节）：带认证、批准、获奖、专利或机构名的那一整句，要在资料某一句里原样出现；资料里否定、问句、
+  // 还没拿到、已失效、说别家的那一句不算出处。行的格式同上一组的比对口径表：[名字, 草稿, 已证实的产品事实, 博主作品文字, 期望列为对不上的, 期望列为只在作品里有的]。
+  const rules: Array<[string, string, string[], string[], string[], string[]]> = [
+    ['资料里 expired 这类说法不给承诺词当出处', 'Lifetime warranty included.', ['Lifetime warranty expired for old models'], [], ['Lifetime warranty'], []],
+    ['资料里 except、unless、excluding、exclusions 也是否定', 'Free shipping, money-back guarantee, BPA-free, leakproof.',
+      ['Free shipping on all orders except Hawaii', 'Money-back guarantee unless opened', 'BPA-free lid, excluding the seal', 'Leakproof (exclusions apply)'], [],
+      ['Free shipping', 'money-back', 'guarantee', 'BPA-free', 'leakproof'], []],
+    ['认证类说法核整句：资料里别家的认证、别的批文不当出处', 'It is CE certified and UL certified, approved by the FDA, recommended by dermatologists, certified by TÜV.',
+      ['Made in an ISO 9001 certified, FDA registered facility', 'Dermatologist tested formula'], [],
+      ['It is CE certified and UL certified, approved by the FDA, recommended by dermatologists, certified by TÜV'], []],
+    ['认证类那一句资料里要原样有：资料只写 FDA approved、CE-certified 时，信里带别的话的整句对不上', 'Our blender is fully waterproof, approved by the FDA, CE certified, and comes with free gifts.',
+      ['Waterproof base', 'FDA approved', 'CE-certified motor', 'Free gift with every order'], [], ['Our blender is fully waterproof, approved by the FDA, CE certified, and comes with free gifts'], []],
+    ['名词式、主动式、单写机构名、to 后面的机构都按所在整句比', 'It is NSF-certified and has FDA approval. The FDA has approved it. Certified to NSF standards; USDA certified; certified organic; FDA certified.',
+      ['Made in an ISO 9001 certified, FDA registered facility', 'Dermatologist tested formula', 'Organic cotton'], [],
+      ['It is NSF-certified and has FDA approval', 'The FDA has approved it', 'Certified to NSF standards', 'USDA certified', 'certified organic', 'FDA certified'], []],
+    ['属性词前面的形容词、动词不拿去比：durable leakproof、backed by a lifetime warranty 资料里有就对上', 'We make a durable leakproof bottle, premium BPA-free, backed by a lifetime warranty. Enjoy free shipping, gentle vegan formula, waterproof by design.',
+      ['Leakproof lid.', 'Lifetime warranty.', 'BPA-free', 'Free shipping', 'Vegan', 'Waterproof'], [], [], []],
+    ['换了语序不算；U.S. 不断句，整句照列', 'Tested by dermatologists, FDA approved, approved by the U.S. FDA, certified by SGS.',
+      ['Dermatologist tested formula', 'The blender is FDA approved', 'Approved by the US FDA', 'Certified by SGS and TÜV'], [], ['Tested by dermatologists, FDA approved, approved by the U.S. FDA, certified by SGS'], []],
+    ['资料里否定那一句、只有机构名的那一句都不算出处', 'FDA certified and approved by the FDA.',
+      ['Our FDA registered facility is certified.', 'Not FDA approved. Approved by Health Canada.'], [], ['FDA certified and approved by the FDA'], []],
+    ['认证句里有占位符时整句照列；属性词照原词对上', 'Premium leakproof vegan leather, money back guarantee, Acme {product_name} certified.',
+      ['Leakproof', 'Vegan leather', 'Money back guarantee', 'ISO certified'], [], ['Premium leakproof vegan leather, money back guarantee, Acme {product_name} certified'], []],
+    ['资料里「还没拿到」的说法不算出处：awaiting、applied for、in progress', 'It has FDA approval and FDA clearance, UL listed.',
+      ['Awaiting FDA approval.', 'We have applied for FDA clearance.', 'UL listed: in progress'], [], ['It has FDA approval and FDA clearance, UL listed'], []],
+    ['资料里的问句不算出处', 'It is FDA approved. Approved: FDA.', ['Is it FDA approved? No, it is FDA registered.'], [], ['It is FDA approved', 'Approved: FDA'], []],
+    ['认证词挨着数的单位、承诺词时也核整句；句里的数照常带单位比', 'The hinge is 500 cycles tested. A 4K certified display. Free shipping approved.', ['500 cycles', 'Free shipping', '4K'], [], ['The hinge is 500 cycles tested', 'A 4K certified display', 'Free shipping approved'], []],
+    ['不说明是谁认可的 approved、tested 不算认证说法；Drop tested 这种照核整句', 'Drop tested to 2 m. Once approved, we ship. We tested it. Highly recommended.',
+      ['Drop tested to 2 ft'], [], ['Drop tested to 2 m', '2 m'], []],
+    ['ISO 9001 certified 不靠资料里的 ISO 9001 或别的 certified 过关', 'It is ISO 9001 certified.', ['Our factory follows ISO 9001.', 'Qi2 certified.'], [], ['It is ISO 9001 certified'], []],
+    ['并列的几个名字都在句子里：certified Kosher and Halal、Halal and Kosher certified、by NSF and Energy Star、by Health Canada and the EPA',
+      'It is certified Kosher and Halal. It is Halal and Kosher certified. Certified by NSF and Energy Star. Approved by Health Canada and the EPA.',
+      ['Certified Kosher.', 'Kosher certified.', 'Certified by NSF.', 'Approved by Health Canada.'], [],
+      ['It is certified Kosher and Halal', 'It is Halal and Kosher certified', 'Certified by NSF and Energy Star', 'Approved by Health Canada and the EPA'], []],
+    ['机构名不同的对不上：Health Canada 不认 Transport Canada；全大写的 WHO 不当代词', 'Health Canada approved. WHO approved.', ['Transport Canada approved.'], [],
+      ['Health Canada approved', 'WHO approved'], []],
+    ['by the US 那一句照列；单写的 CE、UL 资料里原句写了就对上', 'Certified by the US Department of Agriculture. Meets CE and UL standards.',
+      ['Certified by the US Department of Energy.', 'Meets CE and UL standards.'], [], ['Certified by the US Department of Agriculture'], []],
+    ['资料里 Dr. 后面不断句；lapsed、competitor、filed 这类说法不给认证句当出处', 'It is FDA approved, NSF certified and UL listed.',
+      ["We do not claim that Dr. Smith's formula is FDA approved.", 'NSF certification lapsed. Our competitor is NSF certified.', 'UL listed: filed.'], [],
+      ['It is FDA approved, NSF certified and UL listed'], []],
+    ['件数、引号、include 后面的一串、获奖的说法都按整句列', '12 NSF certified filters. "Kosher" certified. Certifications include NSF, Kosher and Halal. It was awarded the Red Dot prize. Our blender was awarded!',
+      ['12 hours. NSF certified.', 'CE certified.', 'CE certification.'], [],
+      ['12 NSF certified filters', '12 NSF', '"Kosher" certified', 'Certifications include NSF, Kosher and Halal', 'It was awarded the Red Dot prize', 'Our blender was awarded'], []],
+    ['整句照抄资料那一句就对上（空格、连字符、大小写、单复数不计）', 'Our bottle is NSF-certified. Award winners.', ['Our bottle is NSF certified.', 'award winner'], [], [], []],
+    ['认证词挨着承诺词也核整句：certified organic、certified vegan、Vegan certified', 'Our tee is certified organic. It is certified vegan. Vegan certified.',
+      ['Made with organic cotton.', 'OEKO-TEX certified.', 'Vegan.'], [], ['Our tee is certified organic', 'It is certified vegan', 'Vegan certified'], []],
+    ['逗号隔开的几个机构都在句子里', 'Comes with a WQA, NSF certified filter. Approved by the FDA, Health Canada, CE certified.',
+      ['NSF certified.', 'Approved by the FDA.', 'CE certified.'], [], ['Comes with a WQA, NSF certified filter', 'Approved by the FDA, Health Canada, CE certified'], []],
+    ['大写名字后面的 by 谁、几个词之后的 by 谁都在句子里', 'Certified Kosher by the Orthodox Union. Awarded Best Blender 2025 by Vogue. Tested hypoallergenic by SGS.',
+      ['Certified Kosher.', 'Awarded Best Blender 2025 by Wired.', 'Tested. Hypoallergenic.'], [],
+      ['Certified Kosher by the Orthodox Union', 'Awarded Best Blender 2025 by Vogue', 'Tested hypoallergenic by SGS'], []],
+    ['普通承诺词只认否定：资料里 unlike、plans、getting、coming 不挡，50 m. 后面照常断句', 'Fully waterproof, leakproof, lifetime warranty, free shipping, 20% discount, vegan.',
+      ['Waterproof to 50 m. Not suitable for diving.', 'Leakproof lid, capacity 1 L. Do not microwave.', 'Unlike competitors, we offer a lifetime warranty.',
+        'Subscription plans include free shipping.', '20% discount for creators getting started.', 'Vegan formula, coming in three scents.'], [], [], []],
+    ['No. 照常断句，不当否定', 'Model No. 5 is NSF certified.', ['Model No. 5 is NSF certified.'], [], [], []],
+    ['资料里原句在，但那一句是问句、还没拿到、已失效或说别家，照列', 'FDA approved. NSF certified. UL listed. Patented.',
+      ['Is the bottle FDA approved?', 'NSF certified, awaiting renewal.', 'UL listed: lapsed in 2024.', 'Patented by our competitor.'], [],
+      ['FDA approved', 'NSF certified', 'UL listed', 'Patented'], []],
+    ['表外的认证词说明了是谁时才核：引号里的名字、include、冒号后面；机构名、皮肤科医生、单写的 CE、UL 都核整句', '"Vet" recommended. Approvals include Health Canada. Approved: Health Canada. Our recommended picks. Loved by dermatologists. Meets CE and UL standards.',
+      ['x'], [], ['"Vet" recommended', 'Approvals include Health Canada', 'Approved: Health Canada', 'Loved by dermatologists', 'Meets CE and UL standards'], []],
+    ['说明了是谁、后面跟 it、this、our 的照核整句', 'Pediatricians recommend it. Vets recommend this for senior dogs. Nutritionists recommend our blender. Health Canada approved it last year.',
+      ['x'], [], ['Pediatricians recommend it', 'Vets recommend this for senior dogs', 'Nutritionists recommend our blender', 'Health Canada approved it last year'], []],
+    ['照抄时列表符号、表情、引号、括号、连打的标点、句中的单复数都不计；换行后以认证词起头的那句照样对上', '✅ NSF certified\n• "NSF certified."\n(NSF certified!!) 🎉\nAwards from Wired.\nHi,\nCertified by NSF.',
+      ['NSF certified.', 'Award from Wired.', 'Certified by NSF.'], [], [], []],
+    ['一行几千字没有句号的认证句不出错，只显示头尾', 'Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved.', ['Capacity 400 mL'], [],
+      [('Hi Ana,\n\n' + 'we love your videos and '.repeat(400) + 'it is FDA approved').slice(9, 369) + '…' + ('we love your videos and '.repeat(400) + 'it is FDA approved').slice(-100)], []],
+    ['缩写不分大小写：DR. 后面的名字照样在同一句里核', 'Tested by DR. Jones. Approved by Dr. Smith.', ['Tested by Dr. Smith.', 'Approved by DR. Smith.'], [], ['Tested by DR. Jones'], []],
+    ['分号后面不空格也分句，和资料那边一致', 'NSF certified;FDA registered;CE marked.', ['NSF certified;FDA registered.'], [], ['CE marked'], []],
+    ['比整句时词的边界照算：Untested by SGS 不给 Tested by SGS 作保', 'Tested by SGS.', ['Untested by SGS.'], [], ['Tested by SGS'], []],
+    ['by、with、to 后面是我们自己或泛指的人不算认证说法；后面跟 them、us 的背书照核', 'All content is approved by us before posting. Highly recommended to anyone who travels. Doctors recommend them. Consumer Reports recommended us.',
+      ['x'], [], ['Doctors recommend them', 'Consumer Reports recommended us'], []],
+    ['资料里连字符后半截不能当整句的开头：Self-certified、Pre-approved 不给 Certified、Approved 作保', 'Certified to CE standards. Approved by the FDA.',
+      ['Self-certified to CE standards.', 'Pre-approved by the FDA.'], [], ['Certified to CE standards', 'Approved by the FDA'], []],
+    ['数与单位、字母与数字贴写分写都算同一句，句里的数不同就对不上', 'FDA approved 400 mL jar. IPX-7 certified. FDA approved 500 mL jar.',
+      ['FDA approved 400ml jar.', 'IPX7 certified.'], [], ['FDA approved 500 mL jar', '500 mL'], []],
+    ['资料按句判否定：同一条资料里另一句不带否定，也不给被否定的那句作保', 'CE certified.', ['Not CE certified. FDA approved.'], [], ['CE certified'], []],
+    ['by 后面大写的 US 是美国，照核；by our、by their 后面不管是团队还是第三方都照核，后面另有 by 第三方的也照核', 'It is approved by US regulators. Approved by our doctors. Approved by their national health agency. Content is approved by our legal team before it goes live. Recommended by our team of pediatricians. Tested by SGS according to our team.',
+      ['x'], [], ['It is approved by US regulators', 'Approved by our doctors', 'Approved by their national health agency', 'Content is approved by our legal team before it goes live', 'Recommended by our team of pediatricians', 'Tested by SGS according to our team'], []],
+    ['资料一句里同一段出现两次时，有一处不是紧跟连字符就对上；İ 这类字母不让连字符记号错位', 'Certified to CE standards. Approved by the FDA.',
+      ['Self-certified to CE standards and Certified to CE standards.', 'İstanbul Pre-approved by the FDA.'], [], ['Approved by the FDA'], []],
+    ['超长句截头尾按字符切，表情不切成半个', 'FDA approved ' + '😀'.repeat(600) + '.', ['x'], [],
+      [Array.from('FDA approved ' + '😀'.repeat(600)).slice(0, 360).join('') + '…' + Array.from('😀'.repeat(600)).slice(-100).join('')], []],
+    ['说的是收信人或自己做的事不算认证说法', 'I tested Whirl Go myself. Sarah recommended you. Content is approved by you before posting. We cleared Friday for a call.', ['x'], [], [], []],
+  ]
+  const texts = (draft: string, facts: string[], posts: string[]) => {
+    const found = draftClaims(draft, facts, posts)
+    return [found.unsourced.map(f => f.text), found.postsOnly.map(f => f.text)]
+  }
+  eq('P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处',
+    rules.map(([name, draft, facts, posts]) => [name, ...texts(draft, facts, posts)]),
+    rules.map(([name, , , , unsourced, postsOnly]) => [name, unsourced, postsOnly]))
+  eq('P2.c 认证类那一条本身是整句，不再带前后几个词', claimsLines('Hi there, it is FDA approved. Thanks a lot friend.', ['x'], []), { unsourced: 'Hi there, it is FDA approved' })
+  criterion('P2.c')
 }
 })
 if (fullRun) {
