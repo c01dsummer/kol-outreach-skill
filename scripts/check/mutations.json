@@ -26037,18 +26037,6 @@
       ]
     },
     {
-      "id": "M-H198-ez",
-      "req": "harness",
-      "why": "空理由的豁免当成没写豁免：只该单列成不成立的，又被当作没有变异守着重复报",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "open = fs.filter(f => f.waiver === undefined)",
-      "replace": "open = fs.filter(f => !f.waiver)",
-      "by": "test",
-      "kills": [
-        "字段闸门：只新增一个空理由的豁免也红"
-      ]
-    },
-    {
       "id": "M-H198-fa",
       "req": "harness",
       "why": "变异不够时豁免一律不算：写了理由、没变异守着的那几处也照样红",
@@ -26191,6 +26179,18 @@
       "by": "test",
       "kills": [
         "字段闸门：同名的几处要每处一条变异（分不出哪条守哪处，只数条数）；守全了的照样列在新增里，不算靠豁免放行"
+      ]
+    },
+    {
+      "id": "M-H198-fm",
+      "req": "harness",
+      "why": "先判变异够不够、后判空理由：同名两处一处没写豁免、一处空理由时，同一个字段既报缺变异又报不成立",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "fs.some(blank) ? 'bare' as const : held < open.length ? 'unmarked' as const : ",
+      "replace": "held < open.length ? 'unmarked' as const : fs.some(blank) ? 'bare' as const : ",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名两处一处没写豁免、一处空理由，又没有变异时，只进不成立那一栏，不再重复报缺变异"
       ]
     },
     {

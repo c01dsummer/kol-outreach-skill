@@ -15297,6 +15297,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   }
   const toy = fieldToy()
   const toyOf = (key: string) => toy.find(f => f.key === key)
+  // 期望里有 undefined 的用严格深比较：eq 按 JSON 比，数组里的 undefined 与 null 分不开
+  const strict = (got: unknown, want: unknown): [unknown, unknown] => [isDeepStrictEqual(got, want) ? got : { 严格比对不等: got }, want]
   eq('字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条，名字相同）',
     toy.map(f => f.key).sort(), [
       'scripts/check/a.ts#Quiet.after', 'scripts/check/a.ts#Quiet.bare', 'scripts/check/a.ts#Quiet.quiet', 'scripts/check/a.ts#Row.idle', 'scripts/check/a.ts#Row.kept',
@@ -15306,9 +15308,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
       'scripts/check/b.ts#whole.nest', 'scripts/check/b.ts#whole.nest.w2', 'scripts/check/b.ts#whole.w1',
       'scripts/check/c.ts#lonely.bb',
     ])
-  eq('字段：豁免写在上一行或同一行；标记后面空着就是空串', ['Quiet.quiet', 'Quiet.bare', 'Row.idle'].map(k => toyOf(`scripts/check/a.ts#${k}`)?.waiver), ['只能从子进程输出验到', '', undefined])
-  eq('字段：上一个字段行尾的豁免不漏到下一个字段上', toyOf('scripts/check/a.ts#Quiet.after')?.waiver, undefined)
-  eq('字段：推断出来的对象字面量里，逗号后面的行尾豁免也认，不漏到下一行', ['listed.first', 'listed.second'].map(k => toyOf(`scripts/check/a.ts#${k}`)?.waiver), ['逗号后面的行尾注释', undefined])
+  eq('字段：豁免写在上一行或同一行；标记后面空着就是空串', ...strict(['Quiet.quiet', 'Quiet.bare', 'Row.idle'].map(k => toyOf(`scripts/check/a.ts#${k}`)?.waiver), ['只能从子进程输出验到', '', undefined]))
+  eq('字段：上一个字段行尾的豁免不漏到下一个字段上', ...strict(toyOf('scripts/check/a.ts#Quiet.after')?.waiver, undefined))
+  eq('字段：推断出来的对象字面量里，逗号后面的行尾豁免也认，不漏到下一行', ...strict(['listed.first', 'listed.second'].map(k => toyOf(`scripts/check/a.ts#${k}`)?.waiver), ['逗号后面的行尾注释', undefined]))
   eq('字段：打印用的路从函数名起，数组记 []、库泛型记 <>', ['scripts/check/b.ts#whole.nest.w2', 'scripts/check/a.ts#store.held'].map(k => toyOf(k)?.via),
     ['whole().nest[].w2', 'store()<>.held'])
   eq('字段：行号从 1 起，指向声明那一行', toyOf('scripts/check/a.ts#Quiet.quiet')?.line, 16)
@@ -15352,10 +15354,12 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   const at = (v: ReturnType<typeof fieldVerdict>) => [...v.unmarked, ...v.waived].map(f => [f.line, f.waiver])
   const place = (line: number, waiver?: string) => ({ ...dup(waiver), line })
   eq('字段闸门：同名的几处，缺变异的报没写豁免的那一处（不带别处的理由），靠豁免放行的报写了豁免的那一处、带它的理由',
-    [at(fieldVerdict([place(1, '子进程'), place(2)], [], [])), at(fieldVerdict([place(1), place(2, '日志')], [], [one]))], [[[2, undefined]], [[2, '日志']]])
+    ...strict([at(fieldVerdict([place(1, '子进程'), place(2)], [], [])), at(fieldVerdict([place(1), place(2, '日志')], [], [one]))], [[[2, undefined]], [[2, '日志']]]))
   eq('字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红',
     [[dup('子进程'), dup('')], [dup(''), dup('子进程')]].flatMap(two => [[one, one], []].map(ms => { const v = fieldVerdict(two, [], ms); return [v.unjustified.length, v.waived.length, v.red] })),
     [[1, 0, true], [1, 0, true], [1, 0, true], [1, 0, true]])
+  const mixed = fieldVerdict([dup(), dup('')], [], [])
+  eq('字段闸门：同名两处一处没写豁免、一处空理由，又没有变异时，只进不成立那一栏，不再重复报缺变异', [mixed.unjustified.length, mixed.unmarked.length, mixed.red], [1, 0, true])
 
   // 第二个玩具：映射与索引签名、名字的写法、重载、递归
   const moreFiles = (files: Record<string, string>) => Object.assign(files, {
@@ -15420,7 +15424,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     more.filter(f => f.key.includes('m.ts#oddInferred.') && f.key.endsWith('.y')).map(f => f.key).sort(),
     ['scripts/check/m.ts#oddInferred.{kind="a}.z.{kind=b"}.y', 'scripts/check/m.ts#oddInferred.{kind=a}.z.{kind=b}.y'])
   eq('字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段',
-    ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain', 'f.ts#W.starred'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined, ''])
+    ...strict(['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain', 'f.ts#W.starred'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined, '']))
 
   const moved = fieldToy(files => {
     moreFiles(files)
@@ -15442,8 +15446,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     fieldVerdict(pickOf(grown), pickOf(more).map(f => f.key), [mark('scripts/check/m.ts#pick(n: 0).value', 'value: number')]).unmarked.map(f => f.key), ['scripts/check/m.ts#pick(n: 1).value'])
   const genOf = (all: typeof more) => all.filter(f => f.key.startsWith('scripts/check/m.ts#gen'))
   eq('字段闸门：泛型重载只差类型参数的约束，名字里带上类型参数分开；旧的那处有豁免，不替新加的那处挡',
-    [genOf(grown).map(f => [f.key, f.waiver]).sort(), fieldVerdict(genOf(grown), genOf(more).map(f => f.key), []).unmarked.map(f => f.key)],
-    [[['scripts/check/m.ts#gen<T extends 0>(n: T).value', '只能从子进程输出验到'], ['scripts/check/m.ts#gen<T extends 1>(n: T).value', undefined]], ['scripts/check/m.ts#gen<T extends 1>(n: T).value']])
+    ...strict([genOf(grown).map(f => [f.key, f.waiver]).sort(), fieldVerdict(genOf(grown), genOf(more).map(f => f.key), []).unmarked.map(f => f.key)],
+    [[['scripts/check/m.ts#gen<T extends 0>(n: T).value', '只能从子进程输出验到'], ['scripts/check/m.ts#gen<T extends 1>(n: T).value', undefined]], ['scripts/check/m.ts#gen<T extends 1>(n: T).value']]))
   const chained = (() => { // 递归泛型：每展开一层都是新实例；找字段要停得下来，停不下来就是栈溢出
     try {
       return fieldToy(files => {
@@ -15469,12 +15473,12 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     files['scripts/check/r.ts'] = `export interface Box<T> { boxed: T }\nexport interface Leaf2 { leafG: number }\nexport function edge(): { deep: ${'Box<'.repeat(n)}Leaf2${'>'.repeat(n)}; flat: Leaf2 } { return null as never }`
   }).filter(f => f.file === 'scripts/check/r.ts').map(f => f.key).filter(k => k.endsWith('leafG') || k.endsWith('<没展开完>')).sort() } catch (e) { return String(e).slice(0, 60) } })()
   eq('字段：在深处被停下的类型，从浅处走到照样展开', edge, ['scripts/check/r.ts#Leaf2.leafG', 'scripts/check/r.ts#edge<没展开完>'])
-  eq('字段：库里的泛型（Map 这类）也按层数算，套四层没到上限，照样找到最里面的字段', [moreOf('m.ts#nestedMap.mapDeep') !== undefined, moreOf('m.ts#nestedMap<没展开完>')], [true, undefined])
+  eq('字段：库里的泛型（Map 这类）也按层数算，套四层没到上限，照样找到最里面的字段', ...strict([moreOf('m.ts#nestedMap.mapDeep') !== undefined, moreOf('m.ts#nestedMap<没展开完>')], [true, undefined]))
   const cutOf = (fs: readonly UseField[]) => fs.filter(f => f.key.endsWith('<没展开完>') && f.file === 'scripts/check/m.ts')
   const twiceMark = [mark('scripts/check/m.ts#twice<没展开完>', 'twice')]
   eq('字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条没有字段名的「没展开完」，变异守不了，照新增报红；函数前写了豁免就放行',
-    [cutOf(more).map(f => [f.key, f.name, f.waiver]), fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), [], twiceMark).red, fieldVerdict(cutOf(more), [], []).waived.length],
-    [[['scripts/check/m.ts#twice<没展开完>', undefined, '故意套二十层']], true, 1])
+    ...strict([cutOf(more).map(f => [f.key, f.name, f.waiver]), fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), [], twiceMark).red, fieldVerdict(cutOf(more), [], []).waived.length],
+    [[['scripts/check/m.ts#twice<没展开完>', undefined, '故意套二十层']], true, 1]))
   eq('字段闸门：「没展开完」那一条不按基线比 —— 基线上已有这一条，豁免删了照样红（停下的地方里面加了字段，旧的那条挡不住）',
     fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), cutOf(more).map(f => f.key), []).unmarked.map(f => f.key), ['scripts/check/m.ts#twice<没展开完>'])
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',

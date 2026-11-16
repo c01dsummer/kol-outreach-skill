@@ -187,7 +187,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   })
 }
 
-export const DEPTH = 16, BUDGET = 2000 // 找字段往下展开的上限：层数（每走一步——属性、元素、联合成员、类型实参……——算一层；仓库里最深 7 层，2026-11-16 量，留一倍余量）与一次从头走总共展开的步数（多路递归每层分叉，层数没到也会指数爆）
+export const DEPTH = 16, BUDGET = 2000 // 找字段往下展开的上限：层数（每走一步——属性、元素、联合成员、类型实参……——算一层；在提交 9e1fd00 的树上量，最深 7 层、一次从头走最多 77 步，留一倍余量；量法见 ADR-198 第四节）与一次从头走总共展开的步数（多路递归每层分叉，层数没到也会指数爆）
 export const INCOMPLETE = '<没展开完>' // 找字段展开到上限停下的函数记的那一条的名字尾巴：不按基线比、每次都判 —— 停下的地方里面加了字段，基线上那条挡不住
 /** 变异登记表里的一条，闸门只看这两样：它说自己弄坏哪个字段（`field`，写字段的 `key`），和它要找的那段源码 */
 export interface FieldMark { readonly field?: string; readonly find: string }
@@ -207,8 +207,8 @@ export interface FieldVerdict {
 /**
  * 名字可能撞（重载、同判别值的联合成员……写法列不完），所以按处数比：`base` 每处一个名字，`now` 里这个名字的处数比它多就算新增。
  * 一个名字的变异按条数算：没写豁免的那几处，每处要有一条 `field` 写着这个名字、`find` 里写得到字段名的变异 ——
- * 分不出哪条变异守哪一处，所以只数条数；撞了名最坏是多报红，不会漏。条数够的过；不够、而缺的那几处都写了豁免的，豁免成立进 `waived`、有一处空理由就只进 `unjustified`；
- * 再不够的进 `unmarked`。不成立的豁免（标记后面空着）只看新增的；任一处写了空理由就算不成立。`unmarked` 或 `unjustified` 非空就红。
+ * 分不出哪条变异守哪一处，所以只数条数；撞了名最坏是多报红，不会漏。条数够的过；不够时，几处里有一处空理由就只进 `unjustified`；
+ * 否则没写豁免的那几处条数够、靠豁免放行的进 `waived`，再不够的进 `unmarked`。不成立的豁免（标记后面空着）只看新增的；任一处写了空理由就算不成立。`unmarked` 或 `unjustified` 非空就红。
  * 「没展开完」那一条（`INCOMPLETE`）没有字段名，变异守不了，只认豁免，而且不按基线比、每次都判。
  */
 /** `find` 里写到了这个属性名：前后不能再接标识符的字符（`ok` 不算写在 `token` 里）；空名字算没写到 */
@@ -227,7 +227,7 @@ export function fieldVerdict(now: readonly Field[], base: readonly string[], mar
   const judged = [...places.values()].map(fs => {
     const name = fs[0].name, open = fs.filter(f => f.waiver === undefined)
     const held = name === undefined ? 0 : marks.filter(m => m.field === fs[0].key && writes(m.find, name)).length
-    const state = held >= fs.length ? 'marked' as const : held < open.length ? 'unmarked' as const : fs.some(blank) ? 'bare' as const : 'waived' as const // 空理由的只进 unjustified
+    const state = held >= fs.length ? 'marked' as const : fs.some(blank) ? 'bare' as const : held < open.length ? 'unmarked' as const : 'waived' as const // 有空理由的先判，只进 unjustified
     // 报出来的是该看的那一处：缺变异的报没写豁免的那处，靠豁免放行的报写了豁免的那处；几处里有一处空理由，就带空理由
     const at = (state === 'unmarked' ? open.at(0) : fs.find(f => f.waiver !== undefined)) ?? fs[0], { waiver: _own, ...place } = at
     const waiver = fs.some(blank) ? '' : at.waiver
