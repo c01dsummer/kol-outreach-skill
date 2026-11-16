@@ -57,7 +57,7 @@ import {
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
-import { fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, type Field as UseField } from './check/field-use-rule.js'
+import { DEPTH, fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, type Field as UseField } from './check/field-use-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -15179,7 +15179,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function ctor(): { new(): object; added: number } { return Object.assign(class {}, { added: 1 }) }',
       'export function ctorProp(): { made: new () => object; plainP: number } { return { made: class {}, plainP: 1 } }',
       'export interface Box<T> { boxed: T }', 'export function boxes(): Box<Box<Box<{ inBox: number }>>> { return { boxed: { boxed: { boxed: { inBox: 1 } } } } }',
-      'export function nestedMap(): Map<0, Map<0, Map<0, Map<0, { mapDeep: number }>>>> { return new Map() }', 'export interface Leaf { leafF: number }', '// 字段不入断言：故意套四层\nexport function twice(): { deep?: Box<Box<Box<Box<Leaf>>>>; flat: Box<Leaf> } { return { flat: { boxed: { leafF: 1 } } } }',
+      'export function nestedMap(): Map<0, Map<0, Map<0, Map<0, { mapDeep: number }>>>> { return new Map() }', 'export interface Leaf { leafF: number }', '// 字段不入断言：故意套二十层\nexport function twice(): { deep?: Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Leaf>>>>>>>>>>>>>>>>>>>>; flat: Box<Leaf> } { return { flat: { boxed: { leafF: 1 } } } }',
       'export function gen<T extends 0>(n: T): {\n  value: number // 字段不入断言：只能从子进程输出验到\n}', 'export function gen<T extends 1>(n: T): {}', 'export function gen(n: number): { value?: number } { return {} }',
       "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
     ].join('\n'),
@@ -15303,21 +15303,30 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   const chained = (() => { // 递归泛型：每展开一层都是新实例；三路（找字段、整体比对、重抄的类型）都要停得下来，停不下来就是栈溢出
     try {
       return fieldToy(files => {
-        files['scripts/check/r.ts'] = 'export interface Chain<T> { link: T; next?: Chain<T[]> }\nexport function chain(): Chain<{ deepLink: number }> { return { link: { deepLink: 1 } } }\nexport type Loop<T> = Loop<T[]>[]\nexport function loop(): Loop<{ inLoop: number }> { return [] }\nexport type Tup<T> = [Tup<T[]>]\nexport function tup(): Tup<0> { return null as never }'
-        files['scripts/test.ts'] += "\nimport { chain, loop, tup } from './check/r.js'\neq('ch', chain(), {})\neq('lp', loop(), [])\neq('tp', tup(), [])\ntype Local<T> = { l: T; n?: Local<T[]> }\ntype LocalLoop<T> = LocalLoop<T[]>[]\ntype LocalTup<T> = [LocalTup<T[]>]\nconst lc = (await import('./check/r.js') as unknown as { chain: () => Local<number>; loop: () => LocalLoop<number>; tup: () => LocalTup<0> }).chain().l"
+        files['scripts/check/r.ts'] = 'export interface Chain<T> { link: T; next?: Chain<T[]> }\nexport function chain(): Chain<{ deepLink: number }> { return { link: { deepLink: 1 } } }\nexport type Loop<T> = Loop<T[]>[]\nexport function loop(): Loop<{ inLoop: number }> { return [] }\nexport type Tup<T> = [Tup<T[]>]\nexport function tup(): Tup<0> { return null as never }\nexport interface RChain<T> { link: T; next?: Readonly<RChain<T[]>> }\nexport function rchain(): RChain<{ deepR: number }> { return { link: { deepR: 1 } } }'
+        files['scripts/test.ts'] += "\nimport { chain, loop, tup, rchain } from './check/r.js'\neq('ch', chain(), {})\neq('rc', rchain(), {})\neq('lp', loop(), [])\neq('tp', tup(), [])\ntype Local<T> = { l: T; n?: Local<T[]> }\ntype LocalLoop<T> = LocalLoop<T[]>[]\ntype LocalTup<T> = [LocalTup<T[]>]\nconst lc = (await import('./check/r.js') as unknown as { chain: () => Local<number>; loop: () => LocalLoop<number>; tup: () => LocalTup<0> }).chain().l"
       }).filter(f => f.file === 'scripts/check/r.ts').map(f => [f.key, f.used]).sort()
     } catch (e) { return String(e).slice(0, 60) }
   })()
   eq('字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到',
     chained, [['scripts/check/r.ts#Chain.link', true], ['scripts/check/r.ts#Chain.next', true], ['scripts/check/r.ts#chain.deepLink', true],
-      ['scripts/check/r.ts#chain<没展开完>', false], ['scripts/check/r.ts#loop<没展开完>', false], ['scripts/check/r.ts#tup<没展开完>', false]])
-  eq('字段：同一个泛型套三层照常展开，最里面的字段找得到（第四层起才停）', moreOf('m.ts#boxes.inBox') !== undefined, true)
-  eq('字段：在深处被停下的类型，从浅处走到照样展开', moreOf('m.ts#Leaf.leafF') !== undefined, true)
-  eq('字段：库里的泛型（Map 这类）不按递归层数停，套四层照样找到最里面的字段', [moreOf('m.ts#nestedMap.mapDeep') !== undefined, moreOf('m.ts#nestedMap<没展开完>')], [true, undefined])
+      ['scripts/check/r.ts#chain<没展开完>', false], ['scripts/check/r.ts#loop<没展开完>', false], ['scripts/check/r.ts#tup<没展开完>', false],
+      ['scripts/check/r.ts#RChain.link', true], ['scripts/check/r.ts#RChain.next', true], ['scripts/check/r.ts#rchain.deepR', true], ['scripts/check/r.ts#rchain<没展开完>', false]].sort())
+  const box12 = 'Box<'.repeat(20) + 'number' + '>'.repeat(20)
+  const exposed = (() => { try { return fieldToy(files => {
+    files['scripts/check/r.ts'] = `import * as selfR from './r.js'\nexport function expose(): typeof selfR { return selfR }\nexport interface Box<T> { boxed: T }\nexport function deep(): ${box12} { return null as never }`
+  }).filter(f => f.key.endsWith('<没展开完>')).map(f => f.key) } catch (e) { return String(e).slice(0, 60) } })()
+  eq('字段：函数先被别的导出（返回整个模块）记过一次，自己找字段停下时照样记「没展开完」', exposed, ['scripts/check/r.ts#deep<没展开完>'])
+  eq('字段：同一个泛型套三层，没到层数上限，照常展开、最里面的字段找得到', moreOf('m.ts#boxes.inBox') !== undefined, true)
+  const edge = (() => { try { const n = DEPTH - 1; return fieldToy(files => { // 深的那条路正好在 Leaf2 那一层碰到上限，浅的那条随后走到同一个 Leaf2
+    files['scripts/check/r.ts'] = `export interface Box<T> { boxed: T }\nexport interface Leaf2 { leafG: number }\nexport function edge(): { deep: ${'Box<'.repeat(n)}Leaf2${'>'.repeat(n)}; flat: Leaf2 } { return null as never }`
+  }).filter(f => f.file === 'scripts/check/r.ts').map(f => f.key).filter(k => k.endsWith('leafG') || k.endsWith('<没展开完>')).sort() } catch (e) { return String(e).slice(0, 60) } })()
+  eq('字段：在深处被停下的类型，从浅处走到照样展开', edge, ['scripts/check/r.ts#Leaf2.leafG', 'scripts/check/r.ts#edge<没展开完>'])
+  eq('字段：库里的泛型（Map 这类）也按层数算，套四层没到上限，照样找到最里面的字段', [moreOf('m.ts#nestedMap.mapDeep') !== undefined, moreOf('m.ts#nestedMap<没展开完>')], [true, undefined])
   const cutOf = (fs: readonly UseField[]) => fs.filter(f => f.key.endsWith('<没展开完>') && f.file === 'scripts/check/m.ts')
-  eq('字段闸门：同一个泛型套到第四层停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行',
+  eq('字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行',
     [cutOf(more).map(f => [f.key, f.used, f.waiver]), fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), []).red, fieldVerdict(cutOf(more), []).waived.length],
-    [[['scripts/check/m.ts#twice<没展开完>', false, '故意套四层']], true, 1])
+    [[['scripts/check/m.ts#twice<没展开完>', false, '故意套二十层']], true, 1])
   eq('字段闸门：「没展开完」那一条不按基线比 —— 基线上已有这一条，豁免删了照样红（停下的地方里面加了字段，旧的那条挡不住）',
     fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), cutOf(more).map(f => f.key)).unused.map(f => f.key), ['scripts/check/m.ts#twice<没展开完>'])
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',

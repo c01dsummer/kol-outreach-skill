@@ -26387,8 +26387,8 @@
       "req": "harness",
       "why": "整体比对这一路对递归类型不设停：每层新实例，栈溢出",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "const inner = enter(t, open); if (inner === undefined || seen.has(t))",
-      "replace": "const inner = enter(t, open); if (seen.has(t))",
+      "find": "const inner = enter(depth); if (inner === undefined || seen.has(t))",
+      "replace": "const inner = enter(depth); if (seen.has(t))",
       "by": "test",
       "kills": [
         "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
@@ -26397,22 +26397,23 @@
     {
       "id": "M-H198-dn",
       "req": "harness",
-      "why": "停得太早：同一个泛型正常套三层，最里面的字段就找不到了",
+      "why": "层数上限定得太小：正常套几层的类型，最里面的字段就找不到了",
       "file": "scripts/check/field-use-rule.ts",
-      "find": ".length >= 3 ? undefined",
-      "replace": ".length >= 2 ? undefined",
+      "find": "export const DEPTH = 16 ",
+      "replace": "export const DEPTH = 3 ",
       "by": "test",
       "kills": [
-        "字段：同一个泛型套三层照常展开，最里面的字段找得到（第四层起才停）"
+        "字段：同一个泛型套三层，没到层数上限，照常展开、最里面的字段找得到",
+        "字段：库里的泛型（Map 这类）也按层数算，套四层没到上限，照样找到最里面的字段"
       ]
     },
     {
       "id": "M-H198-do",
       "req": "harness",
-      "why": "递归的键不认类型别名：`type Loop<T> = Loop<T[]>[]` 这种直接递归的数组别名没有键，停不下来，栈溢出",
+      "why": "往下走一步层数不加一：递归类型停不下来，栈溢出",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "t.aliasSymbol ?? (",
-      "replace": "(",
+      "find": ": depth + 1",
+      "replace": ": depth",
       "by": "test",
       "kills": [
         "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段；找字段停下的函数记一条「没展开完」，算没用到"
@@ -26423,8 +26424,8 @@
       "req": "harness",
       "why": "先记 seen 再判层数：在深处被停下的类型记进了 seen，从浅处再走到它时被当成走过，里面的字段找不到",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "cut.add(owner) } return }",
-      "replace": "cut.add(owner) } seen.add(t); return }",
+      "find": "found.set(owner, `${via}…`) } return }",
+      "replace": "found.set(owner, `${via}…`) } seen.add(t); return }",
       "by": "test",
       "kills": [
         "字段：在深处被停下的类型，从浅处走到照样展开"
@@ -26447,11 +26448,11 @@
       "req": "harness",
       "why": "找字段停下时悄悄停、不记「没展开完」：最里面的字段漏了也不红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "{ if (owner !== undefined && !found.has(owner)) { found.set(owner, `${via}…`); cut.add(owner) } return }",
+      "find": "{ if (owner !== undefined) { cut.add(owner); if (!found.has(owner)) found.set(owner, `${via}…`) } return }",
       "replace": "return",
       "by": "test",
       "kills": [
-        "字段闸门：同一个泛型套到第四层停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
+        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
       ]
     },
     {
@@ -26463,19 +26464,19 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "字段闸门：同一个泛型套到第四层停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
+        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
       ]
     },
     {
       "id": "M-H198-dt",
       "req": "harness",
-      "why": "库里的泛型也按递归层数停：Map 套四层就停、报「没展开完」，最里面的字段找不到",
+      "why": "函数已经被别的导出（返回整个模块）记过一次，自己找字段停下时就不记「没展开完」：最里面的字段漏了也不红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "return inLibrary(k) ? undefined : k",
-      "replace": "return k",
+      "find": "{ cut.add(owner); if (!found.has(owner)) found.set(owner, `${via}…`) }",
+      "replace": "if (!found.has(owner)) { found.set(owner, `${via}…`); cut.add(owner) }",
       "by": "test",
       "kills": [
-        "字段：库里的泛型（Map 这类）不按递归层数停，套四层照样找到最里面的字段"
+        "字段：函数先被别的导出（返回整个模块）记过一次，自己找字段停下时照样记「没展开完」"
       ]
     },
     {
@@ -26488,6 +26489,18 @@
       "by": "test",
       "kills": [
         "字段闸门：「没展开完」那一条不按基线比 —— 基线上已有这一条，豁免删了照样红（停下的地方里面加了字段，旧的那条挡不住）"
+      ]
+    },
+    {
+      "id": "M-H198-dv",
+      "req": "harness",
+      "why": "层数上限定得太大：真递归下去要很久才停、悄悄多展开，故意套二十层的也不报「没展开完」",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "export const DEPTH = 16 ",
+      "replace": "export const DEPTH = 64 ",
+      "by": "test",
+      "kills": [
+        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
       ]
     },
     {

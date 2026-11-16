@@ -144,8 +144,8 @@ function waiverOf(ts: typeof Ts, decl: Ts.Declaration): string | undefined {
   return undefined
 }
 
-const inLibrary = (s: Ts.Symbol | undefined): boolean => (s?.declarations ?? []).some(d => /[\\/]node_modules[\\/]/.test(d.getSourceFile().fileName))
-const fromLibrary = (t: Ts.Type): boolean => inLibrary(t.symbol)
+const fromLibrary = (t: Ts.Type): boolean =>
+  (t.symbol?.declarations ?? []).some(d => /[\\/]node_modules[\\/]/.test(d.getSourceFile().fileName))
 
 /**
  * 字段的全集，连同用没用到、有没有豁免。`root` 是仓库根的绝对路径（程序里的文件名以它开头）。
@@ -157,16 +157,15 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const rel = (sf: Ts.SourceFile) => relOf(root, sf.fileName)
   const argumentsOf = (t: Ts.Type): readonly Ts.Type[] =>
     ((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) ? tc.getTypeArguments(t as Ts.TypeReference) : []
-  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按一条停：同一个仓库里的声明（别名、接口、类型字面量；普通数组元组、库里的不算）在这条路上已经开着三层（TypeScript 自己判「嵌套过深」也用三层），这一层整个不展开。声明有限、每个至多三层，所以必停。找字段这一路停下就报红（见 `cut`），不悄悄少找
-  const recursion = (t: Ts.Type): Ts.Symbol | undefined => { const k = t.aliasSymbol ?? (tc.isArrayType(t) || tc.isTupleType(t) ? undefined : t.symbol); return inLibrary(k) ? undefined : k }
-  const enter = (t: Ts.Type, open: readonly Ts.Symbol[]): readonly Ts.Symbol[] | undefined => { const k = recursion(t); return k === undefined ? open : open.filter(s => s === k).length >= 3 ? undefined : [...open, k] }
+  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按层数停：往下每走一步（属性、元素、联合成员、类型实参……）算一层，不管类型是谁，到 `DEPTH` 层整个不展开，所以必停。找字段这一路停下就报红（见 `cut`），不悄悄少找
+  const enter = (depth: number): number | undefined => depth >= DEPTH ? undefined : depth + 1
 
   // ── 1. 字段 ──
   // `cut`：找字段时展开到上限停下的导出函数 —— 里面可能还有字段没找到，记成这个函数名下一个没人用过的「字段」，照新增字段报红（可在函数前写豁免）
   const found = new Map<Ts.Declaration, string>(), cut = new Set<Ts.Declaration>(); let owner: Ts.Declaration | undefined
-  const walk = (t: Ts.Type, via: string, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
-    const inner = enter(t, open)
-    if (inner === undefined) { if (owner !== undefined && !found.has(owner)) { found.set(owner, `${via}…`); cut.add(owner) } return }
+  const walk = (t: Ts.Type, via: string, seen: Set<Ts.Type>, depth = 0): void => {
+    const inner = enter(depth)
+    if (inner === undefined) { if (owner !== undefined) { cut.add(owner); if (!found.has(owner)) found.set(owner, `${via}…`) } return }
     if (seen.has(t)) return; seen.add(t) // 先判层数再记 seen：在深处被停下的，从浅处走到照样展开
     if (t.isUnion() || t.isIntersection()) { for (const u of t.types) walk(u, via, seen, inner); return }
     if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) walk(a, `${via}[]`, seen, inner); return }
@@ -216,8 +215,8 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
      * 重抄常把形状另起成本文件里的类型别名再引用。
      */
     const copied = new Set<Ts.Declaration>()
-    const copy = (t: Ts.Type, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
-      const inner = enter(t, open)
+    const copy = (t: Ts.Type, seen: Set<Ts.Type>, depth = 0): void => {
+      const inner = enter(depth)
       if (inner === undefined || seen.has(t)) return; seen.add(t)
       if (t.isUnion() || t.isIntersection()) { for (const u of t.types) copy(u, seen, inner); return }
       for (const a of argumentsOf(t)) copy(a, seen, inner)
@@ -250,8 +249,8 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     const plain = (t: Ts.Type): boolean => t.isIntersection() ? t.types.every(plain) : (t.flags & ts.TypeFlags.Object) !== 0
       && (((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped) !== 0 || !fromLibrary(t)) && !((t.symbol?.flags ?? 0) & ts.SymbolFlags.Class)
       && t.getCallSignatures().length === 0 && t.getConstructSignatures().length === 0 && t.getProperty('toJSON') === undefined
-    const whole = (t: Ts.Type, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
-      const inner = enter(t, open); if (inner === undefined || seen.has(t)) return; seen.add(t)
+    const whole = (t: Ts.Type, seen: Set<Ts.Type>, depth = 0): void => {
+      const inner = enter(depth); if (inner === undefined || seen.has(t)) return; seen.add(t)
       if (t.isUnion()) { for (const u of t.types) whole(u, seen, inner); return }
       if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, inner); return }
       if (!plain(t)) return
@@ -310,6 +309,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   })
 }
 
+export const DEPTH = 16 // 三路往下展开的层数上限：每走一步（属性、元素、联合成员、类型实参……）算一层。仓库里最深的返回类型 7 层（2026-11-16 量），留一倍余量
 export const INCOMPLETE = '<没展开完>' // 找字段展开到上限停下的函数记的那一条的名字尾巴：不按基线比、每次都判 —— 停下的地方里面加了字段，基线上那条挡不住
 /** 整个值交给它们就算逐层碰到（文件头第 2 条） */
 export const WHOLE_COMPARE: ReadonlySet<string> = new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])
