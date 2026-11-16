@@ -13905,15 +13905,16 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   const text = JSON.stringify({ groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'], cwds: { a: ['', 'p'] } })
   eq('读得出的回报原样交回', readShardReport(text),
     { groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'], cwds: { a: ['', 'p'] } })
+  // 上面四条反例都带着合法的 cwds 一栏：不带的话每条都因为缺这一栏读不出，原本要验的那一处坏了也照样绿
   eq('没有当前目录那一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [] })), undefined)
   eq('当前目录那一栏是数组读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: [] })), undefined)
   eq('某组的当前目录不是字符串数组读不出',
     readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: { a: [1] } })), undefined)
   eq('写了一半的回报读不出', readShardReport(text.slice(0, -3)), undefined)
-  eq('失败数不是非负整数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: -1, claimed: [], covered: [] })), undefined)
-  eq('失败数是小数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0.5, claimed: [], covered: [] })), undefined)
-  eq('缺一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [] })), undefined)
-  eq('组名不是字符串读不出', readShardReport(JSON.stringify({ groups: [1], failed: 0, claimed: [], covered: [] })), undefined)
+  eq('失败数不是非负整数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: -1, claimed: [], covered: [], cwds: {} })), undefined)
+  eq('失败数是小数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0.5, claimed: [], covered: [], cwds: {} })), undefined)
+  eq('缺一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], cwds: {} })), undefined)
+  eq('组名不是字符串读不出', readShardReport(JSON.stringify({ groups: [1], failed: 0, claimed: [], covered: [], cwds: {} })), undefined)
   eq('根不是对象读不出', readShardReport('[]'), undefined)
 }
 
@@ -14128,7 +14129,7 @@ harness('自检组子进程的当前目录：与别族碰到的 tmp 路径重叠
   eq('没起过子进程的组只按扫描判', judge({}, { a: ['tmp/x'], b: ['tmp/y'] }), [])
   const effects = new Map(two.map(g => [g.id, fx()]))
   judgeCwds(two, effects, new Map([['a', ['']]]))
-  eq('合当前目录用的是副本：扫描交回的读写不被改', [...effects.get('a')!.writes], [])
+  eq('合当前目录用的是副本：扫描交回的读写不被改', [[...effects.get('a')!.reads], [...effects.get('a')!.writes]], [[], []])
   let stray = ''
   try { judgeCwds(two, effects, new Map([['c', ['']]])) } catch (e) { stray = (e as Error).message }
   ok('记下了当前目录的组不在组表里：当场抛并点名', stray.includes('c'))
