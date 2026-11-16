@@ -25366,7 +25366,7 @@
       "req": "harness",
       "why": "不问基线：主干上早就有、本来没人碰的字段全算新增，任何 PR 都红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": ".filter(f => after.get(f.key)! > (before.get(f.key) ?? 0))",
+      "find": ".filter(f => after.get(f.key)! > (before.get(f.key) ?? 0) || f.key.endsWith(INCOMPLETE))",
       "replace": "",
       "by": "test",
       "kills": [
@@ -26459,7 +26459,7 @@
       "req": "harness",
       "why": "「没展开完」那一条不带记号，名字与函数本身撞在一起，看不出是停下了",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "${cut.has(decl) ? '<没展开完>' : ''}",
+      "find": "${cut.has(decl) ? INCOMPLETE : ''}",
       "replace": "",
       "by": "test",
       "kills": [
@@ -26476,6 +26476,18 @@
       "by": "test",
       "kills": [
         "字段：库里的泛型（Map 这类）不按递归层数停，套四层照样找到最里面的字段"
+      ]
+    },
+    {
+      "id": "M-H198-du",
+      "req": "harness",
+      "why": "「没展开完」那一条也按基线比：基线上已有，后来删了豁免、在停下的地方里面加了字段，照样判绿",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " || f.key.endsWith(INCOMPLETE))",
+      "replace": ")",
+      "by": "test",
+      "kills": [
+        "字段闸门：「没展开完」那一条不按基线比 —— 基线上已有这一条，豁免删了照样红（停下的地方里面加了字段，旧的那条挡不住）"
       ]
     },
     {

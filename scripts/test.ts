@@ -15318,6 +15318,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段闸门：同一个泛型套到第四层停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行',
     [cutOf(more).map(f => [f.key, f.used, f.waiver]), fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), []).red, fieldVerdict(cutOf(more), []).waived.length],
     [[['scripts/check/m.ts#twice<没展开完>', false, '故意套四层']], true, 1])
+  eq('字段闸门：「没展开完」那一条不按基线比 —— 基线上已有这一条，豁免删了照样红（停下的地方里面加了字段，旧的那条挡不住）',
+    fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), cutOf(more).map(f => f.key)).unused.map(f => f.key), ['scripts/check/m.ts#twice<没展开完>'])
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
   eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),

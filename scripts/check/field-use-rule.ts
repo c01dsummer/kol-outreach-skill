@@ -157,8 +157,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const rel = (sf: Ts.SourceFile) => relOf(root, sf.fileName)
   const argumentsOf = (t: Ts.Type): readonly Ts.Type[] =>
     ((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) ? tc.getTypeArguments(t as Ts.TypeReference) : []
-  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按一条停：同一个仓库里的声明（别名、接口、类型字面量；普通数组元组、库里的不算）
-  // 在这条路上已经开着三层（TypeScript 自己判「嵌套过深」也用三层），这一层整个不展开。声明有限、每个至多三层，所以必停。找字段这一路停下就报红（见 `cut`），不悄悄少找
+  // 递归类型（`next?: Chain<T[]>`、`type Loop<T> = Loop<T[]>[]`）每展开一层都是新实例，seen 拦不住。三路都按一条停：同一个仓库里的声明（别名、接口、类型字面量；普通数组元组、库里的不算）在这条路上已经开着三层（TypeScript 自己判「嵌套过深」也用三层），这一层整个不展开。声明有限、每个至多三层，所以必停。找字段这一路停下就报红（见 `cut`），不悄悄少找
   const recursion = (t: Ts.Type): Ts.Symbol | undefined => { const k = t.aliasSymbol ?? (tc.isArrayType(t) || tc.isTupleType(t) ? undefined : t.symbol); return inLibrary(k) ? undefined : k }
   const enter = (t: Ts.Type, open: readonly Ts.Symbol[]): readonly Ts.Symbol[] | undefined => { const k = recursion(t); return k === undefined ? open : open.filter(s => s === k).length >= 3 ? undefined : [...open, k] }
 
@@ -303,7 +302,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     const text = nameOf(ts, decl) ?? ''
     const waiver = waiverOf(ts, decl)
     return {
-      key: `${keyOf(ts, tc, root, decl)}${cut.has(decl) ? '<没展开完>' : ''}`, file, via,
+      key: `${keyOf(ts, tc, root, decl)}${cut.has(decl) ? INCOMPLETE : ''}`, file, via,
       line: sf.getLineAndCharacterOfPosition(decl.getStart()).line + 1,
       used: !cut.has(decl) && (used.has(decl) || byName(file, text)),
       ...(waiver === undefined ? {} : { waiver }),
@@ -311,6 +310,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   })
 }
 
+export const INCOMPLETE = '<没展开完>' // 找字段展开到上限停下的函数记的那一条的名字尾巴：不按基线比、每次都判 —— 停下的地方里面加了字段，基线上那条挡不住
 /** 整个值交给它们就算逐层碰到（文件头第 2 条） */
 export const WHOLE_COMPARE: ReadonlySet<string> = new Set(['eq', 'assert', 'deepStrictEqual', 'stringify'])
 
@@ -341,7 +341,7 @@ export function fieldVerdict(now: readonly Field[], base: readonly string[]): Fi
     const { waiver: _first, ...first } = fs[0] // 第一处自己的豁免不带过来，合起来的豁免只看上一行
     return { ...first, used: idle.length === 0, ...(waiver === undefined ? {} : { waiver }) }
   })
-  const fresh = merged.filter(f => after.get(f.key)! > (before.get(f.key) ?? 0)).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+  const fresh = merged.filter(f => after.get(f.key)! > (before.get(f.key) ?? 0) || f.key.endsWith(INCOMPLETE)).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
   const unjustified = fresh.filter(f => f.waiver !== undefined && f.waiver.length === 0)
   const idle = fresh.filter(f => !f.used)
   const waived = idle.filter(f => f.waiver !== undefined && f.waiver.length > 0)
