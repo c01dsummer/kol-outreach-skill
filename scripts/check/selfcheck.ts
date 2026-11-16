@@ -1341,8 +1341,19 @@ group('cost-resume', [], () => {
           cost_http_200_usd: 0.004, cost_unknown_result_usd: 0.002, cost_pending_usd: 0,
           budget_usd: 0.006, cost_status: 'known', cost_scope: 'task' }),
       `${entry}: status=${changed.status}, attempts=${fetchAttempts(f.log).length}, summary=${changed.stdout}`)
+    // D13.x：钱花到上限停下时，两个入口在 stderr 末尾打同一套三行（措辞由需求方 2026-11-15 选定，ADR-212）。
+    // 第一行的金额与 stdout 汇总同源；第二行说存了多少（collect 说名单里几位，enrich 说查好几个账号、共几个）；
+    // 第三行是照抄就能续跑的命令，必须带 --budget —— 光续跑会立刻再撞一次 3。
+    const tail = changed.stderr.trimEnd().split('\n').slice(-3), told = summaryOf(changed.stdout)
+    named('钱花到上限停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令',
+      changed.status === 3 && tail[0] === '⛔ 钱花到上限了（已花 $0.006 / 上限 $0.006），已停下。'
+        && tail[1] === (entry === 'collect'
+          ? `✅ 进度已存好：已找到 ${told?.collected} 位达人，下次接着跑不会重复花钱。`
+          : `✅ 进度已存好：已查好 ${told?.accounts_selected} 个达人账号的数据（共 4 个要查），下次接着跑不会重复花钱。`)
+        && tail[2] === `👉 想继续：npm run ${entry} -- ${entry === 'collect' ? '--resume' : '--dir'} ${f.taskDir} --budget <新总上限>`,
+      `${entry}: ${tail.join(' | ')}`)
   }
-  criterion('D13.j', 'D13.k', 'D6.o')
+  criterion('D13.j', 'D13.k', 'D6.o', 'D13.x')
 
   for (const entry of ['collect', 'enrich']) for (const limit of ['0.003', '0.002']) {
     const f = costFixture(`lower-${entry}-${limit}`, knownCosts(5000, structuredClone(history)),
@@ -1764,7 +1775,7 @@ group('cost-durable', [], () => {
       }
       named('费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出6',
         injected.length > 0 && result.status === 6 && result.stdout.trim() === ''
-          && !/断点已保存|已保存.*(?:续跑|继续)|追加预算|续跑不产生|续跑会继续/.test(result.stderr)
+          && !/断点已保存|已保存.*(?:续跑|继续)|进度已存好|接着跑|追加预算|续跑不产生|续跑会继续/.test(result.stderr)
           && result.stderr.includes('test durable cost save denied')
           && fileText(join(f.taskDir, 'creators.json')) === beforePeople, why)
     }
@@ -1904,7 +1915,7 @@ group('cost-save-errors', [], () => {
     }
     const attempts = fetchAttempts(f.log)
     named('费用保存故障确实发生，失败不得退3、宣称已保存或继续请求',
-      fileText(mark).includes('injected') && result.status === 6 && !result.stderr.includes('已保存')
+      fileText(mark).includes('injected') && result.status === 6 && !/已保存|已存好/.test(result.stderr)
         && attempts.length === (scenario === 'after-http' ? 1 : 0)
         && (scenario !== 'after-http' || attempts[0] === `200\t${entry === 'collect' ? TT_SEARCH : TT_POSTS}`)
         && (scenario === 'after-http' ? jsonFile(f.task)?.cost_ledger?.pending?.endpoint === (entry === 'collect' ? TT_SEARCH : TT_POSTS)
@@ -2280,7 +2291,7 @@ group('test-observer-save-fault', [], () => {
   const br = obsResume('collect 注入 SP-BUD 第 1 次', bud, TOBS_ON(), { status: 6, soft: [0, 1, 2, 3, 7] })
   if (budCtl.ok && br.ok) {
     named('SP-BUD 命中：对照跑以 3 收尾，注入跑以 6 收尾、stdout 没有汇总 JSON、零请求，stderr 不说已保存',
-      budCtl.status === 3 && br.status === 6 && noSummary(br.stdout) && fetchAttempts(bud.log).length === 0 && !/已保存/.test(br.stderr), obsSaid(br, bud.log))
+      budCtl.status === 3 && br.status === 6 && noSummary(br.stdout) && fetchAttempts(bud.log).length === 0 && !/已保存|已存好/.test(br.stderr), obsSaid(br, bud.log))
     named('SP-BUD 的命中记录没有 attempt_id 与 endpoint，作者文件和 task.json 一字没写',
       hits(br.records).length === 1 && hits(br.records)[0].point === 'SP-BUD' && hits(br.records)[0].occurrence === 1 && hits(br.records)[0].not_written === true
         && !('attempt_id' in hits(br.records)[0]) && !('endpoint' in hits(br.records)[0]) && budFiles.every((p, i) => fileText(p) === budBefore[i]), obsSaid(br))
@@ -3116,9 +3127,9 @@ group('memory', ['collect', 'render'], () => {
         failed++
         console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
       } else console.log('  ✓ 续跑的代价按实际剩余工作量说话')
-      // 余额不足以支付下一请求时，光 --resume 会再退 3（F7.d、D13）；
-      // 无待查项时不该要求改额，有这条不足提示时修复命令必须带 --budget，两者同进同出。
-      const budgetInsufficient = /不足以支付下一(?:次)?请求/.test(stderr)
+      // 钱花到上限时，光 --resume 会再退 3（F7.d、D13）；
+      // 无待查项时不该要求改额，有「钱也花到上限了」这句时修复命令必须带 --budget，两者同进同出。
+      const budgetInsufficient = /钱也花到上限了/.test(stderr)
       const cmdHasBudget = /修好它再跑:.*--budget <新额度>/.test(stderr)
       if (budgetInsufficient !== cmdHasBudget) {
         failed++
@@ -11375,10 +11386,10 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
   try { sf = runBoth('评审正本真实只读保存失败', entry('collect', save), save.cwd, { status: 6, soft: [0, 1, 2, 3, 4, 7] }, observed(save)) }
   finally { chmodSync(join(save.taskDir, agentName), 0o644) }
   named('CLI 正本保存失败退出6且不提前覆盖名单', sf!.ok && sf!.status === 6 && sf!.stderr.includes(agentName) &&
-    !/断点.*已保存|已保存.*断点|预算不足/.test(sf!.stderr) && unchanged(saveBefore) && positive && noPaid(save), '保存失败伪装输入、预算或成功')
+    !/断点.*已保存|已保存.*断点|已存好|预算不足|花到上限/.test(sf!.stderr) && unchanged(saveBefore) && positive && noPaid(save), '保存失败伪装输入、预算或成功')
   const stop = fixture('budget-stop', [], { budget_usd: 0, ...knownCosts(0, []), done: [], offsets: {}, answered: {}, found: {}, pages: {} })
   const bs = runBoth('评审入口预算不足断点', entry('collect', stop), stop.cwd, { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, observed(stop))
-  named('CLI 预算不足仍退出3保存真实断点', bs.ok && bs.status === 3 && bs.stderr.includes('保存') && jsonFile(stop.task)?.done?.length === 0 &&
+  named('CLI 预算不足仍退出3保存真实断点', bs.ok && bs.status === 3 && bs.stderr.includes('✅ 进度已存好') && jsonFile(stop.task)?.done?.length === 0 &&
     jsonFile(stop.task)?.requests === 0 && fetchAttempts(stop.log).length === 0 && fileText(stop.armed).includes('armed') && positive,
     '预算状态被输入或保存错误掩盖、或请求提前发出')
   reviewCliEntryCompleted.exit = true

@@ -23691,6 +23691,78 @@
       ]
     },
     {
+      "id": "M-D13-aj",
+      "req": "D13.x",
+      "why": "钱花到上限停下时第二行「进度已存好」没了：用户不知道已经找到的人存住了没有，P3.d 的「声明已保存」也没说",
+      "file": "scripts/lib/budget.ts",
+      "find": "    `✅ 进度已存好：${saved}，下次接着跑不会重复花钱。`,\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去"
+      ]
+    },
+    {
+      "id": "M-D13-ak",
+      "req": "D13.x",
+      "why": "第一行把总上限当成已花：没花满也说花满了，用户以为额度一分不剩",
+      "file": "scripts/lib/budget.ts",
+      "find": "    ? `已花 $${view.cost_estimate_usd} / 上限 $${view.budget_usd}`",
+      "replace": "    ? `已花 $${view.budget_usd} / 上限 $${view.budget_usd}`",
+      "by": "test",
+      "kills": [
+        "收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去"
+      ]
+    },
+    {
+      "id": "M-D13-al",
+      "req": "D13.x",
+      "why": "费用无从确认时照样按已知金额拼，第一行写出 $null",
+      "file": "scripts/lib/budget.ts",
+      "find": "  const spent = view.cost_status === 'known'\n",
+      "replace": "  const spent = view.cost_status !== 'unknown-history'\n",
+      "by": "test",
+      "kills": [
+        "费用无从确认时第一行说出原因，不写 $null"
+      ]
+    },
+    {
+      "id": "M-D13-am",
+      "req": "D13.x",
+      "why": "collect 的续跑命令丢了 --budget：用户照抄会立刻再撞一次退出码 3",
+      "file": "scripts/collect.ts",
+      "find": "      `npm run collect -- --resume ${dir} --budget <新总上限>`).join('\\n'))",
+      "replace": "      `npm run collect -- --resume ${dir}`).join('\\n'))",
+      "by": "selfcheck",
+      "kills": [
+        "钱花到上限停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
+      ]
+    },
+    {
+      "id": "M-D13-an",
+      "req": "D13.x",
+      "why": "enrich 把要查的总数说成已查好的数：没查完也像查完了",
+      "file": "scripts/enrich.ts",
+      "find": "`已查好 ${selected.length} 个达人账号的数据（共 ${refs.size} 个要查）`",
+      "replace": "`已查好 ${refs.size} 个达人账号的数据（共 ${refs.size} 个要查）`",
+      "by": "selfcheck",
+      "kills": [
+        "钱花到上限停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
+      ]
+    },
+    {
+      "id": "M-D13-ao",
+      "req": "D13.x",
+      "why": "collect 说存好的人数取了累加器而不是名单：被筛掉的人也算进「已找到」",
+      "file": "scripts/collect.ts",
+      "find": "`已找到 ${fin.kept.length} 位达人`",
+      "replace": "`已找到 ${creators.size + 1} 位达人`",
+      "by": "selfcheck",
+      "kills": [
+        "钱花到上限停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
+      ]
+    },
+    {
       "id": "M-D13-ai",
       "req": "D13.u",
       "why": "collect 以 --config 新建任务时把 --budget 与默认 $2（或配置里的上限）取大 —— 用户给的比默认小的总预算被无视，照默认花钱",

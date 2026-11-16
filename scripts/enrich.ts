@@ -20,7 +20,7 @@ import {
   TikHubError,
 } from './providers/tikhub.js'
 import {
-  Budget, BudgetInputError,
+  Budget, BudgetInputError, budgetStopLines,
 } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { sourceDuplicateKeys, sourceDuplicates, stringifyCostJson } from './lib/cost-json.js'
@@ -307,7 +307,9 @@ async function main() {
   }, budget.view()))
 
   if (stopped === 'budget') {
-    console.error(`\n⛔ 余额不足以支付下一请求 ${budget.summary()} —— enrichment.json 已保存，可提高总预算后续跑。`)
+    // 走到这里，上面的 persist() 都成功了（失败的那一路以 6 退出），所以第二行「进度已存好」说得起（P3.d）
+    console.error('\n' + budgetStopLines(budget.view(), `已查好 ${selected.length} 个达人账号的数据（共 ${refs.size} 个要查）`,
+      `npm run enrich -- --dir ${dir} --budget <新总上限>`).join('\n'))
     process.exit(EXIT.budget)
   }
   if (stopped === 'error') {

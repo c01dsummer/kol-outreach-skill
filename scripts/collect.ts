@@ -17,7 +17,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
-import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/budget.js'
+import { Budget, BudgetInputError, budgetStopLines, startBudget, type PersistCost } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
@@ -508,7 +508,7 @@ async function main() {
     // 无条件说「续跑不会重复花费」，是把「已抓到的不重抓」说成了「续跑免费」，
     // 而剩下的关键词照样要花钱（ADR-22）。
     if (stopped === 'error') console.error(`\n   ⚠️ 本轮采集也没跑完：${errorMsg}`)
-    if (stopped === 'budget') console.error(`\n   ⚠️ 本轮余额不足以支付下一请求，续跑可用 --budget 指定新总额度`)
+    if (stopped === 'budget') console.error(`\n   ⚠️ 本轮钱也花到上限了，续跑时要用 --budget 给新的总上限`)
     // 「续跑要不要花钱」有**两种**没干完的活，只数关键词会漏掉后一种：
     // 关键词全跑完了，但只要还有人没补 profile，续跑第一件事就是去补，
     // 那是付费端点（ADR-25）。
@@ -576,8 +576,9 @@ async function main() {
   console.error(`\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)
 
   if (stopped === 'budget') {
-    console.error(`\n⛔ 余额不足以支付下一请求 ${budget.summary()} —— 断点已保存。`)
-    console.error(`   指定新总预算续跑: npm run collect -- --resume ${dir} --budget <新额度>`)
+    // 走到这里，上面的每次保存都成功了（失败的那一路以 6 退出），所以第二行「进度已存好」说得起（P3.d）
+    console.error('\n' + budgetStopLines(budget.view(), `已找到 ${fin.kept.length} 位达人`,
+      `npm run collect -- --resume ${dir} --budget <新总上限>`).join('\n'))
     process.exit(EXIT.budget)    // 预算用尽，可续跑
   }
   if (stopped === 'error') process.exit(errorExit)

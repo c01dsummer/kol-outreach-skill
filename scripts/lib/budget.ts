@@ -161,6 +161,24 @@ export class Budget {
   }
 }
 
+/**
+ * 钱花到上限、停下时 collect 和 enrich 共用的收尾三行（D13.x；措辞由需求方 2026-11-15 选定，ADR-212）：
+ * 花了多少、存好了什么、想继续敲哪条命令。两边原先各说各的，还用了「断点」「enrichment.json」这种内部词。
+ *
+ * **只在进度真的存好之后调用** —— 第二行就是 P3.d 的「声明已保存」。保存失败那一路以 6 退出、
+ * 走不到调用点，所以这里不收「没存上」的参数。
+ */
+export function budgetStopLines(view: CostView, saved: string, command: string): string[] {
+  const spent = view.cost_status === 'known'
+    ? `已花 $${view.cost_estimate_usd} / 上限 $${view.budget_usd}`
+    : `花了多少无从确认：${view.cost_problems.map(p => `${p.path}: ${p.reason}`).join('; ')}`
+  return [
+    `⛔ 钱花到上限了（${spent}），已停下。`,
+    `✅ 进度已存好：${saved}，下次接着跑不会重复花钱。`,
+    `👉 想继续：${command}`,
+  ]
+}
+
 export function startBudget(state: CostState, limit: MicroUsd, scope: 'task' | 'process', notify?: NotifyCost, persist?: PersistCost): Budget {
   const engine = createCostBudget(limit, scope, TIKHUB_PRICE_CATALOG)
   setCostLimitField(state, limit)
