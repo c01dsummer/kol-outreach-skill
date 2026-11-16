@@ -194,15 +194,16 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const used = new Set<Ts.Declaration>()
   const mark = (s: Ts.Symbol | undefined): void => { for (const d of s?.declarations ?? []) used.add(d) }
   const calleeOf = (c: Ts.CallExpression): string => ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : ts.isIdentifier(c.expression) ? c.expression.text : ''
-  const unwrap = (e: Ts.Expression): Ts.Expression => ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) ? unwrap(e.expression) : e
+  const valueOf = (m: Ts.ShorthandPropertyAssignment): Ts.Type | undefined => { const v = tc.getShorthandAssignmentValueSymbol(m); return v === undefined ? undefined : tc.getTypeOfSymbol(v) }
   const split = (t: Ts.Type): readonly Ts.Type[] => t.isUnion() ? t.types : [t] // 可能为空的也只是联合里多一个 undefined，它上面没有属性
   /** 期望值对象 `lit` 对得上的那几个类型：联合拆开，只留写出来的键它都有、写出来的判别值（字符串字面量）也对得上的成员 —— 不让同名字段在别的成员上沾光 */
   const fit = (lit: Ts.ObjectLiteralExpression, types: readonly Ts.Type[]): readonly Ts.Type[] => types.flatMap(split).filter(t => lit.properties.every(m => {
     const name = ts.isPropertyAssignment(m) || ts.isShorthandPropertyAssignment(m) ? literalName(ts, m.name) : undefined, q = name === undefined ? undefined : t.getProperty(name)
     if (name === undefined || q === undefined) return name === undefined
     const tags = split(tc.getNonNullableType(tc.getTypeOfSymbol(q))) // 可选的判别属性带个 undefined，去掉再看是不是全是字符串字面量
-    const said = ts.isPropertyAssignment(m) ? unwrap(m.initializer) : undefined // 写出来的判别值，套着 as、satisfies、括号也认
-    return said === undefined || !ts.isStringLiteralLike(said) || !tags.every(x => x.isStringLiteral()) || tags.some(x => x.isStringLiteral() && x.value === said.text)
+    // 写出来的判别值按它的类型认：'a'、'a' as const、套括号的、简写的 { kind }（取那个变量的类型）都是字面量 'a'
+    const said = ts.isPropertyAssignment(m) ? tc.getTypeAtLocation(m.initializer) : ts.isShorthandPropertyAssignment(m) ? valueOf(m) : undefined
+    return said === undefined || !said.isStringLiteral() || !tags.every(x => x.isStringLiteral()) || tags.some(x => x.isStringLiteral() && x.value === said.value)
   }))
   /**
    * 期望值里这个位置该是什么类型：一路往上走到一次比对（`COMPARE` 里的调用）的实参，取同一次比对里**别的**实参的类型，再按键、按元素往下找回来。
