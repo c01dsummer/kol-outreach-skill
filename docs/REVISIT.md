@@ -107,16 +107,16 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
        const b = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i && i < b.end).at(-1)
        if (b) console.log(IOU_NAME.exec(lines[b.start])?.[1] ?? "")'
    }
-   born() {  # 打「登记日（秒） 旧行号…」：$1 文件，$2 行号，$3 短名字；旧行号只有改取了原文那一行才有，几行都指它就全打，日期取第一行
+   born() {  # 打「登记日（秒） 旧行号…」：$1 文件，$2 行号，$3 短名字；旧行号 = 拆时重挂到这个名字的原文行号，全打（去重用）
      local f=$1 n=$2 nm=$3 a h s c o='' src=$run m=$2
      a=$(basename "$f" | grep -oE '^ADR-[0-9]+'); h=docs/adr/历史/$(basename "$f")
      s=$(git log --first-parent --diff-filter=A --format=%H "$run" -- "$h" | tail -n 1)
      if [ -n "$s" ] && [ "$f" = "$h" ]; then   # 历史文件：拆之前那一段原样是原文，行号对得上
        [ "$n" -le "$(git show "$s^:docs/adr/$(basename "$f")" | wc -l)" ] && { src=$s^; f=docs/adr/$(basename "$f"); }
-     elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写、之后没再改过的那张：取原文里被它接走的第一张
+     elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写的那张：旧行号总要；日期只在条件拆后没再改过时取原文第一张
+       o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | tr '\n' ' ')
        c=$(git blame --first-parent --porcelain -L "$n,$n" "$run" -- "$f" | head -n 1 | cut -d' ' -f1)
-       [ "$c" = "$s" ] && o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | tr '\n' ' ')
-       [ -n "$o" ] && { src=$s^; m=${o%% *}; }
+       [ -n "$o" ] && [ "$c" = "$s" ] && { src=$s^; m=${o%% *}; }
      fi
      echo "$(git blame --first-parent --porcelain -L "$m,$m" "$src" -- "$f" | awk '/^committer-time /{print $2; exit}') $o"
    }
@@ -150,7 +150,7 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
    - **有短名字的欠条**（块头 `⚠️ 欠条「…」`）按 `<编号>「<短名字>」` 记，不按行号 —— 主文件每次重写都可能挪行。
    - **满四周** = 登记日在 `<日期>` 往前 28 天那天或更早（命令里的 `cut`）：这一行 28 天里没被改过。
    - **列过** = ADR-152 里有一条候选行的「欠条」栏、或「读过、没进候选」那一行里，写着同一个 `<编号> 第 <行> 行`。
-     有短名字的是同一个 `<编号>「<短名字>」`，或者拆之前它在原文里的 `<编号> 第 <行> 行`（拆以前列过的，换了名字也不再列，命令里的 `旧行号`；几张旧欠条重挂到同一个名字的，哪一个旧行号列过都算）；按字面整项比。命令里那条 grep 就是这个判据；候选那一句里顺带写到的行号不算。每张欠条的每个条件，在 ADR-152 里至多出现一次。
+     有短名字的是同一个 `<编号>「<短名字>」`，或者拆之前它在原文里的 `<编号> 第 <行> 行`（拆以前列过的，换了名字也不再列，命令里的 `旧行号`；几张旧欠条重挂到同一个名字的，哪一个旧行号列过都算；拆以后条件改过也照样认旧行号，与按名字认同一个口径）；按字面整项比。命令里那条 grep 就是这个判据；候选那一句里顺带写到的行号不算。每张欠条的每个条件，在 ADR-152 里至多出现一次。
    - **取**：「没列过」的前 5 行，就是命令最后打出来的那几行（登记日从早到晚，同一天按编号）。截在同一登记日中间也只取 5 行；
      没取到的下周排在最前。
    - 命令打出的头三个数依次是：取不到登记日的行数，应为 0，不是 0 就照「做不了的时候」写 `无从确认：取不到登记日`；
@@ -337,16 +337,16 @@ awk -F'|' '{ match($1, /ADR-[0-9]+/); print substr($1, RSTART, RLENGTH) " 第 " 
       const b = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i && i < b.end).at(-1)
       if (b) console.log(IOU_NAME.exec(lines[b.start])?.[1] ?? "")'
   }
-  born() {  # 打「登记日（秒） 旧行号…」：$1 文件，$2 行号，$3 短名字；旧行号只有改取了原文那一行才有，几行都指它就全打，日期取第一行
+  born() {  # 打「登记日（秒） 旧行号…」：$1 文件，$2 行号，$3 短名字；旧行号 = 拆时重挂到这个名字的原文行号，全打（去重用）
     local f=$1 n=$2 nm=$3 a h s c o='' src=$run m=$2
     a=$(basename "$f" | grep -oE '^ADR-[0-9]+'); h=docs/adr/历史/$(basename "$f")
     s=$(git log --first-parent --diff-filter=A --format=%H "$run" -- "$h" | tail -n 1)
     if [ -n "$s" ] && [ "$f" = "$h" ]; then   # 历史文件：拆之前那一段原样是原文，行号对得上
       [ "$n" -le "$(git show "$s^:docs/adr/$(basename "$f")" | wc -l)" ] && { src=$s^; f=docs/adr/$(basename "$f"); }
-    elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写、之后没再改过的那张：取原文里被它接走的第一张
+    elif [ -n "$s" ] && [ -n "$nm" ]; then    # 主文件里拆时重写的那张：旧行号总要；日期只在条件拆后没再改过时取原文第一张
+      o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | tr '\n' ' ')
       c=$(git blame --first-parent --porcelain -L "$n,$n" "$run" -- "$f" | head -n 1 | cut -d' ' -f1)
-      [ "$c" = "$s" ] && o=$(git show "$run:$h" | grep -oP "已重挂：$a 第 \K[0-9]+(?= 行 · .*现行的是 $a「\Q$nm\E」)" | tr '\n' ' ')
-      [ -n "$o" ] && { src=$s^; m=${o%% *}; }
+      [ -n "$o" ] && [ "$c" = "$s" ] && { src=$s^; m=${o%% *}; }
     fi
     echo "$(git blame --first-parent --porcelain -L "$m,$m" "$src" -- "$f" | awk '/^committer-time /{print $2; exit}') $o"
   }
