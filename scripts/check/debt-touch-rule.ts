@@ -14,7 +14,7 @@
  * 免得两边对「哪些是欠条」说两样。已还／已重挂／收尾那几种状态行（写法见 ADR-167 第四节第 1 小节）
  * 台账今天还不读（ADR-167 第 107 行那一片），这里先按同一写法读，只用来不列已关的那些。
  */
-import { NAME_LIMIT, entries, iouBlocks, iouName, recordKey, recordNum, type Entry } from './debt-rule.js'
+import { entries, iouBlocks, iouName, isHistory, recordKey, recordNum, splitRecords, type Entry } from './debt-rule.js'
 import { quotedMask } from './quoted.js'
 
 /** git 的一次调用：参数进、标准输出出，失败就抛。入口给真的 git，测试给假的。 */
@@ -93,7 +93,7 @@ export function namedFiles(text: string, names: Map<string, string>): string[] {
  * 围栏与 HTML 注释里的不算 —— ADR-167（欠条台账机制那一份）第四节第 1 小节自己就在围栏里演示了这几种写法。
  */
 export const CLOSING = /⚠️\s*\*{0,2}(已还|已重挂|收尾)\*{0,2}\s*[：:]\s*ADR-(\d+)\s*第\s*(\d+)\s*行/g
-export const CLOSING_BY_NAME = new RegExp(`⚠️\\s*\\*{0,2}(已还|已重挂|收尾)\\*{0,2}\\s*[：:]\\s*ADR-(\\d+)\\s*「([^」\\n]{1,${NAME_LIMIT}})」`, 'g')
+export const CLOSING_BY_NAME = /⚠️\s*\*{0,2}(已还|已重挂|收尾)\*{0,2}\s*[：:]\s*ADR-(\d+)\s*「([^」\n]+)」/g
 export function closedKeys(docs: Map<string, string>): Set<string> {
   const out = new Set<string>()
   for (const text of docs.values()) {
@@ -101,19 +101,10 @@ export function closedKeys(docs: Map<string, string>): Set<string> {
     lines.forEach((line, i) => {
       if (quoted[i]) return
       for (const m of line.matchAll(CLOSING)) out.add(`ADR-${Number(m[2])}:${Number(m[3])}`)
+      // 名字不在这里限长：取出来去掉首尾空白，和欠条那一侧（`iouName`）同一个拼法，长短由那一侧判
       for (const m of line.matchAll(CLOSING_BY_NAME)) out.add(recordKey(Number(m[2]), m[3].trim()))
     })
   }
-  return out
-}
-
-/** 历史文件：`docs/adr/历史/` 下的那一份（ADR-211）。 */
-const isHistory = (file: string): boolean => /(?:^|\/)历史\/ADR-\d+-[^/]*$/.test(file)
-
-/** 哪几条记录拆过了：有历史文件的那些编号。 */
-export function splitRecords(docs: Map<string, string>): Set<number> {
-  const out = new Set<number>()
-  for (const file of docs.keys()) if (isHistory(file)) out.add(recordNum(file)!)
   return out
 }
 

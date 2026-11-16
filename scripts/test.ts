@@ -39,8 +39,8 @@ import {
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
-import { adrDocs, entries, iouName, iouNameFaults, ledgerReport, ledgerSummary, orphanIous, recordNum } from './check/debt-rule.js'
-import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, splitRecords, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
+import { adrDocs, entries, iouName, iouNameFaults, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
+import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -14903,6 +14903,7 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   eq('块头写了短名字就取出来，没写交回 null', [iouName('> ⚠️ 欠条「缓存没人守」：缺 x'), iouName('> ⚠️ **欠条**「加粗也认」：x'), iouName('> ⚠️ 欠条：缺 x'), iouName('> ⚠️ 欠条「 」：x')],
     ['缓存没人守', '加粗也认', null, null])
   // 只认紧跟在「⚠️ 欠条」后面的那一对：块头别处提到的别的欠条名字不是这张的
+  eq('「欠条」与书名号之间多个空格也认', iouName('> ⚠️ 欠条 「甲」：x'), '甲')
   eq('块头别处提到的欠条名字不算这张的', [iouName('> ⚠️ 欠条：接着 ADR-9 的欠条「甲」留下的尾巴'), iouName('> ⚠️ 欠条（重挂本记录的欠条「甲」）：x')], [null, null])
   eq('名字到上限照收，过了上限交回 null', [iouName(`> ⚠️ 欠条「${'名'.repeat(40)}」：x`), iouName(`> ⚠️ 欠条「${'名'.repeat(41)}」：x`)], ['名'.repeat(40), null])
   eq('主文件与历史文件属于同一条记录，别的文件不属于', [recordNum('docs/adr/ADR-86-x.md'), recordNum('docs/adr/历史/ADR-86-x.md'), recordNum('docs/adr/README.md')],
@@ -14921,6 +14922,10 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   eq('起了名字却取不出：空的、超过上限、书名号没收尾，各报一条', faultsAt(new Map([['docs/adr/ADR-5-x.md',
     `> ⚠️ 欠条「 」：x · 重启条件：y\n\n> ⚠️ 欠条「${'名'.repeat(41)}」：x · 重启条件：y\n\n> ⚠️ 欠条「没收尾：x · 重启条件：y`]])),
     ['docs/adr/ADR-5-x.md:1 名字是空的', 'docs/adr/ADR-5-x.md:3 名字超过 40 个字', 'docs/adr/ADR-5-x.md:5 书名号没收尾'])
+  // 拆过的记录，主文件重写过、按行号的状态行不算到它头上：里面的欠条没名字就永远关不上
+  eq('拆过的记录主文件里没起名字的欠条：报一条；历史文件里、没拆过的记录里没名字的不报', faultsAt(new Map([
+    ['docs/adr/ADR-5-x.md', '> ⚠️ 欠条：没名字 · 重启条件：y'], ['docs/adr/历史/ADR-5-x.md', '> ⚠️ 欠条：老的 · 重启条件：y'],
+    ['docs/adr/ADR-6-y.md', '> ⚠️ 欠条：没拆过 · 重启条件：y']])), ['docs/adr/ADR-5-x.md:1 拆过的记录，主文件里的欠条没起名字'])
   const dupe = { file: 'docs/adr/Z.md', line: 7, notation: '重启条件' as const, text: '和同一条记录里的另一张重名：⚠️ 欠条「甲」：z' }
   const withDupe = ledgerReport([debt], [lone], [dupe])
   eq('全表：短名字有错的另标一行，排在孤儿后面', withDupe.out.slice(1, 3), [
@@ -21771,6 +21776,9 @@ await group('h-iou-file-reminder', () => {
     ['docs/adr/ADR-1-x.md', '# ADR-1 x\n\n> ⚠️ 欠条「新的」：`scripts/a.ts` · 重启条件：x\n'],
     ['docs/adr/历史/ADR-1-x.md', '# ADR-1 x\n\n> ⚠️ 欠条：`scripts/a.ts` 老的 · 重启条件：y\n\n> ⚠️ 已还：ADR-1 第 3 行\n'],
   ])
+  // 名字两侧同一个拼法：书名号内侧带空白、长到上限，状态行照样关得上
+  eq('状态行里名字带首尾空白、长到上限：照样关上', touchReport(new Map([['docs/adr/ADR-1-x.md', `> ⚠️ 欠条「 ${'名'.repeat(40)} 」：\`scripts/a.ts\` · 重启条件：x`],
+    ['docs/adr/ADR-2-y.md', `> ⚠️ 已还：ADR-1「 ${'名'.repeat(40)} 」`]]), files, ['scripts/a.ts']).closed, 1)
   eq('拆过的记录：老状态行按行号关的是历史文件那张，不顺带关上主文件同一行号的那张', touchReport(splitDocs, files, ['scripts/a.ts'])
     .hits.map(h => h.entry.file), ['docs/adr/ADR-1-x.md'])
 

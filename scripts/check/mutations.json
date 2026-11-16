@@ -25661,7 +25661,7 @@
       "req": "harness",
       "file": "scripts/check/debt-rule.ts",
       "why": "块头别处提到的别的欠条名字也当成这张的名字 —— 一张没起名字的欠条冒名顶替了「甲」，按名字关上「甲」时它也跟着不提醒，或者和真「甲」报一条假重名",
-      "find": "export const IOU_NAME = /⚠️\\s*\\*{0,2}欠条\\*{0,2}「([^」\\n]*)」/",
+      "find": "export const IOU_NAME = /⚠️\\s*\\*{0,2}欠条\\*{0,2}\\s*「([^」\\n]*)」/",
       "replace": "export const IOU_NAME = /欠条「([^」\\n]*)」/",
       "by": "test",
       "kills": [
@@ -25685,11 +25685,23 @@
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",
       "why": "按名字写的「收尾」状态行不认 —— 需求所有者定了不做、已收尾的欠条照样被当成开着的反复提醒",
-      "find": "export const CLOSING_BY_NAME = new RegExp(`⚠️\\\\s*\\\\*{0,2}(已还|已重挂|收尾)",
-      "replace": "export const CLOSING_BY_NAME = new RegExp(`⚠️\\\\s*\\\\*{0,2}(已还|已重挂)",
+      "find": "export const CLOSING_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾)",
+      "replace": "export const CLOSING_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂)",
       "by": "test",
       "kills": [
         "状态行按短名字指：三种都认，键是记录加名字"
+      ]
+    },
+    {
+      "id": "M-H211-p",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "拆过的记录主文件里没起名字的欠条不报 —— 主文件重写过，按行号的状态行不算到它头上，它永远关不上，也没人知道为什么",
+      "find": "        if (split.has(num) && !isHistory(file)) out.push(",
+      "replace": "        if (false) out.push(",
+      "by": "test",
+      "kills": [
+        "拆过的记录主文件里没起名字的欠条：报一条；历史文件里、没拆过的记录里没名字的不报"
       ]
     }
   ],

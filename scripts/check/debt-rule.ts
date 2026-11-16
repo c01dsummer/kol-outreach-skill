@@ -168,8 +168,8 @@ export function orphanIous(docs: Map<string, string>): Entry[] {
  * 认了它，没起名字的这张就冒名顶替了「甲」，按名字关上「甲」时它也跟着不提醒。
  * 名字最长 `NAME_LIMIT` 个字；没起名字的老欠条交回 null，照旧只能按行号指。
  */
-export const IOU_NAME = /⚠️\s*\*{0,2}欠条\*{0,2}「([^」\n]*)」/
-const IOU_NAME_OPEN = /⚠️\s*\*{0,2}欠条\*{0,2}「/
+export const IOU_NAME = /⚠️\s*\*{0,2}欠条\*{0,2}\s*「([^」\n]*)」/
+const IOU_NAME_OPEN = /⚠️\s*\*{0,2}欠条\*{0,2}\s*「/
 export const NAME_LIMIT = 40
 export function iouName(head: string): string | null {
   const m = IOU_NAME.exec(head)
@@ -194,6 +194,16 @@ export function iouNameFault(head: string): string | null {
 /** 「记录 + 短名字」的键。欠条那一侧与状态行那一侧都用这一个，免得两边各拼一份、拼法一变就对不上。 */
 export const recordKey = (num: number, name: string): string => `ADR-${num}「${name}」`
 
+/** 历史文件：`docs/adr/历史/` 下的那一份（ADR-211，主文件只放现行结论那一份）。 */
+export const isHistory = (file: string): boolean => /(?:^|\/)历史\/ADR-\d+-[^/]*$/.test(file)
+
+/** 哪几条记录拆过了：有历史文件的那些编号。 */
+export function splitRecords(docs: Map<string, string>): Set<number> {
+  const out = new Set<number>()
+  for (const file of docs.keys()) if (isHistory(file)) out.add(recordNum(file)!)
+  return out
+}
+
 /** 文件属于哪条记录：主文件 `docs/adr/ADR-86-….md` 与历史文件 `docs/adr/历史/ADR-86-….md` 都是 86；不是编号记录的文件交回 null。 */
 export function recordNum(file: string): number | null {
   const m = /(?:^|\/)ADR-(\d+)-[^/]*$/.exec(file)
@@ -201,8 +211,9 @@ export function recordNum(file: string): number | null {
 }
 
 /**
- * 短名字写坏了的欠条 —— 硬失败，两种：
+ * 短名字写坏了的欠条 —— 硬失败，三种：
  * - 起了名字却取不出来（见 `iouNameFault`）；
+ * - 拆过的记录，主文件里的欠条没起名字：主文件重写过，按行号的状态行不算到它头上，没名字就永远关不上；
  * - 同一条记录里两张用了同一个名字：状态行按名字指过来时分不清是哪一张，关上一张等于把另一张也当成关了。
  *   主文件和它的历史文件算同一条记录：欠条挪进历史后名字还在用。报的是后出现的那一张（按文件路径、再按行排）。
  * 交回的条目 `text` 以原因开头。
@@ -210,6 +221,7 @@ export function recordNum(file: string): number | null {
 export function iouNameFaults(docs: Map<string, string>): Entry[] {
   const seen = new Set<string>()
   const out: Entry[] = []
+  const split = splitRecords(docs)
   for (const [file, text] of [...docs].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     const num = recordNum(file)
     if (num === null) continue
@@ -219,7 +231,10 @@ export function iouNameFaults(docs: Map<string, string>): Entry[] {
       const fault = iouNameFault(head)
       if (fault !== null) { out.push({ file, line: start + 1, notation: '重启条件', text: `${fault}：${plain(head)}` }); continue }
       const name = iouName(head)
-      if (name === null) continue
+      if (name === null) {
+        if (split.has(num) && !isHistory(file)) out.push({ file, line: start + 1, notation: '重启条件', text: `拆过的记录，主文件里的欠条没起名字：${plain(head)}` })
+        continue
+      }
       const key = recordKey(num, name)
       if (seen.has(key)) out.push({ file, line: start + 1, notation: '重启条件', text: `和同一条记录里的另一张重名：${plain(head)}` })
       else seen.add(key)
