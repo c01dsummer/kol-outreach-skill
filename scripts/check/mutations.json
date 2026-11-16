@@ -26028,8 +26028,8 @@
       "req": "harness",
       "file": "scripts/check/adr-rule.ts",
       "why": "检查不比指纹表是不是最新 —— 历史文件末尾新加的那段永远没钉上，之后被改了也看不出",
-      "find": "  if (wantPins !== pinsText) {\n    const what",
-      "replace": "  if (false) {\n    const what",
+      "find": "  if (wantPins !== pinsText) {\n    // 整份没钉过的",
+      "replace": "  if (false) {\n    // 整份没钉过的",
       "by": "test",
       "kills": ["玩具仓库：历史文件末尾新加了一段、还没钉住，检查报红并让人跑 --write"]
     },
@@ -26038,8 +26038,8 @@
       "req": "harness",
       "file": "scripts/check/adr-rule.ts",
       "why": "--write 不写指纹表 —— 新拆的记录永远钉不上，检查一直红着让人跑一条修不好它的命令",
-      "find": "    if (wantPins !== pinsText) writeFileSync(pinsPath, wantPins, 'utf8')",
-      "replace": "    void 0",
+      "find": "      if (wantPins) writeFileSync(pinsPath, wantPins, 'utf8'); else rmSync(pinsPath, { force: true })",
+      "replace": "      void 0",
       "by": "test",
       "kills": ["玩具仓库：有一份配得上的历史文件时 --write 成功，指纹表钉住它、历史目录不进索引"]
     },
