@@ -18,7 +18,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { quotedMask } from './quoted.js'
 
@@ -282,7 +282,8 @@ export function adrSync(root: string, write: boolean): { ok: boolean; out: strin
 
   const historyDir = join(dir, HISTORY_DIR)
   let history: Array<{ file: string; data: Buffer }> = []
-  if (existsSync(historyDir)) {
+  // `历史` 是个普通文件时，上面已按文件名不合格式报过；这里不当目录去读 —— 读了会直接抛错
+  if (existsSync(historyDir) && statSync(historyDir).isDirectory()) {
     const names = readdirSync(historyDir).sort()
     const isFile = (f: string) => statSync(join(historyDir, f)).isFile()
     // 不是文件的（子目录）先报出来，不去读它 —— 读一个目录会直接抛错，报的就不是哪里不对了
@@ -321,14 +322,22 @@ export function adrSync(root: string, write: boolean): { ok: boolean; out: strin
   const wantPins = history.length ? renderPins(history) : ''
   if (write) {
     writeFileSync(index, indexText.slice(0, i) + want + indexText.slice(j + INDEX_END.length), 'utf8')
-    if (wantPins !== pinsText) writeFileSync(pinsPath, wantPins, 'utf8')
+    if (wantPins !== pinsText) {
+      // 历史文件都没了，指纹表也不留空文件
+      if (wantPins) writeFileSync(pinsPath, wantPins, 'utf8'); else rmSync(pinsPath, { force: true })
+    }
     return { ok: true, out: ['✓ 决策记录：索引与历史文件指纹已回写'], err: [] }
   }
   if (indexText.slice(i, j + INDEX_END.length) !== want) {
     return { ok: false, out: [], err: ['✗ 决策记录：docs/adr/README.md 的索引与目录不一致', '  跑 `npm run adr -- --write` 回写'] }
   }
   if (wantPins !== pinsText) {
-    const what = unpinned.length ? `${unpinned.map(f => `${HISTORY_DIR}/${f}`).join('、')} 末尾有还没钉住的新内容` : `${PINS_FILE} 与历史目录对不上`
+    // 整份没钉过的与末尾新加的分开说：钉过的被人从指纹表里删掉，--write 会把改过的内容重新钉上，评审要看得出是哪一种
+    const fresh = unpinned.filter(f => !(f in parsed.pins)), grown = unpinned.filter(f => f in parsed.pins)
+    const what = [
+      ...fresh.length ? [`${fresh.map(f => `${HISTORY_DIR}/${f}`).join('、')} 整份还没钉过（新拆的记录才会这样；钉过的又被从 ${PINS_FILE} 删掉的话，--write 会把改过的内容钉上去）`] : [],
+      ...grown.length ? [`${grown.map(f => `${HISTORY_DIR}/${f}`).join('、')} 末尾有还没钉住的新内容`] : [],
+    ].join('；') || `${PINS_FILE} 与历史目录对不上`
     return { ok: false, out: [], err: [`✗ 决策记录：${what}`, '  跑 `npm run adr -- --write` 钉住'] }
   }
   const nums = adrs.map(a => a.num).sort((a, b) => a - b)

@@ -26084,6 +26084,26 @@
       "kills": ["审计硬失败：孤儿与短名字有错各一行，短名字那行点出文件与行号、说短名字有错"]
     },
     {
+      "id": "M-H211-ah",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "「历史」是个普通文件时当目录去读 —— 检查直接崩掉，报不出哪里不对",
+      "find": "  if (existsSync(historyDir) && statSync(historyDir).isDirectory()) {",
+      "replace": "  if (existsSync(historyDir)) {",
+      "by": "test",
+      "kills": ["玩具仓库：「历史」是个普通文件时报文件名不合格式，不抛错"]
+    },
+    {
+      "id": "M-H211-ai",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "钉过又被从指纹表删掉的历史文件说成「末尾新加」—— 评审看不出 --write 要把整份重钉，改过的旧内容就此洗白",
+      "find": "    const fresh = unpinned.filter(f => !(f in parsed.pins)), grown = unpinned.filter(f => f in parsed.pins)",
+      "replace": "    const fresh: string[] = [], grown = unpinned",
+      "by": "test",
+      "kills": ["玩具仓库：钉过的那份被从指纹表删掉，检查说它整份还没钉过，不说成末尾新加"]
+    },
+    {
       "id": "M-H211-n",
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",

@@ -269,7 +269,7 @@ gaps.push(...ledgerHard)
 if (process.argv.includes('--debts')) {
   const { out, err } = ledgerReport(debts, orphans, badNames)
   // 等写完再退。全表一百多 KB，接在管道上时打完就硬退出，还在排队的那一截会被丢掉 ——
-  // 实测截到约 60 KB、汇总行没了、退出码照样是 0（独立复核，ADR-151 第六节）
+  // 实测截到约 60 KB、汇总行没了、退出码照样是 0（独立复核，ADR-151 历史文件的第六节）
   const flushed = (s: NodeJS.WriteStream, text: string) => new Promise<void>(done => s.write(text, () => done()))
   await flushed(process.stdout, out.map(line => `${line}\n`).join(''))
   if (err) await flushed(process.stderr, `${err}\n`)

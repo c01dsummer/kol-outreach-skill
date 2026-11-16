@@ -99,6 +99,7 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
 
    ```bash
    day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; run=$(git rev-parse origin/main); cut=$(date -d "$day -28 days" +%F)
+   # 取短名字的正则用 .+? 不用 [^」]：POSIX 区域设置下 [^」] 按字节比，会把名字截断
    born() {  # 一张欠条的登记日（秒）：$1 文件，$2 行号，$3 短名字（没有就空）
      local f=$1 n=$2 nm=$3 a h s o src=$run m=$2
      a=$(basename "$f" | grep -oE '^ADR-[0-9]+'); h=docs/adr/历史/$(basename "$f")
@@ -113,7 +114,7 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
    }
    grep '^docs/adr/' "$tmp/新台账" | grep '  \[重启条件\]  ' | grep '定期清点' | while IFS= read -r l; do
      f=${l%%:*}; n=${l#*:}; n=${n%%  *}; a=$(basename "$f" | grep -oE '^ADR-[0-9]+')
-     nm=$(grep -oP '⚠️\s*\**欠条\**\s*「\K[^」]+' <<<"$l" | head -n 1)
+     nm=$(grep -oP '⚠️\s*\**欠条\**\s*「\K.+?(?=」)' <<<"$l" | head -n 1)
      t=$(born "$f" "$n" "$nm")
      echo "$(TZ=Asia/Shanghai date -d @"$t" +%F) $a$([ -n "$nm" ] && echo "「$nm」" || echo " 第 $n 行")"
    done | sort -V > "$tmp/定期清点"
@@ -325,7 +326,7 @@ awk -F'|' '{ match($1, /ADR-[0-9]+/); print substr($1, RSTART, RLENGTH) " 第 " 
     git blame --first-parent --porcelain -L "$m,$m" "$src" -- "$f" | awk '/^committer-time /{print $2; exit}'
   }
   awk -F'|' '$5 == "过"' "$tmp/两道门" | while IFS='|' read -r f n N S v p; do
-    nm=$(sed -n "${n}p" "$f" | grep -oP '⚠️\s*\**欠条\**\s*「\K[^」]+' | head -n 1)
+    nm=$(sed -n "${n}p" "$f" | grep -oP '⚠️\s*\**欠条\**\s*「\K.+?(?=」)' | head -n 1)
     t=$(born "$f" "$n" "$nm")
     echo "$(TZ=Asia/Shanghai date -d @"$t" +%F) $(basename "$f" | grep -oE '^ADR-[0-9]+') 第 $n 行"
   done | sort -V
@@ -385,7 +386,7 @@ awk -F'|' '{ match($1, /ADR-[0-9]+/); print substr($1, RSTART, RLENGTH) " 第 " 
 
 - **读什么**：起草时拿来下判断的只有这几样。这一类每条记录的「教训」，没有教训栏的读头部「结论」「理由」两栏（续行算在内；缺一栏，
   或者那一栏只写着一个指针，就只读另一栏，不跟指针）；挂着这张欠条的那条记录，另读欠条所在那一节（往上到最近的 `## ` 标题）；
-  部分重合与「驳回过」点到的候选句记录，读它的标题、「给 process/ 的候选句」与驳回块；`process/` 各份的标题（`grep -n '^#' process/*.md`）；
+  部分重合与「驳回过」点到的候选句记录，读它的标题、头部「候选句来源」那一行（来源是不是「需求所有者指定」，下面判部分重合要用）、「给 process/ 的候选句」与驳回块；`process/` 各份的标题（`grep -n '^#' process/*.md`）；
   这一节命令的输出。别的不读，`process/` 的正文不读（见「线索」）。仓库的开工须知照读，它不拿来下这几个判断。
 - **这一类的名字**：例程读这一类的记录后起，几个字，说是哪一种错法，比如「只修实例没修类」「数没核就写进散文」。
   「驳回过」那一行点到了记录的，沿用它的名字。

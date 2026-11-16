@@ -14680,6 +14680,10 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   const tampered = adrSync(goodToy, true)
   ok('玩具仓库：历史文件里钉住的旧文字被改了，--write 也拒绝、不把改过的钉上去',
     !tampered.ok && tampered.err.join('\n').includes('被改了') && pinsAfter !== '' && rf(pinsPath, 'utf8') === pinsAfter)
+  writeFileSync(pinsPath, '{}\n')
+  const unpinnedAgain = adrSync(goodToy, false)
+  ok('玩具仓库：钉过的那份被从指纹表删掉，检查说它整份还没钉过，不说成末尾新加',
+    !unpinnedAgain.ok && unpinnedAgain.err.join('\n').includes('整份还没钉过') && !unpinnedAgain.err.join('\n').includes('末尾有还没钉住'))
   rmSync(goodToy, { recursive: true, force: true })
   const orphanToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-02-乙.md': '# ADR-02 乙\n', '历史/子目录/x.md': 'x\n' })
   const orphanRun = adrSync(orphanToy, false)
@@ -14688,6 +14692,14 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
       && orphanRun.err.some(e => e.includes('子目录') && e.includes('不是文件'))
       && !orphanRun.err.some(e => e.includes('历史 文件名不合格式')))
   rmSync(orphanToy, { recursive: true, force: true })
+  const fileToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
+  rmSync(join(fileToy, 'docs', 'adr', '历史'), { recursive: true, force: true })
+  writeFileSync(join(fileToy, 'docs', 'adr', '历史'), 'x\n')
+  let fileRun: ReturnType<typeof adrSync> | string
+  try { fileRun = adrSync(fileToy, false) } catch (e) { fileRun = String(e) }
+  ok('玩具仓库：「历史」是个普通文件时报文件名不合格式，不抛错',
+    typeof fileRun !== 'string' && !fileRun.ok && fileRun.err.some(e => e.includes('历史 文件名不合格式')))
+  rmSync(fileToy, { recursive: true, force: true })
   const badPinsToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', [PINS_FILE]: '{' })
   const badPins = adrSync(badPinsToy, true)
   ok('玩具仓库：指纹表读不出来时报一条、--write 也拒绝，不当成什么都没钉过',
@@ -15297,7 +15309,7 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   const walkRefs = (d: string): void => {
     for (const e of readdirSync(d)) {
       const p = d === '.' ? e : `${d}/${e}`
-      if (['node_modules', '.git', '.check-cache', 'docs/adr', 'dist', 'out'].includes(p)) continue
+      if (['node_modules', '.git', '.check-cache', 'docs/adr', 'dist', 'out', 'output'].includes(p)) continue
       if (statSync(p).isDirectory()) { walkRefs(p); continue }
       if (!/\.(ts|md|ya?ml|json|sh)$/.test(e)) continue
       rf(p, 'utf8').split('\n').forEach((l, i) => {
@@ -15325,7 +15337,7 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
 {
   // ADR-151 第二节第 2 条问的就是「数得对不对」：按文件去重、排自引、过引文遮罩、欠条块里的单列。
   // 期望一条条手推，一棵玩具树只钉一件事。与提案 §7 第 1 条那几个数的对照（哪几个对上、哪个因为口径不同对不上）
-  // 记在 ADR-151 第七节；这里不起 git
+  // 记在 ADR-151 历史文件的第七节；这里不起 git
   const tree = (files: Record<string, string>) =>
     new Map(Object.entries(files).map(([f, text]) => [`docs/adr/${f}`, text] as const))
   const cited = (files: Record<string, string>, no: number) => {

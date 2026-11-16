@@ -15,4 +15,5 @@ import { adrSync } from './adr-rule.js'
 const r = adrSync('.', process.argv.includes('--write'))
 for (const line of r.out) console.log(line)
 for (const line of r.err) console.error(line)
-process.exit(r.ok ? 0 : 1)
+// 设退出码、自然退出：硬退出会掐掉管道里还没写完的诊断（ADR-70 那张「硬退出收口只到 mutate.ts」）
+process.exitCode = r.ok ? 0 : 1
