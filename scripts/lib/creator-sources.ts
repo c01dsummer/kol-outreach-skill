@@ -121,8 +121,9 @@ function splitSentences(line: string): string[] {
     const end = m.index + m[0].length
     const next = line.slice(end)
     if (next !== '' && !/^\s/.test(next) && !/^\p{Lu}/u.test(next)) continue
-    // 后面空白再接小写字母：还是同一句（引号里的感叹号、句中的 ...、表外缩写 a.m. 不在这里切开）。
-    if (/^\s+\p{Ll}/u.test(next)) continue
+    // 后面空白再接小写字母、破折号或开括号：还是同一句（引号里的感叹号、句中的 ...、表外缩写 a.m.、
+    // 引文后接「— 评价」不在这里切开）。
+    if (/^\s+[\p{Ll}—–(（]/u.test(next)) continue
     if (m[0].startsWith('.')) {
       const before = /([\p{L}.]+)$/u.exec(line.slice(start, m.index))?.[1].toLowerCase()
       if (before !== undefined && (before.length === 1 || ABBREVIATIONS.has(before))) continue

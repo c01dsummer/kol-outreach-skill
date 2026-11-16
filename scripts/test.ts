@@ -1809,6 +1809,9 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
       [{ draft: 'Your caption "Day 12. Still showing the cleanup!"', from: 'post', quote: 'Day 12. Still showing the cleanup!' }],
       '要看：「Still showing the cleanup!" is the most honest thing online.」（只登记了其中一段，没登记的：「is the most honest thing online.」）' + BAR +
       '对得上：「Your caption "Day 12. Still showing the cleanup!"」← 作品文案原文「Day 12. Still showing the cleanup!」', POST],
+    ['引文后接破折号评价不切句', 'Hi Mei,\n\nYour post "Clean kitchen!" — a masterclass in sustainability.',
+      [{ draft: 'Your post "Clean kitchen!"', from: 'self' }],
+      `要看：「Your post "Clean kitchen!" — a masterclass in sustainability.」（只登记了其中一段，没登记的：「- a masterclass in sustainability.」）${BAR}${SELF}「Your post "Clean kitchen!"」`, {}],
     ['表外缩写后接小写不切句', 'Hi Mei,\n\nYour 5 a.m. smoothie routine is the most disciplined thing around.',
       [{ draft: 'Your 5 a.m.', from: 'self' }],
       `要看：「Your 5 a.m. smoothie routine is the most disciplined thing around.」（只登记了其中一段，没登记的：「smoothie routine is the most disciplined thing around.」）${BAR}${SELF}「Your 5 a.m.」`, {}],
@@ -1829,7 +1832,7 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     ['全角字与长破折号归一后对得上', 'Hi Mei,\n\nYour ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
       '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
   ]
-  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一',
+  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一',
     crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
   // 昵称：驼峰拆开认名字，the、with 这类普通词不算名字；两个字母的词不算。
   eq('P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算',
