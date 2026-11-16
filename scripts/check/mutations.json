@@ -23852,8 +23852,8 @@
       "req": "D13.x",
       "why": "第一行把总上限当成已花：没花满也说花满了，用户以为额度一分不剩（F7.d 不许没占满说成用满）",
       "file": "scripts/lib/budget.ts",
-      "find": "    ? `已花 $${view.cost_estimate_usd} / 上限 $${view.budget_usd}`",
-      "replace": "    ? `已花 $${view.budget_usd} / 上限 $${view.budget_usd}`",
+      "find": "    ? `最多已花 $${view.cost_estimate_usd} / 上限 $${view.budget_usd}`",
+      "replace": "    ? `最多已花 $${view.budget_usd} / 上限 $${view.budget_usd}`",
       "by": "test",
       "kills": [
         "收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去"

@@ -182,12 +182,12 @@ export function shellArg(value: string): string {
  */
 export function budgetStopLines(view: CostView, saved: string, command: string): string[] {
   const spent = view.cost_status === 'known'
-    ? `已花 $${view.cost_estimate_usd} / 上限 $${view.budget_usd}`
+    ? `最多已花 $${view.cost_estimate_usd} / 上限 $${view.budget_usd}`
     : `花了多少无从确认：${view.cost_problems.map(p => `${p.path}: ${p.reason}`).join('; ')}`
   return [
     `⛔ 剩下的钱不够付下一次请求了（${spent}），已停下。`,
     `✅ 进度已存好：${saved}。`,
-    `👉 想继续：${command}`,
+    `👉 想继续：把命令里的 <新总上限> 换成新的总上限（美元数字）再跑：${command}`,
   ]
 }
 

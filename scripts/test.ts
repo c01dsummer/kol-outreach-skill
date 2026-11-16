@@ -15867,9 +15867,9 @@ suite('D13', '钱不够付下一次请求、停下时的收尾三行：花了多
   const known = { cost_status: 'known', cost_estimate_usd: '1.998', budget_usd: '2', cost_problems: [] } as unknown as CostView
   eq('收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去',
     budgetStopLines(known, '已找到 7 位达人，已经拿到的下次不会再花钱重抓', 'npm run collect -- --resume output/x --budget <新总上限>'), [
-      '⛔ 剩下的钱不够付下一次请求了（已花 $1.998 / 上限 $2），已停下。',
+      '⛔ 剩下的钱不够付下一次请求了（最多已花 $1.998 / 上限 $2），已停下。',
       '✅ 进度已存好：已找到 7 位达人，已经拿到的下次不会再花钱重抓。',
-      '👉 想继续：npm run collect -- --resume output/x --budget <新总上限>',
+      '👉 想继续：把命令里的 <新总上限> 换成新的总上限（美元数字）再跑：npm run collect -- --resume output/x --budget <新总上限>',
     ])
   const unknown = { cost_status: 'invalid-ledger', cost_estimate_usd: null, budget_usd: null,
     cost_problems: [{ path: 'budget_usd', reason: '根预算与 cost_ledger 上限冲突' }] } as unknown as CostView

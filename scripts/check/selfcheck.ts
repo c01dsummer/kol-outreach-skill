@@ -1346,11 +1346,11 @@ group('cost-resume', [], () => {
     // 第三行是照抄就能续跑的命令，必须带 --budget —— 光续跑会立刻再撞一次 3。
     const tail = changed.stderr.trimEnd().split('\n').slice(-3), told = summaryOf(changed.stdout)
     named('钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令',
-      changed.status === 3 && tail[0] === '⛔ 剩下的钱不够付下一次请求了（已花 $0.006 / 上限 $0.006），已停下。'
+      changed.status === 3 && tail[0] === '⛔ 剩下的钱不够付下一次请求了（最多已花 $0.006 / 上限 $0.006），已停下。'
         && tail[1] === (entry === 'collect'
           ? `✅ 进度已存好：已找到 ${told?.collected} 位达人，已经拿到的搜索结果和已补完资料的达人下次不会再花钱重抓。`
           : `✅ 进度已存好：已查好 ${told?.accounts_selected} 个达人账号的数据（共 4 个要查），已经拿到的下次不会再花钱重抓。`)
-        && tail[2] === `👉 想继续：npm run ${entry} -- ${entry === 'collect' ? '--resume' : '--dir'} ${f.taskDir} --budget <新总上限>`,
+        && tail[2] === `👉 想继续：把命令里的 <新总上限> 换成新的总上限（美元数字）再跑：npm run ${entry} -- ${entry === 'collect' ? '--resume' : '--dir'} ${f.taskDir} --budget <新总上限>`,
       `${entry}: ${tail.join(' | ')}`)
   }
 
@@ -1373,7 +1373,7 @@ group('cost-resume', [], () => {
         && cr.stderr.trimEnd().split('\n').slice(-2)[0] === '✅ 进度已存好：已找到 3 位达人，已经拿到的搜索结果和已补完资料的达人下次不会再花钱重抓。',
       cr.stderr.trimEnd().split('\n').slice(-3).join(' | '))
     if (cr.ok) {
-      const cmd = cr.stderr.trimEnd().split('\n').at(-1)!.replace(/^👉 想继续：/, '')
+      const cmd = cr.stderr.trimEnd().split('\n').at(-1)!.replace(/^👉 想继续：[^：]*：/, '')
       const argv = cmd.startsWith('npm run collect -- --resume ')
         // 照用户会做的那样先把 <新总上限> 换成一个数（尖括号在 shell 里是重定向），再交给 shell 拆参数
         ? spawnSync('sh', ['-c', `printf '%s\\n' ${cmd.slice('npm run collect -- --resume '.length).replace('<新总上限>', '3')}`], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean)
@@ -1406,7 +1406,7 @@ group('cost-resume', [], () => {
           && tail[0] === (refresh
             ? '✅ 进度已存好：这次刷新了 1 个达人账号的数据（共 4 个要刷新），刷新接不上上次的进度，再刷会从头重查。'
             : '✅ 进度已存好：已查好 2 个达人账号的数据（共 4 个要查），已经拿到的下次不会再花钱重抓。')
-          && tail[1] === `👉 想继续：npm run enrich -- --dir ${le.taskDir}${refresh ? ' --refresh' : ''} --budget <新总上限>`,
+          && tail[1] === `👉 想继续：把命令里的 <新总上限> 换成新的总上限（美元数字）再跑：npm run enrich -- --dir ${le.taskDir}${refresh ? ' --refresh' : ''} --budget <新总上限>`,
         `refresh=${refresh}: ${tail.join(' | ')}`)
     }
   }
