@@ -15425,6 +15425,13 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function gen<T extends 0>(n: T): {\n  value: number // 字段不入断言：只能从子进程输出验到\n}', 'export function gen<T extends 1>(n: T): {}', 'export function gen(n: number): { value?: number } { return {} }',
       'export function nested(): { outer: { innerN: number } } { return { outer: { innerN: 1 } } }',
       'export function listed(): { inList: number }[] { return [] }',
+      "export type SU = { kind: 'a'; shared: number } | { kind: 'b'; shared: number }", "export function su(): SU { return { kind: 'a', shared: 1 } }",
+      'export function tupE(): [{ t1: number }, { t1b: number; atPos: number }] { return [{ t1: 1 }, { t1b: 2, atPos: 3 }] }',
+      'export function viaAs(): { asK: number; satK: number; parK: number } { return { asK: 1, satK: 2, parK: 3 } }',
+      'export function viaNames(): { mK: number; deK: number; seK: number; eqK: number } { return { mK: 1, deK: 2, seK: 3, eqK: 4 } }',
+      'export function notCompare(): { assertK: number; cbK: number; spK: number } { return { assertK: 1, cbK: 2, spK: 3 } }',
+      'export function optNest(): { opt?: { innerO: number } } { return {} }',
+      'export function shorty(): { shK: number } { return { shK: 1 } }',
       "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
     ].join('\n'),
     'scripts/check/n.ts': 'export function nOnly(): { extless: number } { return { extless: 1 } }',
@@ -15445,6 +15452,12 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "const tw = mm.twice() // 调用这个函数是一次读取，但它停下了，「没展开完」那一条照样不算用到",
       "deepStrictEqual(mm.numeric(), { 0: 1, ['lit']: 3 }); const wantNum = 0",
       "deepStrictEqual(mm.nested(), { outer: { innerN: 1 } }); deepStrictEqual(mm.listed(), [{ inList: 1 }])",
+      "deepStrictEqual(mm.su(), { kind: 'a', shared: 1 }); deepStrictEqual(mm.tupE(), [{ atPos: 1 }, { t1b: 2 }])",
+      "deepStrictEqual(mm.viaAs(), { asK: 1 } as unknown); deepStrictEqual(mm.viaAs(), { satK: 2 } satisfies object); deepStrictEqual(mm.viaAs(), ({ parK: 3 }))",
+      "declare const nodeAssert: { deepStrictEqual(a: unknown, b: unknown): void }; declare function deepEqual(a: unknown, b: unknown): void; declare function strictEqual(a: unknown, b: unknown): void; declare function equal(a: unknown, b: unknown): void",
+      "nodeAssert.deepStrictEqual(mm.viaNames(), { mK: 1 }); deepEqual(mm.viaNames(), { deK: 2 }); strictEqual(mm.viaNames(), { seK: 3 }); equal(mm.viaNames(), { eqK: 4 })",
+      "assert(mm.notCompare(), { assertK: 1 }); deepStrictEqual(mm.notCompare(), [1].map(() => ({ cbK: 2 }))); deepStrictEqual(mm.notCompare(), { ...{ spK: 3 } })",
+      "deepStrictEqual(mm.optNest(), { opt: { innerO: 1 } }); const shK = 1; deepStrictEqual(mm.shorty(), { shK })",
       "const { 1: one, ['dlit']: dl } = mm.numeric()",
       "const js = [JSON.stringify(mm.withToJSON()), JSON.stringify(mm.withSym()), JSON.stringify(mm.filtered(), ['kept']), JSON.stringify(mm.nulled(), null, 2), JSON.stringify(mm.undef(), undefined, 2)]",
       'const crossedJs = JSON.stringify(mm.crossed()); deepStrictEqual(mm.crossedDeep(), {})',
@@ -15482,6 +15495,12 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       .concat(more.some(f => f.key.includes('libOnly'))), [true, true, true, true, true, true, false])
   eq('字段：整个值交给 assert、deepStrictEqual、JSON.stringify 也都不算', ['f.ts#rec.inRec', 'f.ts#indexed.inIdx', 'f.ts#both.left', 'f.ts#both.right'].map(k => moreOf(k)?.used), [false, false, false, false])
   eq('字段：期望值里嵌套的对象、数组元素里写出来的键也算用到', ['m.ts#nested.outer', 'm.ts#nested.outer.innerN', 'm.ts#listed.inList'].map(k => moreOf(k)?.used), [true, true, true])
+  eq('字段：期望值写了判别值，只算那个成员上的同名字段；元组按位置对，写在别的位置上的键不算',
+    ['m.ts#SU.{kind=a}.shared', 'm.ts#SU.{kind=b}.shared', 'm.ts#tupE.[1].t1b', 'm.ts#tupE.[1].atPos'].map(k => moreOf(k)?.used), [true, false, true, false])
+  eq('字段：期望值套着 as、satisfies、括号也认；node:assert 的方法写法、deepEqual、strictEqual、equal 都算比对；可选的嵌套、简写的键也认',
+    ['viaAs.asK', 'viaAs.satK', 'viaAs.parK', 'viaNames.mK', 'viaNames.deK', 'viaNames.seK', 'viaNames.eqK', 'optNest.opt.innerO', 'shorty.shK'].map(k => moreOf(`m.ts#${k}`)?.used), [true, true, true, true, true, true, true, true, true])
+  eq('字段：assert 不是比对；期望值里回调返回的、展开进来的对象字面量，键都不算',
+    ['assertK', 'cbK', 'spK'].map(k => moreOf(`m.ts#notCompare.${k}`)?.used), [false, false, false])
   eq('字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算',
     ['f.ts#Base.kept', 'f.ts#Base.renamedR', 'f.ts#CU.{kind=b}.cb', 'f.ts#CU.{kind=a}.ca', 'f.ts#Base.hiddenR'].map(k => moreOf(k)?.used), [true, true, true, false, false])
   eq('字段：黑盒重抄的类型 —— 不管经动态、静态、../、不带扩展名的 import，穿不穿索引签名，读到的都是重抄的那份，不算', ['f.ts#copied.cp', 'g.ts#gOnly.gg', 'k.ts#kOnly.kk', 'h.ts#hz.other', 'k.ts#table.tcp', 'n.ts#nOnly.extless'].map(k => moreOf(k)?.used), [false, false, false, false, false, false])

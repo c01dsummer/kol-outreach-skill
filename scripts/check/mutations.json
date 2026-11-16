@@ -25405,8 +25405,8 @@
       "req": "harness",
       "why": "比对的期望值里写出来的键不算碰到：误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "expectedOf(n.parent).flatMap(split)) mark(t.getProperty(name))",
-      "replace": "expectedOf(n.parent).flatMap(split)) void t",
+      "find": "fit(n.parent, expectedOf(n.parent))) mark(t.getProperty(name))",
+      "replace": "fit(n.parent, expectedOf(n.parent))) void t",
       "by": "test",
       "kills": [
         "字段：比对的期望值里写出来的键算用到（按同一次比对里另一边的类型认）"
@@ -25429,8 +25429,8 @@
       "req": "harness",
       "why": "期望值只认最外一层的键：嵌套对象里写出来的键被报成没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "return name === undefined ? [] : expectedOf(p.parent)",
-      "replace": "return name === undefined || true ? [] : expectedOf(p.parent)",
+      "find": "return name === undefined ? [] : fit(p.parent, expectedOf(p.parent))",
+      "replace": "return name === undefined || true ? [] : fit(p.parent, expectedOf(p.parent))",
       "by": "test",
       "kills": [
         "字段：期望值里嵌套的对象、数组元素里写出来的键也算用到"
@@ -25585,8 +25585,8 @@
       "req": "harness",
       "why": "期望值按类型认时不拆联合：判别联合的期望值对象算没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "n.isUnion() ? n.types : [n]",
-      "replace": "[n]",
+      "find": "t.isUnion() ? t.types : [t] // 可能为空",
+      "replace": "[t] // 可能为空",
       "by": "test",
       "kills": [
         "字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算"
@@ -26029,8 +26029,8 @@
       "req": "harness",
       "why": "期望值不进数组元素：数组里写出来的键被报成没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "if (ts.isArrayLiteralExpression(p)) return expectedOf(p)",
-      "replace": "if (ts.isArrayLiteralExpression(p)) return []; if (p === undefined) return expectedOf(p)",
+      "find": "return expectedOf(p).flatMap(split).flatMap(t => { const el =",
+      "replace": "return [].flatMap(split).flatMap(t => { const el =",
       "by": "test",
       "kills": [
         "字段：期望值里嵌套的对象、数组元素里写出来的键也算用到"
@@ -26276,6 +26276,78 @@
       "by": "test",
       "kills": [
         "字段：层数没到上限、但每层分叉一次从头走的步数超了上限，同样停下、记「没展开完」；后面的函数从头另算，不受牵连"
+      ]
+    },
+    {
+      "id": "M-H198-ea",
+      "req": "harness",
+      "why": "元组的期望值不按位置对：写在第一个位置上的键，算到第二个位置同名字段的头上，漏网",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "tc.isTupleType(t) ? tc.getTypeArguments(t as Ts.TypeReference)[i] : ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：期望值写了判别值，只算那个成员上的同名字段；元组按位置对，写在别的位置上的键不算"
+      ]
+    },
+    {
+      "id": "M-H198-eb",
+      "req": "harness",
+      "why": "期望值不看写出来的判别值：判别联合里别的成员上的同名字段也算碰到，漏网",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "|| tags.some(x => x.isStringLiteral() && x.value === (m.initializer as Ts.StringLiteralLike).text)",
+      "replace": "|| true",
+      "by": "test",
+      "kills": [
+        "字段：期望值写了判别值，只算那个成员上的同名字段；元组按位置对，写在别的位置上的键不算"
+      ]
+    },
+    {
+      "id": "M-H198-ec",
+      "req": "harness",
+      "why": "期望值套着括号、as、satisfies 就认不出：写出来的键算没碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isSatisfiesExpression(p)) return expectedOf(p)",
+      "replace": "if (p === undefined) return expectedOf(p)",
+      "by": "test",
+      "kills": [
+        "字段：期望值套着 as、satisfies、括号也认；node:assert 的方法写法、deepEqual、strictEqual、equal 都算比对；可选的嵌套、简写的键也认"
+      ]
+    },
+    {
+      "id": "M-H198-ed",
+      "req": "harness",
+      "why": "比对只认直接调用的函数名：assert.deepStrictEqual 这种方法写法里写出来的键算没碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：期望值套着 as、satisfies、括号也认；node:assert 的方法写法、deepEqual、strictEqual、equal 都算比对；可选的嵌套、简写的键也认"
+      ]
+    },
+    {
+      "id": "M-H198-ee",
+      "req": "harness",
+      "why": "deepEqual、strictEqual、equal 不算比对：它们期望值里写出来的键算没碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "'deepEqual', 'strictEqual', 'equal'",
+      "replace": "'deepStrictEqual'",
+      "by": "test",
+      "kills": [
+        "字段：期望值套着 as、satisfies、括号也认；node:assert 的方法写法、deepEqual、strictEqual、equal 都算比对；可选的嵌套、简写的键也认"
+      ]
+    },
+    {
+      "id": "M-H198-eg",
+      "req": "harness",
+      "why": "assert 也当比对：assert(r, { k: 1 }) 第二个实参是报错信息，里面的键算成碰到，漏网",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "new Set(['eq', ",
+      "replace": "new Set(['assert', 'eq', ",
+      "by": "test",
+      "kills": [
+        "字段：assert 不是比对；期望值里回调返回的、展开进来的对象字面量，键都不算"
       ]
     },
     {

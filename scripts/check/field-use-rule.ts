@@ -194,7 +194,14 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const used = new Set<Ts.Declaration>()
   const mark = (s: Ts.Symbol | undefined): void => { for (const d of s?.declarations ?? []) used.add(d) }
   const calleeOf = (c: Ts.CallExpression): string => ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : ts.isIdentifier(c.expression) ? c.expression.text : ''
-  const split = (t: Ts.Type): readonly Ts.Type[] => { const n = tc.getNonNullableType(t); return n.isUnion() ? n.types : [n] }
+  const split = (t: Ts.Type): readonly Ts.Type[] => t.isUnion() ? t.types : [t] // 可能为空的也只是联合里多一个 undefined，它上面没有属性
+  /** 期望值对象 `lit` 对得上的那几个类型：联合拆开，只留写出来的键它都有、写出来的判别值（字符串字面量）也对得上的成员 —— 不让同名字段在别的成员上沾光 */
+  const fit = (lit: Ts.ObjectLiteralExpression, types: readonly Ts.Type[]): readonly Ts.Type[] => types.flatMap(split).filter(t => lit.properties.every(m => {
+    const name = ts.isPropertyAssignment(m) || ts.isShorthandPropertyAssignment(m) ? literalName(ts, m.name) : undefined, q = name === undefined ? undefined : t.getProperty(name)
+    if (name === undefined || q === undefined) return name === undefined
+    const tags = split(tc.getTypeOfSymbol(q))
+    return !ts.isPropertyAssignment(m) || !ts.isStringLiteralLike(m.initializer) || !tags.every(x => x.isStringLiteral()) || tags.some(x => x.isStringLiteral() && x.value === (m.initializer as Ts.StringLiteralLike).text)
+  }))
   /**
    * 期望值里这个位置该是什么类型：一路往上走到一次比对（`COMPARE` 里的调用）的实参，取同一次比对里**别的**实参的类型，再按键、按元素往下找回来。
    * 不在比对的实参里（只为搭场景、过类型检查写的）就是空 —— 那里写的键不算读到
@@ -205,9 +212,10 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     if (ts.isCallExpression(p)) return COMPARE.has(calleeOf(p)) && p.arguments.includes(e as Ts.Expression) ? p.arguments.filter(a => a !== e).map(a => tc.getTypeAtLocation(a)) : []
     if (ts.isPropertyAssignment(p) && p.initializer === e && ts.isObjectLiteralExpression(p.parent)) {
       const name = literalName(ts, p.name)
-      return name === undefined ? [] : expectedOf(p.parent).flatMap(split).flatMap(t => { const q = t.getProperty(name); return q === undefined ? [] : [tc.getTypeOfSymbol(q)] })
+      return name === undefined ? [] : fit(p.parent, expectedOf(p.parent)).flatMap(t => { const q = t.getProperty(name); return q === undefined ? [] : [tc.getTypeOfSymbol(q)] })
     }
-    if (ts.isArrayLiteralExpression(p)) return expectedOf(p).flatMap(split).flatMap(t => { const el = tc.getIndexTypeOfType(t, ts.IndexKind.Number); return el === undefined ? [] : [el] })
+    if (ts.isArrayLiteralExpression(p)) { const i = p.elements.indexOf(e as Ts.Expression) // 元组按位置取，别的数组取元素类型
+      return expectedOf(p).flatMap(split).flatMap(t => { const el = tc.isTupleType(t) ? tc.getTypeArguments(t as Ts.TypeReference)[i] : tc.getIndexTypeOfType(t, ts.IndexKind.Number); return el === undefined ? [] : [el] }) }
     return []
   }
   // 下标读的键按类型认：字面量（常量、联合字面量）与 unique symbol 都换成属性的转义名，再到被索引对象的类型上找
@@ -225,7 +233,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       } else if ((ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) && ts.isObjectLiteralExpression(n.parent)) {
         const assigned = ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent && n.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
         const name = literalName(ts, n.name) // 解构赋值：键读的是右边；期望值：键读的是同一次比对里别的实参
-        if (name !== undefined) for (const t of assigned ? split(tc.getTypeAtLocation(n.parent.parent.right)) : expectedOf(n.parent).flatMap(split)) mark(t.getProperty(name))
+        if (name !== undefined) for (const t of assigned ? split(tc.getTypeAtLocation(n.parent.parent.right)) : fit(n.parent, expectedOf(n.parent))) mark(t.getProperty(name))
       }
       ts.forEachChild(n, visit)
     }
