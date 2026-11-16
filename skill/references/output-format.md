@@ -47,7 +47,7 @@ npm run collect -- --config product.json --ignore-memory # 只在用户明确接
 }
 ```
 
-`market`、`target_count`、`budget_usd` 可以不写（分别按 US、50、$2，stderr 会说用了默认值）；`sender_name`、`brand_calibration` 可选，见 SKILL.md。
+`market`、`target_count`、`budget_usd` 可以不写（分别按 US、50、$2；`market` 与预算用了默认值时 stderr 会说一句，`target_count` 不说）；`sender_name`、`brand_calibration` 可选，见 SKILL.md。
 任务目录 `output/…` 与跨任务记忆 `memory/creators.json` 都相对于运行命令时的当前目录，不相对于仓库或配置文件。
 
 `{product}` 用短横线小写，如 `anker-powerbank`。它不能含 `/`、`\` 或 NUL：任务目录由它拼成，含这几个字符时 collect 新建任务以 2 拒绝、不建目录（D29）。
