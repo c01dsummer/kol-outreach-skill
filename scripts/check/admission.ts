@@ -14,7 +14,7 @@
  *
  * 退出码：0 出了包；1 扫出了实现（签名里有函数体之类、变异说明夹带实现原文）或声明没出全，一个文件都不写；
  * 2 用法不对或不肯出包（参数不是两个、包目录在仓库里或已存在而且不空或不是目录、路上有悬空的符号链接、
- * 上级不是目录或写不进去、登记表没过 `spec-sync` 那一道校验、编号不在登记表里或已作废、变异目录形状不对或编号重复），
+ * 上级不是目录或写不进去、登记表没过 `spec-sync` 那一道校验、编号不在登记表里或已作废、变异目录形状不对或编号重复、`package.json` 的命令指到不存在的入口），
  * 一个文件都不写；没接住的异常也以 2 退出。唯一会留下东西的是写包写到一半出错（磁盘满之类），那时照实说留下了什么。
  *
  * 不接进 `npm run check`：这是给人（或给起测试上下文的那一方）手动出包用的，检查链里没有一步要它的产物。
@@ -25,7 +25,7 @@ import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import { briefSheet, declarationFindings, insideRoot, requirementSheet } from './admission-rule.js'
+import { briefSheet, declarationFindings, entryScripts, entrySheet, insideRoot, requirementSheet } from './admission-rule.js'
 import { duplicateIds } from './attribution-rule.js'
 import { GIT_CONFIG } from './size-rule.js'
 import { adrIdsIn, rootProblems, validateRegistry } from './spec-rule.js'
@@ -158,7 +158,15 @@ function main(): number {
     return 1
   }
 
-  const findings = [...signatures].flatMap(([f, text]) => declarationFindings(text).map(x => `${f}：${x}`))
+  // 入口脚本不导出函数，签名里没有它们：只留它们从两个源目录 import 了哪些导出，写测试的人才知道入口走哪个函数、
+  // 读名单用的是哪一个（ADR-206 第五节）。抄哪几行由 entrySheet 判定
+  const entries = entryScripts(readJson('package.json'))
+  const absentEntries = entries.filter(f => !existsSync(f) || !statSync(f).isFile())
+  if (absentEntries.length > 0) return refuse(`package.json 里的命令指到不存在的入口：${absentEntries.join('、')}`)
+  const entrySheets = new Map<string, string>()
+  for (const f of entries) entrySheets.set(f.replace(/\.ts$/, '.d.ts'), entrySheet(f, readFileSync(f, 'utf8'), SOURCES))
+
+  const findings = [...signatures, ...entrySheets].flatMap(([f, text]) => declarationFindings(text).map(x => `${f}：${x}`))
   const leaks = brief.leaks.map(l => `${l.id} 的「违反了什么」夹带实现原文：${l.leak}`)
   if (findings.length + leaks.length > 0) {
     console.error(`✗ 准入读物包：扫出 ${findings.length + leaks.length} 处实现，不出包`)
@@ -171,6 +179,7 @@ function main(): number {
   const files = new Map<string, Buffer>([
     [`01-需求-${id}.md`, Buffer.from(sheet.text)],
     ...sigs.map(([f, t]): [string, Buffer] => [`02-签名/${f}`, Buffer.from(t)]),
+    ...[...entrySheets].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([f, t]): [string, Buffer] => [`02-签名/${f}`, Buffer.from(t)]),
     ...docs.map((f): [string, Buffer] => [`03-对外文档/${f}`, readFileSync(f)]),
     ['04-变异集-违反了什么.md', Buffer.from(brief.text)],
   ])
@@ -180,10 +189,10 @@ function main(): number {
     catch { return undefined }
   }
   const head = git('rev-parse', 'HEAD')
-  // 只问进包的那几样输入，未跟踪的逐个列、被忽略的也列：用户配置里 status.showUntrackedFiles=no、或输入被 .gitignore 挡着时，
+  // 只问进包的那几样输入（含 package.json 与入口脚本：入口那一份从它们抄，#489 上 CodeRabbit），未跟踪的逐个列、被忽略的也列：用户配置里 status.showUntrackedFiles=no、或输入被 .gitignore 挡着时，
   // 光一句 git status 会说「干净」而包里装着没提交的东西（#484 上 CodeRabbit 第一轮）
   const status = head === undefined ? undefined
-    : git('status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', REGISTRY, CATALOG, ADR_DIR, ...SOURCES, DOCS)
+    : git('status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', REGISTRY, CATALOG, ADR_DIR, ...SOURCES, DOCS, 'package.json', ...entries)
   const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex')
   const manifest = [
     `# 准入读物包 · ${id}`, '',
@@ -193,9 +202,10 @@ function main(): number {
     '| 文件 | SHA256 |', '|---|---|',
     ...[...files].map(([f, b]) => `| \`${f}\` | \`${sha(b)}\` |`), '',
     '不在包里的：函数体、测试、决策记录、变异的代码原文。', '',
+    '入口脚本（`package.json` 里命令指到的 `scripts/*.ts`）不导出函数：`02-签名/` 里它们那一份只有从源目录 import 的那几行，看得出入口走哪个函数，看不出怎么走。', '',
     '机器核过的：签名逐份扫过，只扫了三种 —— `函数体`、`不是声明的语句`、`初始值不是字面量`；变异说明里没有认得出的实现原文（同 `mutate --brief` 的判据）。'
       + '参数默认值、`export default` 后面的表达式之类别的形状不扫：声明产出里本来不出现它们（ADR-202 第十五节）。', '',
-    '没核的：签名上的注释与对外文档原样带进来，里面有没有实现原文没有机器核（ADR-202 第三节）。', '',
+    '没核的：签名上的注释、入口那一份 import 里夹着的注释与对外文档原样带进来，里面有没有实现原文没有机器核（ADR-202 第三节）。', '',
   ].join('\n')
 
   const all = new Map<string, Buffer>([['00-清单.md', Buffer.from(manifest)], ...files])
@@ -209,7 +219,7 @@ function main(): number {
     console.error(`✗ 准入读物包：写到一半出错，${out} 里留下了上面列出的那几个文件 —— 删掉整个目录再出（${e instanceof Error ? e.message : String(e)}）`)
     return 2
   }
-  console.log(`✓ 准入读物包 · ${id} → ${out}：共 ${all.size} 个文件（清单 1 · 需求单 1 · 签名 ${sigs.length} · 对外文档 ${docs.length} · 变异说明 1）`)
+  console.log(`✓ 准入读物包 · ${id} → ${out}：共 ${all.size} 个文件（清单 1 · 需求单 1 · 签名 ${sigs.length} · 入口 ${entrySheets.size} · 对外文档 ${docs.length} · 变异说明 1）`)
   return 0
 }
 

@@ -1040,6 +1040,21 @@ group('cost-input', [], () => {
         && /默认/.test(result.stderr) && /任务|进程/.test(result.stderr) && fetchAttempts(log).length > 0,
       `${entry}: ${result.stdout}\n${result.stderr}`)
   }
+  // 新建任务给了 --budget 就是总上限本身，比默认 $2 小也一样 —— 不与默认取大（ADR-208 复核 B1：只用比默认大的值验分不出「替换」与「取大」）
+  {
+    const cwd = join(tmp, 'small-budget-collect')
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
+    writeFileSync(cfg, JSON.stringify({ product: 'smallbudget', market: 'US', target_count: 1,
+      tasks: [{ keyword: 'small', dimension: 'category', platform: 'tiktok' }] }))
+    const result = runBoth('collect 新建任务给了比默认小的 --budget', [S('collect.ts'), '--config', cfg, '--budget', '0.003'],
+      cwd, { status: 3, soft: [0, 4] }, costEnv(log))
+    if (result.ok) named('新建任务的 --budget 比默认 $2 小时就是总上限，不打默认说明',
+      result.status === 3 && costViewMatches(summaryOf(result.stdout), { budget_usd: 0.003, cost_scope: 'task', cost_status: 'known' })
+        && !/默认/.test(result.stderr) && fetchAttempts(log).length > 0,
+      `${result.stdout}\n${result.stderr}`)
+    criterion('D13.u')
+  }
 
   // 只给这两个子进程固定时间，保证同配置得到同一目录名。没有修改系统时钟。
   const collision = join(tmp, 'cost-collision')
@@ -7447,7 +7462,7 @@ group('admission-entry', [], () => {
     named('admission 出包不往玩具树里写东西', treeSame(), listing(tree).join('\n'))
     const out = good.stdout.split('\n').filter(l => l !== '')
     named('admission 按写入顺序逐个文件打一行', isDeepStrictEqual(out.filter(l => l.startsWith('  ')), want.map(f => `  ${f}`)), good.stdout)
-    const tail = (abs: string) => `✓ 准入读物包 · P1 → ${abs}：共 8 个文件（清单 1 · 需求单 1 · 签名 3 · 对外文档 2 · 变异说明 1）`
+    const tail = (abs: string) => `✓ 准入读物包 · P1 → ${abs}：共 8 个文件（清单 1 · 需求单 1 · 签名 3 · 入口 0 · 对外文档 2 · 变异说明 1）`
     named('admission 末行汇总说出包目录与各份的个数',
       out.length > 0 && (out[out.length - 1] === tail(resolve(pkg)) || (existsSync(pkg) && out[out.length - 1] === tail(realpathSync(pkg)))),
       good.stdout)
@@ -7687,6 +7702,44 @@ group('admission-entry', [], () => {
     named('admission 夹带时不建包目录、玩具树不动', !existsSync(leakPkg) && isDeepStrictEqual(snapshot(leakTree), leakBefore),
       listing(leakPkg).join('\n'))
   }
+
+  // 入口脚本（ADR-208）：package.json 里命令指到的 scripts/*.ts 不导出函数，包里给它一份只有 import 的签名 ——
+  // 只抄指到两个源目录的 import 原文，指到别处的（检查链）不抄，函数体与别的语句一行不带。
+  // import 的路径放进变量再拼：写成字面的话，验证者闭包会把它当成本文件的真引用收进去（ADR-202 第十七节）
+  const entryTree = join(tmp, 'admission-entry-tree')
+  toy(entryTree, { mutations, exemptions })
+  const libSpec = './lib/calc.js', checkSpec = './check/tool.js'
+  writeFileSync(join(entryTree, 'scripts', 'run.ts'), `import { f } from '${libSpec}'\nimport { tool } from '${checkSpec}'\n`
+    + 'const answer = f(1) + tool()\nconsole.log(answer)\n', 'utf8')
+  // also 那一条写成带 ./ 的形式：这种写法也要出那一份（#489 上 CodeRabbit 第一轮，接线由这里实跑验）
+  writeFileSync(join(entryTree, 'package.json'), JSON.stringify({ scripts: {
+    run: 'tsx scripts/run.ts', also: 'tsx ./scripts/also.ts', test: 'tsx scripts/test.ts', tool: 'tsx scripts/check/tool.ts' } }), 'utf8')
+  writeFileSync(join(entryTree, 'scripts', 'also.ts'), `import { f } from '${libSpec}'\nf(2)\n`, 'utf8')
+  const entryPkg = join(tmp, 'admission-pkg-entry')
+  const withEntry = runToolBoth('admission 有入口脚本的树出包即以退出码 0 结束', 'admission', ['P1', entryPkg], entryTree)
+  if (withEntry.ok) {
+    const sheetPath = join(entryPkg, '02-签名', 'scripts', 'run.d.ts')
+    const sheet = existsSync(sheetPath) ? readFileSync(sheetPath, 'utf8') : ''
+    named('admission 入口那一份只抄指到源目录的 import，检查链的 import、函数调用与别的语句都不带',
+      sheet.includes(`import { f } from '${libSpec}'`) && !sheet.includes(checkSpec) && !sheet.includes('answer') && !sheet.includes('console'),
+      sheet || listing(entryPkg).join('\n'))
+    named('admission 只给命令指到的入口出那一份：scripts/entry.ts 不在命令里、scripts/test.ts 与检查链不算',
+      isDeepStrictEqual(listing(join(entryPkg, '02-签名', 'scripts')).filter(p => !p.startsWith('lib/') && !p.startsWith('providers/')), ['also.d.ts', 'run.d.ts']),
+      listing(join(entryPkg, '02-签名', 'scripts')).join('\n'))
+    const entryOut = withEntry.stdout.split('\n').filter(l => l !== '')
+    named('admission 末行汇总里单列入口的个数', (entryOut[entryOut.length - 1] ?? '').includes('签名 3 · 入口 2 · 对外文档 2'), withEntry.stdout)
+    const entryManifest = existsSync(join(entryPkg, '00-清单.md')) ? readFileSync(join(entryPkg, '00-清单.md'), 'utf8') : ''
+    named('admission 清单列出入口那一份、说它只有 import', entryManifest.includes('| `02-签名/scripts/run.d.ts` |') && entryManifest.includes('| `02-签名/scripts/also.d.ts` |') && entryManifest.includes('入口脚本'),
+      entryManifest)
+  }
+  // 命令指到不存在的入口：不出包、以 2 退出、点出是哪一个
+  const ghostTree = join(tmp, 'admission-ghost-entry')
+  toy(ghostTree, { mutations, exemptions })
+  writeFileSync(join(ghostTree, 'package.json'), JSON.stringify({ scripts: { gone: 'tsx scripts/gone.ts' } }), 'utf8')
+  const ghostPkg = join(tmp, 'admission-pkg-ghost')
+  const ghost = runToolBoth('admission 命令指到不存在的入口即以退出码 2 结束', 'admission', ['P1', ghostPkg], ghostTree, { status: 2 })
+  if (ghost.ok) named('admission 命令指到不存在的入口时拒收、点出是哪一个、不建包目录',
+    refused(ghost.stderr, '不存在的入口') && ghost.stderr.includes('scripts/gone.ts') && !existsSync(ghostPkg), ghost.stderr)
 })
 
 // ---- 变异锚点读暂存区：入口真的读了 git 暂存区与 HEAD（ADR-70 末尾「变异残留：暂存区」第五片，接线证明）----
