@@ -110,6 +110,31 @@ export function checkAll(adrs: Adr[]): string[] {
   return errors
 }
 
+/**
+ * 历史文件所在的子目录：`docs/adr/历史/`。一条记录的主文件只放现行结论，
+ * 过程原样搬进这里一份**同名**文件（ADR-211，主文件只放现行结论那一份）。
+ */
+export const HISTORY_DIR = '历史'
+
+/**
+ * 历史文件的判定：每份都要有同名的主文件，第一行是同一个编号。
+ *
+ * 没有主文件的历史，是记录被删了、过程还留着 —— 索引里找不到它，读的人也就找不到；
+ * 第一行编号对不上，是挪错了地方，顺着编号去查的人会读到别的记录的过程。
+ */
+export function historyFaults(mains: string[], history: Array<{ file: string; first: string }>): string[] {
+  const have = new Set(mains)
+  const errors: string[] = []
+  for (const h of history) {
+    const m = FILE_RE.exec(h.file)
+    if (!m) { errors.push(`${HISTORY_DIR}/${h.file} 文件名不合格式，应与它的主文件同名`); continue }
+    if (!have.has(h.file)) errors.push(`${HISTORY_DIR}/${h.file} 没有同名的主文件 —— 历史文件只能跟着一条还在的记录`)
+    const head = HEAD_RE.exec(h.first)
+    if (!head || Number(head[1]) !== Number(m[1])) errors.push(`${HISTORY_DIR}/${h.file} 第一行应为 \`# ADR-${m[1]} …\`，与文件名同号`)
+  }
+  return errors
+}
+
 export function renderIndex(adrs: Adr[]): string {
   const rows = [...adrs].sort((a, b) => a.num - b.num)
     // 标签转义 `|`;链接目标编码 —— 文件名过了 slugify,标题没有,两边规则不同
