@@ -1334,9 +1334,19 @@ suite('P4', '已联系/屏蔽的人不得进入名单')
       'tiktok:seen': { platform: 'tiktok', handle: 'seen', nickname: '', followers: 1,
         first_seen: '2026-01-01', recommendations: [{ date: '2026-01-01', product: 'other', keyword: 'k' }],
         contacted: false, replied: false, blocked: false, note: '' },
+      // 同一个人的两个平台账号都被标记，其中一个还同时 contacted 和 blocked：判据说的是「该创作者」计数加一，
+      // 数的是人，不是被标记的记录条数。
+      'tiktok:both': { platform: 'tiktok', handle: 'both', nickname: '', followers: 1, linked_to: 'instagram:both',
+        first_seen: '2026-01-01', recommendations: [], contacted: true, replied: false, blocked: false, note: '' },
+      'instagram:both': { platform: 'instagram', handle: 'both', nickname: '', followers: 1,
+        first_seen: '2026-01-01', recommendations: [], contacted: true, replied: false, blocked: true, note: '' },
     },
   }), 'utf8')
   useMemoryFile(tmp)
+
+  const person = filterByMemory([mk('tiktok', 'both')], 'thisproduct')
+  eq('一个人两个账号都被标记、其中一条既联系过又屏蔽：被排除', person.kept.length, 0)
+  eq('一个人两个账号都被标记、其中一条既联系过又屏蔽：filtered_contacted 只数这一个人', person.filtered_contacted, 1)
 
   const r = filterByMemory(
     [mk('tiktok', 'contacted'), mk('tiktok', 'blocked'), mk('tiktok', 'seen'), mk('tiktok', 'fresh')],

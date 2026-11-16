@@ -115,7 +115,7 @@ round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manua
 | `implied_ecpm` / `implied_ecpe` | 报价与近期中位表现形成的隐含效率 |
 | `metrics_observed_at` | 公开样本采集时间 |
 | `cross_platform` | true / false |
-| `linked_handle` | 跨平台同人的另一个 handle |
+| `linked_handle` | 跨平台同人的另一个账号，写成 `平台:handle`（如 `instagram:jane`）；只写 handle、没带平台的不算关联 |
 | `profile_url` | |
 | `source_keyword` | |
 | `source_dimension` | category / scene / competitor / audience |

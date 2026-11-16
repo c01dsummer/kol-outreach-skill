@@ -21563,6 +21563,18 @@
       ]
     },
     {
+      "id": "M-P4-w",
+      "req": "P4.a",
+      "why": "filtered_contacted 按被标记的记录条数累加：同一个人两个账号都被标记时数成 2，名单统计多报了已联系的人。",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (entries.some(e => e.contacted || e.blocked)) { con++; continue }",
+      "replace": "    if (entries.some(e => e.contacted || e.blocked)) { con += entries.filter(e => e.contacted || e.blocked).length; continue }",
+      "by": "test",
+      "kills": [
+        "一个人两个账号都被标记、其中一条既联系过又屏蔽：filtered_contacted 只数这一个人"
+      ]
+    },
+    {
       "id": "M-D26-a",
       "req": "D26.a",
       "why": "忽略未知或位置参数，未在读取任务前拒绝。",
