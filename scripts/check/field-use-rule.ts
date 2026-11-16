@@ -134,11 +134,8 @@ function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declara
 function waiverOf(ts: typeof Ts, decl: Ts.Declaration): string | undefined {
   const sf = decl.getSourceFile(), text = sf.text
   const after = text[decl.end] === ',' ? decl.end + 1 : decl.end
-  const comments = [
-    // 前导注释只收换行之后的：上一个字段行尾的那条 TypeScript 自己就不算进来
-    ...(ts.getLeadingCommentRanges(text, decl.pos) ?? []),
-    ...(ts.getTrailingCommentRanges(text, after) ?? []),
-  ]
+  // 前导注释只收换行之后的：上一个字段行尾的那条 TypeScript 自己就不算进来
+  const comments = [...(ts.getLeadingCommentRanges(text, decl.pos) ?? []), ...(ts.getTrailingCommentRanges(text, after) ?? [])]
   for (const r of comments) {
     const comment = text.slice(r.pos, r.end)
     const at = comment.indexOf(FIELD_WAIVER)
@@ -160,24 +157,24 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   const rel = (sf: Ts.SourceFile) => relOf(root, sf.fileName)
   const argumentsOf = (t: Ts.Type): readonly Ts.Type[] =>
     ((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) ? tc.getTypeArguments(t as Ts.TypeReference) : []
+  // 递归泛型（`next?: Chain<T[]>`）每展开一层都是新实例，seen 拦不住：同一个声明在这条路上已经展开过三层（TypeScript 自己判「嵌套过深」也用三层），属性的声明与外层是同一批，不再展开属性。找字段、找重抄的两路还走它的类型参数（新东西只能从那里来，往下只会变小）；整体比对就停（宁可少记碰到）
+  const again = (t: Ts.Type, open: readonly Ts.Symbol[]) => t.symbol !== undefined && open.filter(s => s === t.symbol).length >= 3
 
   // ── 1. 字段 ──
   const found = new Map<Ts.Declaration, string>()
-  const walk = (t: Ts.Type, via: string, seen: Set<Ts.Type>): void => {
+  const walk = (t: Ts.Type, via: string, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
     if (seen.has(t)) return
     seen.add(t)
-    if (t.isUnion() || t.isIntersection()) { for (const u of t.types) walk(u, via, seen); return }
-    if (tc.isArrayType(t) || tc.isTupleType(t)) {
-      for (const a of tc.getTypeArguments(t as Ts.TypeReference)) walk(a, `${via}[]`, seen)
-      return
-    }
-    if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen); return } // 按约束找：调用处读的是实参那份，宁可多报红
+    if (t.isUnion() || t.isIntersection()) { for (const u of t.types) walk(u, via, seen, open); return }
+    if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) walk(a, `${via}[]`, seen, open); return }
+    if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen, open); return } // 按约束找：调用处读的是实参那份，宁可多报红
     if (!(t.flags & ts.TypeFlags.Object)) return
-    if (fromLibrary(t)) for (const a of argumentsOf(t)) walk(a, `${via}<>`, seen)
-    for (const info of tc.getIndexInfosOfType(t)) walk(info.type, `${via}[*]`, seen)
+    if (again(t, open)) { for (const a of t.aliasTypeArguments ?? argumentsOf(t)) walk(a, `${via}<>`, seen, open); return }
+    if (fromLibrary(t)) for (const a of argumentsOf(t)) walk(a, `${via}<>`, seen, open)
+    for (const info of tc.getIndexInfosOfType(t)) walk(info.type, `${via}[*]`, seen, [...open, t.symbol])
     for (const p of t.getProperties()) {
       for (const d of p.declarations ?? []) if (isJudgedFile(rel(d.getSourceFile())) && !found.has(d)) found.set(d, `${via}.${p.name}`)
-      walk(tc.getTypeOfSymbol(p), `${via}.${p.name}`, seen)
+      walk(tc.getTypeOfSymbol(p), `${via}.${p.name}`, seen, [...open, t.symbol])
     }
   }
   for (const sf of program.getSourceFiles()) {
@@ -217,17 +214,18 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
      * 重抄常把形状另起成本文件里的类型别名再引用。
      */
     const copied = new Set<Ts.Declaration>()
-    const copy = (t: Ts.Type, seen: Set<Ts.Type>): void => {
+    const copy = (t: Ts.Type, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
       if (seen.has(t)) return
       seen.add(t)
-      if (t.isUnion() || t.isIntersection()) { for (const u of t.types) copy(u, seen); return }
-      for (const a of argumentsOf(t)) copy(a, seen)
-      for (const info of tc.getIndexInfosOfType(t)) copy(info.type, seen)
+      if (t.isUnion() || t.isIntersection()) { for (const u of t.types) copy(u, seen, open); return }
+      for (const a of argumentsOf(t)) copy(a, seen, open)
+      if (again(t, open)) return; const inner = [...open, t.symbol]
+      for (const info of tc.getIndexInfosOfType(t)) copy(info.type, seen, inner)
       if (fromLibrary(t)) return
-      for (const sig of t.getCallSignatures()) copy(tc.getReturnTypeOfSignature(sig), seen)
+      for (const sig of t.getCallSignatures()) copy(tc.getReturnTypeOfSignature(sig), seen, inner)
       for (const p of t.getProperties()) {
         for (const d of p.declarations ?? []) if (d.getSourceFile() === sf) copied.add(d)
-        copy(tc.getTypeOfSymbol(p), seen)
+        copy(tc.getTypeOfSymbol(p), seen, inner)
       }
     }
     const findCopies = (n: Ts.Node): void => {
@@ -251,16 +249,17 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     const plain = (t: Ts.Type): boolean => t.isIntersection() ? t.types.every(plain) : (t.flags & ts.TypeFlags.Object) !== 0
       && (((t as Ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped) !== 0 || !fromLibrary(t)) && !((t.symbol?.flags ?? 0) & ts.SymbolFlags.Class)
       && t.getCallSignatures().length === 0 && t.getConstructSignatures().length === 0 && t.getProperty('toJSON') === undefined
-    const whole = (t: Ts.Type, seen: Set<Ts.Type>): void => {
+    const whole = (t: Ts.Type, seen: Set<Ts.Type>, open: readonly Ts.Symbol[] = []): void => {
       if (seen.has(t)) return; seen.add(t)
-      if (t.isUnion()) { for (const u of t.types) whole(u, seen); return }
-      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen); return }
-      if (!plain(t)) return
-      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen)
+      if (t.isUnion()) { for (const u of t.types) whole(u, seen, open); return }
+      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, open); return }
+      if (!plain(t) || again(t, open)) return
+      const inner = [...open, t.symbol]
+      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, inner)
       for (const p of t.getProperties()) {
-        const pt = tc.getTypeOfSymbol(p)
-        if (String(p.escapedName).startsWith('__@') || tc.getNonNullableType(pt).getCallSignatures().length > 0) continue // 符号键、函数值：两路各有各的读法，不算
-        mark(p); whole(pt, seen)
+        const pt = tc.getNonNullableType(tc.getTypeOfSymbol(p))
+        if (String(p.escapedName).startsWith('__@') || pt.getCallSignatures().length + pt.getConstructSignatures().length > 0) continue // 符号键、函数值、构造器值：两路各有各的读法，不算
+        mark(p); whole(tc.getTypeOfSymbol(p), seen, inner)
       }
     }
     // 下标读的键按类型认：字面量（常量、联合字面量）与 unique symbol 都换成属性的转义名，再到被索引对象的类型上找

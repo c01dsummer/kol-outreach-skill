@@ -25354,7 +25354,7 @@
       "req": "harness",
       "why": "整体比对只算最外一层：嵌在数组、对象里的字段被报成没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "        mark(p); whole(pt, seen)\n",
+      "find": "        mark(p); whole(tc.getTypeOfSymbol(p), seen, inner)\n",
       "replace": "        mark(p)\n",
       "by": "test",
       "kills": [
@@ -25438,7 +25438,7 @@
       "req": "harness",
       "why": "库里的泛型不取类型参数：装在 Map、Promise 里的字段一个都看不见，新加的怎么没人碰都不红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "    if (fromLibrary(t)) for (const a of argumentsOf(t)) walk(a, `${via}<>`, seen)\n",
+      "find": "    if (fromLibrary(t)) for (const a of argumentsOf(t)) walk(a, `${via}<>`, seen, open)\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -25450,8 +25450,8 @@
       "req": "harness",
       "why": "行尾的注释不读：写在同一行的豁免不算，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "    ...(ts.getTrailingCommentRanges(text, after) ?? []),\n",
-      "replace": "",
+      "find": ", ...(ts.getTrailingCommentRanges(text, after) ?? [])]",
+      "replace": "]",
       "by": "test",
       "kills": [
         "字段：豁免写在上一行或同一行；标记后面空着就是空串"
@@ -25474,7 +25474,7 @@
       "req": "harness",
       "why": "索引签名不展开：Record 与 { [k: string]: … } 里的字段看不见，漏网",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "    for (const info of tc.getIndexInfosOfType(t)) walk(info.type, `${via}[*]`, seen)\n",
+      "find": "    for (const info of tc.getIndexInfosOfType(t)) walk(info.type, `${via}[*]`, seen, [...open, t.symbol])\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -25486,7 +25486,7 @@
       "req": "harness",
       "why": "整体比对不穿索引签名：Record 里的字段交给比对函数也算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen)\n",
+      "find": "      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, inner)\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -25510,7 +25510,7 @@
       "req": "harness",
       "why": "重抄的类型不走函数的返回值：黑盒测试读到的返回字段全算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      for (const sig of t.getCallSignatures()) copy(tc.getReturnTypeOfSignature(sig), seen)\n",
+      "find": "      for (const sig of t.getCallSignatures()) copy(tc.getReturnTypeOfSignature(sig), seen, inner)\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -25738,7 +25738,7 @@
       "req": "harness",
       "why": "黑盒重抄的类型不穿索引签名：Record 里的字段读了也算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      for (const info of tc.getIndexInfosOfType(t)) copy(info.type, seen)\n",
+      "find": "      for (const info of tc.getIndexInfosOfType(t)) copy(info.type, seen, inner)\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -26218,7 +26218,7 @@
       "req": "harness",
       "why": "函数值的字段也算整体比对碰到：深比较只比引用、JSON 直接丢掉，没人读也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": " || tc.getNonNullableType(pt).getCallSignatures().length > 0",
+      "find": " || pt.getCallSignatures().length + pt.getConstructSignatures().length > 0",
       "replace": "",
       "by": "test",
       "kills": [
@@ -26230,7 +26230,7 @@
       "req": "harness",
       "why": "整体比对不进数组：数组里元素的字段被比对了也报没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen); return }\n",
+      "find": "      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, open); return }\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -26242,7 +26242,7 @@
       "req": "harness",
       "why": "整体比对不拆联合：可能为空的字段被比对了也报没碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (t.isUnion()) { for (const u of t.types) whole(u, seen); return }\n",
+      "find": "      if (t.isUnion()) { for (const u of t.types) whole(u, seen, open); return }\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -26254,7 +26254,7 @@
       "req": "harness",
       "why": "返回类型是类型参数的不按约束找：约束里新加的字段闸门看不见，没人碰也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "    if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen); return } // 按约束找：调用处读的是实参那份，宁可多报红\n",
+      "find": "    if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen, open); return } // 按约束找：调用处读的是实参那份，宁可多报红\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -26344,6 +26344,66 @@
       "by": "test",
       "kills": [
         "字段闸门：同名的几处，没用到的每一处都要有自己的豁免，别处的豁免不替它挡"
+      ]
+    },
+    {
+      "id": "M-H198-dj",
+      "req": "harness",
+      "why": "整体比对只跳过调用签名、不跳过构造签名：值是构造器的属性 JSON 不写它，却被记成碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " || pt.getCallSignatures().length + pt.getConstructSignatures().length > 0",
+      "replace": " || pt.getCallSignatures().length > 0",
+      "by": "test",
+      "kills": [
+        "字段：整体比对里值是构造器的属性不算碰到（JSON 不写它），同一个对象里的普通属性照算"
+      ]
+    },
+    {
+      "id": "M-H198-dk",
+      "req": "harness",
+      "why": "找字段这一路对递归泛型不设停：每层新实例，栈溢出",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    if (again(t, open)) { for (const a of t.aliasTypeArguments ?? argumentsOf(t)) walk(a, `${via}<>`, seen, open); return }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：递归泛型（每展开一层都是新实例）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段"
+      ]
+    },
+    {
+      "id": "M-H198-dl",
+      "req": "harness",
+      "why": "重抄的类型这一路对递归泛型不设停：每层新实例，栈溢出",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "      if (again(t, open)) return; const inner",
+      "replace": "      const inner",
+      "by": "test",
+      "kills": [
+        "字段：递归泛型（每展开一层都是新实例）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段"
+      ]
+    },
+    {
+      "id": "M-H198-dm",
+      "req": "harness",
+      "why": "整体比对这一路对递归泛型不设停：每层新实例，栈溢出",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (!plain(t) || again(t, open)) return",
+      "replace": "if (!plain(t)) return",
+      "by": "test",
+      "kills": [
+        "字段：递归泛型（每展开一层都是新实例）找字段、整体比对、重抄的类型三路都停得下来；整体比对照样记到它的字段"
+      ]
+    },
+    {
+      "id": "M-H198-dn",
+      "req": "harness",
+      "why": "递归泛型停下时连类型参数也不走：套了好几层的同一个泛型，最里面那个类型参数上的字段找不到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "{ for (const a of t.aliasTypeArguments ?? argumentsOf(t)) walk(a, `${via}<>`, seen, open); return }",
+      "replace": "return",
+      "by": "test",
+      "kills": [
+        "字段：同一个泛型套了四层，第四层不再展开属性，类型参数照走，里面的字段照样找得到"
       ]
     },
     {
