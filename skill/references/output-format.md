@@ -26,6 +26,30 @@ output/{product}-{YYYYMMDDHHmm}/
 但 CSV 是通用交换格式，脚本、导入工具、其他系统都读它。**两个文件各司其职，不能只留一个** ——
 只留 xlsx 会让机器消费变麻烦，只留 CSV 就没法分层切换。要逐字原值的机器读者读 xlsx（见下文「防公式」）。
 
+新建任务的命令与配置文件长这样（配置文件放在哪都行，路径按当前目录解析）：
+
+```bash
+npm run collect -- --config product.json
+npm run collect -- --config product.json --budget 3      # 给了 --budget 就以它为总上限
+npm run collect -- --config product.json --ignore-memory # 只在用户明确接受不去重时加，见 references/memory.md
+```
+
+```json
+{
+  "product": "anker-powerbank",
+  "market": "US",
+  "target_count": 50,
+  "budget_usd": 2,
+  "tasks": [
+    { "keyword": "power bank review", "dimension": "category", "platform": "tiktok" },
+    { "keyword": "travel gadgets", "dimension": "scene", "platform": "instagram" }
+  ]
+}
+```
+
+`market`、`target_count`、`budget_usd` 可以不写（分别按 US、50、$2，stderr 会说用了默认值）；`sender_name`、`brand_calibration` 可选，见 SKILL.md。
+任务目录 `output/…` 与跨任务记忆 `memory/creators.json` 都相对于运行命令时的当前目录，不相对于仓库或配置文件。
+
 `{product}` 用短横线小写，如 `anker-powerbank`。它不能含 `/`、`\` 或 NUL：任务目录由它拼成，含这几个字符时 collect 新建任务以 2 拒绝、不建目录（D29）。
 
 ## 人工反馈模板（D23、D24、D26）
