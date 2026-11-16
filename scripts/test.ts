@@ -15257,9 +15257,9 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
     readdirSync('docs/adr').filter(f => FILE_RE.test(f)).map(f => `docs/adr/${f}`).sort())
 }
 
-harness('字段断言闸门：检查链判定新增的返回字段，没有测试碰过就红（ADR-198）')
+harness('字段断言闸门：检查链判定新增的返回字段，没有登记被测试打红的变异就红（ADR-198）')
 {
-  // 玩具仓库：两份判定文件、一份不归它管的 lib、一份验证者。期望值按 field-use-rule.ts 文件头的三条规则手推，不从运行结果抄
+  // 玩具仓库：几份判定文件、一份不归它管的 lib、一份验证者。期望值按 field-use-rule.ts 文件头的三条规则手推，不从运行结果抄
   const fieldToy = (tweak: (files: Record<string, string>) => void = () => {}) => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'field-use-toy-')))
     const files: Record<string, string> = {
@@ -15269,6 +15269,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
         "export type Shape = { kind: 'dot'; x: number } | { kind: 'box'; w: number }",
         "export function shape(): Shape { return { kind: 'dot', x: 1 } }",
         "export function inferred() { return { one: 1, two: 'b' } }",
+        'export function listed() {\n  return {\n    first: 1, // 字段不入断言：逗号后面的行尾注释\n    second: 2,\n  }\n}',
         'export async function later(): Promise<{ awaited: number }> { return { awaited: 1 } }',
         'export function withCallback(): { run: () => { hidden: number } } { return { run: () => ({ hidden: 1 }) } }',
         'export interface Quiet {',
@@ -15280,39 +15281,10 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
         'export function quiet(): Quiet { return { quiet: 1, bare: 2, after: 3 } }',
         'export function store(): Map<string, { held: number }> { return new Map() }',
       ].join('\n'),
-      'scripts/check/b.ts': [
-        'export function whole(): { w1: number; nest: { w2: number }[] } { return { w1: 1, nest: [] } }',
-        'export function canonical(): { c1: number } { return { c1: 1 } }',
-        'export function expected(): { e1: number } { return { e1: 1 } }',
-        'export function destructured(): { d1: number } { return { d1: 1 } }',
-        'export function blackBox(): { bb: number } { return { bb: 1 } }',
-      ].join('\n'),
+      'scripts/check/b.ts': 'export function whole(): { w1: number; nest: { w2: number }[] } { return { w1: 1, nest: [] } }',
       'scripts/check/c.ts': 'export function lonely(): { bb: number } { return { bb: 1 } }',
       'scripts/lib/d.ts': 'export function lib(): { libField: number } { return { libField: 1 } }',
-      'scripts/test.ts': [
-        "import { rows, shape, inferred, later, quiet, store } from './check/a.js'",
-        "import { whole, canonical, expected, destructured } from './check/b.js'",
-        "import { lib } from './lib/d.js'",
-        'declare function eq(label: string, got: unknown, want: unknown): void',
-        'declare function canon(v: unknown): unknown',
-        'declare function show(a: unknown, b: unknown): void',
-        "eq('r', rows()[0].kept, 1)",
-        "const s = shape(); if (s.kind === 'dot') eq('x', s.x, 1)",
-        "eq('one', inferred().one, 1)",
-        "eq('aw', (await later()).awaited, 1)",
-        "eq('q', quiet() !== undefined, true)",
-        "eq('st', store().get('k')?.held, 1)",
-        "eq('w', whole(), {})",
-        "const flat = canon(canonical())",
-        "show(canonical(), { c1: 1 })",
-        "eq('e', expected(), { e1: 1 })",
-        'const want: ReturnType<typeof canonical> = { c1: 1 }',
-        'const { d1 } = destructured()',
-        "const m = await import('./check/b.js') as unknown as { blackBox: () => { bb: number } }",
-        "eq('bb', m.blackBox().bb, 1)",
-        "eq('lib', typeof lib, 'function')",
-        'export { flat, want, d1 }',
-      ].join('\n'),
+      'scripts/test.ts': 'export function own(): { verifierOwn: number } { return { verifierOwn: 1 } }',
     }
     tweak(files)
     for (const [path, text] of Object.entries(files)) { mkdirSync(join(root, dirname(path)), { recursive: true }); writeFileSync(join(root, path), text) }
@@ -15324,69 +15296,78 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     try { return fieldsOf(program, root) } finally { rmSync(root, { recursive: true, force: true }) }
   }
   const toy = fieldToy()
-  const usedOf = (key: string) => toy.find(f => f.key === key)?.used
+  const toyOf = (key: string) => toy.find(f => f.key === key)
   eq('字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条，名字相同）',
     toy.map(f => f.key).sort(), [
       'scripts/check/a.ts#Quiet.after', 'scripts/check/a.ts#Quiet.bare', 'scripts/check/a.ts#Quiet.quiet', 'scripts/check/a.ts#Row.idle', 'scripts/check/a.ts#Row.kept',
       'scripts/check/a.ts#Shape.kind', 'scripts/check/a.ts#Shape.kind', 'scripts/check/a.ts#Shape.{kind=box}.w', 'scripts/check/a.ts#Shape.{kind=dot}.x',
       'scripts/check/a.ts#inferred.one', 'scripts/check/a.ts#inferred.two', 'scripts/check/a.ts#later.awaited',
-      'scripts/check/a.ts#store.held', 'scripts/check/a.ts#withCallback.run',
-      'scripts/check/b.ts#blackBox.bb', 'scripts/check/b.ts#canonical.c1', 'scripts/check/b.ts#destructured.d1',
-      'scripts/check/b.ts#expected.e1', 'scripts/check/b.ts#whole.nest', 'scripts/check/b.ts#whole.nest.w2', 'scripts/check/b.ts#whole.w1',
+      'scripts/check/a.ts#listed.first', 'scripts/check/a.ts#listed.second', 'scripts/check/a.ts#store.held', 'scripts/check/a.ts#withCallback.run',
+      'scripts/check/b.ts#whole.nest', 'scripts/check/b.ts#whole.nest.w2', 'scripts/check/b.ts#whole.w1',
       'scripts/check/c.ts#lonely.bb',
     ])
-  eq('字段：读属性算用到（数组元素上的、判别后的、await 出来的、Map 取出来的）',
-    ['Row.kept', 'Shape.{kind=dot}.x', 'inferred.one', 'later.awaited', 'store.held'].map(k => usedOf(`scripts/check/a.ts#${k}`)), [true, true, true, true, true])
-  eq('字段：整个值交给 eq 不算碰到里面的字段 —— 只认写出来的', [usedOf('scripts/check/b.ts#whole.w1'), usedOf('scripts/check/b.ts#whole.nest'), usedOf('scripts/check/b.ts#whole.nest.w2')], [false, false, false])
-  eq('字段：交给返回 unknown 的规整函数、写进带类型的场景对象、写进别的（不是比对的）函数的实参，都不算', usedOf('scripts/check/b.ts#canonical.c1'), false)
-  eq('字段：比对的期望值里写出来的键算用到（按同一次比对里另一边的类型认）', usedOf('scripts/check/b.ts#expected.e1'), true)
-  eq('字段：解构算用到', usedOf('scripts/check/b.ts#destructured.d1'), true)
-  eq('字段：黑盒测试自己重抄的类型，读到的是重抄的那份，不算碰到原字段', [usedOf('scripts/check/b.ts#blackBox.bb'), usedOf('scripts/check/c.ts#lonely.bb')], [false, false])
-  eq('字段：只比了整个值是不是 undefined 不算碰到它的字段', [usedOf('scripts/check/a.ts#Quiet.quiet'), usedOf('scripts/check/a.ts#Quiet.bare')], [false, false])
-  eq('字段：豁免写在上一行或同一行；标记后面空着就是空串', [toy.find(f => f.key === 'scripts/check/a.ts#Quiet.quiet')?.waiver, toy.find(f => f.key === 'scripts/check/a.ts#Quiet.bare')?.waiver,
-    toy.find(f => f.key === 'scripts/check/a.ts#Row.idle')?.waiver], ['只能从子进程输出验到', '', undefined])
-  eq('字段：上一个字段行尾的豁免不漏到下一个字段上', toy.find(f => f.key === 'scripts/check/a.ts#Quiet.after')?.waiver, undefined)
-  eq('字段：打印用的路从函数名起，数组记 []、库泛型记 <>', ['scripts/check/b.ts#whole.nest.w2', 'scripts/check/a.ts#store.held'].map(k => toy.find(f => f.key === k)?.via),
+  eq('字段：豁免写在上一行或同一行；标记后面空着就是空串', ['Quiet.quiet', 'Quiet.bare', 'Row.idle'].map(k => toyOf(`scripts/check/a.ts#${k}`)?.waiver), ['只能从子进程输出验到', '', undefined])
+  eq('字段：上一个字段行尾的豁免不漏到下一个字段上', toyOf('scripts/check/a.ts#Quiet.after')?.waiver, undefined)
+  eq('字段：推断出来的对象字面量里，逗号后面的行尾豁免也认，不漏到下一行', ['listed.first', 'listed.second'].map(k => toyOf(`scripts/check/a.ts#${k}`)?.waiver), ['逗号后面的行尾注释', undefined])
+  eq('字段：打印用的路从函数名起，数组记 []、库泛型记 <>', ['scripts/check/b.ts#whole.nest.w2', 'scripts/check/a.ts#store.held'].map(k => toyOf(k)?.via),
     ['whole().nest[].w2', 'store()<>.held'])
-  eq('字段：行号从 1 起，指向声明那一行', toy.find(f => f.key === 'scripts/check/a.ts#Quiet.quiet')?.line, 10)
+  eq('字段：行号从 1 起，指向声明那一行', toyOf('scripts/check/a.ts#Quiet.quiet')?.line, 16)
+  eq('字段：交回的每一项带着它所在的文件，和它自己的属性名（变异的 find 里要写得到的那个）', [toyOf('scripts/check/c.ts#lonely.bb')?.file, toyOf('scripts/check/b.ts#whole.nest.w2')?.name],
+    ['scripts/check/c.ts', 'w2'])
 
-  const fresh = fieldVerdict(toy, [])
-  eq('字段闸门：基线上一个都没有时，没人碰、没豁免的按名字排着报出来',
-    fresh.unused.map(f => f.key), ['scripts/check/a.ts#Quiet.after', 'scripts/check/a.ts#Row.idle', 'scripts/check/a.ts#Shape.{kind=box}.w', 'scripts/check/a.ts#inferred.two',
-      'scripts/check/a.ts#withCallback.run', 'scripts/check/b.ts#blackBox.bb', 'scripts/check/b.ts#canonical.c1', 'scripts/check/b.ts#whole.nest', 'scripts/check/b.ts#whole.nest.w2',
-      'scripts/check/b.ts#whole.w1', 'scripts/check/c.ts#lonely.bb'])
+  // 变异登记：field 写字段的名字，find 是那条变异要找的源码
+  const mark = (field: string | undefined, find: string) => ({ ...(field === undefined ? {} : { field }), find })
+  const fresh = fieldVerdict(toy, [], [])
+  eq('字段闸门：基线上一个都没有、也没有登记变异时，没豁免的按名字排着报出来',
+    fresh.unmarked.map(f => f.key), ['scripts/check/a.ts#Quiet.after', 'scripts/check/a.ts#Row.idle', 'scripts/check/a.ts#Row.kept', 'scripts/check/a.ts#Shape.kind',
+      'scripts/check/a.ts#Shape.{kind=box}.w', 'scripts/check/a.ts#Shape.{kind=dot}.x', 'scripts/check/a.ts#inferred.one', 'scripts/check/a.ts#inferred.two',
+      'scripts/check/a.ts#later.awaited', 'scripts/check/a.ts#listed.second', 'scripts/check/a.ts#store.held', 'scripts/check/a.ts#withCallback.run',
+      'scripts/check/b.ts#whole.nest', 'scripts/check/b.ts#whole.nest.w2', 'scripts/check/b.ts#whole.w1', 'scripts/check/c.ts#lonely.bb'])
   eq('字段闸门：有理由的豁免放行，空理由的单列', [fresh.waived.map(f => f.key), fresh.unjustified.map(f => f.key)],
-    [['scripts/check/a.ts#Quiet.quiet'], ['scripts/check/a.ts#Quiet.bare']])
-  ok('字段闸门：有没人碰的新字段就红', fresh.red)
-  const settled = fieldVerdict(toy, toy.map(f => f.key))
-  eq('字段闸门：基线上已有的字段不归它管，没人碰也不红', [settled.fresh.length, settled.red], [0, false])
-  const onlyBare = fieldVerdict(toy, toy.map(f => f.key).filter(k => k !== 'scripts/check/a.ts#Quiet.bare'))
-  eq('字段闸门：只新增一个空理由的豁免也红', [onlyBare.unused.length, onlyBare.unjustified.map(f => f.key), onlyBare.red], [0, ['scripts/check/a.ts#Quiet.bare'], true])
-  const dup = (used: boolean) => ({ key: 'k', file: 'f', line: 1, via: 'v', used })
-  eq('字段闸门：按名字排，不按找到的先后', fieldVerdict([{ ...dup(false), key: 'b' }, { ...dup(false), key: 'a' }], []).unused.map(f => f.key), ['a', 'b'])
-  eq('字段闸门：同名的几处要每一处都用到才算用到', [fieldVerdict([dup(false), dup(true)], []).unused.length, fieldVerdict([dup(true), dup(true)], []).unused.length], [1, 0])
-  eq('字段闸门：同名的处数比基线多就按新增报，处数没变不报', [fieldVerdict([dup(false), dup(true)], ['k']).fresh.length, fieldVerdict([dup(false), dup(true)], ['k', 'k']).fresh.length], [1, 0])
-  eq('字段闸门：同名的几处，没用到的每一处都要有自己的豁免，别处的豁免不替它挡', [[dup(false), { ...dup(false), waiver: '子进程' }], [{ ...dup(true), waiver: '子进程' }, dup(false)], [{ ...dup(false), waiver: '子进程' }, { ...dup(false), waiver: '日志' }]]
-    .map(two => { const v = fieldVerdict(two, []); return [v.unused.length, v.waived.length] }), [[1, 0], [1, 0], [0, 1]])
-  eq('字段闸门：用到了的新字段写了空理由的豁免，也算不成立', fieldVerdict([{ ...dup(true), waiver: '' }], []).unjustified.length, 1)
+    [['scripts/check/a.ts#Quiet.quiet', 'scripts/check/a.ts#listed.first'], ['scripts/check/a.ts#Quiet.bare']])
+  ok('字段闸门：有没登记变异的新字段就红', fieldVerdict(toy.filter(f => f.waiver !== ''), [], []).red) // 去掉空理由的那条，只剩没登记变异的在起作用
+  const kept = 'scripts/check/a.ts#Row.kept', unmarkedOf = (marks: ReturnType<typeof mark>[]) => fieldVerdict(toy, [], marks).unmarked.some(f => f.key === kept)
+  eq('字段闸门：一条 field 写着这个名字、find 里写得到字段名的变异守住它；find 里没有字段名的、field 写别的名字的、没写 field 的都不算',
+    [unmarkedOf([mark(kept, 'kept: 1')]), unmarkedOf([mark(kept, 'idle: 1')]), unmarkedOf([mark('scripts/check/a.ts#Row.idle', 'kept: 1')]), unmarkedOf([mark(undefined, 'kept: 1')])],
+    [false, true, true, true])
+  const held = (name: string, find: string) => fieldVerdict([{ key: 'k', file: 'f', line: 1, via: 'v', name }], [], [mark('k', find)]).unmarked.length === 0
+  eq('字段闸门：find 里的字段名前后不能接别的标识符字符，大小写照原样；空名字什么也守不住',
+    [held('ok', 'token: 1'), held('ok', 'ok: 1'), held('ok', '{ ok }'), held('ok', 'OK: 1'), held('id', 'r.id'), held('id', 'r.id2'), held('', 'x: 1')],
+    [false, true, true, false, true, false, false])
+  const nest = 'scripts/check/b.ts#whole.nest'
+  eq('字段闸门：field 写的是它下面一层字段的名字（名字以它开头），不守它', fieldVerdict(toy, [], [mark(`${nest}.w2`, 'nest: [{ w2: 1 }]')]).unmarked.some(f => f.key === nest), true)
+  const settled = fieldVerdict(toy, toy.map(f => f.key), [])
+  eq('字段闸门：基线上已有的字段不归它管，没登记变异也不红，有豁免的也不列', [settled.fresh.length, settled.waived.length, settled.unjustified.length, settled.red], [0, 0, 0, false])
+  const onlyBare = fieldVerdict(toy, toy.map(f => f.key).filter(k => k !== 'scripts/check/a.ts#Quiet.bare'), [])
+  eq('字段闸门：只新增一个空理由的豁免也红', [onlyBare.unmarked.length, onlyBare.unjustified.map(f => f.key), onlyBare.red], [0, ['scripts/check/a.ts#Quiet.bare'], true])
+  const dup = (waiver?: string) => ({ key: 'k', file: 'f', line: 1, via: 'v', name: 'n', ...(waiver === undefined ? {} : { waiver }) })
+  const one = mark('k', 'n: 1')
+  eq('字段闸门：按名字排，不按找到的先后', fieldVerdict([{ ...dup(), key: 'b' }, { ...dup(), key: 'a' }], [], []).unmarked.map(f => f.key), ['a', 'b'])
+  eq('字段闸门：同名的几处要每处一条变异（分不出哪条守哪处，只数条数）；守全了的照样列在新增里，不算靠豁免放行',
+    [[one], [one, one]].map(ms => { const v = fieldVerdict([dup(), dup()], [], ms); return [v.unmarked.length, v.waived.length, v.fresh.length] }), [[1, 0, 1], [0, 0, 1]])
+  eq('字段闸门：同名的处数比基线多就按新增报，处数没变不报', [fieldVerdict([dup(), dup()], ['k'], []).fresh.length, fieldVerdict([dup(), dup()], ['k', 'k'], []).fresh.length], [1, 0])
+  eq('字段闸门：同名的几处，变异不够时没写豁免的每一处都要有变异，别处的豁免不替它挡', [[dup(), dup('子进程')], [dup('子进程'), dup('日志')], [dup(), dup('子进程')]]
+    .map((two, i) => { const v = fieldVerdict(two, [], i === 2 ? [one] : []); return [v.unmarked.length, v.waived.length] }), [[1, 0], [0, 1], [0, 1]])
+  eq('字段闸门：有变异守着的新字段写了空理由的豁免，也算不成立；只有空白的理由同样不成立', [fieldVerdict([dup('')], [], [one]).unjustified.length, fieldVerdict([dup('  ')], [], []).unjustified.length], [1, 1])
+  const at = (v: ReturnType<typeof fieldVerdict>) => [...v.unmarked, ...v.waived].map(f => [f.line, f.waiver])
+  const place = (line: number, waiver?: string) => ({ ...dup(waiver), line })
+  eq('字段闸门：同名的几处，缺变异的报没写豁免的那一处（不带别处的理由），靠豁免放行的报写了豁免的那一处、带它的理由',
+    [at(fieldVerdict([place(1, '子进程'), place(2)], [], [])), at(fieldVerdict([place(1), place(2, '日志')], [], [one]))], [[[2, undefined]], [[2, '日志']]])
   eq('字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红',
-    [[{ ...dup(true), waiver: '子进程' }, { ...dup(true), waiver: '' }], [{ ...dup(true), waiver: '' }, { ...dup(true), waiver: '子进程' }]]
-      .map(two => { const v = fieldVerdict(two, []); return [v.unjustified.length, v.waived.length, v.red] }), [[1, 0, true], [1, 0, true]])
-  eq('字段：交回的每一项带着它所在的文件', toy.find(f => f.key === 'scripts/check/c.ts#lonely.bb')?.file, 'scripts/check/c.ts')
+    [[dup('子进程'), dup('')], [dup(''), dup('子进程')]].flatMap(two => [[one, one], []].map(ms => { const v = fieldVerdict(two, [], ms); return [v.unjustified.length, v.waived.length, v.red] })),
+    [[1, 0, true], [1, 0, true], [1, 0, true], [1, 0, true]])
 
-  // 第二个玩具：映射与索引签名、别的整体比对名字、只经动态或只经静态 import 的兜底、注释里的豁免
+  // 第二个玩具：映射与索引签名、名字的写法、重载、递归
   const moreFiles = (files: Record<string, string>) => Object.assign(files, {
     'scripts/lib/d.ts': 'export interface LibShape { libOnly: number }',
     'scripts/check/f.ts': [
       "import type { LibShape } from '../lib/d.js'",
-      'export interface Base { kept: number; hiddenR: number; renamedR: number }',
-      'export function ro(): Readonly<Base> { return { kept: 1, hiddenR: 2, renamedR: 3 } }',
+      'export interface Base { kept: number; hiddenR: number }',
+      'export function ro(): Readonly<Base> { return { kept: 1, hiddenR: 2 } }',
       'export function rec(): Record<string, { inRec: number }> { return {} }',
       'export function indexed(): { [k: string]: { inIdx: number } } { return {} }',
       'export function both(): { left: number } & { right: number } { return { left: 1, right: 2 } }',
       'export function libShaped(): LibShape { return { libOnly: 1 } }',
-      "export type CU = { kind: 'a'; ca: number } | { kind: 'b'; cb: number }",
-      "export function cu(): CU { return { kind: 'a', ca: 1 } }",
       'export interface W {',
       '  /** 字段不入断言：块注释里的理由 */',
       '  block: number',
@@ -15400,142 +15381,22 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       '  starred: number',
       '}',
       "export function waivers(): W { return { block: 1, spaced: 2, marked: '// 字段不入断言：字符串里的不算', plain: 3, starred: 4 } }",
-      'export function copied(): { cp: number } { return { cp: 1 } }',
-      'export function mapped(): Map<string, { inMap: number }> { return new Map() }',
-      'export function jsonMap(): Map<string, { viaJson: number }> { return new Map() }',
       "export function named(): { 0: number; ['comp']: number; [Symbol.iterator]: number } { return { 0: 1, comp: 2, [Symbol.iterator]: 3 } }",
-      'export function written(): { onlySet: number; onlyIdx: number; bumped: number; paren: number; spread: number; inObj: number; looped: number; gone?: number; inc: number; inArr: number; rest: { a?: number }; iter: number[]; nn?: number; asserted: number; angle: number } {',
-      '  return { onlySet: 1, onlyIdx: 2, bumped: 3, paren: 4, spread: 5, inObj: 6, looped: 7, inc: 8, inArr: 9, rest: {}, iter: [], asserted: 10, angle: 11 } }',
     ].join('\n'),
     'scripts/check/u.ts': "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const } }",
     'scripts/check/t.ts': 'export function pair(): [{ value: number }, {}] { return [{ value: 1 }, {}] }',
-    'scripts/check/g.ts': 'export function gOnly(): { gg: number } { return { gg: 1 } }',
-    'scripts/check/h.ts': 'export function hz(): { other: number } { return { other: 1 } }',
-    'scripts/check/k.ts': 'export function kOnly(): { kk: number } { return { kk: 1 } }\nexport function table(): Record<string, { tcp: number }> { return {} }',
     'scripts/check/m.ts': [
       "export function dotted(): { a: { b: number }; 'a.b': number } { return { a: { b: 1 }, 'a.b': 2 } }",
-      "export function numeric(): { 0: number; 1: number; ['lit']: number; ['dlit']: number } { return { 0: 1, 1: 2, lit: 3, dlit: 4 } }",
       "export type Odd = { kind: 'a'; z: { kind: 'b'; x: number } } | { kind: 'a}.z.{kind=b'; x: number }",
       "export function odd(): Odd { return { kind: 'a', z: { kind: 'b', x: 1 } } }",
-      'export interface Shown { shown: number }',
-      'export function shownToo(): Shown { return { shown: 2 } }',
-      'export function withToJSON(): { hidden: number; toJSON(): Shown } { return { hidden: 1, toJSON() { return { shown: 2 } } } }',
-      'export function withSym(): { plain: number; [Symbol.iterator]: number } { return { plain: 1, [Symbol.iterator]: 2 } }',
-      'export function filtered(): { kept: number; dropped: number } { return { kept: 1, dropped: 2 } }',
-      'export function nulled(): { spaced: number } | undefined { return { spaced: 1 } }',
-      'export function undef(): { spaced2: number } { return { spaced2: 1 } }',
-      'export function crossed(): { hidden2: number } & { toJSON(): {} } { return { hidden2: 1, toJSON: () => ({}) } }',
-      'export function crossedDeep(): { deep2: number } & { toJSON(): {} } { return { deep2: 1, toJSON: () => ({}) } }',
-      "export const symKey: unique symbol = Symbol('k')",
-      'export interface Self { kept3: number; toJSON(): Self }',
-      'export interface In5 { kept5: number; toJSON(): { other5: number } }',
-      'export interface In6 { kept6: number; toJSON(): { other6: number } }',
-      'export function firstThen(): { first5: In5; second5: { toJSON(): In5 } } { const i: In5 = { kept5: 1, toJSON: () => ({ other5: 2 }) }; return { first5: i, second5: { toJSON: () => i } } }',
-      'export function wrapFirst(): { second6: { toJSON(): In6 }; first6: In6 } { const i: In6 = { kept6: 1, toJSON: () => ({ other6: 2 }) }; return { second6: { toJSON: () => i }, first6: i } }',
-      'export type Fn9 = (() => void) & { added9: number }',
-      'export function withFn9(): { fn9: Fn9 } { return { fn9: Object.assign(() => {}, { added9: 1 }) } }',
-      'export function arrPlus(): number[] & { added10: number } { return Object.assign([1], { added10: 2 }) }',
-      'export function arrPlusDeep(): number[] & { added11: number } { return Object.assign([1], { added11: 2 }) }',
-      'export interface Fn12 { (): void; added12: number }',
-      'export function withFn12(): { fn12: Fn12 } { return { fn12: Object.assign(() => {}, { added12: 1 }) } }',
-      'export class Proto13 { own13 = 1; get added13() { return 1 } method13() { return 2 } }',
-      'export function protoed(): Proto13 { return new Proto13() }',
-      'export interface Fn14 { (): void; added14: number }',
-      'export function fnList(): Fn14[] { return [] }',
-      'export interface Ctor15 { new (): object; added15: number }',
-      'export function ctorList(): Ctor15[] { return [] }',
-      'export interface R16 { kept16: number; added16: number }',
-      'export function constrained<T extends R16>(v: T): T { return v }',
-      'export function iter(): IteratorResult<{ inIter: number }> { return { done: true, value: undefined } }',
-      'export interface Wire8 { other8: number }',
-      'export function wire8(): Wire8 { return { other8: 0 } }',
-      'export interface Inner8 { kept8: number; child8?: Inner8; toJSON(): Wire8 }',
-      'export function selfChild(): { nested8: Inner8; toJSON(): Inner8 } { const child: Inner8 = { kept8: 2, toJSON: () => ({ other8: 3 }) }; const inner: Inner8 = { kept8: 1, child8: child, toJSON: () => ({ other8: 4 }) }; return { nested8: inner, toJSON: () => inner } }',
-      'export interface Fn7 { (): void; added7: number }',
-      'export function withFn(): { fn7: Fn7 } { return { fn7: Object.assign(() => {}, { added7: 1 }) } }',
-      'export interface Inner { kept4: number; toJSON(): { other4: number } }',
-      'export function chained(): { nested4: Inner; toJSON(): Inner } { const inner: Inner = { kept4: 1, toJSON: () => ({ other4: 2 }) }; return { nested4: inner, toJSON: () => inner } }',
-      'export function selfJson(): Self { const s: Self = { kept3: 1, toJSON: () => s }; return s }',
-      'export function weak(): WeakMap<object, { weakVal: number }> { return new WeakMap() }',
-      'export function promised(): Promise<{ pendingVal: number }> { return Promise.resolve({ pendingVal: 1 }) }',
-      'export function assigned(): { srcA: number; srcB: number; srcC: number } { return { srcA: 1, srcB: 2, srcC: 3 } }',
-      'export function maybe(): { viaOpt: number; viaOpt2: number } | undefined { return { viaOpt: 1, viaOpt2: 2 } }',
-      'export function keyed(): { viaConst: number; viaU1: number; viaU2: number; [symKey]: number; 7: number; viaNot: number } { return { viaConst: 1, viaU1: 2, viaU2: 3, [symKey]: 4, 7: 5, viaNot: 6 } }',
+      "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
       'export function pick(n: 0): { value: number }', 'export function pick(n: 1): {}', 'export function pick(n: number): { value?: number } { return {} }',
       'export function ctor(): { new(): object; added: number } { return Object.assign(class {}, { added: 1 }) }',
-      'export function ctorProp(): { made: new () => object; plainP: number } { return { made: class {}, plainP: 1 } }',
-      'export interface Box<T> { boxed: T }', 'export function boxes(): Box<Box<Box<{ inBox: number }>>> { return { boxed: { boxed: { boxed: { inBox: 1 } } } } }',
-      'export function nestedMap(): Map<0, Map<0, Map<0, Map<0, { mapDeep: number }>>>> { return new Map() }', 'export interface Leaf { leafF: number }', '// 字段不入断言：故意套二十层\nexport function twice(): { deep?: Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Box<Leaf>>>>>>>>>>>>>>>>>>>>; flat: Box<Leaf> } { return { flat: { boxed: { leafF: 1 } } } }',
+      'export interface R16 { kept16: number; added16: number }', 'export function constrained<T extends R16>(v: T): T { return v }',
       'export function gen<T extends 0>(n: T): {\n  value: number // 字段不入断言：只能从子进程输出验到\n}', 'export function gen<T extends 1>(n: T): {}', 'export function gen(n: number): { value?: number } { return {} }',
-      'export function nested(): { outer: { innerN: number } } { return { outer: { innerN: 1 } } }',
-      'export function listed(): { inList: number }[] { return [] }',
-      "export type SU = { kind: 'a'; shared: number } | { kind: 'b'; shared: number }", "export function su(): SU { return { kind: 'a', shared: 1 } }",
-      'export function tupE(): [{ t1: number }, { t1b: number; atPos: number }] { return [{ t1: 1 }, { t1b: 2, atPos: 3 }] }',
-      'export function viaAs(): { asK: number; satK: number; parK: number } { return { asK: 1, satK: 2, parK: 3 } }',
-      'export function viaNames(): { mK: number; deK: number; seK: number; eqK: number } { return { mK: 1, deK: 2, seK: 3, eqK: 4 } }',
-      'export function notCompare(): { assertK: number; cbK: number; spK: number } { return { assertK: 1, cbK: 2, spK: 3 } }',
-      'export function optNest(): { opt?: { innerO: number } } { return {} }',
-      'export function shorty(): { shK: number } { return { shK: 1 } }',
-      "export function sa(): { kind: 'a'; sa: number } | { kind: 'b'; sa: number } { return { kind: 'a', sa: 1 } }",
-      "export function so(): { kind?: 'a'; so: number } | { kind?: 'b'; so: number } { return { so: 1 } }",
-      'export function msg(): { msgK: number; lblK: number } { return { msgK: 1, lblK: 2 } }',
-      "export function sh(): { kind: 'a'; shK2: number } | { kind: 'b'; shK2: number } { return { kind: 'a', shK2: 1 } }",
-      "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
-    ].join('\n'),
-    'scripts/check/n.ts': 'export function nOnly(): { extless: number } { return { extless: 1 } }',
-    'scripts/check/selfcheck.ts': [
-      'declare function assert(c: unknown, w: unknown): void',
-      'declare function deepStrictEqual(a: unknown, b: unknown): void',
-      "const f = await import('./f.js')",
-      'deepStrictEqual(f.rec(), {})',
-      'deepStrictEqual(f.mapped(), new Map())',
-      'assert(f.indexed(), 1)',
-      "const r = f.ro(); const k = r['kept']",
-      'const s = JSON.stringify(f.both())',
-      'const j = JSON.stringify(f.jsonMap())',
-      "const w = f.written(); w.onlySet = 1; w['onlyIdx'] = 2; w.bumped += 1; (w.paren) = 4",
-      "declare const xs: number[]; [, ...[w.spread]] = xs; ({ k: w.inObj } = { k: 6 }); for (w.looped of xs) {}; delete w.gone; w.inc++; ({ ...w.rest } = { a: 1 }); for (const _ of w.iter) {}; w.nn! = 1; (w.asserted as number) = 2; (<number>w.angle) = 3",
-      'const arr = [w.inArr]',
-      "const mm = await import('./m.js')",
-      "const tw = mm.twice() // 调用这个函数是一次读取，但它停下了，「没展开完」那一条照样不算用到",
-      "deepStrictEqual(mm.numeric(), { 0: 1, ['lit']: 3 }); const wantNum = 0",
-      "deepStrictEqual(mm.nested(), { outer: { innerN: 1 } }); deepStrictEqual(mm.listed(), [{ inList: 1 }])",
-      "deepStrictEqual(mm.su(), { kind: 'a', shared: 1 }); deepStrictEqual(mm.tupE(), [{ atPos: 1 }, { t1b: 2 }])",
-      "deepStrictEqual(mm.viaAs(), { asK: 1 } as unknown); deepStrictEqual(mm.viaAs(), { satK: 2 } satisfies object); deepStrictEqual(mm.viaAs(), ({ parK: 3 }))",
-      "declare const nodeAssert: { deepStrictEqual(a: unknown, b: unknown): void }; declare function deepEqual(a: unknown, b: unknown): void; declare function strictEqual(a: unknown, b: unknown, message?: unknown): void; declare function equal(a: unknown, b: unknown): void",
-      "nodeAssert.deepStrictEqual(mm.viaNames(), { mK: 1 }); deepEqual(mm.viaNames(), { deK: 2 }); strictEqual(mm.viaNames(), { seK: 3 }); equal(mm.viaNames(), { eqK: 4 })",
-      "assert(mm.notCompare(), { assertK: 1 }); deepStrictEqual(mm.notCompare(), [1].map(() => ({ cbK: 2 }))); deepStrictEqual(mm.notCompare(), { ...{ spK: 3 } })",
-      "deepStrictEqual(mm.optNest(), { opt: { innerO: 1 } }); const shK = 1; deepStrictEqual(mm.shorty(), { shK })",
-      "deepStrictEqual(mm.sa(), { kind: 'a' as const, sa: 1 }); deepStrictEqual(mm.so(), { kind: 'a', so: 1 }); const kind = 'a' as const; deepStrictEqual(mm.sh(), { kind, shK2: 1 })",
-      "declare function eq(label: unknown, got: unknown, want: unknown): void; const r17 = mm.msg(); strictEqual(r17, r17, { msgK: 1 }); eq({ lblK: 2 }, r17, r17)",
-      "const { 1: one, ['dlit']: dl } = mm.numeric()",
-      "const js = [JSON.stringify(mm.withToJSON()), JSON.stringify(mm.withSym()), JSON.stringify(mm.filtered(), ['kept']), JSON.stringify(mm.nulled(), null, 2), JSON.stringify(mm.undef(), undefined, 2)]",
-      'const crossedJs = JSON.stringify(mm.crossed()); deepStrictEqual(mm.crossedDeep(), {})',
-      "const kc = 'viaConst' as const; const ku = (kc.length > 3 ? 'viaU1' : 'viaU2') as 'viaU1' | 'viaU2'; const kn = 7 as const; const kd = mm.keyed()",
-      "const keyedV = [kd[kc], kd[ku], kd[mm.symKey], kd[kn], mm.maybe()?.['viaOpt'], mm.maybe()?.[kc.length > 0 ? 'viaOpt2' : 'viaOpt2']]",
-      'const selfJs = JSON.stringify(mm.selfJson()) + JSON.stringify(mm.chained()) + JSON.stringify(mm.firstThen()) + JSON.stringify(mm.wrapFirst()) + JSON.stringify(mm.withFn()) + JSON.stringify(mm.selfChild()) + JSON.stringify(mm.withFn9()) + JSON.stringify(mm.arrPlus()); deepStrictEqual(mm.arrPlusDeep(), Object.assign([1], { added11: 2 })); JSON.stringify(mm.fnList()); JSON.stringify(mm.ctorList()); JSON.stringify(mm.iter()); const r12 = mm.withFn12(); deepStrictEqual(r12, { fn12: r12.fn12 }); const p13 = JSON.stringify(mm.protoed()); deepStrictEqual(mm.protoed(), new mm.Proto13()); deepStrictEqual(mm.weak(), new WeakMap()); deepStrictEqual(mm.promised(), Promise.resolve({}))',
-      'let ga = 0; let srcB = 0; ({ srcA: ga, srcB } = mm.assigned())',
-      'const picked = mm.pick(0).value; const notInstance = { added: 0 } instanceof mm.ctor()',
-      'const ctorJs = JSON.stringify(mm.ctorProp())',
-      "const r16: import('./m.js').R16 = mm.constrained({ kept16: 1, added16: 2 }); const viaLiteral = mm.constrained({ kept16: 1, added16: 2 }).added16; r16.kept16",
-      'const { renamedR: other } = f.ro()',
-      "const wantCu = 0; deepStrictEqual(f.cu(), { kind: 'b', cb: 1 })",
-      "const m = await import('./f.js') as unknown as { copied: () => { cp: number } }",
-      'export const v = [k, s, j, other, wantCu, m.copied().cp, arr, wantNum, one, dl, js, crossedJs, keyedV, selfJs, ga, srcB]',
-    ].join('\n'),
-    'scripts/pid-boundary-contract-test.ts': [
-      "import { gOnly } from './check/g.js'",
-      "const m = await import('./check/h.js') as unknown as { hz: () => { gg: number } }",
-      'const local: { other: number } = { other: 1 }',
-      'export const v = [gOnly, m.hz().gg, local.other]',
-    ].join('\n'),
-    'scripts/independent-blackbox-tests/suite.ts': [
-      "const m = await import('../check/k.js') as unknown as { kOnly: () => { kk: number }; table: () => Record<string, { tcp: number }> }",
-      "export const v = [m.kOnly().kk, m.table()['one'].tcp]",
-    ].join('\n'),
-    'scripts/independent-blackbox-tests/bare.ts': [
-      "const m = await import('../check/n') as unknown as { nOnly: () => { extless: number } }",
-      'export const v = m.nOnly().extless',
+      'export interface Box<T> { boxed: T }', 'export function boxes(): Box<Box<Box<{ inBox: number }>>> { return { boxed: { boxed: { boxed: { inBox: 1 } } } } }',
+      'export function nestedMap(): Map<0, Map<0, Map<0, Map<0, { mapDeep: number }>>>> { return new Map() }', 'export interface Leaf { leafF: number }',
+      `// 字段不入断言：故意套二十层\nexport function twice(): { deep?: ${'Box<'.repeat(20)}Leaf${'>'.repeat(20)} } { return {} }`,
     ].join('\n'),
   })
   const more = fieldToy(moreFiles)
@@ -15543,89 +15404,56 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：Readonly 这类映射、Record 与索引签名、交叉都展开；返回类型声明在 lib 下的不算',
     ['f.ts#Base.kept', 'f.ts#Base.hiddenR', 'f.ts#rec.inRec', 'f.ts#indexed.inIdx', 'f.ts#both.left', 'f.ts#both.right'].map(k => moreOf(k) !== undefined)
       .concat(more.some(f => f.key.includes('libOnly'))), [true, true, true, true, true, true, false])
-  eq('字段：整个值交给 assert、deepStrictEqual、JSON.stringify 也都不算', ['f.ts#rec.inRec', 'f.ts#indexed.inIdx', 'f.ts#both.left', 'f.ts#both.right'].map(k => moreOf(k)?.used), [false, false, false, false])
-  eq('字段：期望值里嵌套的对象、数组元素里写出来的键也算用到', ['m.ts#nested.outer', 'm.ts#nested.outer.innerN', 'm.ts#listed.inList'].map(k => moreOf(k)?.used), [true, true, true])
-  eq('字段：期望值写了判别值，只算那个成员上的同名字段；元组按位置对，写在别的位置上的键不算',
-    ['m.ts#SU.{kind=a}.shared', 'm.ts#SU.{kind=b}.shared', 'm.ts#tupE.[1].t1b', 'm.ts#tupE.[1].atPos'].map(k => moreOf(k)?.used), [true, false, true, false])
-  eq('字段：期望值套着 as、satisfies、括号也认；node:assert 的方法写法、deepEqual、strictEqual、equal 都算比对；可选的嵌套、简写的键也认',
-    ['viaAs.asK', 'viaAs.satK', 'viaAs.parK', 'viaNames.mK', 'viaNames.deK', 'viaNames.seK', 'viaNames.eqK', 'optNest.opt.innerO', 'shorty.shK'].map(k => moreOf(`m.ts#${k}`)?.used), [true, true, true, true, true, true, true, true, true])
-  eq('字段：判别值套着 as const、简写成 { kind }、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算',
-    ['sa.{kind=a}.sa', 'sa.{kind=b}.sa', 'so.{kind=a}.so', 'so.{kind=b}.so', 'msg.msgK', 'msg.lblK', 'sh.{kind=a}.shK2', 'sh.{kind=b}.shK2'].map(k => moreOf(`m.ts#${k}`)?.used), [true, false, true, false, false, false, true, false])
-  eq('字段：assert 不是比对；期望值里回调返回的、展开进来的对象字面量，键都不算',
-    ['assertK', 'cbK', 'spK'].map(k => moreOf(`m.ts#notCompare.${k}`)?.used), [false, false, false])
-  eq('字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算',
-    ['f.ts#Base.kept', 'f.ts#Base.renamedR', 'f.ts#CU.{kind=b}.cb', 'f.ts#CU.{kind=a}.ca', 'f.ts#Base.hiddenR'].map(k => moreOf(k)?.used), [true, true, true, false, false])
-  eq('字段：黑盒重抄的类型 —— 不管经动态、静态、../、不带扩展名的 import，穿不穿索引签名，读到的都是重抄的那份，不算', ['f.ts#copied.cp', 'g.ts#gOnly.gg', 'k.ts#kOnly.kk', 'h.ts#hz.other', 'k.ts#table.tcp', 'n.ts#nOnly.extless'].map(k => moreOf(k)?.used), [false, false, false, false, false, false])
-  const fieldUseCases: [string, boolean][] = [['f.ts#mapped.inMap', false], ['f.ts#jsonMap.viaJson', false], ['m.ts#withToJSON.hidden', false], ['m.ts#Shown.shown', false], ['m.ts#withToJSON.toJSON', false], ['m.ts#withSym.[Symbol.iterator]', false], ['m.ts#filtered.dropped', false], ['m.ts#crossed.hidden2', false], ['m.ts#crossedDeep.deep2', false], ['m.ts#Self.kept3', false], ['m.ts#Inner.kept4', false], ['m.ts#chained.nested4', false], ['m.ts#In5.kept5', false], ['m.ts#In6.kept6', false], ['m.ts#Wire8.other8', false], ['m.ts#weak.weakVal', false], ['m.ts#promised.pendingVal', false], ['m.ts#withFn.fn7', false], ['m.ts#Fn7.added7', false], ['m.ts#withFn9.fn9', false], ['m.ts#Fn9.added9', false], ['m.ts#arrPlus.added10', false], ['m.ts#arrPlusDeep.added11', false], ['m.ts#Fn12.added12', false], ['m.ts#Proto13.own13', false], ['m.ts#Proto13.added13', false], ['m.ts#Proto13.method13', false], ['m.ts#Fn14.added14', false], ['m.ts#Ctor15.added15', false], ['m.ts#iter.inIter', false], ['m.ts#withSym.plain', false], ['m.ts#nulled.spaced', false], ['m.ts#undef.spaced2', false], ['m.ts#withFn12.fn12', true]] // 对不上时按键报出是哪一个
-  eq('字段：整个值交给比对或 JSON.stringify（带不带 replacer、值是什么类型都一样），里面的字段一概不算；直接读的、期望值里写出来的照算',
-    fieldUseCases.map(([k]) => [k, moreOf(k)?.used]), fieldUseCases)
-  eq('字段：返回类型是类型参数的按约束找字段；按约束类型读到的算，经实参字面量读到的不算（宁可多报红）',
-    ['R16.kept16', 'R16.added16'].map(k => moreOf(`m.ts#${k}`)?.used), [true, false])
-  eq('字段：解构赋值的键读的是右边的字段（含改名），没解构的不算',
-    ['assigned.srcA', 'assigned.srcB', 'assigned.srcC'].map(k => moreOf(`m.ts#${k}`)?.used), [true, true, false])
   eq('字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]',
-    more.filter(f => f.file === 'scripts/check/f.ts' && f.key.startsWith('scripts/check/f.ts#named.')).map(f => f.key).sort(),
-    ['scripts/check/f.ts#named.0', 'scripts/check/f.ts#named.[Symbol.iterator]', 'scripts/check/f.ts#named.comp'])
-  eq('字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算',
-    ['f.ts#written.onlySet', 'f.ts#written.onlyIdx', 'f.ts#written.bumped'].map(k => moreOf(k)?.used), [false, false, true])
-  eq('字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算',
-    ['paren', 'spread', 'inObj', 'rest', 'looped', 'gone', 'inc', 'inArr', 'iter'].map(k => moreOf(`f.ts#written.${k}`)?.used),
-    [false, false, false, false, false, false, true, true, true])
-  eq('字段：套着 ! 与 as、<T> 类型断言的只写也不算读到',
-    ['nn', 'asserted', 'angle'].map(k => moreOf(`f.ts#written.${k}`)?.used), [false, false, false])
-  const dottedKeys = more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#dotted.')).map(f => f.key).sort()
+    more.filter(f => f.key.startsWith('scripts/check/f.ts#named.')).map(f => [f.key, f.name]).sort(),
+    [['scripts/check/f.ts#named.0', '0'], ['scripts/check/f.ts#named.[Symbol.iterator]', '[Symbol.iterator]'], ['scripts/check/f.ts#named.comp', 'comp']])
+  eq('字段：返回类型是类型参数的按约束找字段', ['R16.kept16', 'R16.added16'].map(k => moreOf(`m.ts#${k}`) !== undefined), [true, true])
+  const dottedKeys = more.filter(f => f.key.includes('m.ts#dotted.')).map(f => f.key).sort()
   eq('字段：名字里带点的字段写成带引号的一段，不和嵌套路径撞成同一个键',
-    [dottedKeys, fieldVerdict(more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#dotted.')), ['scripts/check/m.ts#dotted.a', 'scripts/check/m.ts#dotted.a.b']).fresh.map(f => f.key)],
+    [dottedKeys, fieldVerdict(more.filter(f => f.key.includes('m.ts#dotted.')), ['scripts/check/m.ts#dotted.a', 'scripts/check/m.ts#dotted.a.b'], []).fresh.map(f => f.key)],
     [['scripts/check/m.ts#dotted."a.b"', 'scripts/check/m.ts#dotted.a', 'scripts/check/m.ts#dotted.a.b'], ['scripts/check/m.ts#dotted."a.b"']])
-  const oddX = more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#Odd.') && f.key.endsWith('.x'))
+  const oddX = more.filter(f => f.key.includes('m.ts#Odd.') && f.key.endsWith('.x'))
   eq('字段：判别值里带分隔符时也写成带引号的一段，两个成员下的同名字段不撞键',
-    [oddX.map(f => f.key).sort(), fieldVerdict(oddX, ['scripts/check/m.ts#Odd.{kind=a}.z.{kind=b}.x']).fresh.map(f => f.key)],
+    [oddX.map(f => f.key).sort(), fieldVerdict(oddX, ['scripts/check/m.ts#Odd.{kind=a}.z.{kind=b}.x'], []).fresh.map(f => f.key)],
     [['scripts/check/m.ts#Odd.{kind="a}.z.{kind=b"}.x', 'scripts/check/m.ts#Odd.{kind=a}.z.{kind=b}.x'], ['scripts/check/m.ts#Odd.{kind="a}.z.{kind=b"}.x']])
   eq('字段：推断出来的判别值带分隔符时同样写成带引号的一段',
-    more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#oddInferred.') && f.key.endsWith('.y')).map(f => f.key).sort(),
+    more.filter(f => f.key.includes('m.ts#oddInferred.') && f.key.endsWith('.y')).map(f => f.key).sort(),
     ['scripts/check/m.ts#oddInferred.{kind="a}.z.{kind=b"}.y', 'scripts/check/m.ts#oddInferred.{kind=a}.z.{kind=b}.y'])
-  eq('字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算',
-    ['keyed.viaConst', 'keyed.viaU1', 'keyed.viaU2', 'keyed.[symKey]', 'keyed.7', 'keyed.viaNot', 'maybe.viaOpt', 'maybe.viaOpt2'].map(k => moreOf(`m.ts#${k}`)?.used),
-    [true, true, true, true, true, false, true, true])
-  eq('字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到',
-    ['0', '1', 'lit', 'dlit'].map(k => moreOf(`m.ts#numeric.${k}`)?.used), [true, true, true, true])
   eq('字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段',
     ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain', 'f.ts#W.starred'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined, ''])
 
   const moved = fieldToy(files => {
+    moreFiles(files)
     files['scripts/check/a.ts'] = `export function first(): Row[] { return [] }\n${files['scripts/check/a.ts']}`
     files['scripts/check/u.ts'] = "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const, value: 2 } }"
     files['scripts/check/t.ts'] = 'export function pair(): [{ value: number }, { value: number }] { return [{ value: 1 }, { value: 2 }] }'
   })
   ok('字段：多一个函数走到旧字段，旧字段的名字不变', toy.every(f => moved.some(g => g.key === f.key)))
   eq('字段闸门：推断出来的判别联合，给另一个成员也加上同名字段，按新增报',
-    fieldVerdict(moved.filter(f => f.file === 'scripts/check/u.ts'), more.filter(f => f.file === 'scripts/check/u.ts').map(f => f.key)).fresh.map(f => f.key),
+    fieldVerdict(moved.filter(f => f.file === 'scripts/check/u.ts'), more.filter(f => f.file === 'scripts/check/u.ts').map(f => f.key), []).fresh.map(f => f.key),
     ['scripts/check/u.ts#choose.{kind=b}.value'])
   eq('字段闸门：无名元组的成员按位置各有名字，给另一个成员加同名字段，按新增报',
-    fieldVerdict(moved.filter(f => f.file === 'scripts/check/t.ts'), more.filter(f => f.file === 'scripts/check/t.ts').map(f => f.key)).fresh.map(f => f.key),
+    fieldVerdict(moved.filter(f => f.file === 'scripts/check/t.ts'), more.filter(f => f.file === 'scripts/check/t.ts').map(f => f.key), []).fresh.map(f => f.key),
     ['scripts/check/t.ts#pair.[1].value'])
   const grown = fieldToy(files => { moreFiles(files); files['scripts/check/m.ts'] = files['scripts/check/m.ts'].replace('export function pick(n: 1): {}', 'export function pick(n: 1): { value: number }').replace('gen<T extends 1>(n: T): {}', 'gen<T extends 1>(n: T): { value: number }') })
-  const pickOf = (all: typeof more) => all.filter(f => f.key.startsWith('scripts/check/m.ts#pick')).map(f => [f.key, f.used] as const)
-  eq('字段：重载的各个签名名字里带上参数，分开；只有一个签名的函数名字里不带', [pickOf(more), moreOf('m.ts#ctor.added')?.key], [[['scripts/check/m.ts#pick(n: 0).value', true]], 'scripts/check/m.ts#ctor.added'])
-  eq('字段闸门：重载里另一个签名也加上同名字段，按新增报；测试只读了旧的那个签名，照样红',
-    fieldVerdict(grown.filter(f => f.key.startsWith('scripts/check/m.ts#pick')), more.filter(f => f.key.startsWith('scripts/check/m.ts#pick')).map(f => f.key)).unused.map(f => f.key), ['scripts/check/m.ts#pick(n: 1).value'])
+  const pickOf = (all: typeof more) => all.filter(f => f.key.startsWith('scripts/check/m.ts#pick'))
+  eq('字段：重载的各个签名名字里带上参数，分开；只有一个签名的函数名字里不带', [pickOf(more).map(f => f.key), moreOf('m.ts#ctor.added')?.key], [['scripts/check/m.ts#pick(n: 0).value'], 'scripts/check/m.ts#ctor.added'])
+  eq('字段闸门：重载里另一个签名也加上同名字段，按新增报；变异只守着旧的那个签名，照样红',
+    fieldVerdict(pickOf(grown), pickOf(more).map(f => f.key), [mark('scripts/check/m.ts#pick(n: 0).value', 'value: number')]).unmarked.map(f => f.key), ['scripts/check/m.ts#pick(n: 1).value'])
   const genOf = (all: typeof more) => all.filter(f => f.key.startsWith('scripts/check/m.ts#gen'))
   eq('字段闸门：泛型重载只差类型参数的约束，名字里带上类型参数分开；旧的那处有豁免，不替新加的那处挡',
-    [genOf(grown).map(f => [f.key, f.waiver]).sort(), fieldVerdict(genOf(grown), genOf(more).map(f => f.key)).unused.map(f => f.key)],
+    [genOf(grown).map(f => [f.key, f.waiver]).sort(), fieldVerdict(genOf(grown), genOf(more).map(f => f.key), []).unmarked.map(f => f.key)],
     [[['scripts/check/m.ts#gen<T extends 0>(n: T).value', '只能从子进程输出验到'], ['scripts/check/m.ts#gen<T extends 1>(n: T).value', undefined]], ['scripts/check/m.ts#gen<T extends 1>(n: T).value']])
-  eq('字段：instanceof 左边的对象字面量不算读到右边构造器上的字段', moreOf('m.ts#ctor.added')?.used, false)
   const chained = (() => { // 递归泛型：每展开一层都是新实例；找字段要停得下来，停不下来就是栈溢出
     try {
       return fieldToy(files => {
         files['scripts/check/r.ts'] = 'export interface Chain<T> { link: T; next?: Chain<T[]> }\nexport function chain(): Chain<{ deepLink: number }> { return { link: { deepLink: 1 } } }\nexport type Loop<T> = Loop<T[]>[]\nexport function loop(): Loop<{ inLoop: number }> { return [] }\nexport type Tup<T> = [Tup<T[]>]\nexport function tup(): Tup<0> { return null as never }\nexport interface RChain<T> { link: T; next?: Readonly<RChain<T[]>> }\nexport function rchain(): RChain<{ deepR: number }> { return { link: { deepR: 1 } } }'
-        files['scripts/test.ts'] += "\nimport { chain, loop, tup, rchain } from './check/r.js'\neq('ch', chain(), {})\neq('rc', rchain(), {})\neq('lp', loop(), [])\neq('tp', tup(), [])\ntype Local<T> = { l: T; n?: Local<T[]> }\ntype LocalLoop<T> = LocalLoop<T[]>[]\ntype LocalTup<T> = [LocalTup<T[]>]\nconst lc = (await import('./check/r.js') as unknown as { chain: () => Local<number>; loop: () => LocalLoop<number>; tup: () => LocalTup<0> }).chain().l"
-      }).filter(f => f.file === 'scripts/check/r.ts').map(f => [f.key, f.used]).sort()
+      }).filter(f => f.file === 'scripts/check/r.ts').map(f => f.key).sort()
     } catch (e) { return String(e).slice(0, 60) }
   })()
-  eq('字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数记一条「没展开完」，算没用到',
-    chained, [['scripts/check/r.ts#Chain.link', false], ['scripts/check/r.ts#Chain.next', false], ['scripts/check/r.ts#chain.deepLink', false],
-      ['scripts/check/r.ts#chain<没展开完>', false], ['scripts/check/r.ts#loop<没展开完>', false], ['scripts/check/r.ts#tup<没展开完>', false],
-      ['scripts/check/r.ts#RChain.link', false], ['scripts/check/r.ts#RChain.next', false], ['scripts/check/r.ts#rchain.deepR', false], ['scripts/check/r.ts#rchain<没展开完>', false]].sort())
+  eq('字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数记一条「没展开完」',
+    chained, ['scripts/check/r.ts#Chain.link', 'scripts/check/r.ts#Chain.next', 'scripts/check/r.ts#chain.deepLink', 'scripts/check/r.ts#chain<没展开完>', 'scripts/check/r.ts#loop<没展开完>',
+      'scripts/check/r.ts#tup<没展开完>', 'scripts/check/r.ts#RChain.link', 'scripts/check/r.ts#RChain.next', 'scripts/check/r.ts#rchain.deepR', 'scripts/check/r.ts#rchain<没展开完>'].sort())
   const box12 = 'Box<'.repeat(20) + 'number' + '>'.repeat(20)
   const exposed = (() => { try { return fieldToy(files => {
     files['scripts/check/r.ts'] = `import * as selfR from './r.js'\nexport function expose(): typeof selfR { return selfR }\nexport interface Box<T> { boxed: T }\nexport function deep(): ${box12} { return null as never }`
@@ -15643,11 +15471,12 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：在深处被停下的类型，从浅处走到照样展开', edge, ['scripts/check/r.ts#Leaf2.leafG', 'scripts/check/r.ts#edge<没展开完>'])
   eq('字段：库里的泛型（Map 这类）也按层数算，套四层没到上限，照样找到最里面的字段', [moreOf('m.ts#nestedMap.mapDeep') !== undefined, moreOf('m.ts#nestedMap<没展开完>')], [true, undefined])
   const cutOf = (fs: readonly UseField[]) => fs.filter(f => f.key.endsWith('<没展开完>') && f.file === 'scripts/check/m.ts')
-  eq('字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行',
-    [cutOf(more).map(f => [f.key, f.used, f.waiver]), fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), []).red, fieldVerdict(cutOf(more), []).waived.length],
-    [[['scripts/check/m.ts#twice<没展开完>', false, '故意套二十层']], true, 1])
+  const twiceMark = [mark('scripts/check/m.ts#twice<没展开完>', 'twice')]
+  eq('字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条没有字段名的「没展开完」，变异守不了，照新增报红；函数前写了豁免就放行',
+    [cutOf(more).map(f => [f.key, f.name, f.waiver]), fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), [], twiceMark).red, fieldVerdict(cutOf(more), [], []).waived.length],
+    [[['scripts/check/m.ts#twice<没展开完>', undefined, '故意套二十层']], true, 1])
   eq('字段闸门：「没展开完」那一条不按基线比 —— 基线上已有这一条，豁免删了照样红（停下的地方里面加了字段，旧的那条挡不住）',
-    fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), cutOf(more).map(f => f.key)).unused.map(f => f.key), ['scripts/check/m.ts#twice<没展开完>'])
+    fieldVerdict(cutOf(more).map(({ waiver: _w, ...f }) => f), cutOf(more).map(f => f.key), []).unmarked.map(f => f.key), ['scripts/check/m.ts#twice<没展开完>'])
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
   eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),

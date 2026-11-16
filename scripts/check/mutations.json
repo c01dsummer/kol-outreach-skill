@@ -25486,7 +25486,7 @@
     {
       "id": "M-H198-a",
       "req": "harness",
-      "why": "认契约测试的那一条丢了：`*-test.ts` 里读到的字段全算没人碰，新字段只有那里测着时误红",
+      "why": "认契约测试的那一条丢了：`*-test.ts` 不再算验证者文件，验证者的清单与需求不符",
       "file": "scripts/check/field-use-rule.ts",
       "find": "|| /^scripts\\/[^/]+-test\\.ts$/.test(path) ",
       "replace": "",
@@ -25520,114 +25520,6 @@
       ]
     },
     {
-      "id": "M-H198-d",
-      "req": "harness",
-      "why": "不是比对的函数调用，实参里的对象字面量也当期望值：为搭场景、过类型检查写的键算成碰到，漏网",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "COMPARE.has(calleeOf(p)) && sides.includes",
-      "replace": "sides.includes",
-      "by": "test",
-      "kills": [
-        "字段：交给返回 unknown 的规整函数、写进带类型的场景对象、写进别的（不是比对的）函数的实参，都不算"
-      ]
-    },
-    {
-      "id": "M-H198-f",
-      "req": "harness",
-      "why": "比对的期望值里写出来的键不算碰到：误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "fit(n.parent, expectedOf(n.parent))) mark(t.getProperty(name))",
-      "replace": "fit(n.parent, expectedOf(n.parent))) void t",
-      "by": "test",
-      "kills": [
-        "字段：比对的期望值里写出来的键算用到（按同一次比对里另一边的类型认）"
-      ]
-    },
-    {
-      "id": "M-H198-g",
-      "req": "harness",
-      "why": "解构出来的字段不算碰到：误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "mark(tc.getTypeAtLocation(n.parent).getProperty(name))",
-      "replace": "void 0",
-      "by": "test",
-      "kills": [
-        "字段：解构算用到"
-      ]
-    },
-    {
-      "id": "M-H198-j",
-      "req": "harness",
-      "why": "期望值只认最外一层的键：嵌套对象里写出来的键被报成没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "return name === undefined ? [] : fit(p.parent, expectedOf(p.parent))",
-      "replace": "return name === undefined || true ? [] : fit(p.parent, expectedOf(p.parent))",
-      "by": "test",
-      "kills": [
-        "字段：期望值里嵌套的对象、数组元素里写出来的键也算用到"
-      ]
-    },
-    {
-      "id": "M-H198-k",
-      "req": "harness",
-      "why": "不问基线：主干上早就有、本来没人碰的字段全算新增，任何 PR 都红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": ".filter(f => after.get(f.key)! > (before.get(f.key) ?? 0) || f.key.endsWith(INCOMPLETE))",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段闸门：基线上已有的字段不归它管，没人碰也不红"
-      ]
-    },
-    {
-      "id": "M-H198-l",
-      "req": "harness",
-      "why": "空理由的豁免不红：写一个光秃秃的标记就能把没人碰的新字段放过去",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "red: unused.length > 0 || unjustified.length > 0",
-      "replace": "red: unused.length > 0",
-      "by": "test",
-      "kills": [
-        "字段闸门：只新增一个空理由的豁免也红"
-      ]
-    },
-    {
-      "id": "M-H198-m",
-      "req": "harness",
-      "why": "同名的几处一处用到就算全用到：撞了名的几处里新加的那处没人碰，测试只读了旧的那处，闸门放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "used: idle.length === 0",
-      "replace": "used: idle.length < fs.length",
-      "by": "test",
-      "kills": [
-        "字段闸门：同名的几处要每一处都用到才算用到"
-      ]
-    },
-    {
-      "id": "M-H198-n",
-      "req": "harness",
-      "why": "不排序：报出来的先后随程序里文件的顺序变，两跑同一棵树打的不一样",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": ".sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段闸门：按名字排，不按找到的先后"
-      ]
-    },
-    {
-      "id": "M-H198-o",
-      "req": "harness",
-      "why": "空理由的豁免也放行：光秃秃一个标记就挡住了红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const waived = idle.filter(f => f.waiver !== undefined && f.waiver.length > 0)",
-      "replace": "const waived = idle.filter(f => f.waiver !== undefined)",
-      "by": "test",
-      "kills": [
-        "字段闸门：有理由的豁免放行，空理由的单列"
-      ]
-    },
-    {
       "id": "M-H198-p",
       "req": "harness",
       "why": "行号从 0 起：报出来的位置差一行，点过去是别的字段",
@@ -25642,7 +25534,7 @@
     {
       "id": "M-H198-q",
       "req": "harness",
-      "why": "库里的泛型不取类型参数：装在 Map、Promise 里的字段一个都看不见，新加的怎么没人碰都不红",
+      "why": "库里的泛型不取类型参数：装在 Map、Promise 里的字段一个都看不见，新加的没有变异守着也不红",
       "file": "scripts/check/field-use-rule.ts",
       "find": "    if (fromLibrary(t)) for (const a of argumentsOf(t)) walk(a, `${via}<>`, seen, inner)\n",
       "replace": "",
@@ -25688,54 +25580,6 @@
       ]
     },
     {
-      "id": "M-H198-ab",
-      "req": "harness",
-      "why": "按下标读不算：r['x'] 这种读法算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "      else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) for (const k of keysOf(tc.getTypeAtLocation(n.argumentExpression)))\n        mark(tc.getNonNullableType(tc.getTypeAtLocation(n.expression)).getProperties().find(p => p.escapedName === k)) }\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算"
-      ]
-    },
-    {
-      "id": "M-H198-af",
-      "req": "harness",
-      "why": "同名的几处有一处写了豁免就全算豁免：没用到、也没写豁免的那处被别处的豁免挡掉",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "idle.every(f => f.waiver !== undefined) ? idle[0]?.waiver",
-      "replace": "fs.some(f => f.waiver !== undefined) ? fs.find(f => f.waiver !== undefined)?.waiver",
-      "by": "test",
-      "kills": [
-        "字段闸门：同名的几处，没用到的每一处都要有自己的豁免，别处的豁免不替它挡"
-      ]
-    },
-    {
-      "id": "M-H198-ag",
-      "req": "harness",
-      "why": "期望值按类型认时不拆联合：判别联合的期望值对象算没碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "t.isUnion() ? t.types : [t] // 可能为空",
-      "replace": "[t] // 可能为空",
-      "by": "test",
-      "kills": [
-        "字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算"
-      ]
-    },
-    {
-      "id": "M-H198-ah",
-      "req": "harness",
-      "why": "解构改名时按新名字找：{ a: b } 读的是 a，却去找 b，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const name = literalName(ts, n.propertyName ?? n.name)",
-      "replace": "const name = literalName(ts, n.name)",
-      "by": "test",
-      "kills": [
-        "字段：按字符串下标读、解构改名、比对里按联合类型写成的期望值，都算用到；没读的那个不算"
-      ]
-    },
-    {
       "id": "M-H198-ai",
       "req": "harness",
       "why": "字段不限声明在判定文件里：lib 下的类型也被当成检查链的字段，误红",
@@ -25745,18 +25589,6 @@
       "by": "test",
       "kills": [
         "字段：Readonly 这类映射、Record 与索引签名、交叉都展开；返回类型声明在 lib 下的不算"
-      ]
-    },
-    {
-      "id": "M-H198-aj",
-      "req": "harness",
-      "why": "空理由的豁免只看没人碰的：用到了的字段上留着一个光秃秃的标记不报",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const unjustified = fresh.filter(f => f.waiver !== undefined && f.waiver.length === 0)",
-      "replace": "const unjustified = fresh.filter(f => !f.used && f.waiver !== undefined && f.waiver.length === 0)",
-      "by": "test",
-      "kills": [
-        "字段闸门：用到了的新字段写了空理由的豁免，也算不成立"
       ]
     },
     {
@@ -25788,8 +25620,8 @@
       "req": "harness",
       "why": "同名两处合并时有理由的豁免盖掉空理由的：不成立的豁免看先后，可能放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "fs.some(f => f.waiver === '') ? '' : ",
-      "replace": "",
+      "find": "const waiver = fs.some(blank) ? '' : at.waiver",
+      "replace": "const waiver = at.waiver",
       "by": "test",
       "kills": [
         "字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红"
@@ -25832,189 +25664,9 @@
       ]
     },
     {
-      "id": "M-H198-as",
-      "req": "harness",
-      "why": "只被赋值的属性也算读到：测试只往字段里写、从不读它也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.name))",
-      "replace": "mark(tc.getSymbolAtLocation(n.name))",
-      "by": "test",
-      "kills": [
-        "字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算"
-      ]
-    },
-    {
-      "id": "M-H198-at",
-      "req": "harness",
-      "why": "只被下标赋值的属性也算读到：测试只往字段里写、从不读它也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (!writeOnly(ts, n)) for (const k of keysOf",
-      "replace": "for (const k of keysOf",
-      "by": "test",
-      "kills": [
-        "字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算"
-      ]
-    },
-    {
-      "id": "M-H198-au",
-      "req": "harness",
-      "why": "复合赋值也当成只写：先读旧值再写回的字段被报成没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "p.operatorToken.kind === ts.SyntaxKind.EqualsToken",
-      "replace": "true",
-      "by": "test",
-      "kills": [
-        "字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算"
-      ]
-    },
-    {
-      "id": "M-H198-av",
-      "req": "harness",
-      "why": "delete 的操作数也当成读到：测试只删字段、从不读它也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "    if (ts.isDeleteExpression(p)) return true\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
-      ]
-    },
-    {
-      "id": "M-H198-aw",
-      "req": "harness",
-      "why": "套了括号的赋值左边当成读到：测试只往字段里写、从不读它也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (ts.isParenthesizedExpression(p) || ts.isArrayLiteralExpression(p)",
-      "replace": "if (ts.isArrayLiteralExpression(p)",
-      "by": "test",
-      "kills": [
-        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
-      ]
-    },
-    {
-      "id": "M-H198-ax",
-      "req": "harness",
-      "why": "解构赋值的数组字面量里的写当成读到：只写不读的字段也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isArrayLiteralExpression(p) || ",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
-      ]
-    },
-    {
-      "id": "M-H198-ay",
-      "req": "harness",
-      "why": "解构赋值里 ...剩余 元素的写当成读到：只写不读的字段也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " || ts.isSpreadElement(p)) { n = p; continue }",
-      "replace": ") { n = p; continue }",
-      "by": "test",
-      "kills": [
-        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
-      ]
-    },
-    {
-      "id": "M-H198-az",
-      "req": "harness",
-      "why": "对象解构赋值里的写当成读到：只写不读的字段也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "(ts.isPropertyAssignment(p) && p.initializer === n) || ",
-      "replace": "false || ",
-      "by": "test",
-      "kills": [
-        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
-      ]
-    },
-    {
-      "id": "M-H198-ba",
-      "req": "harness",
-      "why": "对象解构赋值里 ...剩余 的写当成读到：只写不读的字段也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " || ts.isSpreadAssignment(p)) { n = p.parent; continue }",
-      "replace": ") { n = p.parent; continue }",
-      "by": "test",
-      "kills": [
-        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
-      ]
-    },
-    {
-      "id": "M-H198-bb",
-      "req": "harness",
-      "why": "for…of 的循环变量当成读到：测试只拿字段当循环变量、从不读它也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "    if ((ts.isForOfStatement(p) || ts.isForInStatement(p)) && p.initializer === n) return true\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
-      ]
-    },
-    {
-      "id": "M-H198-bc",
-      "req": "harness",
-      "why": "被 for…of 遍历的字段也当成只写：真读了的字段被报成没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "&& p.initializer === n) return true",
-      "replace": "&& true) return true",
-      "by": "test",
-      "kills": [
-        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
-      ]
-    },
-    {
-      "id": "M-H198-bd",
-      "req": "harness",
-      "why": "++ 和数组字面量里的读也当成只写：先读旧值或真读了的字段被报成没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "    return ts.isBinaryExpression(p) && p.left === n && p.operatorToken.kind",
-      "replace": "    return true || ts.isBinaryExpression(p) && p.left === n && p.operatorToken.kind",
-      "by": "test",
-      "kills": [
-        "字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算"
-      ]
-    },
-    {
-      "id": "M-H198-be",
-      "req": "harness",
-      "why": "套着 ! 的赋值左边当成读到：测试只往字段里写、从不读它也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isNonNullExpression(p) || ",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：套着 ! 与 as、<T> 类型断言的只写也不算读到"
-      ]
-    },
-    {
-      "id": "M-H198-bf",
-      "req": "harness",
-      "why": "套着 as 断言的赋值左边当成读到：测试只往字段里写、从不读它也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (ts.isNonNullExpression(p) || ts.isAsExpression(p) || ",
-      "replace": "if (ts.isNonNullExpression(p) || ",
-      "by": "test",
-      "kills": [
-        "字段：套着 ! 与 as、<T> 类型断言的只写也不算读到"
-      ]
-    },
-    {
-      "id": "M-H198-bg",
-      "req": "harness",
-      "why": "套着 <T> 断言的赋值左边当成读到：测试只往字段里写、从不读它也放行",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " || ts.isTypeAssertionExpression(p)) { n = p; continue }",
-      "replace": ") { n = p; continue }",
-      "by": "test",
-      "kills": [
-        "字段：套着 ! 与 as、<T> 类型断言的只写也不算读到"
-      ]
-    },
-    {
       "id": "M-H198-bh",
       "req": "harness",
-      "why": "名字里带点的字段与嵌套路径撞成同一个键：新加的这种字段被当成基线上已有的，没人碰也放行",
+      "why": "名字里带点的字段与嵌套路径撞成同一个键：新加的这种字段被当成基线上已有的，没有变异守着也放行",
       "file": "scripts/check/field-use-rule.ts",
       "find": "/[.#{}=[\\]\"]/.test(name) ? JSON.stringify(name) : name",
       "replace": "name",
@@ -26033,30 +25685,6 @@
       "by": "test",
       "kills": [
         "字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]"
-      ]
-    },
-    {
-      "id": "M-H198-bk",
-      "req": "harness",
-      "why": "期望值里数字名与字面量计算属性名的键不算碰到：误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const name = literalName(ts, n.name) // 解构赋值",
-      "replace": "const name = ts.isIdentifier(n.name) ? n.name.text : undefined // 解构赋值",
-      "by": "test",
-      "kills": [
-        "字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到"
-      ]
-    },
-    {
-      "id": "M-H198-bl",
-      "req": "harness",
-      "why": "解构里数字名与字面量计算属性名不算碰到：误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const name = literalName(ts, n.propertyName ?? n.name)",
-      "replace": "const pn = n.propertyName ?? n.name, name = ts.isIdentifier(pn) || ts.isStringLiteral(pn) ? pn.text : undefined",
-      "by": "test",
-      "kills": [
-        "字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到"
       ]
     },
     {
@@ -26084,99 +25712,15 @@
       ]
     },
     {
-      "id": "M-H198-bx",
-      "req": "harness",
-      "why": "下标的键是几个字面量的联合时不逐个认：按联合常量读到的字段算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "t.isUnion() ? t.types.flatMap(keysOf) :",
-      "replace": "false ? t.types.flatMap(keysOf) :",
-      "by": "test",
-      "kills": [
-        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
-      ]
-    },
-    {
-      "id": "M-H198-by",
-      "req": "harness",
-      "why": "数字常量作下标不认：按数字键读到的字段算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "t.isStringLiteral() || t.isNumberLiteral()",
-      "replace": "t.isStringLiteral()",
-      "by": "test",
-      "kills": [
-        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
-      ]
-    },
-    {
-      "id": "M-H198-bz",
-      "req": "harness",
-      "why": "符号常量作下标不认：按 unique symbol 键读到的字段算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "t.flags & ts.TypeFlags.UniqueESSymbol ?",
-      "replace": "false ?",
-      "by": "test",
-      "kills": [
-        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
-      ]
-    },
-    {
-      "id": "M-H198-ca",
-      "req": "harness",
-      "why": "下标只认下标表达式自己的符号：拿常量变量作键读到的字段算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "mark(tc.getNonNullableType(tc.getTypeAtLocation(n.expression)).getProperties().find(p => p.escapedName === k))",
-      "replace": "mark(tc.getSymbolAtLocation(n.argumentExpression))",
-      "by": "test",
-      "kills": [
-        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
-      ]
-    },
-    {
-      "id": "M-H198-cb",
-      "req": "harness",
-      "why": "可选链下标不先去掉 undefined：被索引的值可能缺席时，按下标读到的字段算没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "tc.getNonNullableType(tc.getTypeAtLocation(n.expression))",
-      "replace": "tc.getTypeAtLocation(n.expression)",
-      "by": "test",
-      "kills": [
-        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
-      ]
-    },
-    {
-      "id": "M-H198-ce",
-      "req": "harness",
-      "why": "解构赋值的键不按右边那个值找：右边那个值的字段被读了却算没碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "assigned ? split(tc.getTypeAtLocation(n.parent.parent.right)) : ",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：解构赋值的键读的是右边的字段（含改名），没解构的不算"
-      ]
-    },
-    {
-      "id": "M-H198-cz",
-      "req": "harness",
-      "why": "期望值不进数组元素：数组里写出来的键被报成没人碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "return expectedOf(p).flatMap(split).flatMap(t => { const el =",
-      "replace": "return [].flatMap(split).flatMap(t => { const el =",
-      "by": "test",
-      "kills": [
-        "字段：期望值里嵌套的对象、数组元素里写出来的键也算用到"
-      ]
-    },
-    {
       "id": "M-H198-db",
       "req": "harness",
-      "why": "返回类型是类型参数的不按约束找：约束里新加的字段闸门看不见，没人碰也放行",
+      "why": "返回类型是类型参数的不按约束找：约束里新加的字段闸门看不见，没有变异守着也放行",
       "file": "scripts/check/field-use-rule.ts",
       "find": "    if (t.flags & ts.TypeFlags.TypeParameter) { const c = tc.getBaseConstraintOfType(t); if (c !== undefined) walk(c, via, seen, inner); return } // 按约束找：调用处读的是实参那份，宁可多报红\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：返回类型是类型参数的按约束找字段；按约束类型读到的算，经实参字面量读到的不算（宁可多报红）"
+        "字段：返回类型是类型参数的按约束找字段"
       ]
     },
     {
@@ -26204,18 +25748,6 @@
       ]
     },
     {
-      "id": "M-H198-de",
-      "req": "harness",
-      "why": "不看运算符：`{ added: 0 } instanceof ctor()` 也按右边的类型找键，把构造器上没人读的字段记成读到",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": " && n.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "字段：instanceof 左边的对象字面量不算读到右边构造器上的字段"
-      ]
-    },
-    {
       "id": "M-H198-df",
       "req": "harness",
       "why": "只看基线上有没有这个名字、不数处数：撞了名的几处里多出一处，当成旧字段不报",
@@ -26236,8 +25768,7 @@
       "replace": ".length > 9 ?",
       "by": "test",
       "kills": [
-        "字段：重载的各个签名名字里带上参数，分开；只有一个签名的函数名字里不带",
-        "字段闸门：重载里另一个签名也加上同名字段，按新增报；测试只读了旧的那个签名，照样红"
+        "字段闸门：重载里另一个签名也加上同名字段，按新增报；变异只守着旧的那个签名，照样红"
       ]
     },
     {
@@ -26253,18 +25784,6 @@
       ]
     },
     {
-      "id": "M-H198-di",
-      "req": "harness",
-      "why": "合并同名几处时把第一处自己的豁免带过来：第一处用到了、写着豁免，第二处没用到也没豁免，却被算成豁免",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "const { waiver: _first, ...first } = fs[0]",
-      "replace": "const first = fs[0]",
-      "by": "test",
-      "kills": [
-        "字段闸门：同名的几处，没用到的每一处都要有自己的豁免，别处的豁免不替它挡"
-      ]
-    },
-    {
       "id": "M-H198-dk",
       "req": "harness",
       "why": "找字段这一路对递归类型不设停：每层新实例，栈溢出",
@@ -26273,7 +25792,7 @@
       "replace": "    if (false) { if",
       "by": "test",
       "kills": [
-        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数记一条「没展开完」，算没用到"
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数记一条「没展开完」"
       ]
     },
     {
@@ -26298,7 +25817,7 @@
       "replace": ": depth",
       "by": "test",
       "kills": [
-        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数记一条「没展开完」，算没用到"
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数记一条「没展开完」"
       ]
     },
     {
@@ -26314,18 +25833,6 @@
       ]
     },
     {
-      "id": "M-H198-dq",
-      "req": "harness",
-      "why": "「没展开完」那一条被调用函数的那次读取算成用到：停下了照样不报红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "used: !cut.has(decl) && used.has(decl)",
-      "replace": "used: used.has(decl)",
-      "by": "test",
-      "kills": [
-        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
-      ]
-    },
-    {
       "id": "M-H198-dr",
       "req": "harness",
       "why": "找字段停下时悄悄停、不记「没展开完」：最里面的字段漏了也不红",
@@ -26334,7 +25841,7 @@
       "replace": "return",
       "by": "test",
       "kills": [
-        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
+        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条没有字段名的「没展开完」，变异守不了，照新增报红；函数前写了豁免就放行"
       ]
     },
     {
@@ -26346,7 +25853,7 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
+        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条没有字段名的「没展开完」，变异守不了，照新增报红；函数前写了豁免就放行"
       ]
     },
     {
@@ -26382,7 +25889,7 @@
       "replace": "export const DEPTH = 64,",
       "by": "test",
       "kills": [
-        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条「没展开完」，照新增报红；函数前写了豁免就放行"
+        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条没有字段名的「没展开完」，变异守不了，照新增报红；函数前写了豁免就放行"
       ]
     },
     {
@@ -26410,135 +25917,280 @@
       ]
     },
     {
-      "id": "M-H198-ea",
+      "id": "M-H198-ep",
       "req": "harness",
-      "why": "元组的期望值不按位置对：写在第一个位置上的键，算到第二个位置同名字段的头上，漏网",
+      "why": "不核变异说自己弄坏的是哪个字段：随便一条变异都算守住了每个字段",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "tc.isTupleType(t) ? tc.getTypeArguments(t as Ts.TypeReference)[i] : ",
+      "find": "m.field === fs[0].key && ",
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：期望值写了判别值，只算那个成员上的同名字段；元组按位置对，写在别的位置上的键不算"
+        "字段闸门：一条 field 写着这个名字、find 里写得到字段名的变异守住它；find 里没有字段名的、field 写别的名字的、没写 field 的都不算"
       ]
     },
     {
-      "id": "M-H198-eb",
+      "id": "M-H198-eq",
       "req": "harness",
-      "why": "期望值不看写出来的判别值：判别联合里别的成员上的同名字段也算碰到，漏网",
+      "why": "不核变异找的源码里有没有这个字段的名字：一条跟它不沾边的变异也算守住了它",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "|| tags.some(x => x.isStringLiteral() && x.value === said.value)",
-      "replace": "|| true",
-      "by": "test",
-      "kills": [
-        "字段：期望值写了判别值，只算那个成员上的同名字段；元组按位置对，写在别的位置上的键不算"
-      ]
-    },
-    {
-      "id": "M-H198-ec",
-      "req": "harness",
-      "why": "期望值套着括号、as、satisfies 就认不出：写出来的键算没碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isSatisfiesExpression(p)) return expectedOf(p)",
-      "replace": "if (p === undefined) return expectedOf(p)",
-      "by": "test",
-      "kills": [
-        "字段：期望值套着 as、satisfies、括号也认；node:assert 的方法写法、deepEqual、strictEqual、equal 都算比对；可选的嵌套、简写的键也认"
-      ]
-    },
-    {
-      "id": "M-H198-ed",
-      "req": "harness",
-      "why": "比对只认直接调用的函数名：写成「模块.比对函数(…)」的方法调用时，期望值里写出来的键算没碰，误红",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : ",
+      "find": " && writes(m.find, name)",
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：期望值套着 as、satisfies、括号也认；node:assert 的方法写法、deepEqual、strictEqual、equal 都算比对；可选的嵌套、简写的键也认"
+        "字段闸门：一条 field 写着这个名字、find 里写得到字段名的变异守住它；find 里没有字段名的、field 写别的名字的、没写 field 的都不算"
       ]
     },
     {
-      "id": "M-H198-ee",
+      "id": "M-H198-er",
       "req": "harness",
-      "why": "只认两个比对函数名，别的几种标准断言里的比对不算：它们期望值里写出来的键算没碰，误红",
+      "why": "同名的几处只要一条变异就全算守住了",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "'deepEqual', 'strictEqual', 'equal'",
-      "replace": "'deepStrictEqual'",
+      "find": "held >= fs.length ? 'marked'",
+      "replace": "held >= 1 ? 'marked'",
       "by": "test",
       "kills": [
-        "字段：期望值套着 as、satisfies、括号也认；node:assert 的方法写法、deepEqual、strictEqual、equal 都算比对；可选的嵌套、简写的键也认"
+        "字段闸门：同名的几处要每处一条变异（分不出哪条守哪处，只数条数）；守全了的照样列在新增里，不算靠豁免放行"
       ]
     },
     {
-      "id": "M-H198-eg",
+      "id": "M-H198-es",
       "req": "harness",
-      "why": "assert 也当比对：assert(r, { k: 1 }) 第二个实参是报错信息，里面的键算成碰到，漏网",
+      "why": "没有变异守着、也没写豁免的新字段不报",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "new Set(['eq', ",
-      "replace": "new Set(['assert', 'eq', ",
+      "find": "held < open.length ? 'unmarked' as const : ",
+      "replace": "",
       "by": "test",
       "kills": [
-        "字段：assert 不是比对；期望值里回调返回的、展开进来的对象字面量，键都不算"
+        "字段闸门：基线上一个都没有、也没有登记变异时，没豁免的按名字排着报出来"
       ]
     },
     {
-      "id": "M-H198-eh",
+      "id": "M-H198-et",
       "req": "harness",
-      "why": "判别值不是直接写的字符串（外面套了 as const）就不认它是判别值：两个成员上同名的字段都算碰到，另一个成员新加的没人验也放行",
+      "why": "写了标记却没写理由的豁免也当成立的豁免放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isPropertyAssignment(m) ? tc.getTypeAtLocation(m.initializer) :",
-      "replace": "ts.isPropertyAssignment(m) && ts.isStringLiteralLike(m.initializer) ? tc.getTypeAtLocation(m.initializer) :",
+      "find": "fs.some(blank) ? 'bare' as const : ",
+      "replace": "",
       "by": "test",
       "kills": [
-        "字段：判别值套着 as const、简写成 { kind }、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算"
+        "字段闸门：有理由的豁免放行，空理由的单列"
       ]
     },
     {
-      "id": "M-H198-ei",
+      "id": "M-H198-eu",
       "req": "harness",
-      "why": "判别属性是可选的就不按判别值过滤：期望值明写了是哪一个成员，同名字段照样算到每个成员头上",
+      "why": "「没展开完」那一条也让变异守：停下的地方里面加了字段，一条点名的变异就把它放过去了",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "split(tc.getNonNullableType(tc.getTypeOfSymbol(q)))",
-      "replace": "split(tc.getTypeOfSymbol(q))",
+      "find": "name === undefined ? 0 :",
+      "replace": "name === undefined ? marks.filter(m => m.field === fs[0].key).length :",
       "by": "test",
       "kills": [
-        "字段：判别值套着 as const、简写成 { kind }、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算"
+        "字段闸门：往下展开到层数上限停下，最里面可能有字段没找到 —— 那个导出函数记一条没有字段名的「没展开完」，变异守不了，照新增报红；函数前写了豁免就放行"
       ]
     },
     {
-      "id": "M-H198-ej",
+      "id": "M-H198-ev",
       "req": "harness",
-      "why": "node:assert 的第三个实参（出错时的消息）也当成被比的一边：消息里写的键算成碰到，漏网",
+      "why": "有没登记变异的新字段照样不红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": ": p.arguments.slice(0, 2)",
-      "replace": ": p.arguments",
+      "find": "red: unmarked.length > 0 || ",
+      "replace": "red: ",
       "by": "test",
       "kills": [
-        "字段：判别值套着 as const、简写成 { kind }、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算"
+        "字段闸门：有没登记变异的新字段就红"
       ]
     },
     {
-      "id": "M-H198-ek",
+      "id": "M-H198-ew",
       "req": "harness",
-      "why": "eq 的第一个实参（标签）也当成被比的一边：标签里写的键算成碰到，漏网",
+      "why": "只新增一个空理由的豁免不红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "p.arguments.slice(1, 3) :",
-      "replace": "p.arguments.slice(0, 3) :",
+      "find": " || unjustified.length > 0 }",
+      "replace": " }",
       "by": "test",
       "kills": [
-        "字段：判别值套着 as const、简写成 { kind }、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算"
+        "字段闸门：只新增一个空理由的豁免也红"
       ]
     },
     {
-      "id": "M-H198-el",
+      "id": "M-H198-ex",
       "req": "harness",
-      "why": "判别值简写成一个变量名就不认它是判别值：两个成员上同名的字段都算碰到，另一个成员新加的没人验也放行",
+      "why": "报出来的字段按找到的先后排，同一棵树每次顺序可能不同",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "ts.isShorthandPropertyAssignment(m) ? valueOf(m) : undefined",
-      "replace": "undefined",
+      "find": "\n    .sort((a, b) => (a.field.key < b.field.key ? -1 : a.field.key > b.field.key ? 1 : 0))",
+      "replace": "",
       "by": "test",
       "kills": [
-        "字段：判别值套着 as const、简写成 { kind }、判别属性是可选的，也只算写出来的那个成员；比对的标签、出错消息里写的键不算"
+        "字段闸门：按名字排，不按找到的先后"
+      ]
+    },
+    {
+      "id": "M-H198-ey",
+      "req": "harness",
+      "why": "交回的字段不带它自己的名字，变异的源码里写没写到它就核不了",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "...(cut.has(decl) ? {} : { name: nameOf(ts, decl) }),",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：交回的每一项带着它所在的文件，和它自己的属性名（变异的 find 里要写得到的那个）"
+      ]
+    },
+    {
+      "id": "M-H198-ez",
+      "req": "harness",
+      "why": "空理由的豁免当成没写豁免：只该单列成不成立的，又被当作没有变异守着重复报",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "open = fs.filter(f => f.waiver === undefined)",
+      "replace": "open = fs.filter(f => !f.waiver)",
+      "by": "test",
+      "kills": [
+        "字段闸门：只新增一个空理由的豁免也红"
+      ]
+    },
+    {
+      "id": "M-H198-fa",
+      "req": "harness",
+      "why": "变异不够时豁免一律不算：写了理由、没变异守着的那几处也照样红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "held < open.length ? 'unmarked'",
+      "replace": "held < fs.length ? 'unmarked'",
+      "by": "test",
+      "kills": [
+        "字段闸门：有理由的豁免放行，空理由的单列",
+        "字段闸门：同名的几处，变异不够时没写豁免的每一处都要有变异，别处的豁免不替它挡"
+      ]
+    },
+    {
+      "id": "M-H198-fb",
+      "req": "harness",
+      "why": "把 field 写的是它下面一层字段的变异也算守住了它：只守着子字段的变异，让新加的上一层字段放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "m.field === fs[0].key && ",
+      "replace": "m.field?.startsWith(fs[0].key) && ",
+      "by": "test",
+      "kills": [
+        "字段闸门：field 写的是它下面一层字段的名字（名字以它开头），不守它"
+      ]
+    },
+    {
+      "id": "M-H198-fc",
+      "req": "harness",
+      "why": "守全了的字段被列成靠豁免放行的",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "held >= fs.length ? 'marked'",
+      "replace": "held > fs.length ? 'marked'",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的几处要每处一条变异（分不出哪条守哪处，只数条数）；守全了的照样列在新增里，不算靠豁免放行"
+      ]
+    },
+    {
+      "id": "M-H198-fd",
+      "req": "harness",
+      "why": "基线上已有、写了豁免的字段每条 PR 都被列成靠豁免放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const waived = fresh.filter(",
+      "replace": "const waived = judged.filter(",
+      "by": "test",
+      "kills": [
+        "字段闸门：基线上已有的字段不归它管，没登记变异也不红，有豁免的也不列"
+      ]
+    },
+    {
+      "id": "M-H198-fe",
+      "req": "harness",
+      "why": "同名几处一处有理由一处空理由、又没有变异时，被列成靠豁免放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "fs.some(blank) ? 'bare'",
+      "replace": "fs.every(blank) ? 'bare'",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红"
+      ]
+    },
+    {
+      "id": "M-H198-ff",
+      "req": "harness",
+      "why": "逗号后面的行尾豁免读不到：推断出来的对象字面量里写的豁免不算，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "text[decl.end] === ',' ? decl.end + 1 : decl.end",
+      "replace": "decl.end",
+      "by": "test",
+      "kills": [
+        "字段：推断出来的对象字面量里，逗号后面的行尾豁免也认，不漏到下一行"
+      ]
+    },
+    {
+      "id": "M-H198-fg",
+      "req": "harness",
+      "why": "find 里字段名只要是一段子串就算写到：ok 写在 token 里也守住了它",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (!at(i - 1) && !at(i + name.length)) return true",
+      "replace": "return true",
+      "by": "test",
+      "kills": [
+        "字段闸门：find 里的字段名前后不能接别的标识符字符，大小写照原样；空名字什么也守不住"
+      ]
+    },
+    {
+      "id": "M-H198-fh",
+      "req": "harness",
+      "why": "空名字算写到了：任何一条变异都守住它",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "  if (name === '') return false\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段闸门：find 里的字段名前后不能接别的标识符字符，大小写照原样；空名字什么也守不住"
+      ]
+    },
+    {
+      "id": "M-H198-fi",
+      "req": "harness",
+      "why": "只有空白的理由当成成立的豁免",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "f.waiver !== undefined && f.waiver.trim() === ''",
+      "replace": "f.waiver === ''",
+      "by": "test",
+      "kills": [
+        "字段闸门：有变异守着的新字段写了空理由的豁免，也算不成立；只有空白的理由同样不成立"
+      ]
+    },
+    {
+      "id": "M-H198-fj",
+      "req": "harness",
+      "why": "缺变异时报的是写了豁免的那一处，带着别处的理由，指错了位置",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "state === 'unmarked' ? open.at(0) : ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的几处，缺变异的报没写豁免的那一处（不带别处的理由），靠豁免放行的报写了豁免的那一处、带它的理由"
+      ]
+    },
+    {
+      "id": "M-H198-fk",
+      "req": "harness",
+      "why": "靠豁免放行时报的是第一处，不是写了豁免的那处，理由也丢了",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "fs.find(f => f.waiver !== undefined)) ?? fs[0]",
+      "replace": "fs[0])",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的几处，缺变异的报没写豁免的那一处（不带别处的理由），靠豁免放行的报写了豁免的那一处、带它的理由"
+      ]
+    },
+    {
+      "id": "M-H198-fl",
+      "req": "harness",
+      "why": "守全了的新字段从新增里消失：只报数时数少了",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "judged.filter(({ field: f }) => ",
+      "replace": "judged.filter(({ field: f, state }) => state !== 'marked' && ",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的几处要每处一条变异（分不出哪条守哪处，只数条数）；守全了的照样列在新增里，不算靠豁免放行"
       ]
     },
     {
