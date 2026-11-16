@@ -99,10 +99,13 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
 
    ```bash
    day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; run=$(git rev-parse origin/main); cut=$(date -d "$day -28 days" +%F)
-   # 取短名字的正则用 .+? 不用 [^」]：POSIX 区域设置下 [^」] 按字节比，会把名字截断
-   nm() {  # 第 $2 行所在那张欠条块头的短名字（没有就空）：从这一行往上找块头，空行（或只有 >）是块的边界
-     awk -v n="$2" 'NR <= n { if ($0 ~ /^>?[ \t]*$/) h = ""; else if ($0 ~ /⚠️[ \t*]*欠条/) h = $0 } NR == n { print h; exit }' "$1" |
-       grep -oP '⚠️\s*\**欠条\**\s*「\K.+?(?=」)' | head -n 1
+   tsx=$PWD/node_modules/.bin/tsx
+   nm() {  # 第 $2 行所在那张欠条的短名字（没有就空）：块怎么定界直接用检查链的 iouBlocks，不在这里另写一份
+     F=$1 N=$2 "$tsx" -e '
+       import { readFileSync } from "node:fs"; import { iouBlocks, IOU_NAME } from "./scripts/check/debt-rule.ts"; import { quotedMask } from "./scripts/check/quoted.ts"
+       const text = readFileSync(process.env.F!, "utf8"), lines = text.split("\n"), i = Number(process.env.N) - 1
+       const b = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i && i < b.end).at(-1)
+       if (b) console.log(IOU_NAME.exec(lines[b.start])?.[1] ?? "")'
    }
    born() {  # 打「登记日（秒） 旧行号…」：$1 文件，$2 行号，$3 短名字；旧行号只有改取了原文那一行才有，几行都指它就全打，日期取第一行
      local f=$1 n=$2 nm=$3 a h s c o='' src=$run m=$2
@@ -142,7 +145,7 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
      `--first-parent`：经合并提交进来的，记合进主干那一次，不记分支上写下那一次。
    - **拆过的记录**（`docs/adr/历史/` 里有同名文件，ADR-211）：拆的那次提交把原文整份挪进历史文件、开着的欠条重写进主文件，
      这两处的 blame 都只给得出拆的那天。`born` 改取拆之前那份原文：历史文件里拆前那一段与原文逐行相同，取原文同一行；
-     主文件里重写过、之后条件没再改过的那张（当前那一行最后改在拆的那次提交上），历史文件末尾有一行 `已重挂：<编号> 第 <行> 行 · …现行的是 <编号>「<短名字>」`，取原文那一行（几行都指它，取第一行）；拆以后条件又改过，就按改的那天算。短名字从条件那一行往上找块头取（`nm`），块头与条件不在同一行也取得到。
+     主文件里重写过、之后条件没再改过的那张（当前那一行最后改在拆的那次提交上），历史文件末尾有一行 `已重挂：<编号> 第 <行> 行 · …现行的是 <编号>「<短名字>」`，取原文那一行（几行都指它，取第一行）；拆以后条件又改过，就按改的那天算。短名字按条件那一行所在的欠条块取（`nm`，块的定界就是检查链里孤儿闸门用的那一份），块头与条件不在同一行、中间隔着只有 `>` 的行也取得到。
      找不到那一行的（拆以后新写的欠条），照常取它自己那一行。
    - **有短名字的欠条**（块头 `⚠️ 欠条「…」`）按 `<编号>「<短名字>」` 记，不按行号 —— 主文件每次重写都可能挪行。
    - **满四周** = 登记日在 `<日期>` 往前 28 天那天或更早（命令里的 `cut`）：这一行 28 天里没被改过。
@@ -326,10 +329,13 @@ awk -F'|' '{ match($1, /ADR-[0-9]+/); print substr($1, RSTART, RLENGTH) " 第 " 
   ```bash
   day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; run=$(git rev-parse origin/main)
   # nm、born 与「周一」(b) 第 2 步那段同一份：拆过的记录改取拆之前原文的那一行
-  # 取短名字的正则用 .+? 不用 [^」]：POSIX 区域设置下 [^」] 按字节比，会把名字截断
-  nm() {  # 第 $2 行所在那张欠条块头的短名字（没有就空）：从这一行往上找块头，空行（或只有 >）是块的边界
-    awk -v n="$2" 'NR <= n { if ($0 ~ /^>?[ \t]*$/) h = ""; else if ($0 ~ /⚠️[ \t*]*欠条/) h = $0 } NR == n { print h; exit }' "$1" |
-      grep -oP '⚠️\s*\**欠条\**\s*「\K.+?(?=」)' | head -n 1
+  tsx=$PWD/node_modules/.bin/tsx
+  nm() {  # 第 $2 行所在那张欠条的短名字（没有就空）：块怎么定界直接用检查链的 iouBlocks，不在这里另写一份
+    F=$1 N=$2 "$tsx" -e '
+      import { readFileSync } from "node:fs"; import { iouBlocks, IOU_NAME } from "./scripts/check/debt-rule.ts"; import { quotedMask } from "./scripts/check/quoted.ts"
+      const text = readFileSync(process.env.F!, "utf8"), lines = text.split("\n"), i = Number(process.env.N) - 1
+      const b = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i && i < b.end).at(-1)
+      if (b) console.log(IOU_NAME.exec(lines[b.start])?.[1] ?? "")'
   }
   born() {  # 打「登记日（秒） 旧行号…」：$1 文件，$2 行号，$3 短名字；旧行号只有改取了原文那一行才有，几行都指它就全打，日期取第一行
     local f=$1 n=$2 nm=$3 a h s c o='' src=$run m=$2
