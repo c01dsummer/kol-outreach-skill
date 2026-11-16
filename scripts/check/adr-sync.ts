@@ -5,98 +5,14 @@
  * 检查:  tsx scripts/check/adr-sync.ts
  * 回写:  tsx scripts/check/adr-sync.ts --write
  *
- * ⚠️ 证不了记录写得对。它保证的是编号唯一、文件名与正文一致、索引不漂移。
- */
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import {
-  type Adr, FILE_RE, HEAD_RE, HISTORY_DIR, checkAll, historyFaults, markerFault,
-  renderIndex,
-} from './adr-rule.js'
-import { quotedMask } from './quoted.js'
-
-const DIR = 'docs/adr'
-const INDEX = join(DIR, 'README.md')
-const LEGACY = 'DECISIONS.md'
-const BEGIN = '<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->'
-const END = '<!-- END:GENERATED -->'
-/**
- * 整册里的记录标题。**两级都认**:`##` 是旧整册的写法,`#` 是拆开后单文件的写法。
+ * ⚠️ 证不了记录写得对。它保证的是编号唯一、文件名与正文一致、索引不漂移，
+ * 历史文件跟着一条还在的记录、钉住的旧内容只加不删（ADR-211，主文件只放现行结论那一份）。
  *
- * 只认 `##` 的话,一条照**新**格式误写进转发页的记录会溜过去 —— 它既不在
- * `docs/adr/`,也不在索引里,而检查是绿的。
+ * 读、判、比、回写全在 `adr-rule.ts` 的 `adrSync`，需求测试在玩具目录上直接调它；这里只剩打印与退出码。
  */
-const RECORD_HEADING = /^#{1,2}\s+ADR-(\d+)\s+(.+?)\s*$/
+import { adrSync } from './adr-rule.js'
 
-// ── 读 ──────────────────────────────────────────────────────────
-if (!existsSync(DIR)) { console.error(`✗ 决策记录：缺少 ${DIR}/`); process.exit(1) }
-
-const errors: string[] = []
-const adrs: Adr[] = []
-for (const file of readdirSync(DIR).sort()) {
-  if (file === 'README.md') continue
-  // 历史文件不是记录、不进索引，只核它跟着的那条主文件在不在（ADR-211，主文件只放现行结论那一份）
-  if (file === HISTORY_DIR && statSync(join(DIR, file)).isDirectory()) continue
-  const m = FILE_RE.exec(file)
-  if (!m) { errors.push(`${file} 文件名不合格式，应为 ADR-<编号>-<标题>.md`); continue }
-  const first = readFileSync(join(DIR, file), 'utf8').split('\n')[0]
-  const h = HEAD_RE.exec(first)
-  if (!h) { errors.push(`${file} 第一行不是 \`# ADR-<编号> <标题>\``); continue }
-  adrs.push({ file, num: Number(h[1]), title: h[2] })
-}
-errors.push(...checkAll(adrs))
-const historyDir = join(DIR, HISTORY_DIR)
-if (existsSync(historyDir)) {
-  const names = readdirSync(historyDir).sort()
-  const isFile = (f: string) => statSync(join(historyDir, f)).isFile()
-  // 不是文件的（子目录）先报出来，不去读它 —— 读一个目录会直接抛错，报的就不是哪里不对了
-  for (const f of names.filter(f => !isFile(f))) errors.push(`${HISTORY_DIR}/${f} 不是文件 —— 历史目录里只放与主文件同名的历史文件`)
-  const history = names.filter(isFile)
-    .map(file => ({ file, first: readFileSync(join(historyDir, file), 'utf8').split('\n')[0] }))
-  errors.push(...historyFaults(adrs.map(a => a.file), history))
-}
-
-/** 拆开之后 `DECISIONS.md` 只做转发。写回整册就是把冲突面又装回去。 */
-if (existsSync(LEGACY)) {
-  const src = readFileSync(LEGACY, 'utf8')
-  const mask = quotedMask(src)
-  // 引文里的示例不算 —— 转发页本来就要举例说明记录长什么样
-  const found = src.split('\n').some((l, i) => !mask[i] && RECORD_HEADING.test(l))
-  if (found) {
-    errors.push(`${LEGACY} 里又出现了记录标题(\`# ADR-\` 或 \`## ADR-\`)`
-      + ` —— 记录写进 ${DIR}/，一条一个文件`)
-  }
-}
-
-// ── 索引 ────────────────────────────────────────────────────────
-const index = existsSync(INDEX) ? readFileSync(INDEX, 'utf8') : ''
-const i = index.indexOf(BEGIN)
-const j = index.indexOf(END)
-const FAULT: Record<'missing' | 'reversed' | 'duplicate', string> = {
-  missing: '缺少 BEGIN/END 标记',
-  reversed: '的 END 标记在 BEGIN 之前 —— 手工调回来再跑 `--write`',
-  duplicate: '的 BEGIN/END 标记不止一对 —— 手工只留一对再跑 `--write`',
-}
-const fault = markerFault(index, BEGIN, END)
-if (fault) errors.push(`${INDEX} ${FAULT[fault]}`)
-
-if (errors.length) {
-  console.error(`✗ 决策记录：${errors.length} 项\n`)
-  for (const e of errors) console.error(`  · ${e}`)
-  process.exit(1)
-}
-
-const want = `${BEGIN}\n\n${renderIndex(adrs)}${END}`
-if (process.argv.includes('--write')) {
-  writeFileSync(INDEX, index.slice(0, i) + want + index.slice(j + END.length), 'utf8')
-  console.log('✓ 决策记录：索引已回写')
-  process.exit(0)
-}
-if (index.slice(i, j + END.length) !== want) {
-  console.error(`✗ 决策记录：${INDEX} 的索引与目录不一致`)
-  console.error('  跑 `npm run adr -- --write` 回写')
-  process.exit(1)
-}
-
-const nums = adrs.map(a => a.num).sort((a, b) => a - b)
-console.log(`✓ 决策记录：${adrs.length} 条，编号 ${nums[0]}–${nums[nums.length - 1]}，索引一致`)
+const r = adrSync('.', process.argv.includes('--write'))
+for (const line of r.out) console.log(line)
+for (const line of r.err) console.error(line)
+process.exit(r.ok ? 0 : 1)

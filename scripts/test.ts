@@ -39,7 +39,7 @@ import {
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
-import { adrDocs, entries, iouName, iouNameFaults, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
+import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
@@ -90,7 +90,7 @@ import {
   resolveBaseline, scanMessage, tally,
 } from './check/size-rule.js'
 import {
-  FILE_RE, checkAll, encodeTarget, escapeCell, fileNameOf, historyFaults, markerFault,
+  FILE_RE, PINS_FILE, adrSync, checkAll, encodeTarget, escapeCell, fileNameOf, historyFaults, markerFault, parsePins, pinFaults, pinOf,
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
@@ -14635,6 +14635,71 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   eq('历史文件第一行不是记录标题：报一条', historyFaults(['ADR-70-甲.md'], [{ file: 'ADR-70-甲.md', first: '过程' }]).length, 1)
   eq('历史目录里文件名不合格式：报一条', historyFaults([], [{ file: 'notes.md', first: '# ADR-1 x' }]).length, 1)
 
+  // 历史文件只加不删（ADR-211）：钉住的那段字节不许变，只能接在末尾加
+  const B = (t: string) => Buffer.from(t, 'utf8')
+  const pinned = { 'ADR-70-甲.md': pinOf(B('# ADR-70 甲\n旧\n')) }
+  eq('钉住之后原样没动：无错、不用再钉', pinFaults(pinned, [{ file: 'ADR-70-甲.md', data: B('# ADR-70 甲\n旧\n') }]), { errors: [], unpinned: [] })
+  eq('钉住之后末尾接着加：不算错，只报还没钉住', pinFaults(pinned, [{ file: 'ADR-70-甲.md', data: B('# ADR-70 甲\n旧\n新\n') }]), { errors: [], unpinned: ['ADR-70-甲.md'] })
+  const edited = pinFaults(pinned, [{ file: 'ADR-70-甲.md', data: B('# ADR-70 甲\n改\n新\n') }])
+  ok('钉住的旧字节被改了：报一条、点出文件，不当成「还没钉」', edited.errors.length === 1 && edited.errors[0].includes('ADR-70-甲.md') && edited.errors[0].includes('被改了') && edited.unpinned.length === 0)
+  const shrunk = pinFaults(pinned, [{ file: 'ADR-70-甲.md', data: B('# ADR-70 甲\n') }])
+  ok('比钉住时短了：报一条', shrunk.errors.length === 1 && shrunk.errors[0].includes('短了'))
+  const gone = pinFaults(pinned, [])
+  ok('钉着的历史文件不见了：报一条', gone.errors.length === 1 && gone.errors[0].includes('ADR-70-甲.md') && gone.errors[0].includes('没有这一份'))
+  eq('新的历史文件还没钉：不算错，只报还没钉住', pinFaults({}, [{ file: 'ADR-71-乙.md', data: B('# ADR-71 乙\n') }]), { errors: [], unpinned: ['ADR-71-乙.md'] })
+  eq('指纹表形状对：原样读出', parsePins(JSON.stringify(pinned)), { pins: pinned, errors: [] })
+  eq('指纹表不是 JSON：报一条', parsePins('{').errors.length, 1)
+  eq('指纹表里一项缺 sha256：报一条、不收这一项', parsePins('{"ADR-70-甲.md":{"bytes":3}}'), { pins: {}, errors: [`${PINS_FILE} 里 ADR-70-甲.md 那一项应为 { bytes: 非负整数, sha256: 64 位十六进制 }`] })
+
+  // `npm run adr` 整条在玩具仓库上跑：读目录、跳过历史目录、核历史文件、钉指纹 —— 入口只剩打印与退出码
+  const adrToy = (files: Record<string, string>): string => {
+    const root = mkdtempSync(join(tmpdir(), 'kol-adr-sync-'))
+    mkdirSync(join(root, 'docs', 'adr', '历史'), { recursive: true })
+    writeFileSync(join(root, 'docs', 'adr', 'README.md'), '# 索引\n\n<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->\n<!-- END:GENERATED -->\n')
+    for (const [f, t] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, 'docs', 'adr', f)), { recursive: true })
+      writeFileSync(join(root, 'docs', 'adr', f), t)
+    }
+    return root
+  }
+  const goodToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n现行\n', '历史/ADR-01-甲.md': '# ADR-01 甲\n过程\n' })
+  const firstWrite = adrSync(goodToy, true)
+  // 指纹表没写出来时读成空串，让下面那条断言红，不让整个进程崩掉（崩了不算被抓到）
+  const pinsPath = join(goodToy, 'docs', 'adr', PINS_FILE)
+  const pinsAfter = existsSync(pinsPath) ? rf(pinsPath, 'utf8') : ''
+  ok('玩具仓库：有一份配得上的历史文件时 --write 成功，指纹表钉住它、历史目录不进索引',
+    firstWrite.ok && pinsAfter.includes('"ADR-01-甲.md"') && pinsAfter.includes(`"bytes": ${Buffer.byteLength('# ADR-01 甲\n过程\n')}`)
+      && !rf(join(goodToy, 'docs', 'adr', 'README.md'), 'utf8').includes('历史'))
+  const cleanRun = adrSync(goodToy, false)
+  ok('玩具仓库：钉完再检查是绿的，说历史文件 1 份只加未改', cleanRun.ok && cleanRun.out.join('').includes('历史文件 1 份只加未改'))
+  writeFileSync(join(goodToy, 'docs', 'adr', '历史', 'ADR-01-甲.md'), '# ADR-01 甲\n过程\n后来又加的\n')
+  const appended = adrSync(goodToy, false)
+  ok('玩具仓库：历史文件末尾新加了一段、还没钉住，检查报红并让人跑 --write',
+    !appended.ok && appended.err.join('\n').includes('还没钉住') && appended.err.join('\n').includes('--write'))
+  writeFileSync(join(goodToy, 'docs', 'adr', '历史', 'ADR-01-甲.md'), '# ADR-01 甲\n改过\n')
+  const tampered = adrSync(goodToy, true)
+  ok('玩具仓库：历史文件里钉住的旧文字被改了，--write 也拒绝、不把改过的钉上去',
+    !tampered.ok && tampered.err.join('\n').includes('被改了') && pinsAfter !== '' && rf(pinsPath, 'utf8') === pinsAfter)
+  rmSync(goodToy, { recursive: true, force: true })
+  const orphanToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-02-乙.md': '# ADR-02 乙\n', '历史/子目录/x.md': 'x\n' })
+  const orphanRun = adrSync(orphanToy, false)
+  ok('玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名',
+    !orphanRun.ok && orphanRun.err.some(e => e.includes('ADR-02-乙.md') && e.includes('没有同名的主文件'))
+      && orphanRun.err.some(e => e.includes('子目录') && e.includes('不是文件'))
+      && !orphanRun.err.some(e => e.includes('历史 文件名不合格式')))
+  rmSync(orphanToy, { recursive: true, force: true })
+  const badPinsToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', [PINS_FILE]: '{' })
+  const badPins = adrSync(badPinsToy, true)
+  ok('玩具仓库：指纹表读不出来时报一条、--write 也拒绝，不当成什么都没钉过',
+    !badPins.ok && badPins.err.some(e => e.includes('不是合法的 JSON')) && rf(join(badPinsToy, 'docs', 'adr', PINS_FILE), 'utf8') === '{')
+  rmSync(badPinsToy, { recursive: true, force: true })
+  const legacyToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
+  writeFileSync(join(legacyToy, 'DECISIONS.md'), '# 转发页\n\n```\n## ADR-02 示例\n```\n\n## ADR-03 又写回来了\n')
+  const legacy = adrSync(legacyToy, false)
+  ok('玩具仓库：转发页里引文之外又出现记录标题，报一条；引文里的示例不算',
+    !legacy.ok && legacy.err.filter(e => e.includes('DECISIONS.md')).length === 1)
+  rmSync(legacyToy, { recursive: true, force: true })
+
   // 编号有空号是正常的：号不复用，包括还活在别的分支上的
   const idx = renderIndex([
     { file: 'ADR-10-十.md', num: 10, title: '十' },
@@ -15219,7 +15284,29 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   ])
   eq('孤儿和短名字有错都有：stderr 那一句两样都说', withDupe.err, '\n✗ 欠条台账：1 张欠条没写重启条件；1 张欠条的短名字有错（重名或取不出）')
   eq('只有短名字有错：照样交回那一句', ledgerReport([debt], [], [dupe]).err, '\n✗ 欠条台账：1 张欠条的短名字有错（重名或取不出）')
+  // 审计第 6 节：孤儿与短名字有错一张一行，审计每行计一次硬失败（ADR-211 的欠条「两处入口接线没有测试」）
+  const hardLines = ledgerGaps([lone], [dupe])
+  ok('审计硬失败：孤儿与短名字有错各一行，短名字那行点出文件与行号、说短名字有错',
+    hardLines.length === 2 && hardLines[0].startsWith('docs/adr/Y.md:5 写了欠条却没写重启条件')
+      && hardLines[1].startsWith('docs/adr/Z.md:7 欠条的短名字有错（和同一条记录里的另一张重名'))
   eq('真仓库里没有短名字有错的欠条', iouNameFaults(adrDocs()).map(d => `${d.file}:${d.line}`), [])
+  // 拆过的记录主文件已经重写，「ADR-N 第 M 行」只在决策记录之间还按历史文件认（ADR-211 第三节）；
+  // 决策记录以外的文件（脚本注释、说明书、流程）要指它，只许写短名字或节 —— 行号指过去会落到重写后无关的一行
+  const splitNums = new Set(readdirSync('docs/adr/历史').map(f => Number(/^ADR-(\d+)-/.exec(f)?.[1])).filter(n => n > 0))
+  const lineRefs: string[] = []
+  const walkRefs = (d: string): void => {
+    for (const e of readdirSync(d)) {
+      const p = d === '.' ? e : `${d}/${e}`
+      if (['node_modules', '.git', '.check-cache', 'docs/adr', 'dist', 'out'].includes(p)) continue
+      if (statSync(p).isDirectory()) { walkRefs(p); continue }
+      if (!/\.(ts|md|ya?ml|json|sh)$/.test(e)) continue
+      rf(p, 'utf8').split('\n').forEach((l, i) => {
+        for (const m of l.matchAll(/ADR-0*(\d+) ?第 ?\d+(?:[–-]\d+)? ?行/g)) if (splitNums.has(Number(m[1]))) lineRefs.push(`${p}:${i + 1} ${m[0]}`)
+      })
+    }
+  }
+  walkRefs('.')
+  eq('决策记录以外的文件没有按行号指拆过的记录', lineRefs, [])
 
   // 读哪些文件也是判定：两个入口各走各的目录的话，一边多收或少收一份，两份台账就对不上
   const adrTmp = mkdtempSync(join(tmpdir(), 'kol-adr-docs-'))
@@ -15269,6 +15356,13 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
   eq('索引不算引用方', cited({ ...ONE, 'README.md': '- ADR-1\n' }, 1), [0, 0])
   eq('表里只有记录文件：索引不进表，引到的空号也不进',
     citeTable(tree({ ...ONE, 'README.md': '- ADR-9\n', 'ADR-2-乙.md': '见 ADR-9。\n' })).map(r => r.no), [1, 2])
+
+  // 拆过的记录（ADR-211）：主文件与 `历史/` 下的同名文件是同一条记录，不能各占一行、各算一票
+  const SPLIT = { 'ADR-1-甲.md': '# ADR-1 甲\n', 'ADR-2-乙.md': '# ADR-2 乙\n见 ADR-1。\n', '历史/ADR-2-乙.md': '# ADR-2 乙\n照 ADR-1 做。\n' }
+  eq('拆过的记录：主文件与历史文件都引同一条，只算一条', cited(SPLIT, 1), [1, 0])
+  eq('拆过的记录：表里只给主文件一行', citeTable(tree(SPLIT)).map(r => r.file).sort(), ['docs/adr/ADR-1-甲.md', 'docs/adr/ADR-2-乙.md'])
+  eq('拆过的记录：教训栏写在历史文件里也算这条有',
+    citeTable(tree({ 'ADR-1-甲.md': '# ADR-1 甲\n', '历史/ADR-1-甲.md': '# ADR-1 甲\n## 教训\n' }))[0].lesson, true)
 
   // 教训栏照提案 §1 表后那条 grep 的口径：节标题或一栏的开头，不是正文里出现这两个字
   const lesson = (text: string) => citeTable(tree({ 'ADR-1-甲.md': text }))[0].lesson

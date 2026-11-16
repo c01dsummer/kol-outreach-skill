@@ -7813,8 +7813,8 @@
       "req": "harness",
       "file": "scripts/check/cite-rule.ts",
       "why": "按行去重、不按文件 —— 一条记录在十行里提到另一条，就被算成十条记录引了它，被引数量的是谁写得啰嗦",
-      "find": "add(inIou[i] ? inside : outside, no, file)",
-      "replace": "add(inIou[i] ? inside : outside, no, `${file}:${i}`)",
+      "find": "add(inIou[i] ? inside : outside, no, `ADR-${self}`)",
+      "replace": "add(inIou[i] ? inside : outside, no, `ADR-${self}:${i}`)",
       "by": "test",
       "kills": [
         "同一条记录引几次都只算一条"
@@ -7838,8 +7838,8 @@
       "req": "harness",
       "file": "scripts/check/cite-rule.ts",
       "why": "欠条块里的引用也进了主计数 —— 需求所有者选的是排除、单列，一串欠条反复点同一条记录，会把它顶到前列",
-      "find": "add(inIou[i] ? inside : outside, no, file)",
-      "replace": "add(outside, no, file)",
+      "find": "add(inIou[i] ? inside : outside, no, `ADR-${self}`)",
+      "replace": "add(outside, no, `ADR-${self}`)",
       "by": "test",
       "kills": [
         "只在欠条块里引的不进主计数、另成一栏"
@@ -25922,6 +25922,166 @@
         "块头第一个「⚠️ 欠条」没带名字，说明里再提一个带名字的块头也不算这张的",
         "拆过的记录，主文件里这样的欠条照样报没起名字"
       ]
+    },
+    {
+      "id": "M-H211-r",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "历史文件在被引表里另占一行 —— 拆过的记录变成两条，历史那行一律被引 0 次、无教训栏，前十与各档条数都被它带偏",
+      "find": "if (no === undefined || isHistory(file)) continue",
+      "replace": "if (no === undefined) continue",
+      "by": "test",
+      "kills": ["拆过的记录：表里只给主文件一行"]
+    },
+    {
+      "id": "M-H211-s",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "引用方按文件去重、不按记录 —— 拆过的记录主文件与历史文件各引一次，被引的那条就白多一票",
+      "find": "add(inIou[i] ? inside : outside, no, `ADR-${self}`)",
+      "replace": "add(inIou[i] ? inside : outside, no, file)",
+      "by": "test",
+      "kills": ["拆过的记录：主文件与历史文件都引同一条，只算一条"]
+    },
+    {
+      "id": "M-H211-t",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "只认主文件里的教训栏 —— 教训一节随过程挪进历史文件后，这条记录在表里就成了无教训栏",
+      "find": "if (LESSON.test(line)) lessons.add(self)",
+      "replace": "if (LESSON.test(line) && !isHistory(file)) lessons.add(self)",
+      "by": "test",
+      "kills": ["拆过的记录：教训栏写在历史文件里也算这条有"]
+    },
+    {
+      "id": "M-H211-u",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "不再跳过历史目录 —— 它被当成一份文件名不合格式的记录，每次检查都红，或者有人为了变绿把历史目录删掉",
+      "find": "    if (file === HISTORY_DIR && statSync(join(dir, file)).isDirectory()) continue",
+      "replace": "    if (false) continue",
+      "by": "test",
+      "kills": ["玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名", "玩具仓库：有一份配得上的历史文件时 --write 成功，指纹表钉住它、历史目录不进索引"]
+    },
+    {
+      "id": "M-H211-v",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "历史文件那几项判定算了却不计入 —— 孤儿历史文件、第一行编号不对的历史文件都放行",
+      "find": "    errors.push(...historyFaults(adrs.map(a => a.file),",
+      "replace": "    void (historyFaults(adrs.map(a => a.file),",
+      "by": "test",
+      "kills": ["玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名"]
+    },
+    {
+      "id": "M-H211-w",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "历史目录里的子目录不报 —— 里面的东西谁也不核",
+      "find": "for (const f of names.filter(f => !isFile(f))) errors.push(",
+      "replace": "for (const f of names.filter(f => !isFile(f))) [].push(",
+      "by": "test",
+      "kills": ["玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名"]
+    },
+    {
+      "id": "M-H211-x",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "指纹比对算了却不计入 —— 历史文件里钉住的旧文字被改了，检查照样绿，--write 还把改过的钉上去",
+      "find": "  errors.push(...pinErrors)",
+      "replace": "  void pinErrors",
+      "by": "test",
+      "kills": ["玩具仓库：历史文件里钉住的旧文字被改了，--write 也拒绝、不把改过的钉上去"]
+    },
+    {
+      "id": "M-H211-y",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "不比钉住那段的指纹 —— 历史文件里的旧文字改了只要长度没变短就放行",
+      "find": "    if (pinOf(h.data.subarray(0, pin.bytes)).sha256 !== pin.sha256) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["钉住的旧字节被改了：报一条、点出文件，不当成「还没钉」"]
+    },
+    {
+      "id": "M-H211-z",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "不查变短 —— 删掉一段旧文字只被说成「改了」，读的人不知道是少了一截",
+      "find": "    if (h.data.length < pin.bytes) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["比钉住时短了：报一条"]
+    },
+    {
+      "id": "M-H211-aa",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "钉着的历史文件整份被删也放行",
+      "find": "    if (!have.has(f)) errors.push(`${PINS_FILE} 钉着",
+      "replace": "    if (false) errors.push(`${PINS_FILE} 钉着",
+      "by": "test",
+      "kills": ["钉着的历史文件不见了：报一条"]
+    },
+    {
+      "id": "M-H211-ab",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "检查不比指纹表是不是最新 —— 历史文件末尾新加的那段永远没钉上，之后被改了也看不出",
+      "find": "  if (wantPins !== pinsText) {\n    const what",
+      "replace": "  if (false) {\n    const what",
+      "by": "test",
+      "kills": ["玩具仓库：历史文件末尾新加了一段、还没钉住，检查报红并让人跑 --write"]
+    },
+    {
+      "id": "M-H211-ac",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "--write 不写指纹表 —— 新拆的记录永远钉不上，检查一直红着让人跑一条修不好它的命令",
+      "find": "    if (wantPins !== pinsText) writeFileSync(pinsPath, wantPins, 'utf8')",
+      "replace": "    void 0",
+      "by": "test",
+      "kills": ["玩具仓库：有一份配得上的历史文件时 --write 成功，指纹表钉住它、历史目录不进索引"]
+    },
+    {
+      "id": "M-H211-ad",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "指纹表一项缺了 sha256 也收 —— 拿 undefined 去比，所有历史文件都成了「被改了」，或者被当成钉过",
+      "find": "      || typeof p.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(p.sha256)) {",
+      "replace": "      || false) {",
+      "by": "test",
+      "kills": ["指纹表里一项缺 sha256：报一条、不收这一项"]
+    },
+    {
+      "id": "M-H211-ae",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "指纹表读不出来不计入 —— 当成什么都没钉过，--write 照新内容重钉一遍，改过的旧文字就此洗白",
+      "find": "  errors.push(...parsed.errors)",
+      "replace": "  void parsed.errors",
+      "by": "test",
+      "kills": ["玩具仓库：指纹表读不出来时报一条、--write 也拒绝，不当成什么都没钉过"]
+    },
+    {
+      "id": "M-H211-af",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "转发页里又写回记录标题也放行 —— 整册的冲突面又装回去",
+      "find": "    if (src.split('\\n').some((l, i) => !mask[i] && RECORD_HEADING.test(l))) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["玩具仓库：转发页里引文之外又出现记录标题，报一条；引文里的示例不算"]
+    },
+    {
+      "id": "M-H211-ag",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "审计不把短名字有错计进硬失败 —— 重名的欠条按名字一关就关掉两张，取不出名字的永远关不上，检查链照样绿",
+      "find": "    ...badNames.map(d => `${d.file}:${d.line} 欠条的短名字有错（${d.text}） —— `",
+      "replace": "    ...[].map(d => `${d.file}:${d.line} 欠条的短名字有错（${d.text}） —— `",
+      "by": "test",
+      "kills": ["审计硬失败：孤儿与短名字有错各一行，短名字那行点出文件与行号、说短名字有错"]
     },
     {
       "id": "M-H211-n",

@@ -117,7 +117,7 @@ export function entries(docs: Map<string, string>): Entry[] {
  * 空行。**这个定界是本模块定的，仓库里没有写着分隔符** —— ADR-86 逐块核过的那 88 个块
  * 排版是齐的，排版一变这个判据就跟着错，而且不总是错在报错那一侧：两张欠条之间没隔开
  * （带 `>` 的中间没有一行非 `>`、不带的缺一个空行）时，前一张并进后一张、借到后一张的条件，
- * 孤儿闸门那边就是**放过**（ADR-151 第七节记着这张欠条）；被引表那边只是块里的引用挪进或挪出主计数。
+ * 孤儿闸门那边就是**放过**（ADR-151 的欠条「两张欠条没隔开时前一张借后一张的条件」）；被引表那边只是块里的引用挪进或挪出主计数。
  */
 export function iouBlocks(lines: string[], quoted: boolean[]): Array<{ start: number; end: number }> {
   const out: Array<{ start: number; end: number }> = []
@@ -258,6 +258,21 @@ export function ledgerSummary(list: Entry[]): string {
   return `欠条台账 ${list.length} 条 · 重启条件 ${n('重启条件')} · ` +
          `重开讨论 ${n('重开讨论')} · 死亡条件 ${n('死亡条件')}` +
          ` —— 只抽取，不判已还、也不判这次改动踩到了谁`
+}
+
+/**
+ * 审计第 6 节的硬失败：孤儿欠条与短名字有错，一张一行。审计每行计一次硬失败。
+ *
+ * 留在审计入口里的话需求测试够不着 —— 删掉「短名字有错」那一段检查链照样全绿
+ * （ADR-211 的欠条「两处入口接线没有测试」）。
+ */
+export function ledgerGaps(orphans: Entry[], badNames: Entry[]): string[] {
+  return [
+    ...orphans.map(o => `${o.file}:${o.line} 写了欠条却没写重启条件 —— `
+      + '没有重启条件的登记不是登记，是免责声明（process/6-INTEGRATE.md）'),
+    ...badNames.map(d => `${d.file}:${d.line} 欠条的短名字有错（${d.text}） —— `
+      + '按名字写的状态行会关不上它，或分不清是哪一张（ADR-211，欠条用短名字互指那一份）'),
+  ]
 }
 
 /**

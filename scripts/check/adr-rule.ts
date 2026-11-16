@@ -17,6 +17,11 @@
  * 算死亡条件的原因:说得准比听起来会响要紧。
  */
 
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { quotedMask } from './quoted.js'
+
 /** `ADR-08-采集累加器与交付物拆成两个文件.md` */
 export const FILE_RE = /^ADR-(\d+)-(.+)\.md$/
 /** 文件里的第一行:`# ADR-08 采集累加器与交付物拆成两个文件` */
@@ -163,4 +168,170 @@ export function markerFault(text: string, begin: string, end: string): MarkerFau
   if (j < i) return 'reversed'
   if (text.indexOf(begin, i + 1) >= 0 || text.indexOf(end, j + 1) >= 0) return 'duplicate'
   return null
+}
+
+/**
+ * 历史文件指纹表：`docs/adr/` 下与索引并列的一份 JSON，不是记录、不进索引。
+ *
+ * 一份历史文件一行：到上次 `--write` 为止它有多少字节、这些字节的 sha256。
+ * 历史文件只加不删（ADR-211，主文件只放现行结论那一份）—— 钉住的那一段一个字节都不许变，
+ * 新的话只能接在末尾。按行号写的老状态行改去认历史文件同一行号，靠的就是这一段不动。
+ */
+export const PINS_FILE = '历史文件指纹.json'
+
+export interface Pin { bytes: number; sha256: string }
+
+export const pinOf = (data: Buffer): Pin =>
+  ({ bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') })
+
+/** 指纹表的样子由内容决定：按文件名排、两格缩进、末尾换行 —— 比字符串就知道钉没钉到最新 */
+export function renderPins(history: Array<{ file: string; data: Buffer }>): string {
+  const out: Record<string, Pin> = {}
+  for (const h of [...history].sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0))) out[h.file] = pinOf(h.data)
+  return JSON.stringify(out, null, 2) + '\n'
+}
+
+/** 读进来的指纹表形状不对，就当没钉过会放过一切 —— 形状先报出来 */
+export function parsePins(text: string): { pins: Record<string, Pin>; errors: string[] } {
+  let raw: unknown
+  try { raw = JSON.parse(text) } catch { return { pins: {}, errors: [`${PINS_FILE} 不是合法的 JSON`] } }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { pins: {}, errors: [`${PINS_FILE} 应是一个对象：文件名 → { bytes, sha256 }`] }
+  const pins: Record<string, Pin> = {}
+  const errors: string[] = []
+  for (const [file, v] of Object.entries(raw as Record<string, unknown>)) {
+    const p = v as Partial<Pin> | null
+    if (typeof p !== 'object' || p === null || !Number.isSafeInteger(p.bytes) || (p.bytes as number) < 0
+      || typeof p.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(p.sha256)) {
+      errors.push(`${PINS_FILE} 里 ${file} 那一项应为 { bytes: 非负整数, sha256: 64 位十六进制 }`)
+      continue
+    }
+    pins[file] = { bytes: p.bytes as number, sha256: p.sha256 }
+  }
+  return { pins, errors }
+}
+
+/**
+ * 历史文件只加不删的判定。`errors` 是改了或删了钉住的内容；`unpinned` 是末尾有新加的、
+ * 或整份是新的、还没钉住 —— 后者不算错，跑一次 `--write` 钉上就好。
+ */
+export function pinFaults(pins: Record<string, Pin>, history: Array<{ file: string; data: Buffer }>): { errors: string[]; unpinned: string[] } {
+  const errors: string[] = []
+  const unpinned: string[] = []
+  const have = new Set(history.map(h => h.file))
+  for (const f of Object.keys(pins).sort()) {
+    if (!have.has(f)) errors.push(`${PINS_FILE} 钉着 ${HISTORY_DIR}/${f}，历史目录里却没有这一份 —— 历史文件只加不删`)
+  }
+  for (const h of history) {
+    const pin = pins[h.file]
+    if (!pin) { unpinned.push(h.file); continue }
+    if (h.data.length < pin.bytes) {
+      errors.push(`${HISTORY_DIR}/${h.file} 比钉住时短了（${h.data.length} 字节，钉住时 ${pin.bytes}）—— 历史文件只加不删`)
+      continue
+    }
+    if (pinOf(h.data.subarray(0, pin.bytes)).sha256 !== pin.sha256) {
+      errors.push(`${HISTORY_DIR}/${h.file} 钉住的前 ${pin.bytes} 字节被改了 —— 历史文件只加不删，新的话接在末尾`)
+      continue
+    }
+    if (h.data.length > pin.bytes) unpinned.push(h.file)
+  }
+  return { errors, unpinned }
+}
+
+const INDEX_BEGIN = '<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->'
+const INDEX_END = '<!-- END:GENERATED -->'
+const LEGACY = 'DECISIONS.md'
+/**
+ * 整册里的记录标题。**两级都认**:`##` 是旧整册的写法,`#` 是拆开后单文件的写法。
+ *
+ * 只认 `##` 的话,一条照**新**格式误写进转发页的记录会溜过去 —— 它既不在
+ * `docs/adr/`,也不在索引里,而检查是绿的。
+ */
+const RECORD_HEADING = /^#{1,2}\s+ADR-(\d+)\s+(.+?)\s*$/
+const MARKER_FAULT: Record<MarkerFault, string> = {
+  missing: '缺少 BEGIN/END 标记',
+  reversed: '的 END 标记在 BEGIN 之前 —— 手工调回来再跑 `--write`',
+  duplicate: '的 BEGIN/END 标记不止一对 —— 手工只留一对再跑 `--write`',
+}
+
+/**
+ * `npm run adr` 整条：在仓库根 `root` 下读 `docs/adr/`，判、比，`write` 时回写索引与指纹表。
+ *
+ * 入口只剩打印与退出码，读目录、跳过历史目录、核历史文件这些接线都在这里 ——
+ * 留在入口里的话需求测试够不着，删掉一行检查链照样全绿（ADR-211 的欠条「两处入口接线没有测试」）。
+ */
+export function adrSync(root: string, write: boolean): { ok: boolean; out: string[]; err: string[] } {
+  const dir = join(root, 'docs', 'adr')
+  const index = join(dir, 'README.md')
+  const pinsPath = join(dir, PINS_FILE)
+  if (!existsSync(dir)) return { ok: false, out: [], err: ['✗ 决策记录：缺少 docs/adr/'] }
+
+  const errors: string[] = []
+  const adrs: Adr[] = []
+  for (const file of readdirSync(dir).sort()) {
+    if (file === 'README.md' || file === PINS_FILE) continue
+    // 历史文件不是记录、不进索引，下面单独核
+    if (file === HISTORY_DIR && statSync(join(dir, file)).isDirectory()) continue
+    const m = FILE_RE.exec(file)
+    if (!m) { errors.push(`${file} 文件名不合格式，应为 ADR-<编号>-<标题>.md`); continue }
+    const first = readFileSync(join(dir, file), 'utf8').split('\n')[0]
+    const h = HEAD_RE.exec(first)
+    if (!h) { errors.push(`${file} 第一行不是 \`# ADR-<编号> <标题>\``); continue }
+    adrs.push({ file, num: Number(h[1]), title: h[2] })
+  }
+  errors.push(...checkAll(adrs))
+
+  const historyDir = join(dir, HISTORY_DIR)
+  let history: Array<{ file: string; data: Buffer }> = []
+  if (existsSync(historyDir)) {
+    const names = readdirSync(historyDir).sort()
+    const isFile = (f: string) => statSync(join(historyDir, f)).isFile()
+    // 不是文件的（子目录）先报出来，不去读它 —— 读一个目录会直接抛错，报的就不是哪里不对了
+    for (const f of names.filter(f => !isFile(f))) errors.push(`${HISTORY_DIR}/${f} 不是文件 —— 历史目录里只放与主文件同名的历史文件`)
+    history = names.filter(isFile).map(file => ({ file, data: readFileSync(join(historyDir, file)) }))
+    errors.push(...historyFaults(adrs.map(a => a.file),
+      history.map(h => ({ file: h.file, first: h.data.toString('utf8').split('\n')[0] }))))
+  }
+  const pinsText = existsSync(pinsPath) ? readFileSync(pinsPath, 'utf8') : ''
+  const parsed = pinsText ? parsePins(pinsText) : { pins: {}, errors: [] }
+  errors.push(...parsed.errors)
+  const { errors: pinErrors, unpinned } = pinFaults(parsed.pins, history)
+  errors.push(...pinErrors)
+
+  /** 拆开之后 `DECISIONS.md` 只做转发。写回整册就是把冲突面又装回去。 */
+  const legacy = join(root, LEGACY)
+  if (existsSync(legacy)) {
+    const src = readFileSync(legacy, 'utf8')
+    const mask = quotedMask(src)
+    // 引文里的示例不算 —— 转发页本来就要举例说明记录长什么样
+    if (src.split('\n').some((l, i) => !mask[i] && RECORD_HEADING.test(l))) {
+      errors.push(`${LEGACY} 里又出现了记录标题(\`# ADR-\` 或 \`## ADR-\`)`
+        + ' —— 记录写进 docs/adr/，一条一个文件')
+    }
+  }
+
+  const indexText = existsSync(index) ? readFileSync(index, 'utf8') : ''
+  const fault = markerFault(indexText, INDEX_BEGIN, INDEX_END)
+  if (fault) errors.push(`docs/adr/README.md ${MARKER_FAULT[fault]}`)
+
+  if (errors.length) return { ok: false, out: [], err: [`✗ 决策记录：${errors.length} 项`, '', ...errors.map(e => `  · ${e}`)] }
+
+  const i = indexText.indexOf(INDEX_BEGIN)
+  const j = indexText.indexOf(INDEX_END)
+  const want = `${INDEX_BEGIN}\n\n${renderIndex(adrs)}${INDEX_END}`
+  const wantPins = history.length ? renderPins(history) : ''
+  if (write) {
+    writeFileSync(index, indexText.slice(0, i) + want + indexText.slice(j + INDEX_END.length), 'utf8')
+    if (wantPins !== pinsText) writeFileSync(pinsPath, wantPins, 'utf8')
+    return { ok: true, out: ['✓ 决策记录：索引与历史文件指纹已回写'], err: [] }
+  }
+  if (indexText.slice(i, j + INDEX_END.length) !== want) {
+    return { ok: false, out: [], err: ['✗ 决策记录：docs/adr/README.md 的索引与目录不一致', '  跑 `npm run adr -- --write` 回写'] }
+  }
+  if (wantPins !== pinsText) {
+    const what = unpinned.length ? `${unpinned.map(f => `${HISTORY_DIR}/${f}`).join('、')} 末尾有还没钉住的新内容` : `${PINS_FILE} 与历史目录对不上`
+    return { ok: false, out: [], err: [`✗ 决策记录：${what}`, '  跑 `npm run adr -- --write` 钉住'] }
+  }
+  const nums = adrs.map(a => a.num).sort((a, b) => a - b)
+  return { ok: true, out: [`✓ 决策记录：${adrs.length} 条，编号 ${nums[0]}–${nums[nums.length - 1]}，索引一致`
+    + (history.length ? `，历史文件 ${history.length} 份只加未改` : '')], err: [] }
 }
