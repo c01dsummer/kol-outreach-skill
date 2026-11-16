@@ -13907,6 +13907,7 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
     { groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'], cwds: { a: ['', 'p'] } })
   // 上面四条反例都带着合法的 cwds 一栏：不带的话每条都因为缺这一栏读不出，原本要验的那一处坏了也照样绿
   eq('没有当前目录那一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [] })), undefined)
+  eq('当前目录那一栏是 null 读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: null })), undefined)
   eq('当前目录那一栏是数组读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: [] })), undefined)
   eq('某组的当前目录不是字符串数组读不出',
     readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: { a: [1] } })), undefined)
@@ -14138,6 +14139,8 @@ harness('自检组子进程的当前目录：与别族碰到的 tmp 路径重叠
   eq('就是 tmp 本身：空串', cwdUnder('/t/k', '/t/k'), '')
   eq('tmp 底下：相对路径，用正斜杠', cwdUnder('/t/k', '/t/k/x/y'), 'x/y')
   eq('名字只是前缀相同：不在底下', cwdUnder('/t/k', '/t/kx'), undefined)
+  eq('tmp 底下名字以两个点开头的目录：仍在底下', cwdUnder('/t/k', '/t/k/..foo'), '..foo')
+  eq('tmp 的上一级：不在底下', cwdUnder('/t/k', '/t'), undefined)
   eq('仓库根：不在底下', cwdUnder('/t/k', '/repo'), undefined)
   const real = (p: string) => p.replace(/^\/tmp\//, '/private/tmp/')
   eq('tmp 是软链、当前目录取的是真实路径：照样认得', cwdUnder('/tmp/k', '/private/tmp/k/z', real), 'z')

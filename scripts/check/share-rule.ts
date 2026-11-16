@@ -293,7 +293,8 @@ export function cwdUnder(tmp: string, cwd: string, real: (p: string) => string =
   for (const b of bases) for (const c of here) {
     const rel = relative(b, c)
     if (rel === '') return ''
-    if (!rel.startsWith('..') && !isAbsolute(rel)) return rel.split(sep).join('/')
+    // 只认 `..` 这一整段：`tmp` 底下一个叫 `..foo` 的目录仍在底下
+    if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) return rel.split(sep).join('/')
   }
   return undefined
 }

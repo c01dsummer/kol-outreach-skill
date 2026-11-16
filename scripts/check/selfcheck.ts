@@ -119,7 +119,9 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
  * 与别族碰到的 `tmp` 路径对照（`judgeCwds`），一处是另一处的上级目录或相同就红。
  *
  * 记在 `node:child_process` 这一处，不记在 `runBoth` 里：组里直接 `spawnSync('git', …)`、
- * 经 `createRequire` 拿到的 `execFileSync` 也都从这里过，没有哪个起法绕得开。换掉的是那个模块对象上的
+ * 经 `createRequire` 拿到的 `execFileSync` 也都从这里过。绕得开的有四种，都记不下：换之前就抓下的函数引用、
+ * `execSync('cd … && …')` 在命令里换目录、组跑完之后才触发的回调里起的、子进程再起的孙进程
+ * （ADR-212 第六节）。换掉的是那个模块对象上的
  * 几个函数，再 `syncBuiltinESMExports` 让 `import { spawnSync }` 那些绑定一起换。不在任何一组里起的
  * （顶层与收尾段、拆进程派的子进程）不记：它们不属于哪一组。不在 `tmp` 底下的（仓库根、系统临时目录里
  * 另建的）不记：别族碰不到。
@@ -135,7 +137,8 @@ let runningGroup: string | undefined
   const cp = req('node:child_process') as Record<string, Fn & { [promisify.custom]?: Fn }>
   const note = (a: unknown[]): void => {
     if (runningGroup === undefined) return
-    const options = a.find(x => typeof x === 'object' && x !== null && !Array.isArray(x)) as { cwd?: unknown } | undefined
+    // 选项是第一个既不是数组也不是 URL 的对象：`fork(new URL(…), args, { cwd })` 的模块路径可以是 URL
+    const options = a.find(x => typeof x === 'object' && x !== null && !Array.isArray(x) && !(x instanceof URL)) as { cwd?: unknown } | undefined
     const raw = options?.cwd
     const at = cwdUnder(tmp, raw === undefined || raw === null ? process.cwd()
       : raw instanceof URL ? fileURLToPath(raw) : String(raw), realpathSync)

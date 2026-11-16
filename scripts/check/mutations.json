@@ -25672,7 +25672,7 @@
       "req": "harness",
       "why": "不在 tmp 底下的当前目录也交回相对路径：仓库根被记成 tmp 底下的一处",
       "file": "scripts/check/share-rule.ts",
-      "find": "if (!rel.startsWith('..') && !isAbsolute(rel))",
+      "find": "if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))",
       "replace": "if (!isAbsolute(rel))",
       "by": "test",
       "kills": [
@@ -25725,6 +25725,18 @@
       "by": "test",
       "kills": [
         "tmp 是软链、当前目录取的是真实路径：照样认得"
+      ]
+    },
+    {
+      "id": "M-H212-j",
+      "req": "harness",
+      "why": "凡以两个点开头的相对路径都当成不在 tmp 底下：tmp 里一个名字以两个点开头的目录当当前目录时记不下来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)",
+      "replace": "!rel.startsWith('..') && !isAbsolute(rel)",
+      "by": "test",
+      "kills": [
+        "tmp 底下名字以两个点开头的目录：仍在底下"
       ]
     }
   ],
