@@ -2,7 +2,7 @@ import type {
   AccountAssessmentSummary, AudienceRiskFlag, Creator, Measurement,
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
-import { unsourcedLine } from './draft-claims.js'
+import { claimsLines } from './draft-claims.js'
 import { creatorSourceLine } from './creator-sources.js'
 import { formatDiscoverySources } from './discovery.js'
 import { draftSubject, sampleScopeText, sortForReviewOutput, type ReviewOutputOptions } from './rows.js'
@@ -248,7 +248,7 @@ const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: rea
     <h2>冻结账号与原任务来源</h2>${sources}</section>`
 }
 
-/** `facts`：任务里已证实的产品事实原文（P2.c）；缺席或空数组都是「没有可对的」：作品文字对不上的说法全列出来，前面写明没有可对的。 */
+/** `facts`：任务里已证实的产品事实原文（P2.c）；缺席或空数组都是「没有可对的」：说法全列出来（只在作品文字里有的另列），前面写明没有可对的。 */
 export interface HtmlOutputOptions extends ReviewOutputOptions { filters?: 'dual'; facts?: readonly string[] }
 
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
@@ -275,13 +275,16 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
     return subject === undefined ? '' : `
     <div class="bio" data-draft-subject="outreach_subject">主题：${esc(subject)}</div>`
   }
-  // P2.c：草稿里对不上出处的数字与承诺词；对照是已证实的产品事实，加上这位博主自己作品的文字。
-  // 只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-199）。
+  // P2.c：草稿里对不上产品资料的数字与承诺词；只有已证实的产品事实能让说法过关，
+  // 只在这位博主作品文字里找得到的另列一行。只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-199、ADR-209）。
   const claimsLine = (c: Creator) => {
-    const claims = options.mode === 'review'
-      ? unsourcedLine(c.outreach_draft, options.facts, (c.recent_posts ?? []).map(p => p.desc)) : undefined
-    return claims === undefined ? '' : `
-    <div class="bio" data-draft-claims="unsourced">出处对不上：${esc(claims)}（只查数字和承诺词，其余说法仍要自己看）</div>`
+    const lines = options.mode === 'review'
+      ? claimsLines(c.outreach_draft, options.facts, (c.recent_posts ?? []).map(p => typeof p.desc === 'string' ? p.desc : '')) : undefined
+    if (lines === undefined) return ''
+    const posts = lines.postsOnly === undefined ? '' : `
+    <div class="bio" data-draft-claims="posts-only">只在博主作品里有：${esc(lines.postsOnly)}（确认是在引用博主，不是在说产品）</div>`
+    return `
+    <div class="bio" data-draft-claims="unsourced">出处对不上：${esc(lines.unsourced)}（只查数字和承诺词，其余说法仍要自己看）</div>${posts}`
   }
   const card = (c: Creator) => `
 ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.effective_priority === undefined ? '' : ` data-priority="${esc(c.effective_priority)}"`}>`
