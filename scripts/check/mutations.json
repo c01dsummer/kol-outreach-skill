@@ -25684,11 +25684,12 @@
       "req": "harness",
       "why": "当前目录只按原样比、不按真实路径比：macOS 上 tmp 取的是真实路径、子进程的当前目录经软链给时，记不下来",
       "file": "scripts/check/share-rule.ts",
-      "find": "const here = [...new Set([resolve(cwd), safe(real, resolve(cwd))])]",
-      "replace": "const here = [resolve(cwd)]",
+      "find": "const here = safe(real, resolve(cwd))",
+      "replace": "const here = resolve(cwd)",
       "by": "test",
       "kills": [
-        "tmp 取的是真实路径、当前目录经软链给：照样认得"
+        "tmp 取的是真实路径、当前目录经软链给：照样认得",
+        "经 tmp 里的软链起：记成它指向的那一处"
       ]
     },
     {
@@ -25720,8 +25721,8 @@
       "req": "harness",
       "why": "tmp 只按原样比、不按真实路径比：macOS 上 tmp 在软链底下，取了真实路径的当前目录记不下来",
       "file": "scripts/check/share-rule.ts",
-      "find": "const bases = [...new Set([resolve(tmp), safe(real, resolve(tmp))])]",
-      "replace": "const bases = [resolve(tmp)]",
+      "find": "const base = safe(real, resolve(tmp))",
+      "replace": "const base = resolve(tmp)",
       "by": "test",
       "kills": [
         "tmp 是软链、当前目录取的是真实路径：照样认得"

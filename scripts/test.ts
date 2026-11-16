@@ -14145,6 +14145,8 @@ harness('自检组子进程的当前目录：与别族碰到的 tmp 路径重叠
   const real = (p: string) => p.replace(/^\/tmp\//, '/private/tmp/')
   eq('tmp 是软链、当前目录取的是真实路径：照样认得', cwdUnder('/tmp/k', '/private/tmp/k/z', real), 'z')
   eq('tmp 取的是真实路径、当前目录经软链给：照样认得', cwdUnder('/private/tmp/k', '/tmp/k/z', real), 'z')
+  const link = (p: string) => p.replace(/^\/t\/k\/link(?=\/|$)/, '/t/k/a')
+  eq('经 tmp 里的软链起：记成它指向的那一处', cwdUnder('/t/k', '/t/k/link/z', link), 'a/z')
 }
 })
 await group('h-mutation-fixture-git-env', () => {

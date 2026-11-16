@@ -284,18 +284,18 @@ export function judgeShares(groups: readonly Group[], effects: ReadonlyMap<strin
 /**
  * 一个子进程的当前目录落在 `tmp` 底下的哪一处：交回相对 `tmp` 的路径（`tmp` 本身是空串），
  * 不在 `tmp` 底下（仓库根、系统临时目录里另建的目录）交回 `undefined`。
- * `tmp` 与当前目录各按原样和真实路径各比一次：macOS 的 `/tmp` 是 `/private/tmp` 的软链，
- * 有的组拿 `realpathSync` 过的目录起子进程。
+ * `tmp` 与当前目录都按真实路径比：macOS 的 `/tmp` 是 `/private/tmp` 的软链，有的组拿 `realpathSync`
+ * 过的目录起子进程；`tmp` 里的软链也按它指向的那一处记。取不到真实路径（目录不在）时按原样比。
  */
 export function cwdUnder(tmp: string, cwd: string, real: (p: string) => string = p => p): string | undefined {
-  const bases = [...new Set([resolve(tmp), safe(real, resolve(tmp))])]
-  const here = [...new Set([resolve(cwd), safe(real, resolve(cwd))])]
-  for (const b of bases) for (const c of here) {
-    const rel = relative(b, c)
-    if (rel === '') return ''
-    // 只认 `..` 这一整段：`tmp` 底下一个叫 `..foo` 的目录仍在底下
-    if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) return rel.split(sep).join('/')
-  }
+  // 两边都取真实路径再比：`tmp` 在软链底下（macOS 的 /tmp）、或子进程经 `tmp` 里的软链起，
+  // 记下的都是它真正落在的那一处 —— 同一个目录不会因为叫法不同记成两处、躲过对照
+  const base = safe(real, resolve(tmp))
+  const here = safe(real, resolve(cwd))
+  const rel = relative(base, here)
+  if (rel === '') return ''
+  // 只认 `..` 这一整段：`tmp` 底下一个叫 `..foo` 的目录仍在底下
+  if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) return rel.split(sep).join('/')
   return undefined
 }
 const safe = (real: (p: string) => string, p: string): string => { try { return real(p) } catch { return p } }
