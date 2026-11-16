@@ -36,7 +36,7 @@ import { availableParallelism, tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { createRequire as entrySelfcheckCreateRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
@@ -49,6 +49,7 @@ import { SELFCHECK_LAUNCHES_FILE, SELFCHECK_LAUNCHES_SCHEMA } from './launch-rul
 import { type Group, parseOnlyStrict, wanted } from './group-rule.js'
 import { type ShardRun, families, mergeShards, readShardReport, shardJobs, shardOrder } from './group-rule.js'
 import { type ProcessProbe, processEnded } from './jobs-rule.js'
+import { cwdUnder, judgeCwds, scanShares } from './share-rule.js'
 import { writeFileAtomic } from '../lib/atomic.js'
 import {
   LAUNCH_PRELOAD, SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
@@ -109,6 +110,43 @@ const tmp = mkdtempSync(join(tmpdir(), 'kol-selfcheck-'))
 // 落在没卡在同步等里的真进程上才跑，而本文件几乎一直在同步等子进程（ADR-158 第四节那张表）。
 // 写在这儿是为了别把它当成已经保证了的事。
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
+
+/**
+ * **每组起的子进程在 `tmp` 底下哪个目录里起，逐组记一笔**（ADR-212）。
+ *
+ * 子进程拿 `tmp` 下的目录当当前目录、按相对路径读写的文件，语法树扫描看不见（`share-rule.ts` 头注
+ * 「看不见的」第一条，ADR-134 第二节）。看得见的是它在哪个目录里起：完整跑收尾时把这几笔合进扫描的读写，
+ * 与别族碰到的 `tmp` 路径对照（`judgeCwds`），一处是另一处的上级目录或相同就红。
+ *
+ * 记在 `node:child_process` 这一处，不记在 `runBoth` 里：组里直接 `spawnSync('git', …)`、
+ * 经 `createRequire` 拿到的 `execFileSync` 也都从这里过，没有哪个起法绕得开。换掉的是那个模块对象上的
+ * 几个函数，再 `syncBuiltinESMExports` 让 `import { spawnSync }` 那些绑定一起换。不在任何一组里起的
+ * （顶层与收尾段、拆进程派的子进程）不记：它们不属于哪一组。不在 `tmp` 底下的（仓库根、系统临时目录里
+ * 另建的）不记：别族碰不到。
+ *
+ * 记的状态叫 `cwds`，拆进程跑时各进程各记一份、经回报交回父进程合并（`group-rule.ts` 的 `ShardReport`），
+ * 所以它在 `share-rule.ts` 的 `MERGED` 里 —— 写不算共享，哪一组读它就报。
+ */
+const cwds = new Map<string, Set<string>>()
+let runningGroup: string | undefined
+{
+  const req = createRequire(import.meta.url)
+  const cp = req('node:child_process') as Record<string, (...a: unknown[]) => unknown>
+  for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']) {
+    const original = cp[name]
+    cp[name] = function (this: unknown, ...a: unknown[]) {
+      if (runningGroup !== undefined) {
+        const options = a.find(x => typeof x === 'object' && x !== null && !Array.isArray(x)) as { cwd?: unknown } | undefined
+        const raw = options?.cwd
+        const at = cwdUnder(tmp, raw === undefined || raw === null ? process.cwd()
+          : raw instanceof URL ? fileURLToPath(raw) : String(raw), realpathSync)
+        if (at !== undefined) cwds.set(runningGroup, (cwds.get(runningGroup) ?? new Set()).add(at))
+      }
+      return original.apply(this, a)
+    }
+  }
+  ;(req('node:module') as typeof import('node:module')).syncBuiltinESMExports()
+}
 const env = {
   ...process.env,
   TIKHUB_API_KEY: 'fake-key-for-selfcheck',
@@ -488,7 +526,14 @@ const jobMut = (id: string, find: string, replace: string, file = 'scripts/check
   ({ id, req: 'X1.a', why: '把那个值改掉，测试该红', file, find, replace })
 
 
-/** collect 那一跑的产出目录 —— 真运行态，值由下面那一节写进来 */
+/**
+ * collect、enrich、render 那一族（连同续跑与记忆两组）的当前目录。`dir` 相对它，记忆按它找（`memory/creators.json`）。
+ * 原先这一族拿 `tmp` 本身当当前目录：子进程按相对路径碰得到别族放在 `tmp` 下的任何东西，别族在 `tmp` 里起的
+ * 子进程也读得到这一族写下的记忆（ADR-212）
+ */
+const pipeCwd = join(tmp, 'pipeline')
+mkdirSync(pipeCwd, { recursive: true })
+/** collect 那一跑的产出目录（相对 `pipeCwd`）—— 真运行态，值由下面那一节写进来 */
 let dir = ''
 /** render 那一跑的产出 —— 真运行态，同上 */
 let rendered: string | undefined
@@ -512,7 +557,10 @@ const runGroups = (): Set<string> | undefined => {
     // 子集跑先把「这一跑到底跑了哪几组」印出来 —— 后面几处「本次没验」都指着它
     console.log(`[只跑 ${[...pick].join('、')}]（其余 ${REGISTERED.length - pick.size} 组没跑）\n`)
   }
-  for (const g of REGISTERED) if (pick === undefined || pick.has(g.id)) g.fn()
+  for (const g of REGISTERED) if (pick === undefined || pick.has(g.id)) {
+    runningGroup = g.id
+    try { g.fn() } finally { runningGroup = undefined }
+  }
   return pick
 }
 
@@ -578,6 +626,7 @@ const runShards = async (jobs: number): Promise<void> => {
   failed += merged.failed
   for (const c of merged.claimed) claimed.add(c)
   for (const c of merged.covered) covered.add(c)
+  for (const [id, dirs] of merged.cwds) cwds.set(id, new Set(dirs))
   // 合并结论零失败才写；写不成打一行、不计失败（只报数）
   if (merged.failed === 0) try {
     if (tree === undefined) throw new Error('取不到这棵树的源码身份')
@@ -616,9 +665,12 @@ group('probe', [], () => {
       { keyword: 'force-402-selfcare', dimension: 'competitor', platform: 'tiktok' },
     ],
   }))
-  // 末尾那个任务回 402：probe 照出部分结果、以 5 收尾（ADR-193）
+  // 末尾那个任务回 402：probe 照出部分结果、以 5 收尾（ADR-193）。当前目录是只归这一跑的空目录：
+  // 原先是 `tmp` 本身，子进程按相对路径碰得到别族放在 `tmp` 下的任何东西（ADR-212）
+  const identityCwd = join(tmp, 'probe-identity')
+  mkdirSync(identityCwd, { recursive: true })
   const identityRun = runBoth('probe 同词与失败任务身份', [S('probe.ts'), '--config', identityCfg],
-    tmp, { status: 5 }, { FAKE_FETCH_NO_429: '1' })
+    identityCwd, { status: 5 }, { FAKE_FETCH_NO_429: '1' })
   if (identityRun.ok) {
     const results = summaryOf(identityRun.stdout).results
     const rows: any[] = Array.isArray(results) ? results : []
@@ -859,9 +911,10 @@ group('budget-gate', [], () => {
   // 合法的，账本里要真记下请求。probe 只把上限换成 0.5；enrich 只把次数换成 0；collect 用合法账目续跑、
   // `--budget 3` —— 与坏次数、`--budget 3.0.0` 两条同走续跑，「上限不是数字」那条走新建，那一条与对照差的
   // 不只是那个值。对照没成立是夹具失格（带夹具记号），那条入口的几条具名断言都不判（零请求是每条的一拍，
-  // 这一拍没有依据就整条不判）。probe 那份与两条 probe 夹具一样以 `process.cwd()` 起；collect、enrich 两份共用
-  // 一个当前目录 `observerCwd`（`tmp/budget-gate-observer`），任务数据各在它底下一个子目录。三份的配置或任务目录、
-  // 账本都是 `tmp` 下各自的一份，不碰 `tmp` 下共用的记忆与产出（记忆按当前目录找；probe.ts 不写盘）。
+  // 这一拍没有依据就整条不判）。probe 那份与两条 probe 夹具一样以 `process.cwd()` 起；collect、enrich 的对照与
+  // 下面几条坏账、坏上限共用一个当前目录 `observerCwd`（`tmp/budget-gate-observer`），任务数据各在它底下一个子目录。
+  // 配置与账本是 `tmp` 下各自的一份，不碰 `tmp` 下共用的记忆与产出（记忆按当前目录找；probe.ts 不写盘）。
+  // 这几条原先拿 `tmp` 本身当当前目录 —— 子进程按相对路径碰得到别族放在 `tmp` 下的任何东西（ADR-212）
   const observerCwd = join(tmp, 'budget-gate-observer')
   mkdirSync(observerCwd, { recursive: true })
   // collect 那一跑达标收尾，退 4（ADR-193）；其余入口跑完退 0
@@ -920,21 +973,21 @@ group('budget-gate', [], () => {
       [S('collect.ts'), '--resume', 'collect-ok', '--budget', '3'], observerCwd, join(observerCwd, 'collect-ok.tsv'), 4)) {
     const badCfg = join(tmp, 'collect-badbudget.json')
     writeFileSync(badCfg, JSON.stringify({ product: 'badbudget', market: 'US', target_count: 1, budget_usd: 'abc', tasks }))
-    const collectBad = budgetStop('collect 上限写成 "abc"', [S('collect.ts'), '--config', badCfg], tmp,
+    const collectBad = budgetStop('collect 上限写成 "abc"', [S('collect.ts'), '--config', badCfg], observerCwd,
                                   join(tmp, 'collect-badbudget.tsv'))
     if (collectBad) named('collect 上限不是数字 → 停下问人', refused(collectBad, /budget_usd/), stopDetail(collectBad))
 
-    ledgerDir(join(tmp, 'badledger-collect'), null)
+    ledgerDir(join(observerCwd, 'badledger-collect'), null)
     const collectLedger = budgetStop('collect 已知空账却将次数写成 null',
-      [S('collect.ts'), '--resume', 'badledger-collect'], tmp, join(tmp, 'badledger-collect.tsv'))
+      [S('collect.ts'), '--resume', 'badledger-collect'], observerCwd, join(tmp, 'badledger-collect.tsv'))
     if (collectLedger) named('collect 坏次数必须指明费用问题并在实际付费前拒绝',
       refused(collectLedger, /requests|次数/), stopDetail(collectLedger))
 
-    mkdirSync(join(tmp, 'okledger'), { recursive: true })
-    writeFileSync(join(tmp, 'okledger', 'task.json'), stateOf(0))
+    mkdirSync(join(observerCwd, 'okledger'), { recursive: true })
+    writeFileSync(join(observerCwd, 'okledger', 'task.json'), stateOf(0))
     // 报的必须是**用户打的那个东西**：`3.0.0` 解析成 NaN，照解析结果印是「null」
     const badArg = budgetStop('collect --budget 写成 3.0.0',
-      [S('collect.ts'), '--resume', 'okledger', '--budget', '3.0.0'], tmp, join(tmp, 'okledger-budget.tsv'))
+      [S('collect.ts'), '--resume', 'okledger', '--budget', '3.0.0'], observerCwd, join(tmp, 'okledger-budget.tsv'))
     if (badArg) named('collect 设置的总预算不是数字 → 停下问人，报错指名用户打的那个值',
       refused(badArg, /3\.0\.0/), stopDetail(badArg))
   }
@@ -942,9 +995,9 @@ group('budget-gate', [], () => {
   ledgerDir(join(observerCwd, 'enrich-ok'), 0)
   if (observed('enrich 合法账目照常补全（请求观察器阳性对照）',
       [S('enrich.ts'), '--dir', 'enrich-ok'], observerCwd, join(observerCwd, 'enrich-ok.tsv'))) {
-    ledgerDir(join(tmp, 'badledger-enrich'), null)
+    ledgerDir(join(observerCwd, 'badledger-enrich'), null)
     const enrichLedger = budgetStop('enrich 已知空账却将次数写成 null',
-      [S('enrich.ts'), '--dir', 'badledger-enrich'], tmp, join(tmp, 'badledger-enrich.tsv'))
+      [S('enrich.ts'), '--dir', 'badledger-enrich'], observerCwd, join(tmp, 'badledger-enrich.tsv'))
     if (enrichLedger) named('enrich 坏次数必须指明费用问题并在实际付费前拒绝',
       refused(enrichLedger, /requests|次数/), stopDetail(enrichLedger))
   }
@@ -1430,16 +1483,20 @@ group('cost-http', [], () => {
       && !/已用[^\n]*100%/.test(probe.stderr),
     `status=${probe.status}, stdout=${probe.stdout}, stderr=${probe.stderr}`)
 
+  // 直接分页探针的当前目录是只归它们的空目录：原先是 `tmp` 本身，子进程按相对路径碰得到别族放在
+  // `tmp` 下的任何东西（ADR-212）
+  const directCwd = join(tmp, 'cost-direct')
+  mkdirSync(directCwd, { recursive: true })
   for (const fault of ['bad-json-200', 'bad-body-201', 'bad-body-204', 'bad-body-429', 'bad-body-500', 'no-http-status']) {
     const log = join(tmp, `direct-${fault}.tsv`)
-    const direct = runBoth(`直接探针错误 ${fault}`, [S('probe-ig-paging.ts'), '--keyword', 'cost-fault'], tmp,
+    const direct = runBoth(`直接探针错误 ${fault}`, [S('probe-ig-paging.ts'), '--keyword', 'cost-fault'], directCwd,
       { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] }, costEnv(log, { FAKE_FETCH_FAULT_PATH: IG_REELS, FAKE_FETCH_FAULT: fault }))
     if (direct.ok) named('直接分页探针非 200、坏正文与无状态均中止且不输出成功 JSON',
       direct.status === 1 && fetchAttempts(log).length === 1 && direct.stdout.trim() === '',
       `${fault}: status=${direct.status}, attempts=${JSON.stringify(fetchAttempts(log))}, stdout=${direct.stdout}`)
   }
   const directLog = join(tmp, 'direct-known.tsv')
-  const direct = runBoth('直接探针已知费用出口', [S('probe-ig-paging.ts'), '--keyword', 'cost-known'], tmp,
+  const direct = runBoth('直接探针已知费用出口', [S('probe-ig-paging.ts'), '--keyword', 'cost-known'], directCwd,
     undefined, costEnv(directLog))
   if (direct.ok) named('直接探针固定进程上限1，一次 Reels 的费用为0.002',
     costViewMatches(summaryOf(direct.stdout), { requests: 1, cost_estimate_usd: 0.002, budget_usd: 1,
@@ -2047,6 +2104,10 @@ const namesUnder = (root: string): string[] => {
 
 group('test-observer-events', [], () => {
   const TOBS_ON = tobsSwitch(join(tmp, 'test-observer-events-records'))
+  // 不带任务目录的那几跑（配置不存在、不带参数、probe）在这个只归本组的空目录里起：原先是 `tmp` 本身，
+  // 子进程按相对路径碰得到别族放在 `tmp` 下的任何东西（ADR-212）
+  const obsCwd = join(tmp, 'test-observer-events-cwd')
+  mkdirSync(obsCwd, { recursive: true })
   // 「没设这个变量、或者值为空时，collect、probe、enrich 的行为、输出和落盘，与没有这一节时完全相同」—— 同一目录、同一夹具跑两次，
   // 一次没设、一次设成空串（没设的那一跑另在下面「对照跑」里与开着开关的比）
   const mkEmpty = () => obsFixture('empty'), e1 = mkEmpty()
@@ -2058,7 +2119,7 @@ group('test-observer-events', [], () => {
   // 「入口一启动、读取任何输入（命令行参数、配置、task.json）之前写一条，每一跑恰好一条」—— 配置路径不存在、以 2 结束时也要有
   const readyOf: Record<string, Verdict> = {}
   for (const entry of ['collect', 'probe']) {
-    const r = tobsRun(`${entry} 配置不存在时的就绪记录`, [S(`${entry}.ts`), '--config', join(tmp, 'obs-no-such-config.json')], tmp,
+    const r = tobsRun(`${entry} 配置不存在时的就绪记录`, [S(`${entry}.ts`), '--config', join(tmp, 'obs-no-such-config.json')], obsCwd,
       { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, join(tmp, `obs-ready-${entry}.tsv`), TOBS_ON())
     if (r.ok) readyOf[entry] = [ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry
         && ofKind(r.records, 'ready')[0].contract === TOBS_CONTRACT, `${entry}: ${obsSaid(r)}`]
@@ -2068,7 +2129,7 @@ group('test-observer-events', [], () => {
   // 「读取任何输入（命令行参数、…）之前」—— 一个参数都不给，入口连 argv 都接受不了（用法错误，照 D26.a 的先例以 2 拒绝）
   const argvOf: Record<string, Verdict> = {}
   for (const entry of ['collect', 'probe', 'enrich']) {
-    const r = tobsRun(`${entry} 不带任何参数`, [S(`${entry}.ts`)], tmp, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, join(tmp, `obs-argv-${entry}.tsv`), TOBS_ON())
+    const r = tobsRun(`${entry} 不带任何参数`, [S(`${entry}.ts`)], obsCwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, join(tmp, `obs-argv-${entry}.tsv`), TOBS_ON())
     if (r.ok) argvOf[entry] = [ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry, `${entry}: ${obsSaid(r)}`]
   }
   if (argvOf.collect) named('collect 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 collect', ...argvOf.collect)
@@ -2081,7 +2142,7 @@ group('test-observer-events', [], () => {
   const probeCfg = join(tmp, 'obs-probe.json'), probeLog = join(tmp, 'obs-probe.tsv')
   writeFileSync(probeCfg, JSON.stringify({ market: 'US', budget_usd: 0.001, tasks: [{ keyword: 'obs', dimension: 'category', platform: 'tiktok' }] }))
   const paid = [['collect', ['--resume', pc.taskDir], pc.cwd, pc.log, 'task'], ['enrich', ['--dir', pe.taskDir], pe.cwd, pe.log, 'task'],
-    ['probe', ['--config', probeCfg], tmp, probeLog, 'process']] as const
+    ['probe', ['--config', probeCfg], obsCwd, probeLog, 'process']] as const
   const shapeOf: Record<string, Verdict> = {}, pairOf: Record<string, Verdict> = {}, idOf: Record<string, Verdict> = {}
   for (const [entry, args, cwd, log, scope] of paid) {
     const r = tobsRun(`${entry} 开着开关的付费跑`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, log, TOBS_ON())
@@ -2193,7 +2254,7 @@ group('test-observer-events', [], () => {
   const unopen = join(tmp, 'test-observer-no-such-dir', 'records.jsonl')
   const uc = obsFixture('unopenable-collect'), ue = obsFixture('unopenable-enrich', knownCosts(1000, []), {}, [costPerson()])
   const unopenable = [['collect', ['--resume', uc.taskDir], uc.cwd, uc.log, uc.taskDir], ['enrich', ['--dir', ue.taskDir], ue.cwd, ue.log, ue.taskDir],
-    ['probe', ['--config', probeCfg], tmp, join(tmp, 'obs-unopenable-probe.tsv'), undefined]] as const
+    ['probe', ['--config', probeCfg], obsCwd, join(tmp, 'obs-unopenable-probe.tsv'), undefined]] as const
   const unopenOf: Record<string, Verdict> = {}
   for (const [entry, args, cwd, log, dir] of unopenable) {
     const before = dir ? ['task.json', 'creators.json', 'creators.raw.json'].map(n => fileText(join(dir, n))) : []
@@ -2447,7 +2508,7 @@ group('crash-resume', [], () => {
 
 // ---- collect：完整采集 + profile 补全 + 同人合并 + 记忆 ----
 group('collect', [], () => {
-  const taskCfg = join(tmp, 'task.json')
+  const taskCfg = join(pipeCwd, 'task.json')
   writeFileSync(taskCfg, JSON.stringify({
     product: 'selfcheck', market: 'US', target_count: 100, budget_usd: 1,
     tasks: [
@@ -2455,7 +2516,7 @@ group('collect', [], () => {
       { keyword: 'smoothie', dimension: 'scene', platform: 'instagram' },
     ],
   }))
-  const collected = runBoth('collect 完整流程', [S('collect.ts'), '--config', taskCfg], tmp)
+  const collected = runBoth('collect 完整流程', [S('collect.ts'), '--config', taskCfg], pipeCwd)
   if (collected.ok) {
     try { dir = JSON.parse(collected.stdout).dir } catch {}
     const completed = collected.stderr.split('\n').filter(l => l.trimStart().startsWith('✓'))
@@ -2477,11 +2538,15 @@ group('collect-resume', [], () => {
       keyword: `kw${i}`, dimension: 'category', platform: 'tiktok',
     })),
   }))
+  // 本组的几跑都在只归本组的目录里起，断点目录（`dir`，相对当前目录）落在它底下：原先是 `tmp` 本身，
+  // 子进程按相对路径碰得到别族放在 `tmp` 下的任何东西，也写得进别族读的记忆（ADR-212）
+  const resumeCwd = join(tmp, 'collect-resume')
+  mkdirSync(resumeCwd, { recursive: true })
   const tightOut = run('collect 预算用尽保存断点',
-    [S('collect.ts'), '--config', tightCfg], tmp, { status: 3, stream: 'stdout' })
+    [S('collect.ts'), '--config', tightCfg], resumeCwd, { status: 3, stream: 'stdout' })
   let tightDir = ''
   if (tightOut !== undefined) { try { tightDir = JSON.parse(tightOut).dir } catch {} }
-  const tightTask = tightDir ? join(tmp, tightDir, 'task.json') : ''
+  const tightTask = tightDir ? join(resumeCwd, tightDir, 'task.json') : ''
   // 断点没落盘、或落盘在读不出来的地方，下面那几条断言就无从跑起 ——
   // 跳过不能算通过，否则 P3.b 可以一直是坏的而这一步照样打勾。
   if (tightOut === undefined) {
@@ -2529,7 +2594,7 @@ group('collect-resume', [], () => {
       // 「额度 ÷ 单价」，恰好相等，拿它断言等于写下一句永远为真的话。
       const stingyLedger = join(tmp, 'stingy-attempts.tsv')
       const stingy = run('collect --resume 额度只够已经花掉的那些',
-                         [S('collect.ts'), '--resume', tightDir, '--budget', '0.002'], tmp,
+                         [S('collect.ts'), '--resume', tightDir, '--budget', '0.002'], resumeCwd,
                          { status: 3, stream: 'stdout' }, { FAKE_FETCH_LEDGER: stingyLedger })
       let afterStingy: any
       if (stingy !== undefined) { try { afterStingy = JSON.parse(readFileSync(tightTask, 'utf8')) } catch {} }
@@ -2548,7 +2613,7 @@ group('collect-resume', [], () => {
                 + '断点里那个数起算，同一份额度被原样重花了一遍，而用户只确认过一次'
               : `中止那一刻的采集进度是 ${pagesBefore} —— 这条断言的前提没造出来，它证不了任何事`)
       const resumed = run('collect --resume 设置新总预算续跑',
-                          [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
+                          [S('collect.ts'), '--resume', tightDir, '--budget', '1'], resumeCwd)
       let after: any
       try { after = JSON.parse(readFileSync(tightTask, 'utf8')) } catch {}
       if (resumed === undefined) {
@@ -2585,10 +2650,10 @@ group('collect-resume', [], () => {
 // ---- enrich：主页近期样本、公开指标、断点文件 ----
 group('enrich', ['collect'], () => {
   if (dir) {
-    const creatorsPath = join(tmp, dir, 'creators.json')
+    const creatorsPath = join(pipeCwd, dir, 'creators.json')
     const creators = JSON.parse(readFileSync(creatorsPath, 'utf8'))
     // enrich 消费评审正本；这里只补原费用/样本夹具已明确的 fit 输入。
-    const reviewPath = join(tmp, dir, 'agent-review.json')
+    const reviewPath = join(pipeCwd, dir, 'agent-review.json')
     const reviews = JSON.parse(readFileSync(reviewPath, 'utf8'))
     for (const c of creators) {
       const key = `${c.platform}:${c.handle}`
@@ -2596,8 +2661,8 @@ group('enrich', ['collect'], () => {
     }
     writeFileSync(reviewPath, JSON.stringify(reviews, null, 2), 'utf8')
 
-    const out = run('enrich 公开指标完整流程', [S('enrich.ts'), '--dir', dir], tmp)
-    const enrichment = join(tmp, dir, 'enrichment.json')
+    const out = run('enrich 公开指标完整流程', [S('enrich.ts'), '--dir', dir], pipeCwd)
+    const enrichment = join(pipeCwd, dir, 'enrichment.json')
     if (out === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!existsSync(enrichment)) { failed++; console.error('  ✗ 未生成 enrichment.json') }
@@ -2620,9 +2685,9 @@ group('enrich', ['collect'], () => {
         delete account.metrics.activity_status
       }
       writeFileSync(enrichment, JSON.stringify(data, null, 2), 'utf8')
-      const taskPath = join(tmp, dir, 'task.json')
+      const taskPath = join(pipeCwd, dir, 'task.json')
       const beforeRequests = JSON.parse(readFileSync(taskPath, 'utf8')).requests
-      const migrationOut = run('enrich 旧样本零请求补算活跃状态', [S('enrich.ts'), '--dir', dir], tmp)
+      const migrationOut = run('enrich 旧样本零请求补算活跃状态', [S('enrich.ts'), '--dir', dir], pipeCwd)
       const afterRequests = JSON.parse(readFileSync(taskPath, 'utf8')).requests
       const migrated = JSON.parse(readFileSync(enrichment, 'utf8'))
       const migratedAccounts = Object.values(migrated.accounts ?? {}) as any[]
@@ -2648,7 +2713,7 @@ group('enrich', ['collect'], () => {
       }
       writeFileSync(enrichment, JSON.stringify(staleData, null, 2), 'utf8')
       const staleBefore = JSON.parse(readFileSync(taskPath, 'utf8')).requests
-      const staleOut = run('enrich 旧口径缓存零请求纠正', [S('enrich.ts'), '--dir', dir], tmp)
+      const staleOut = run('enrich 旧口径缓存零请求纠正', [S('enrich.ts'), '--dir', dir], pipeCwd)
       const staleAfter = JSON.parse(readFileSync(taskPath, 'utf8')).requests
       const fixed = Object.values(
         JSON.parse(readFileSync(enrichment, 'utf8')).accounts ?? {}) as any[]
@@ -2680,7 +2745,7 @@ group('enrich', ['collect'], () => {
       }
       writeFileSync(enrichment, JSON.stringify(oversized, null, 2), 'utf8')
       const padBefore = JSON.parse(readFileSync(taskPath, 'utf8')).requests
-      const padOut = run('enrich 超窗样本记录零请求收窄', [S('enrich.ts'), '--dir', dir], tmp)
+      const padOut = run('enrich 超窗样本记录零请求收窄', [S('enrich.ts'), '--dir', dir], pipeCwd)
       const padAfter = JSON.parse(readFileSync(taskPath, 'utf8')).requests
       const trimmed = Object.values(
         JSON.parse(readFileSync(enrichment, 'utf8')).accounts ?? {}) as any[]
@@ -2706,8 +2771,8 @@ group('enrich', ['collect'], () => {
     // 第一跑：第一个账号查完落盘，在第二个账号的 200 那一瞬被杀。
     // 第二跑同一条命令拒绝未结费用，不重新查询第二个账号。
     const crashDir = `${dir}-crash`
-    cpSync(join(tmp, dir), join(tmp, crashDir), { recursive: true })
-    const crashTaskFile = join(tmp, crashDir, 'task.json')
+    cpSync(join(pipeCwd, dir), join(pipeCwd, crashDir), { recursive: true })
+    const crashTaskFile = join(pipeCwd, crashDir, 'task.json')
     const crashTask = existsSync(crashTaskFile)
       ? JSON.parse(readFileSync(crashTaskFile, 'utf8')) as Record<string, unknown> : undefined
     if (!crashTask) {
@@ -2719,19 +2784,19 @@ group('enrich', ['collect'], () => {
       writeFileSync(crashTaskFile, JSON.stringify(crashTask, null, 2))
       const crashPeople = Array.from({ length: 3 }, (_, i) => costPerson('tiktok', `crash_${i}`))
       for (const file of ['creators.json', 'creators.raw.json'])
-        writeFileSync(join(tmp, crashDir, file), JSON.stringify(crashPeople))
-      writeFileSync(join(tmp, crashDir, 'agent-review.json'), JSON.stringify({ version: 1,
+        writeFileSync(join(pipeCwd, crashDir, file), JSON.stringify(crashPeople))
+      writeFileSync(join(pipeCwd, crashDir, 'agent-review.json'), JSON.stringify({ version: 1,
         updated_at: '2026-01-01T00:00:00.000Z', rounds: [],
         reviews: Object.fromEntries(crashPeople.map(c => [`${c.platform}:${c.handle}`,
           { account_keys: [`${c.platform}:${c.handle}`], fit: '✅' }])) }))
-      rmSync(join(tmp, crashDir, 'enrichment.json'), { force: true })
-      const ledgerC = join(tmp, 'ledger-c.tsv')
+      rmSync(join(pipeCwd, crashDir, 'enrichment.json'), { force: true })
+      const ledgerC = join(pipeCwd, 'ledger-c.tsv')
       const diskC = () => requestsOnDisk(crashTaskFile)
-      const firstC = runBoth('enrich 两个账号之间被杀：进程以 137 结束', [S('enrich.ts'), '--dir', crashDir], tmp,
+      const firstC = runBoth('enrich 两个账号之间被杀：进程以 137 结束', [S('enrich.ts'), '--dir', crashDir], pipeCwd,
                              { status: 137 }, { FAKE_FETCH_LEDGER: ledgerC, FAKE_FETCH_KILL_AFTER_OK: '2' })
       if (firstC.ok) {
         const disk = jsonFile(crashTaskFile)
-        const cached = jsonFile(join(tmp, crashDir, 'enrichment.json'))?.accounts
+        const cached = jsonFile(join(pipeCwd, crashDir, 'enrichment.json'))?.accounts
         named('enrich 两个账号之间被杀：已完成账号的样本缓存已保存',
           cached?.['tiktok:crash_0']?.sample?.status === 'measured'
             && cached['tiktok:crash_0'].sample.value.length === 12
@@ -2743,7 +2808,7 @@ group('enrich', ['collect'], () => {
             && disk?.cost_ledger?.pending?.unit_micro_usd === 1000
             && disk?.cost_ledger?.entries?.some((e: any) => e.endpoint === TT_POSTS && e.http_200_count === 1),
           `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledgerC, true)}`)
-        const secondC = runBoth('enrich 两个账号之间被杀后续跑：未结费用退 2', [S('enrich.ts'), '--dir', crashDir], tmp,
+        const secondC = runBoth('enrich 两个账号之间被杀后续跑：未结费用退 2', [S('enrich.ts'), '--dir', crashDir], pipeCwd,
                                 { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, { FAKE_FETCH_LEDGER: ledgerC })
         if (secondC.ok) {
           named('enrich 两个账号之间被杀后续跑：未结占用阻止任何新请求',
@@ -2762,10 +2827,10 @@ group('render', ['collect', 'enrich'], () => {
   // 产出物,只在第一条链前面判空的话,后面几条兄弟断言照样会跑 —— 轻则拿上一次的
   // 陈旧产物报「✓」,重则 `readFileSync` 直接抛,自检连末尾那句汇总都打不出来
   // （#94 评审指出；本文件另外两处同一形状,改法相同）。
-  rendered = dir ? run('render 完整产出', [S('render.ts'), '--dir', dir], tmp) : undefined
+  rendered = dir ? run('render 完整产出', [S('render.ts'), '--dir', dir], pipeCwd) : undefined
   if (dir && rendered !== undefined) {
-    const csv = join(tmp, dir, 'kol.csv')
-    const html = join(tmp, dir, 'report.html')
+    const csv = join(pipeCwd, dir, 'kol.csv')
+    const html = join(pipeCwd, dir, 'report.html')
     if (!existsSync(csv)) { failed++; console.error('  ✗ 未生成 CSV') }
     else {
       const buf = readFileSync(csv)
@@ -2776,7 +2841,7 @@ group('render', ['collect', 'enrich'], () => {
         failed++; console.error('  ✗ CSV 未出现「未查询」—— P1 的三档区分没到达产出物')
       } else console.log('  ✓ CSV 区分「未查询」与空值')
     }
-    const xlsx = join(tmp, dir, 'kol.xlsx')
+    const xlsx = join(pipeCwd, dir, 'kol.xlsx')
     if (!existsSync(xlsx)) { failed++; console.error('  ✗ 未生成 xlsx') }
     else {
       const b = readFileSync(xlsx)
@@ -2785,7 +2850,7 @@ group('render', ['collect', 'enrich'], () => {
         failed++; console.error('  ✗ xlsx 缺 sheet（应为 A/B/C 三个）')
       } else console.log('  ✓ xlsx 三个 sheet 齐全')
     }
-    const metaPath = join(tmp, dir, 'meta.json')
+    const metaPath = join(pipeCwd, dir, 'meta.json')
     if (!existsSync(metaPath)) { failed++; console.error('  ✗ 未生成 meta.json') }
     else {
       const meta = JSON.parse(readFileSync(metaPath, 'utf8'))
@@ -2852,13 +2917,13 @@ group('render', ['collect', 'enrich'], () => {
     // 值写 false，换成 true 结论一样；它是什么意思不在这里定。**每个人都写上**：只写一个人时
     // measured 本来就小于总数，那句声明照印，P5.f 那一半测不到。负片 M-P5-z 点后两条；
     // 第一条的判定在 report.ts，由 test.ts 认领 P5.h 的那两条与 M-P5-y 守着。
-    const cPath = join(tmp, dir, 'creators.json')
+    const cPath = join(pipeCwd, dir, 'creators.json')
     const pristine = readFileSync(cPath, 'utf8')
     const patched = JSON.parse(pristine)
     for (const c of patched) c.email_verified = false
     writeFileSync(cPath, JSON.stringify(patched, null, 2), 'utf8')
     const reRendered = run('render 名单人人带着 email_verified、没配外部增强层',
-                           [S('render.ts'), '--dir', dir], tmp)
+                           [S('render.ts'), '--dir', dir], pipeCwd)
     // 读也放进判空里：没跑起来时读到的是上一次留下的产出物，拿它判会把功劳记错
     if (reRendered !== undefined) {
       // 前提：交付名单不空、人人都还带着这个值。名单空了（总数为 0）或值在路上被丢掉，
@@ -2894,7 +2959,7 @@ group('render', ['collect', 'enrich'], () => {
     writeFileSync(cPath, pristine, 'utf8')
     // 这一处不判空：它后面没有派生断言，跑不起来时 runBoth 已经带记号报过一次，
     // 再加一道判空只会多一层缩进而不多守住任何东西。
-    run('render 复位（名单回到原样）', [S('render.ts'), '--dir', dir], tmp)
+    run('render 复位（名单回到原样）', [S('render.ts'), '--dir', dir], pipeCwd)
   }
 })
 
@@ -3043,11 +3108,11 @@ group('resume-after-render-keeps-creators', ['collect', 'render'], () => {
   // 「人不够，再多找点」，Agent 就会去跑 --resume。
   // 这一段验的是「render 之后再续跑，已采集的人还在」—— render 没跑起来它就无从验起
   if (dir && rendered !== undefined) {
-    const deliverable = join(tmp, dir, 'creators.json')
-    const rawPath = join(tmp, dir, 'creators.raw.json')
+    const deliverable = join(pipeCwd, dir, 'creators.json')
+    const rawPath = join(pipeCwd, dir, 'creators.raw.json')
     const before = JSON.parse(readFileSync(deliverable, 'utf8')).length
     const afterRender = run('collect --resume（在 render 之后）',
-                            [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp)
+                            [S('collect.ts'), '--resume', dir, '--budget', '1'], pipeCwd)
 
     if (afterRender === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
@@ -3072,17 +3137,17 @@ group('memory', ['collect', 'render'], () => {
   // 不带这个前置条件的话，render 没跑起来时下一行 readFileSync 直接抛 ——
   // **自检整个死掉，连末尾那句失败汇总都打不出来**（#94 评审指出，实测两版都会死）
   if (dir && rendered !== undefined) {
-    const memFile = join(tmp, 'memory', 'creators.json')
+    const memFile = join(pipeCwd, 'memory', 'creators.json')
     const healthy = readFileSync(memFile, 'utf8')
     const broken = healthy.slice(0, Math.floor(healthy.length * 0.6))
     writeFileSync(memFile, broken, 'utf8')
 
-    const deliverable = join(tmp, dir, 'creators.json')
+    const deliverable = join(pipeCwd, dir, 'creators.json')
     const beforeList = readFileSync(deliverable, 'utf8')
 
     // ADR-193：读不出记忆单独退 7，不与输入问题的 2 混在一起；别的退出码交给下面这条具名断言判
     const memRun = runBoth('collect 记忆读不出来时不产出名单',
-                       [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp,
+                       [S('collect.ts'), '--resume', dir, '--budget', '1'], pipeCwd,
                        { status: 7, soft: [0, 1, 2, 3, 4, 5, 6] })
     if (memRun.ok) named('collect 记忆读不出来以退出码 7 结束（不是输入问题的 2），stdout 不出汇总',
       memRun.status === 7 && memRun.stdout.trim() === '', `退出=${memRun.status}，stdout=${memRun.stdout.slice(0, 200)}`)
@@ -3124,7 +3189,7 @@ group('memory', ['collect', 'render'], () => {
     // 没活可干：target_count 给 1，达标提前停下 —— 三个关键词都在第一轮问过了第一页
     // （F9），第一页之后照旧按达标停，所以续跑一个都不会抓（D6.g）；
     // profile 也在这一轮补全过了（D6.d）。
-    const zeroCfg = join(tmp, 'zero.json')
+    const zeroCfg = join(pipeCwd, 'zero.json')
     writeFileSync(zeroCfg, JSON.stringify({
       product: 'zero', market: 'US', target_count: 1, budget_usd: 1,
       tasks: Array.from({ length: 3 }, (_, i) => ({
@@ -3132,7 +3197,7 @@ group('memory', ['collect', 'render'], () => {
       })),
     }))
     const zeroErr = run('collect 收尾：没活了就说续跑不产生新请求',
-                        [S('collect.ts'), '--config', zeroCfg], tmp, { status: 7, stream: 'stderr' })
+                        [S('collect.ts'), '--config', zeroCfg], pipeCwd, { status: 7, stream: 'stderr' })
     if (zeroErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!zeroErr.includes('续跑不产生新的请求')) {
@@ -3143,7 +3208,7 @@ group('memory', ['collect', 'render'], () => {
     } else console.log('  ✓ 收尾：没活了，说的是续跑不产生新的请求')
 
     // 还有活：预算卡死在第一个关键词上，剩下的续跑真的会去抓
-    const leftCfg = join(tmp, 'left.json')
+    const leftCfg = join(pipeCwd, 'left.json')
     writeFileSync(leftCfg, JSON.stringify({
       product: 'left', market: 'US', target_count: 500, budget_usd: 0.002,
       tasks: Array.from({ length: 6 }, (_, i) => ({
@@ -3151,7 +3216,7 @@ group('memory', ['collect', 'render'], () => {
       })),
     }))
     const leftErr = run('collect 收尾：还有活就说续跑要继续花钱',
-                        [S('collect.ts'), '--config', leftCfg], tmp, { status: 7, stream: 'stderr' })
+                        [S('collect.ts'), '--config', leftCfg], pipeCwd, { status: 7, stream: 'stderr' })
     if (leftErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!leftErr.includes('续跑会继续发请求、继续花钱')) {
@@ -3176,13 +3241,13 @@ group('memory', ['collect', 'render'], () => {
     // F9 之后那句不成立了：没抓过第一页的任务，达标也照样会去抓，于是关键词那一半
     // 又冒了出来，这条夹具当场红。**它红得对** —— 它守的是「递进去的那批人有没有人守着」，
     // 而不是「达标之后一律不抓」。把前提换成真正为空的那一种，守的东西一点没变。
-    const onlyCfg = join(tmp, 'only-profile.json')
+    const onlyCfg = join(pipeCwd, 'only-profile.json')
     writeFileSync(onlyCfg, JSON.stringify({
       product: 'onlyprofile', market: 'US', target_count: 1, budget_usd: 0.001,
       tasks: [{ keyword: 'ok0', dimension: 'category', platform: 'tiktok' }],
     }))
     const onlyErr = run('collect 收尾：只剩 profile 也要说续跑要花钱',
-                        [S('collect.ts'), '--config', onlyCfg], tmp, { status: 7, stream: 'stderr' })
+                        [S('collect.ts'), '--config', onlyCfg], pipeCwd, { status: 7, stream: 'stderr' })
     if (onlyErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!/还有 \d+ 个人的 profile/.test(onlyErr)) {
@@ -3215,7 +3280,7 @@ group('memory', ['collect', 'render'], () => {
     // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
     // 「达标提前停下」和「关键词跑完」都说「不花钱」（ADR-193 之前还同为退出码 0），一条夹具会让另一条
     // 看起来也测过了，而它们是 `stopped` 的两个不同取值（评审指出）。
-    const paths = join(tmp, 'paths')
+    const paths = join(pipeCwd, 'paths')
     mkdirSync(join(paths, 'memory'), { recursive: true })
     const pathCfg = (name: string, over: Record<string, unknown>, keyword = 'pk') => {
       const f = join(paths, `${name}.json`)
@@ -3279,7 +3344,7 @@ group('memory', ['collect', 'render'], () => {
 
     // 逃生口：出名单，但状态必须原样带到 stdout
     const forced = run('collect --ignore-memory 强出名单',
-                       [S('collect.ts'), '--resume', dir, '--budget', '1', '--ignore-memory'], tmp)
+                       [S('collect.ts'), '--resume', dir, '--budget', '1', '--ignore-memory'], pipeCwd)
     let forcedSummary: any = {}
     if (forced !== undefined) { try { forcedSummary = JSON.parse(forced) } catch {} }
     if (forced === undefined) {
@@ -3291,20 +3356,20 @@ group('memory', ['collect', 'render'], () => {
 
     // 直接重导出也必须重新读当前记忆。坏记忆未获显式豁免时，旧交付和记忆均不动。
     const deliveryFiles = ['task.json', 'creators.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
-    const beforeRender = deliveryFiles.map(name => fileText(join(tmp, dir, name)))
+    const beforeRender = deliveryFiles.map(name => fileText(join(pipeCwd, dir, name)))
     const refusedRender = runBoth('render 坏记忆默认拒绝交付',
-      [S('render.ts'), '--dir', dir], tmp, { status: 7, soft: [0, 1, 2] })
+      [S('render.ts'), '--dir', dir], pipeCwd, { status: 7, soft: [0, 1, 2] })
     named('render 坏记忆默认拒绝且不改旧交付或记忆',
       refusedRender.status === 7 && deliveryFiles.every((name, i) =>
-        fileText(join(tmp, dir, name)) === beforeRender[i]) && fileText(memFile) === broken,
+        fileText(join(pipeCwd, dir, name)) === beforeRender[i]) && fileText(memFile) === broken,
       `退出=${refusedRender.status}，stderr=${stderrTail(refusedRender.stderr)}`)
 
     const keptMemory = runBoth('render 显式忽略坏记忆',
-      [S('render.ts'), '--dir', dir, '--ignore-memory'], tmp)
+      [S('render.ts'), '--dir', dir, '--ignore-memory'], pipeCwd)
     if (keptMemory.ok) {
-      const metaAfter = jsonFile(join(tmp, dir, 'meta.json'))
-      const taskAfter = jsonFile(join(tmp, dir, 'task.json'))
-      const htmlAfter = fileText(join(tmp, dir, 'report.html'))
+      const metaAfter = jsonFile(join(pipeCwd, dir, 'meta.json'))
+      const taskAfter = jsonFile(join(pipeCwd, dir, 'task.json'))
+      const htmlAfter = fileText(join(pipeCwd, dir, 'report.html'))
       named('render 显式忽略坏记忆时名单与任务状态都声明未去重',
         fileText(memFile) === broken && metaAfter?.memory_written === false
           && metaAfter?.memory_status === 'unreadable_ignored'
@@ -3314,10 +3379,10 @@ group('memory', ['collect', 'render'], () => {
     }
 
     // ADR-193：交付物写不进去以保存失败（6）结束，不说成成功或输入问题。kol.csv 那个位置换成目录，写它必然失败；跑完原样换回
-    const csvAt = join(tmp, dir, 'kol.csv'), csvText = fileText(csvAt)
+    const csvAt = join(pipeCwd, dir, 'kol.csv'), csvText = fileText(csvAt)
     rmSync(csvAt, { force: true }); mkdirSync(join(csvAt, 'held'), { recursive: true })
     let unsaved: ReturnType<typeof runBoth>
-    try { unsaved = runBoth('render 交付物写不进去', [S('render.ts'), '--dir', dir, '--ignore-memory'], tmp, { status: 6, soft: [0, 1, 2, 7] }) }
+    try { unsaved = runBoth('render 交付物写不进去', [S('render.ts'), '--dir', dir, '--ignore-memory'], pipeCwd, { status: 6, soft: [0, 1, 2, 7] }) }
     finally { rmSync(csvAt, { recursive: true, force: true }); writeFileSync(csvAt, csvText) }
     if (unsaved.ok) {
       named('render 交付物写不进去以退出码 6 结束，stdout 不出交付 JSON',
@@ -3330,16 +3395,16 @@ group('memory', ['collect', 'render'], () => {
     // 旧任务目录：task.json 里根本没有这个字段。**不能读成「去重跑过了」** ——
     // 产出它的那一版遇到读不出来的记忆会静默当成空记忆（ADR-18）。
     writeFileSync(memFile, healthy, 'utf8')
-    const taskFile = join(tmp, dir, 'task.json')
+    const taskFile = join(pipeCwd, dir, 'task.json')
     const legacy = JSON.parse(readFileSync(taskFile, 'utf8'))
     delete legacy.memory_status
     writeFileSync(taskFile, JSON.stringify(legacy, null, 2), 'utf8')
 
-    const legacyRun = run('render 旧任务目录按当前记忆重核', [S('render.ts'), '--dir', dir], tmp)
+    const legacyRun = run('render 旧任务目录按当前记忆重核', [S('render.ts'), '--dir', dir], pipeCwd)
     // 读也放进判空里 —— 同上
     if (legacyRun !== undefined) {
-      const legacyMeta = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
-      const legacyHtml = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
+      const legacyMeta = JSON.parse(readFileSync(join(pipeCwd, dir, 'meta.json'), 'utf8'))
+      const legacyHtml = readFileSync(join(pipeCwd, dir, 'report.html'), 'utf8')
       if (legacyMeta.memory_status !== 'ok') {
         failed++
         console.error(`  ✗ 当前记忆可用却报 ${legacyMeta.memory_status}`)
@@ -9903,7 +9968,10 @@ group('ig-search-plays', [], () => {
     pages.tiktok = await hub.search(ttTask, 'US', 0);
     console.log(JSON.stringify({ pages, attempts }));
   `)
-  const r = runBoth('IG 搜索播放资格：真实 search 与仅内存假响应', [runner], tmp)
+  // 当前目录是只归本组的空目录：原先是 `tmp` 本身，子进程按相对路径碰得到别族放在 `tmp` 下的任何东西（ADR-212）
+  const runnerCwd = join(tmp, 'ig-search-plays-cwd')
+  mkdirSync(runnerCwd, { recursive: true })
+  const r = runBoth('IG 搜索播放资格：真实 search 与仅内存假响应', [runner], runnerCwd)
   if (!r.ok) return
   let result: any
   try { result = JSON.parse(r.stdout) }
@@ -9977,7 +10045,11 @@ group('ig-search-plays', [], () => {
 // ADR-102 §9：从公开入口跑适配器、缓存命中和直接交付；全程假网络。
 group('ig-homepage-mixed', [], () => {
   // 本组直接用 Node 的 --import：自检在受限环境也不依赖 tsx CLI 的 IPC socket。
-  const runIg = (label: string, args: string[], cwd = tmp, extra: NodeJS.ProcessEnv = {}) => {
+  // 不给当前目录的那几跑在只归本组的空目录里起：原先缺省是 `tmp` 本身，子进程按相对路径碰得到别族放在
+  // `tmp` 下的任何东西（ADR-212）
+  const igCwd = join(tmp, 'ig-homepage-mixed-cwd')
+  mkdirSync(igCwd, { recursive: true })
+  const runIg = (label: string, args: string[], cwd = igCwd, extra: NodeJS.ProcessEnv = {}) => {
     const kidEnv = { ...env, ...extra }
     kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(args[0], kidEnv, cwd))} ${kidEnv.NODE_OPTIONS ?? ''}`
     const r = spawnSync(process.execPath, args,
@@ -12773,6 +12845,33 @@ if (shardReportPath === undefined) {
   }
 }
 
+// 各组子进程的当前目录与别族碰到的 `tmp` 路径对照（ADR-212，记法见文件头上 `cwds` 那一段）。
+// 只在完整跑判：子集跑里没跑的组一笔也没记，判下去会漏；拆进程跑的子进程只交回、由父进程合并后判
+if (shardChild) {
+  // 父进程判
+} else if (ranOnly !== undefined) {
+  console.log(`  · 这一跑没验「各组子进程的当前目录不与别族碰到的 tmp 路径重叠」—— 只跑了 ${ranOnly.size} 组`)
+} else {
+  // 阳性对照：collect 那一组的子进程在 `pipeCwd` 里起，这一笔要记得下来。记账没接上（换函数没换成、
+  // 跑组时没标是哪一组、拆进程跑的回报没带回来）时一笔都记不下，下面的对照就是空转、照样绿
+  const control = cwds.get('collect')?.has(cwdUnder(tmp, pipeCwd, realpathSync) ?? '') === true
+  let said: string[] = control ? [] : ['阳性对照没成立：collect 那一组在 tmp/pipeline 里起的子进程没记下来，当前目录的记账没接上']
+  if (control) try {
+    const scan = scanShares(readFileSync(resolve('scripts/check/selfcheck.ts'), 'utf8'))
+    const judged = judgeCwds(scan.groups, scan.effects, new Map([...cwds].map(([id, dirs]) => [id, [...dirs]])))
+    said = [...scan.problems.map(p => `扫不了：${p}`),
+      ...judged.faults.map(f => `${f.writer} 碰到的 ${f.state} 与 ${f.reader} 那一族碰到的重叠（${f.kind}）`)]
+  } catch (e) { said = [`抛了：${e instanceof Error ? e.message : String(e)}`] }
+  // 不用 `named`：组外的具名标签翻不出组（`test.ts` 的「清册里的每条标签都翻得出组」），与收尾判孤儿同一个写法
+  if (said.length === 0) console.log('  ✓ 各组子进程的当前目录不与别族碰到的 tmp 路径重叠')
+  else {
+    failed += said.length
+    console.error(`\n  ✗ 各组子进程的当前目录与别族碰到的 tmp 路径重叠 ${said.length} 处\n`)
+    for (const x of said) console.error(`  · ${x}`)
+    console.error('\n  给报出来的组各分一个只归它用的目录当当前目录，不要补假依赖（share-rule.ts 头注）。')
+  }
+}
+
 rmSync(tmp, { recursive: true, force: true })
 if (taskListFixtureState !== undefined) rmSync(taskListFixtureState.base, { recursive: true, force: true })
 
@@ -12881,5 +12980,6 @@ if (!subset && claimsPublishable(mutating, failed, startHash, fingerprint(source
 if (shardReportPath !== undefined && ranOnly !== undefined) {
   writeFileAtomic(shardReportPath, JSON.stringify({
     groups: [...ranOnly], failed, claimed: [...claimed].sort(), covered: [...covered].sort(),
+    cwds: Object.fromEntries([...cwds].map(([id, dirs]) => [id, [...dirs].sort()])),
   }))
 }

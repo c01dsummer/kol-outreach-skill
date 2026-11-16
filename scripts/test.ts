@@ -56,7 +56,7 @@ import {
   anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, notARepo, stagedResidue,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
-import { judgeShares, scanShares } from './check/share-rule.js'
+import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -257,6 +257,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
+  { id: 'h-group-cwd', needs: [] },
   { id: 'h-mutation-fixture-git-env', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-selfcheck-shard-entry', needs: [] },
@@ -13826,8 +13827,8 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
 
   const all = ['a', 'b', 'c', '独立']
   const fam = [['a', 'b', 'c'], ['独立']]
-  const rep = (groups: string[], failed: number, claimed: string[] = [], covered: string[] = []) =>
-    ({ groups, failed, claimed, covered })
+  const rep = (groups: string[], failed: number, claimed: string[] = [], covered: string[] = [],
+    cwds: Record<string, string[]> = {}) => ({ groups, failed, claimed, covered, cwds })
   const green = mergeShards([
     { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0, ['X1.b', 'X1.a'], ['scripts/x.ts']) },
     { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0, ['X1.a'], ['scripts/y.ts', 'scripts/x.ts']) },
@@ -13835,6 +13836,13 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   eq('子进程全绿：零失败、没有问题', [green.failed, green.problems], [0, []])
   eq('认领取各子进程的并集，去重排序', green.claimed, ['X1.a', 'X1.b'])
   eq('出处取各子进程的并集，去重排序', green.covered, ['scripts/x.ts', 'scripts/y.ts'])
+  // 当前目录（ADR-212）：各子进程交回的按组收拢；多跑的那一组已经报成进程问题，它的当前目录不收
+  const dirs = mergeShards([
+    { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0, [], [], { a: ['', 'x/y'], c: [] }) },
+    { family: fam[1], status: 0, signal: null, report: rep(['独立', 'a'], 0, [], [], { 独立: ['独'], a: ['偷跑'] }) },
+  ], all)
+  eq('当前目录按组收拢：派给哪个子进程就收哪个子进程交回的那一份',
+    [...dirs.cwds].sort(), [['a', ['', 'x/y']], ['c', []], ['独立', ['独']]])
   const red = mergeShards([
     { family: fam[0], status: 1, signal: null, report: rep(['a', 'b', 'c'], 2) },
     { family: fam[1], status: 1, signal: null, report: rep(['独立'], 1) },
@@ -13894,9 +13902,13 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   ok('同一组派给了两个子进程：点出那组',
     twice.failed === 1 && twice.problems.length === 1 && twice.problems[0].includes('c'))
   // 子进程写回的那份读不出来，就是没交回结果 —— 不能半截读进去、更不能当成零失败
-  const text = JSON.stringify({ groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'] })
+  const text = JSON.stringify({ groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'], cwds: { a: ['', 'p'] } })
   eq('读得出的回报原样交回', readShardReport(text),
-    { groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'] })
+    { groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'], cwds: { a: ['', 'p'] } })
+  eq('没有当前目录那一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [] })), undefined)
+  eq('当前目录那一栏是数组读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: [] })), undefined)
+  eq('某组的当前目录不是字符串数组读不出',
+    readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: { a: [1] } })), undefined)
   eq('写了一半的回报读不出', readShardReport(text.slice(0, -3)), undefined)
   eq('失败数不是非负整数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: -1, claimed: [], covered: [] })), undefined)
   eq('失败数是小数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0.5, claimed: [], covered: [] })), undefined)
@@ -14085,6 +14097,46 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
   eq('真 selfcheck.ts 把 review-cli-entry-positive 挪到 reject 之后：报 reject 先读了初始值',
     moved('review-cli-entry-positive', 'review-cli-entry-reject'),
     ['order reviewCliEntryPositive: review-cli-entry-positive → review-cli-entry-reject'])
+}
+})
+await group('h-group-cwd', () => {
+harness('自检组子进程的当前目录：与别族碰到的 tmp 路径重叠就报（ADR-212）')
+{
+  // 期望按 share-rule.ts 里 judgeCwds 头注与 judgeShares 的判据手推：当前目录算这一组又读又写了那一处；
+  // 与别族碰到的路径相同、或一处是另一处的上级目录，两个方向各报一条 family；空串是 tmp 本身
+  const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
+    s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
+  const fx = (paths: string[] = []) => ({ reads: new Set(paths), writes: new Set(paths) })
+  const two: Group[] = [{ id: 'a', needs: [] }, { id: 'b', needs: [] }]
+  const judge = (cwds: Record<string, string[]>, effects: Record<string, string[]> = {}, groups = two) =>
+    said(judgeCwds(groups, new Map(groups.map(g => [g.id, fx(effects[g.id])])), new Map(Object.entries(cwds))))
+  eq('拿 tmp 本身当当前目录：与别族在 tmp 下写死的路径重叠，两个方向都报',
+    judge({ a: [''] }, { b: ['tmp/x'] }), ['family tmp/x: b → a', 'family tmp: a → b'])
+  eq('两族都拿 tmp 本身当当前目录：两个方向都报', judge({ a: [''], b: [''] }), ['family tmp: a → b', 'family tmp: b → a'])
+  eq('各用各的目录：不报', judge({ a: ['a'], b: ['b'] }), [])
+  eq('一组的当前目录在另一组的底下：两个方向都报', judge({ a: ['a'], b: ['a/sub'] }),
+    ['family tmp/a/sub: b → a', 'family tmp/a: a → b'])
+  eq('名字只是前缀相同、不是上级目录：不报', judge({ a: ['a'], b: ['ab'] }), [])
+  eq('当前目录与别族写死的路径相同：报', judge({ a: ['x'] }, { b: ['tmp/x/f.json'] }),
+    ['family tmp/x/f.json: b → a', 'family tmp/x: a → b'])
+  const same: Group[] = [{ id: 'a', needs: [] }, { id: 'b', needs: ['a'] }]
+  eq('同一族共用当前目录：不报（同一个进程里按登记顺序跑）', judge({ a: [''], b: [''] }, {}, same), [])
+  eq('没起过子进程的组只按扫描判', judge({}, { a: ['tmp/x'], b: ['tmp/y'] }), [])
+  const effects = new Map(two.map(g => [g.id, fx()]))
+  judgeCwds(two, effects, new Map([['a', ['']]]))
+  eq('合当前目录用的是副本：扫描交回的读写不被改', [...effects.get('a')!.writes], [])
+  let stray = ''
+  try { judgeCwds(two, effects, new Map([['c', ['']]])) } catch (e) { stray = (e as Error).message }
+  ok('记下了当前目录的组不在组表里：当场抛并点名', stray.includes('c'))
+
+  // 当前目录落在 tmp 底下哪一处
+  eq('就是 tmp 本身：空串', cwdUnder('/t/k', '/t/k'), '')
+  eq('tmp 底下：相对路径，用正斜杠', cwdUnder('/t/k', '/t/k/x/y'), 'x/y')
+  eq('名字只是前缀相同：不在底下', cwdUnder('/t/k', '/t/kx'), undefined)
+  eq('仓库根：不在底下', cwdUnder('/t/k', '/repo'), undefined)
+  const real = (p: string) => p.replace(/^\/tmp\//, '/private/tmp/')
+  eq('tmp 是软链、当前目录取的是真实路径：照样认得', cwdUnder('/tmp/k', '/private/tmp/k/z', real), 'z')
+  eq('tmp 取的是真实路径、当前目录经软链给：照样认得', cwdUnder('/private/tmp/k', '/tmp/k/z', real), 'z')
 }
 })
 await group('h-mutation-fixture-git-env', () => {

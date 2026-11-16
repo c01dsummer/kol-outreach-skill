@@ -13812,8 +13812,8 @@
       "req": "harness",
       "why": "自己也写那份状态的组（惰性建夹具）也按闭包判，同族里互不依赖的几组被报成缺依赖",
       "file": "scripts/check/share-rule.ts",
-      "find": "!state.startsWith(PATH) && !e.writes.has(state)",
-      "replace": "!state.startsWith(PATH)",
+      "find": "!isPath(state) && !e.writes.has(state)",
+      "replace": "!isPath(state)",
       "by": "test",
       "kills": ["惰性夹具：同族的几组互不在闭包里，不报"]
     },
@@ -14042,8 +14042,8 @@
       "req": "harness",
       "why": "登记先后连自己也写那份状态的组（惰性夹具）也判：谁先跑谁建、看不出谁靠谁的那几组被报成顺序错",
       "file": "scripts/check/share-rule.ts",
-      "find": "&& !e.writes.has(state) && !state.startsWith(PATH)\n",
-      "replace": "&& !state.startsWith(PATH)\n",
+      "find": "&& !e.writes.has(state) && !isPath(state)\n",
+      "replace": "&& !isPath(state)\n",
       "by": "test",
       "kills": ["惰性夹具：总入口登记在最前也不报"]
     },
@@ -14062,7 +14062,7 @@
       "req": "harness",
       "why": "登记先后连 tmp 下的路径也判：路径谁写谁读源码里看不出，提到目录的那组被报成先读了写文件那组的东西",
       "file": "scripts/check/share-rule.ts",
-      "find": " && !state.startsWith(PATH)\n          && registered",
+      "find": " && !isPath(state)\n          && registered",
       "replace": "\n          && registered",
       "by": "test",
       "kills": ["同族碰 tmp 下重叠的路径、登记在前的那组提到目录：不报"]
@@ -14082,8 +14082,8 @@
       "req": "harness",
       "why": "登记先后不再限于同一族：跨族的两组本来在不同进程里跑、谈不上谁先谁后，读方登记在前时除了跨族那一条又多报一条顺序错",
       "file": "scripts/check/share-rule.ts",
-      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !state.startsWith(PATH)",
-      "replace": "      if (!e.writes.has(state) && !state.startsWith(PATH)",
+      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !isPath(state)",
+      "replace": "      if (!e.writes.has(state) && !isPath(state)",
       "by": "test",
       "kills": ["跨族、读方登记在写方之前：只报 family，不报 order"]
     },
@@ -25617,6 +25617,114 @@
       "by": "test",
       "kills": [
         "NUL 切开的路径原样交回，带空格与中文的不拆、末尾空段不算"
+      ]
+    },
+    {
+      "id": "M-H212-a",
+      "req": "harness",
+      "why": "tmp 本身不算一处路径：拿它当当前目录的组与别族碰到的路径不再比，整条通道又看不见了",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const isPath = (s: string): boolean => s === root || s.startsWith(PATH)",
+      "replace": "const isPath = (s: string): boolean => s.startsWith(PATH)",
+      "by": "test",
+      "kills": [
+        "拿 tmp 本身当当前目录：与别族在 tmp 下写死的路径重叠，两个方向都报"
+      ]
+    },
+    {
+      "id": "M-H212-b",
+      "req": "harness",
+      "why": "空串当成 tmp 底下一个没名字的子目录：拿 tmp 本身当当前目录不再与它底下的路径重叠",
+      "file": "scripts/check/share-rule.ts",
+      "find": "rel => rel === '' ? root : `${root}/${rel}`",
+      "replace": "rel => `${root}/${rel}`",
+      "by": "test",
+      "kills": [
+        "两族都拿 tmp 本身当当前目录：两个方向都报"
+      ]
+    },
+    {
+      "id": "M-H212-c",
+      "req": "harness",
+      "why": "当前目录只算读、不算写：判定只拿写方去比，当前目录这一笔从此不报",
+      "file": "scripts/check/share-rule.ts",
+      "find": "writes: new Set([...e.writes, ...here])",
+      "replace": "writes: new Set(e.writes)",
+      "by": "test",
+      "kills": [
+        "一组的当前目录在另一组的底下：两个方向都报"
+      ]
+    },
+    {
+      "id": "M-H212-d",
+      "req": "harness",
+      "why": "记下了当前目录、却不在组表里的组静默丢掉：组改了名、记账却按旧名记，那几笔当前目录没人比",
+      "file": "scripts/check/share-rule.ts",
+      "find": "  if (stray.length) throw new Error(`记下了当前目录、却不在组表里的组：${stray.join('、')}`)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "记下了当前目录的组不在组表里：当场抛并点名"
+      ]
+    },
+    {
+      "id": "M-H212-e",
+      "req": "harness",
+      "why": "不在 tmp 底下的当前目录也交回相对路径：仓库根被记成 tmp 底下的一处",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (!rel.startsWith('..') && !isAbsolute(rel))",
+      "replace": "if (!isAbsolute(rel))",
+      "by": "test",
+      "kills": [
+        "仓库根：不在底下"
+      ]
+    },
+    {
+      "id": "M-H212-f",
+      "req": "harness",
+      "why": "当前目录只按原样比、不按真实路径比：macOS 上拿 realpathSync 过的目录起子进程，记不下来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const here = [...new Set([resolve(cwd), safe(real, resolve(cwd))])]",
+      "replace": "const here = [resolve(cwd)]",
+      "by": "test",
+      "kills": [
+        "tmp 取的是真实路径、当前目录经软链给：照样认得"
+      ]
+    },
+    {
+      "id": "M-H212-g",
+      "req": "harness",
+      "why": "子进程回报里当前目录那一栏不核：缺了这一栏也读得进去，父进程合并时当成那几组一个子进程都没起",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (typeof c !== 'object' || c === null || Array.isArray(c) || !Object.values(c).every(strings)) return undefined\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "没有当前目录那一栏读不出"
+      ]
+    },
+    {
+      "id": "M-H212-h",
+      "req": "harness",
+      "why": "合并当前目录时不看派工：子进程多跑的组也把当前目录交上来",
+      "file": "scripts/check/group-rule.ts",
+      "find": "if (run.family.includes(id)) cwds.set(id, [...dirs])",
+      "replace": "cwds.set(id, [...dirs])",
+      "by": "test",
+      "kills": [
+        "当前目录按组收拢：派给哪个子进程就收哪个子进程交回的那一份"
+      ]
+    },
+    {
+      "id": "M-H212-i",
+      "req": "harness",
+      "why": "tmp 只按原样比、不按真实路径比：macOS 上 tmp 在软链底下，取了真实路径的当前目录记不下来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const bases = [...new Set([resolve(tmp), safe(real, resolve(tmp))])]",
+      "replace": "const bases = [resolve(tmp)]",
+      "by": "test",
+      "kills": [
+        "tmp 是软链、当前目录取的是真实路径：照样认得"
       ]
     }
   ],
