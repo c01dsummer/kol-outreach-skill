@@ -22731,7 +22731,7 @@ await group('h-ticket-refs', () => {
 })
 
 // 入口在玩具仓库里真起：每组各起几次，和判定那组的变异分开放、入口自己也拆成两组，启动乘条数才不过上限（ADR-145）
-type TicketToy = { root: string; run: (cwd: string) => ReturnType<typeof cxSpawnSync>; g: (...args: string[]) => ReturnType<typeof cxSpawnSync> }
+type TicketToy = { root: string; run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => ReturnType<typeof cxSpawnSync>; g: (...args: string[]) => ReturnType<typeof cxSpawnSync> }
 /**
  * 玩具仓库：主干上一个提交（基线），一份旧记录里两个号、一条卡片链接（链接连同末尾的号算一处，共三处）；
  * 一份只有项目页链接与一个不带数字的词；根上一份带一个号的（在子目录里跑时它也得数到）。总共四处。
@@ -22745,7 +22745,7 @@ function ticketToy(root: string, branch: boolean, beforeBranch?: (t: TicketToy) 
     'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
   const t: TicketToy = {
     root,
-    run: (cwd: string) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: gitEnv }),
+    run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, ...extraEnv } }),
     g: (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv }),
   }
   cxMkdirSync(cxJoin(root, 'docs'))
@@ -22817,6 +22817,14 @@ await group('h-ticket-refs-entry-edges', () => {
     const glued = run(root)
     eq('入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出',
       [glued.status, String(glued.stderr).includes('docs/old.md  3 → 4')], [1, true])
+    // git grep 照常退出、却在 stderr 说了话（有文件没读成）：在 PATH 最前面放一个包一层的 git，只在 grep 时往 stderr 写一句
+    const realGit = String(cxSpawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout).trim()
+    cxMkdirSync(cxJoin(root, 'fakebin'))
+    cxWriteFileSync(cxJoin(root, 'fakebin/git'),
+      `#!/bin/sh\nfor a in "$@"; do [ "$a" = grep ] && echo 'error: 假装有个文件读不了' >&2 && break; done\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 })
+    const noisy = run(root, { PATH: `${cxJoin(root, 'fakebin')}:${process.env.PATH ?? ''}` })
+    eq('入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出',
+      [noisy.status, String(noisy.stderr).includes('✗ 外部工单号：无从判断'), String(noisy.stderr).includes('error: 假装有个文件读不了')], [1, true, true])
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
     const bare = run(root)
     eq('入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 外部工单号：无从判断')], [1, true])

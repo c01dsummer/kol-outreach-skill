@@ -27375,6 +27375,30 @@
       "kills": [
         "git grep 退 0 或退 1 却在 stderr 说了话（有文件没读成），也算无从判断"
       ]
+    },
+    {
+      "id": "M-H205-y",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs.ts",
+      "why": "入口不把 git grep 的 stderr 交给判定 —— 有文件读不了时照样当成数全了，少数的那几处悄悄放过",
+      "find": "  const out = grepOutput(r.status, r.stdout ?? '', r.stderr ?? '')",
+      "replace": "  const out = grepOutput(r.status, r.stdout ?? '', '')",
+      "by": "test",
+      "kills": [
+        "入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出"
+      ]
+    },
+    {
+      "id": "M-H205-z",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs.ts",
+      "why": "入口吞掉 git 在 stderr 说的话 —— 判了无从判断，读的人却不知道是哪个文件、为什么",
+      "find": "  if (r.stderr) process.stderr.write(r.stderr)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出"
+      ]
     }
   ],
   "exemptions": [
