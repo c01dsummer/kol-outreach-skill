@@ -1827,6 +1827,9 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       '要看：「You won awards.」（没登记出处）；「Your 3-ingredient secret.」← 简介原文「secret」（原文对不上：他的简介里没有这段）'],
     ['同一句只列一次', 'You rock.\n\nYou rock.', [], '要看：「You rock.」（没登记出处）'],
     // 同一句在信里出现两处，前一处登记了、后一处没盖住：后一处照列，不被前一处去重吃掉。
+    // 主题行去掉的「Subject:」字样不当成句子去找：正文里同样写着的那句照样核它自己那一处。
+    ['主题行的标签不顶替正文同一句的位置', 'Subject: Subject\n\nSubject', [{ draft: 'Subject: Subject', from: 'self' }],
+      `要看：「Subject」（没登记出处）${BAR}${SELF}「Subject: Subject」`],
     ['同一句前一处登记了，后一处没盖住照列', 'Want to try it? No pressure.\n\nNo pressure.', [{ draft: 'Want to try it? No pressure.', from: 'self' }],
       `要看：「No pressure.」（没登记出处）${BAR}${SELF}「Want to try it? No pressure.」`],
     ['登记跨过两句的一整段也算盖住', 'You cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
@@ -1926,6 +1929,12 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   eq('P2.c 登记成发件人自己的话也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点', claimsOf(SPEC, [{ draft: SPEC, from: 'self' }]), [
     `出处对不上：${['40-hour（It runs 40-hour with 5000mAh, 12）', '5000mAh（runs 40-hour with 5000mAh, 12 blades, 2x）', '12 blades（40-hour with 5000mAh, 12 blades, 2x faster. Free）', '2x（5000mAh, 12 blades, 2x faster. Free at）'].join('；')}${NOTE}`,
     `只在发件人自己的话里：3pm EST（faster. Free at 3pm EST?）${SENDER_NOTE}`,
+  ])
+  // 日期、钟点、电话后面紧跟单位的是规格或时长（10/20/30 oz、1:30 hours），登记成自己的话也照列。
+  const UNITS = 'Cups come in 10/20/30 oz. It blends for 1:30 hours. Call 415 555 0199.'
+  eq('P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列', claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]), [
+    `出处对不上：10/20/30（Cups come in 10/20/30 oz. It blends）；1:30（It blends for 1:30 hours. Call 415）${NOTE}`,
+    `只在发件人自己的话里：415 555 0199（1:30 hours. Call 415 555 0199.）${SENDER_NOTE}`,
   ])
   criterion('P2.c')
 }

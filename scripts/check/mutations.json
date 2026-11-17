@@ -22668,7 +22668,7 @@
       "req": "P2.f",
       "why": "列表行不各自成句，和上一行接在一起，一个登记盖住两行",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "      if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line)); continue }\n",
+      "find": "      if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line).map(text => ({ text }))); continue }\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -22788,7 +22788,7 @@
       "req": "P2.f",
       "why": "主题行整行不核，主题里写博主的话没人看",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "if (rest) out.push(rest); continue }",
+      "find": "if (rest) out.push({ text: rest, label: SUBJECT.exec(line)![0] }); continue }",
       "replace": "continue }",
       "by": "test",
       "kills": [
@@ -22985,8 +22985,8 @@
       "req": "P2.c",
       "why": "价钱登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['date', 'time', 'digits'])",
-      "replace": "new Set(['date', 'time', 'digits', 'price'])",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'price'])",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
@@ -22997,8 +22997,8 @@
       "req": "P2.c",
       "why": "承诺词登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['date', 'time', 'digits'])",
-      "replace": "new Set(['date', 'time', 'digits', 'word'])",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'word'])",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
@@ -23009,8 +23009,8 @@
       "req": "P2.c",
       "why": "普通数量（带单位的数、倍数）登记成发件人自己的话也移出「出处对不上」，产品规格躲过检查",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['date', 'time', 'digits'])",
-      "replace": "new Set(['date', 'time', 'digits', 'num'])",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'num'])",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
@@ -23021,8 +23021,8 @@
       "req": "P2.c",
       "why": "half off 这类数量写法登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['date', 'time', 'digits'])",
-      "replace": "new Set(['date', 'time', 'digits', 'phrase'])",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'phrase'])",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
@@ -23033,8 +23033,8 @@
       "req": "P2.c",
       "why": "型号串登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['date', 'time', 'digits'])",
-      "replace": "new Set(['date', 'time', 'digits', 'alnum'])",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'alnum'])",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
@@ -23082,8 +23082,8 @@
       "req": "P2.c",
       "why": "认证、批准这类说法的那一整句登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['date', 'time', 'digits'])",
-      "replace": "new Set(['date', 'time', 'digits', 'endorsed'])",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'endorsed'])",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
@@ -23094,8 +23094,8 @@
       "req": "P2.c",
       "why": "登记成发件人自己的话的电话这类连着的一串数字不移，约时间、联系方式照样挤在「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['date', 'time', 'digits'])",
-      "replace": "new Set(['date', 'time'])",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time'])",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列",
@@ -23107,8 +23107,8 @@
       "req": "P2.c",
       "why": "登记成发件人自己的话的日期不移，约时间照样挤在「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['date', 'time', 'digits'])",
-      "replace": "new Set(['time', 'digits'])",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['time', 'digits'])",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
@@ -23127,12 +23127,36 @@
       ]
     },
     {
+      "id": "M-P2-s67",
+      "req": "P2.f",
+      "why": "主题行去掉的「Subject:」字样不越过，标签被当成主题那句、主题又顶替了正文里同样的那句，正文那句没登记也不列",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "      if (skip && p >= 0) cursor = p + skip.length\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-c-own18",
+      "req": "P2.c",
+      "why": "日期、钟点写法后面紧跟单位（10/20/30 oz、1:30 hours）登记成自己的话也挪走，规格躲过「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": " && !(UNIT_LAST.has(kind) && !claim.key.endsWith(':'))",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列"
+      ]
+    },
+    {
       "id": "M-P2-c-own16",
       "req": "P2.c",
       "why": "登记成发件人自己的话的钟点不再移走，约时间照列在「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['date', 'time', 'digits'])",
-      "replace": "new Set(['date', 'digits'])",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'digits'])",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列",

@@ -491,10 +491,14 @@ export interface DraftClaims { unsourced: Flagged[]; postsOnly: Flagged[]; sende
  * 普通数字（带单位的规格 `40-hour`、`12 blades`、倍数 `2x`、没带币符的价钱）、价钱、百分比、承诺词、
  * 认证那一整句、数量写法、型号串、兜底整串，以及以后新加的任何种类，默认都留在「出处对不上」——
  * 一句登记不能让产品说法离开那一行（ADR-215 第三节）。
+ * 这三类后面紧跟单位的（`10/20/30 oz`、`1:30 hours`）是规格、时长，不是约时间，也不挪：键的最后一段记着单位，空着才挪。
  */
 const SENDER_MOVABLE = new Set(['date', 'time', 'digits'])
+/** 键的最后一段记着后面紧跟的单位的那几类（见 `claimsIn` 里日期、钟点、电话三条）。 */
+const UNIT_LAST = new Set(['date', 'time', 'digits'])
 function senderMovable(claim: Claim): boolean {
-  return SENDER_MOVABLE.has(claim.key.split(':')[0])
+  const kind = claim.key.split(':')[0]
+  return SENDER_MOVABLE.has(kind) && !(UNIT_LAST.has(kind) && !claim.key.endsWith(':'))
 }
 
 /**

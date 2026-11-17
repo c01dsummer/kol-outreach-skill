@@ -114,19 +114,21 @@ function splitSentences(line: string): string[] {
 }
 
 /** 把草稿切成句，只为报告分组显示：空行分段，段内折行接回一行（信常常手动折行），列表行各自成句；主题行（第一个非空行）自成一句。 */
-function sentences(draft: string): string[] {
-  const out: string[] = []
+/** 切出来的每一句；主题行那句带上被去掉的「Subject:」字样，找句子位置时先越过它，免得把标签当成句子（或把主题当成正文里同样的那句）。 */
+type Sentence = { text: string; label?: string }
+function sentences(draft: string): Sentence[] {
+  const out: Sentence[] = []
   let first = true
   for (const paragraph of draft.split(/\r?\n\s*\r?\n/)) {
     const body: string[] = []
-    const flush = () => { if (body.length) out.push(...splitSentences(body.splice(0).join(' '))) }
+    const flush = () => { if (body.length) out.push(...splitSentences(body.splice(0).join(' ')).map(text => ({ text }))) }
     for (const raw of paragraph.split(/\r?\n/)) {
       const line = raw.trim()
       if (!line) continue
       const subject = first && SUBJECT.test(line)
       first = false
-      if (subject) { const rest = line.replace(SUBJECT, '').trim(); if (rest) out.push(rest); continue }
-      if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line)); continue }
+      if (subject) { const rest = line.replace(SUBJECT, '').trim(); if (rest) out.push({ text: rest, label: SUBJECT.exec(line)![0] }); continue }
+      if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line).map(text => ({ text }))); continue }
       body.push(line)
     }
     flush()
@@ -216,8 +218,12 @@ export function draftSourceItems(
   }
   let cursor = 0
   const seen = new Set<string>()
-  for (const sentence of sentences(draft)) {
+  for (const { text: sentence, label } of sentences(draft)) {
     const s = normalizeText(sentence)
+    if (label !== undefined) {
+      const skip = normalizeText(label), p = normalizedDraft.indexOf(skip, cursor)
+      if (skip && p >= 0) cursor = p + skip.length
+    }
     const found = normalizedDraft.indexOf(s, cursor)
     if (found >= 0) cursor = found + s.length
     // 同一句只列一次：只在真的列出来时记账 —— 前一处被登记盖住、后一处没盖住的，后一处照列。
