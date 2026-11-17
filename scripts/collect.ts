@@ -433,7 +433,7 @@ async function enrichProfiles() {
   console.error(`\n补全 profile：${list.length} 人`)
   let done = 0
   // 「N 人补全失败」那一行放在 finally 里：循环因 402、费用错误或预算参数错误提前抛出时也照打，
-  // 与汇总里的 `profile_failed` 对得上（KOL-108 第 1 件，ADR-193）
+  // 与汇总里的 `profile_failed` 对得上（ADR-193；ADR-183 末尾「收口」一节第 1 项）
   try {
   for (const c of list) {
     try {
@@ -452,7 +452,7 @@ async function enrichProfiles() {
       // 402（余额不足）例外：那不是这一个人的失败，换下一个人照样 402，而
       // skill/references/providers/tikhub.md「错误处理」402 那一行说的是「**停止**，
       // 告诉用户去充值，不要重试」。所以原样抛出，与搜索阶段的 402 同一种收尾，
-      // 之后一个请求也不再发；这个人不计进 profileFailed，与没轮到的人一样仍算待补（D6.ab，KOL-105）。
+      // 之后一个请求也不再发；这个人不计进 profileFailed，与没轮到的人一样仍算待补（D6.ab）。
       if (e instanceof CostError || e instanceof BudgetInputError) throw e
       if (e instanceof TikHubError && e.status === 402) throw e
       profileFailed++
@@ -585,7 +585,7 @@ async function main() {
   if (stopped === 'target') process.exitCode = EXIT.target
 }
 
-// 走到这里的都没有汇总 JSON：收尾时评审文件有问题 2、保存失败 6、其余 1（ADR-193；KOL-108 第 2 件）
+// 走到这里的都没有汇总 JSON：收尾时评审文件有问题 2、保存失败 6、其余 1（ADR-193；ADR-183 末尾「收口」一节第 2 项）
 main().catch(e => {
   console.error(e instanceof Error ? e.message : String(e))
   process.exit(e instanceof ReviewInputError ? EXIT.input

@@ -56,7 +56,7 @@ import {
   anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, notARepo, stagedResidue,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
-import { judgeShares, scanShares } from './check/share-rule.js'
+import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -258,6 +258,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
+  { id: 'h-group-cwd', needs: [] },
   { id: 'h-mutation-fixture-git-env', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-selfcheck-shard-entry', needs: [] },
@@ -3177,7 +3178,7 @@ suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不
   }
 }
 })
-// KOL-21 D4a：D4.s 的独立认领（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
+// 独立黑盒测试包里 D4.s 的独立认领（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
 // 读不出而中止、没给 --ignore-memory），经接线（`scripts/independent-blackbox-tests-wiring.ts`，登了 GAP-24c）跑一遍；冻结用例自己按字节比
 // 运行前后的 memory/creators.json，这里只读回结论，不改断言、不改冻结字节。
 // 认领看字节比那一项，D4.s 说的就是它：它判 pass，而且这一例没有一项判红、设施故障或夹具失格。同一例里待语义复核、资格待定的项
@@ -3214,7 +3215,7 @@ await group('d4s-independent-claim', () => {
   } finally { scRmSync(root, { recursive: true, force: true }) }
   criterion('D4.s')
 })
-// KOL-21 D4b：D4.t 的独立认领（还 ADR-185 第 212 行；记录在 ADR-185 末尾）。冻结单 F 节是不读实现的作者照需求所有者的选择补的两例，
+// 独立黑盒测试包里 D4.t 的独立认领（还 ADR-185「D4.s 认领」一节新登的那张「D4.t 没有认领」的欠条；记录在 ADR-185 末尾）。冻结单 F 节是不读实现的作者照需求所有者的选择补的两例，
 // 需求所有者逐字确认后嵌回：G3-19（空名单）与 G3-19N（F-G6 的两人），都是 render 加 --ignore-memory、记忆文件放一份结构不对的。
 // 经接线跑一遍，只读回冻结用例自己的结论，不改断言、不改冻结字节。
 // 两例各要三项判过：退出码（照 D4.f 出了名单、没中止）、MEM-READ（入口确实读过那份文件，字节比才不是空的）、字节比（D4.t 原文）；
@@ -9335,7 +9336,7 @@ ok('维护-GROUPS与调用顺序不一致不得放行', maintenanceThrows(() => 
 }
 
 {
-  // KOL-32 / ADR-120 第 74 行：维护报告按新增、删除、改配置分组，摘要在前、完整清单在后。
+  // ADR-120「入口夹具的 Git 环境隔离」一节末尾那张欠条：维护报告按新增、删除、改配置分组，摘要在前、完整清单在后。
   // 对照夹具含三类变化、四种变化种类各至少一条（各种类条数互不相同）、一条完全没变的，外加一份验证者布局变化；
   // 另一份是全无变化。期望全部手写，不调报告去算期望。
   type ReportRoute = { id: string; by: string; only?: readonly string[]; executes: readonly string[] };
@@ -12327,8 +12328,8 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
-  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；KOL-21 加了零请求观察器的认证入口（自检组 observer-cert-entry 起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾 KOL-21 观察器一节）＋ anchors.ts（ADR-70 末尾「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
+  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；零请求观察器那一片加了认证入口（自检组 observer-cert-entry 起它）。
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾零请求观察器那一节）＋ anchors.ts（ADR-70 末尾「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
   // 按字符串排（admission < adr（第三个字符 m < r） < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/admission.ts', 'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
@@ -13920,7 +13921,7 @@ eq('准入读物入口那一份：检查链、名字以源目录名开头的别�
   'export {};', ''].join('\n')))
 })
 await group('h-admission-exit-code', () => {
-harness('准入读物包的入口只设退出码、不当场退出（ADR-202 第十六、十七节，KOL-45 关单标准第 4 条）')
+harness('准入读物包的入口只设退出码、不当场退出（ADR-202 第十六、十七节）')
 // 拒收时入口先往 stderr 打出逐处一行的夹带（几百行），再以非零结束。当场退出的话，接到管道上时排着没写出去的那一截会被截掉
 // （Node 22 文档：管道在 POSIX 上是异步写的；复核在本机裸 node 下实测 6 万行只收到约 1100 行，清点 301 行 40 次里截 14 次）。
 // 行为上的那一半由自检组 admission-entry 的「夹带 300 处、一行不少」证，可它经 tsx 起入口，把入口改回当场退出 300 到 6 万行都照样收全
@@ -14099,8 +14100,8 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
 
   const all = ['a', 'b', 'c', '独立']
   const fam = [['a', 'b', 'c'], ['独立']]
-  const rep = (groups: string[], failed: number, claimed: string[] = [], covered: string[] = []) =>
-    ({ groups, failed, claimed, covered })
+  const rep = (groups: string[], failed: number, claimed: string[] = [], covered: string[] = [],
+    cwds: Record<string, string[]> = {}) => ({ groups, failed, claimed, covered, cwds })
   const green = mergeShards([
     { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0, ['X1.b', 'X1.a'], ['scripts/x.ts']) },
     { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0, ['X1.a'], ['scripts/y.ts', 'scripts/x.ts']) },
@@ -14108,6 +14109,13 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   eq('子进程全绿：零失败、没有问题', [green.failed, green.problems], [0, []])
   eq('认领取各子进程的并集，去重排序', green.claimed, ['X1.a', 'X1.b'])
   eq('出处取各子进程的并集，去重排序', green.covered, ['scripts/x.ts', 'scripts/y.ts'])
+  // 当前目录（ADR-212）：各子进程交回的按组收拢；多跑的那一组已经报成进程问题，它的当前目录不收
+  const dirs = mergeShards([
+    { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0, [], [], { a: ['', 'x/y'], c: [] }) },
+    { family: fam[1], status: 0, signal: null, report: rep(['独立', 'a'], 0, [], [], { 独立: ['独'], a: ['偷跑'] }) },
+  ], all)
+  eq('当前目录按组收拢：派给哪个子进程就收哪个子进程交回的那一份',
+    [...dirs.cwds].sort(), [['a', ['', 'x/y']], ['c', []], ['独立', ['独']]])
   const red = mergeShards([
     { family: fam[0], status: 1, signal: null, report: rep(['a', 'b', 'c'], 2) },
     { family: fam[1], status: 1, signal: null, report: rep(['独立'], 1) },
@@ -14167,14 +14175,20 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   ok('同一组派给了两个子进程：点出那组',
     twice.failed === 1 && twice.problems.length === 1 && twice.problems[0].includes('c'))
   // 子进程写回的那份读不出来，就是没交回结果 —— 不能半截读进去、更不能当成零失败
-  const text = JSON.stringify({ groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'] })
+  const text = JSON.stringify({ groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'], cwds: { a: ['', 'p'] } })
   eq('读得出的回报原样交回', readShardReport(text),
-    { groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'] })
+    { groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'], cwds: { a: ['', 'p'] } })
+  // 上面四条反例都带着合法的 cwds 一栏：不带的话每条都因为缺这一栏读不出，原本要验的那一处坏了也照样绿
+  eq('没有当前目录那一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [] })), undefined)
+  eq('当前目录那一栏是 null 读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: null })), undefined)
+  eq('当前目录那一栏是数组读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: [] })), undefined)
+  eq('某组的当前目录不是字符串数组读不出',
+    readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: { a: [1] } })), undefined)
   eq('写了一半的回报读不出', readShardReport(text.slice(0, -3)), undefined)
-  eq('失败数不是非负整数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: -1, claimed: [], covered: [] })), undefined)
-  eq('失败数是小数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0.5, claimed: [], covered: [] })), undefined)
-  eq('缺一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [] })), undefined)
-  eq('组名不是字符串读不出', readShardReport(JSON.stringify({ groups: [1], failed: 0, claimed: [], covered: [] })), undefined)
+  eq('失败数不是非负整数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: -1, claimed: [], covered: [], cwds: {} })), undefined)
+  eq('失败数是小数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0.5, claimed: [], covered: [], cwds: {} })), undefined)
+  eq('缺一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], cwds: {} })), undefined)
+  eq('组名不是字符串读不出', readShardReport(JSON.stringify({ groups: [1], failed: 0, claimed: [], covered: [], cwds: {} })), undefined)
   eq('根不是对象读不出', readShardReport('[]'), undefined)
 }
 
@@ -14340,9 +14354,13 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
     const groups = scanned.groups.map(g => g.id === id ? { ...g, needs: [] } : g)
     return said(judgeShares(groups, scanned.effects)).filter(f => !before.has(f))
   }
+  // 这一族共用的当前目录 `pipeCwd`（顶层写死的 tmp/pipeline，ADR-212）也算一处路径：五组都提到它，
+  // memory 自成一族之后，它与另外四组之间两个方向各报一条
   eq('真 selfcheck.ts 拿掉 memory 的 needs：它读 collect 写的 dir、render 写的 rendered，自成一族',
     dropped('memory'),
-    ['family dir: collect → memory', 'family rendered: render → memory'])
+    ['family dir: collect → memory', 'family rendered: render → memory',
+      ...['collect', 'enrich', 'render', 'resume-after-render-keeps-creators'].flatMap(g =>
+        [`family tmp/pipeline: ${g} → memory`, `family tmp/pipeline: memory → ${g}`])].sort())
   eq('真 selfcheck.ts 拿掉 enrich 的 needs：render 仍把它连在族里，只在选跑时读不到 dir',
     dropped('enrich'), ['closure dir: collect → enrich'])
   // 阳性对照（登记先后）：ADR-131 发现二复核者在副本里做过的那一挪 —— positive 挪到 reject 之后。
@@ -14358,6 +14376,50 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
   eq('真 selfcheck.ts 把 review-cli-entry-positive 挪到 reject 之后：报 reject 先读了初始值',
     moved('review-cli-entry-positive', 'review-cli-entry-reject'),
     ['order reviewCliEntryPositive: review-cli-entry-positive → review-cli-entry-reject'])
+}
+})
+await group('h-group-cwd', () => {
+harness('自检组子进程的当前目录：与别族碰到的 tmp 路径重叠就报（ADR-212）')
+{
+  // 期望按 share-rule.ts 里 judgeCwds 头注与 judgeShares 的判据手推：当前目录算这一组又读又写了那一处；
+  // 与别族碰到的路径相同、或一处是另一处的上级目录，两个方向各报一条 family；空串是 tmp 本身
+  const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
+    s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
+  const fx = (paths: string[] = []) => ({ reads: new Set(paths), writes: new Set(paths) })
+  const two: Group[] = [{ id: 'a', needs: [] }, { id: 'b', needs: [] }]
+  const judge = (cwds: Record<string, string[]>, effects: Record<string, string[]> = {}, groups = two) =>
+    said(judgeCwds(groups, new Map(groups.map(g => [g.id, fx(effects[g.id])])), new Map(Object.entries(cwds))))
+  eq('拿 tmp 本身当当前目录：与别族在 tmp 下写死的路径重叠，两个方向都报',
+    judge({ a: [''] }, { b: ['tmp/x'] }), ['family tmp/x: b → a', 'family tmp: a → b'])
+  eq('两族都拿 tmp 本身当当前目录：两个方向都报', judge({ a: [''], b: [''] }), ['family tmp: a → b', 'family tmp: b → a'])
+  eq('各用各的目录：不报', judge({ a: ['a'], b: ['b'] }), [])
+  eq('一组的当前目录在另一组的底下：两个方向都报', judge({ a: ['a'], b: ['a/sub'] }),
+    ['family tmp/a/sub: b → a', 'family tmp/a: a → b'])
+  eq('名字只是前缀相同、不是上级目录：不报', judge({ a: ['a'], b: ['ab'] }), [])
+  eq('当前目录与别族写死的路径相同：报', judge({ a: ['x'] }, { b: ['tmp/x/f.json'] }),
+    ['family tmp/x/f.json: b → a', 'family tmp/x: a → b'])
+  const same: Group[] = [{ id: 'a', needs: [] }, { id: 'b', needs: ['a'] }]
+  eq('同一族共用当前目录：不报（同一个进程里按登记顺序跑）', judge({ a: [''], b: [''] }, {}, same), [])
+  eq('没起过子进程的组只按扫描判', judge({}, { a: ['tmp/x'], b: ['tmp/y'] }), [])
+  const effects = new Map(two.map(g => [g.id, fx()]))
+  judgeCwds(two, effects, new Map([['a', ['']]]))
+  eq('合当前目录用的是副本：扫描交回的读写不被改', [[...effects.get('a')!.reads], [...effects.get('a')!.writes]], [[], []])
+  let stray = ''
+  try { judgeCwds(two, effects, new Map([['c', ['']]])) } catch (e) { stray = (e as Error).message }
+  ok('记下了当前目录的组不在组表里：当场抛并点名', stray.includes('c'))
+
+  // 当前目录落在 tmp 底下哪一处
+  eq('就是 tmp 本身：空串', cwdUnder('/t/k', '/t/k'), '')
+  eq('tmp 底下：相对路径，用正斜杠', cwdUnder('/t/k', '/t/k/x/y'), 'x/y')
+  eq('名字只是前缀相同：不在底下', cwdUnder('/t/k', '/t/kx'), undefined)
+  eq('tmp 底下名字以两个点开头的目录：仍在底下', cwdUnder('/t/k', '/t/k/..foo'), '..foo')
+  eq('tmp 的上一级：不在底下', cwdUnder('/t/k', '/t'), undefined)
+  eq('仓库根：不在底下', cwdUnder('/t/k', '/repo'), undefined)
+  const real = (p: string) => p.replace(/^\/tmp\//, '/private/tmp/')
+  eq('tmp 是软链、当前目录取的是真实路径：照样认得', cwdUnder('/tmp/k', '/private/tmp/k/z', real), 'z')
+  eq('tmp 取的是真实路径、当前目录经软链给：照样认得', cwdUnder('/private/tmp/k', '/tmp/k/z', real), 'z')
+  const link = (p: string) => p.replace(/^\/t\/k\/link(?=\/|$)/, '/t/k/a')
+  eq('经 tmp 里的软链起：记成它指向的那一处', cwdUnder('/t/k', '/t/k/link/z', link), 'a/z')
 }
 })
 await group('h-mutation-fixture-git-env', () => {
@@ -18532,7 +18594,7 @@ await group('u9-review-output', () => {
 
 })
 
-// KOL-21 R 片：U9 × P1 交点的独立认领（ADR-183 第 96 行；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
+// 独立黑盒测试包 R 片：U9 × P1 交点的独立认领（ADR-183「独立测试包的四片」一节第 4 片；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
 // 这一组只用独立测试包里冻结了的粉丝三档用例 —— 排序函数层 G5-01…03、名单层 G6-01…03（真实 render 入口）—— 经接线
 // （`scripts/independent-blackbox-tests-wiring.ts`）跑一遍，冻结用例自己判，这里只读回结论，不改断言、不改冻结字节。
 // 判过的意思是那一例的结论是 pass、而且每一项都是 pass：附条件、待复核、不判、失格的都认不下。
@@ -21849,7 +21911,7 @@ await group('h-worker-output-reclaim', async () => {
   }
 })
 
-// ---- 零请求观察器（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）：判定、预加载、运行器各一组 ----
+// ---- 零请求观察器（ADR-70 末尾讲零请求观察器与外层断网的那一节）：判定、预加载、运行器各一组 ----
 // 期望值照那一节「对作者公开的协议」与下面手写的事实推，没有拿观察器跑出来的东西回填
 await group('h-observer-rule', () => {
   harness('零请求观察器的判定：响应脚本、事件读回、一次观察归哪一档、零请求四档、断网认证、白名单环境与沙箱参数')
