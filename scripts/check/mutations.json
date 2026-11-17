@@ -26079,6 +26079,188 @@
       "kills": [
         "拆过的记录主文件里没起名字的欠条：报一条；历史文件里、没拆过的记录里没名字的不报"
       ]
+    },
+    {
+      "id": "M-H205-a",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "某个文件里的工单号比基线只多一个时不算多 —— 每次往旧决策记录里添一个号都悄悄放过去",
+      "find": "    if (n > b) grown.push({ path, before: b, now: n })",
+      "replace": "    if (n > b + 1) grown.push({ path, before: b, now: n })",
+      "by": "test",
+      "kills": [
+        "比基线多一个也算多；基线上没有的文件有一个就算多；一样多的不列"
+      ]
+    },
+    {
+      "id": "M-H205-b",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "基线上没有的文件拿它自己当基线 —— 新文件里写多少工单号都不红，规矩只守得住旧文件",
+      "find": "    const b = before.get(path) ?? 0, n = now.get(path) ?? 0",
+      "replace": "    const b = before.get(path) ?? now.get(path) ?? 0, n = now.get(path) ?? 0",
+      "by": "test",
+      "kills": [
+        "比基线多一个也算多；基线上没有的文件有一个就算多；一样多的不列"
+      ]
+    },
+    {
+      "id": "M-H205-c",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "数基线时路径前面的提交号不去掉 —— 两边的路径永远对不上，每个文件都像是新冒出来的",
+      "find": "    if (prefix && path.startsWith(prefix)) path = path.slice(prefix.length)",
+      "replace": "    if (prefix && path.startsWith(prefix)) path = path.slice(0)",
+      "by": "test",
+      "kills": [
+        "数基线那棵树时路径前面的「提交号:」去掉，两边按同一个路径对得上"
+      ]
+    },
+    {
+      "id": "M-H205-d",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "一处工单号都没有时当成无从判断 —— 清干净了的仓库反倒永远红",
+      "find": "  if (status === 1) return ''",
+      "replace": "  if (status === 1) return null",
+      "by": "test",
+      "kills": [
+        "git grep 一处都没找到（退 1）算零个，不算出错；退 0 原样交回；别的退出码与被信号杀掉都算无从判断"
+      ]
+    },
+    {
+      "id": "M-H205-e",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "git grep 出错时照样拿它的输出去数 —— 什么都没数到也说零个、通过",
+      "find": "  if (status === 0) return stdout",
+      "replace": "  if (status === 0 || status === 2) return stdout",
+      "by": "test",
+      "kills": [
+        "git grep 一处都没找到（退 1）算零个，不算出错；退 0 原样交回；别的退出码与被信号杀掉都算无从判断"
+      ]
+    },
+    {
+      "id": "M-H205-f",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "分支上的改动也当成在主干上，只报数不判定 —— 多了号永远不红",
+      "find": "  if (onTrunk) {",
+      "replace": "  if (onTrunk || !onTrunk) {",
+      "by": "test",
+      "kills": [
+        "分支上有文件比基线多：判红，红的那几行写着路径与前后个数"
+      ]
+    },
+    {
+      "id": "M-H205-g",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "主干上推送也判红 —— 推送之后才跑的检查让主干变红",
+      "find": "  if (onTrunk) {\n    out.push",
+      "replace": "  if (false) {\n    out.push",
+      "by": "test",
+      "kills": [
+        "主干上多了只报数不判定：不红，但照样把多了的文件列出来"
+      ]
+    },
+    {
+      "id": "M-H205-h",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "分支上有文件多了号仍以通过收尾 —— 列出来了却不拦",
+      "find": "  return { ok: false, out, err }",
+      "replace": "  return { ok: true, out, err }",
+      "by": "test",
+      "kills": [
+        "分支上有文件比基线多：判红，红的那几行写着路径与前后个数",
+        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
+      ]
+    },
+    {
+      "id": "M-H205-i",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "按行数而不是按处数 —— 往已经有号的那一行里再添一个号看不出多",
+      "find": "  return ['grep', '-o', '-z',",
+      "replace": "  return ['grep', '-z',",
+      "by": "test",
+      "kills": [
+        "数的时候每一处单出一行、路径后跟 NUL、跳过二进制文件；给了树就数那棵树，没给就数工作区",
+        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
+      ]
+    },
+    {
+      "id": "M-H205-j",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "只认工单号、不认指向一张卡的链接 —— 换成贴链接就绕过去了",
+      "find": "export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\\\.app/[^/[:space:]]+/issue/[^[:space:]]*'",
+      "replace": "export const TICKET_PATTERN = 'KOL-[0-9]+'",
+      "by": "test",
+      "kills": [
+        "入口：新文件里只有项目页链接与不带数字的词时不红；写进一条指向卡的链接就以 1 退出，点出新文件从 0 到 1"
+      ]
+    },
+    {
+      "id": "M-H205-k",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "卡片链接末尾带着的号另算一处 —— 同一条链接数成两处，数和人读的对不上",
+      "find": "/issue/[^[:space:]]*'",
+      "replace": "/issue/'",
+      "by": "test",
+      "kills": [
+        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
+      ]
+    },
+    {
+      "id": "M-H205-l",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs.ts",
+      "why": "多了号的分支仍以 0 退出 —— 检查链照样往下走，CI 一片绿",
+      "find": "process.exit(ok ? 0 : 1)",
+      "replace": "process.exit(0)",
+      "by": "test",
+      "kills": [
+        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
+      ]
+    },
+    {
+      "id": "M-H205-m",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs.ts",
+      "why": "无从判断时以 0 退出 —— 不是仓库、git 出错都当成通过",
+      "find": "  console.error(`✗ 外部工单号：无从判断 —— ${why}`)\n  process.exit(1)",
+      "replace": "  console.error(`✗ 外部工单号：无从判断 —— ${why}`)\n  process.exit(0)",
+      "by": "test",
+      "kills": [
+        "入口：不是 git 仓库时说无从判断，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H205-n",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs.ts",
+      "why": "拿现在的工作区当基线 —— 自己和自己比，永远一个都不多",
+      "find": "const before = count(baseline.base)",
+      "replace": "const before = count()",
+      "by": "test",
+      "kills": [
+        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
+      ]
+    },
+    {
+      "id": "M-H205-o",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs.ts",
+      "why": "数基线时不按那棵树切路径 —— 基线那一侧的路径全带着提交号，旧文件个个像新文件",
+      "find": "  return out === null ? null : parseRefs(out, tree)",
+      "replace": "  return out === null ? null : parseRefs(out)",
+      "by": "test",
+      "kills": [
+        "入口：旧文件里撤掉一个号以 0 退出，列出那个文件从 3 到 2"
+      ]
     }
   ],
   "exemptions": [
