@@ -7,6 +7,10 @@
     "bytes": 273887,
     "sha256": "2c9fbc46e52960005d28f76335d324e983237bff00bc3dc11ff8cc6e1147ebce"
   },
+  "ADR-154-十句通用句还没进-process：逐句记来源、起因与欠条.md": {
+    "bytes": 178065,
+    "sha256": "323d0a03f33b3afc3791c0a45cfd40f0ff936ddc9c8b7f771b3ed2ee97185725"
+  },
   "ADR-70-变异可以指定验证者：入口的接线从测不了变成有负片.md": {
     "bytes": 678961,
     "sha256": "3bb4ba7e72ded72c15688d47b4ff723c417ff5f00240e99f08b5a14ec9ddf82e"
