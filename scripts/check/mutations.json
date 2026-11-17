@@ -28658,6 +28658,16 @@
       "replace": "  const text = readFileSync(REGISTRY_PATH, 'utf8')",
       "by": "test",
       "kills": ["入口：把新文件塞进「待挪」以 1 退出，点出待挪多了它"]
+    },
+    {
+      "id": "M-H217-y",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "无从判断时以 0 结束 —— 基线读坏了、不是仓库，闸门照样放行",
+      "find": "  console.error(`✗ 起子进程的接口：无从判断 —— ${why}`)\n  return 1\n",
+      "replace": "  console.error(`✗ 起子进程的接口：无从判断 —— ${why}`)\n  return 0\n",
+      "by": "test",
+      "kills": ["入口：基线那份登记表解析不了时说无从判断、以 1 结束", "入口：基线上有闸门却没有登记表时说无从判断、以 1 结束"]
     }
   ],
   "exemptions": [

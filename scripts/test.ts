@@ -23185,7 +23185,8 @@ await group('h-child-process-judge', () => {
   const reg = (registered: Record<string, string>, toMove: string[]): LaunchRegistry => ({ registered: new Map(Object.entries(registered)), toMove })
   const text = (o: unknown) => JSON.stringify(o)
   const good = { '说明': 'x', '登记': { 'a.ts': '理由' }, '待挪': ['b.ts', 'c.ts'] }
-  eq('读登记表：两节原样读出', [...parseRegistry(text(good)).registered], [['a.ts', '理由']])
+  const parsed = parseRegistry(text(good))
+  eq('读登记表：两节原样读出', [[...parsed.registered], parsed.toMove], [[['a.ts', '理由']], ['b.ts', 'c.ts']])
   const bad = [
     { ...good, '多的': 1 }, { '说明': 'x', '登记': { 'a.ts': '理由' } }, { ...good, '登记': { 'a.ts': '  ' } }, { ...good, '登记': ['a.ts'] },
     { ...good, '待挪': ['c.ts', 'b.ts'] }, { ...good, '待挪': ['b.ts', 'b.ts'] }, { ...good, '待挪': ['a.ts'] }, { ...good, '说明': 1 }, [],
@@ -23202,6 +23203,11 @@ await group('h-child-process-judge', () => {
   eq('登记比基线多出的行与待挪少了的文件单列', [r.newRegistered, r.movedOut], [[{ path: 'r.ts', why: '新' }], ['x.ts']])
   const first = judgeUse(sites, reg({ 'a.ts': '理由' }, ['b.ts', 'd.ts']), { kind: 'no-gate' })
   eq('基线上还没有这道闸门：待挪不比基线，登记整份列出', [first.grownToMove, first.newRegistered.length, first.unlisted], [[], 1, []])
+  const firstOut = useLines(first, false, 'origin/main（abc1234）', true).out
+  ok('第一次的报告：首行带着比的是哪个起点，登记整份逐行列出文件与理由，标题说明是整份',
+    firstOut[0].includes('相对 origin/main（abc1234）') && firstOut.some(l => l.includes('登记表整份给评审看')) && firstOut.includes('    + a.ts —— 理由'))
+  const laterOut = useLines(r, false, 's', false).out
+  ok('之后的报告：只列登记比基线多出的行，标题说明是多出来的', laterOut.some(l => l.includes('「登记」比基线多了')) && laterOut.includes('    + r.ts —— 新') && !laterOut.some(l => l.includes('a.ts —— 理由')))
   const branch = useLines(r, false, 'origin/main（abc1234）', false)
   ok('分支上有不对的就红，每一样都点出文件',
     !branch.ok && ['d.ts 碰了', '多了 n.ts', 'c.ts 已经一处都不碰', 'r.ts 不在仓库里', '第 3 行（模块名）'].every(w => branch.err.some(l => l.includes(w))))
@@ -23216,7 +23222,8 @@ await group('h-child-process-entry', () => {
   const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-child-process-'))
   const entry = cxJoin(process.cwd(), 'scripts/check/child-process-use.ts')
   const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS']) delete gitEnv[k]
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
   const run = (cwd = root) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: gitEnv })
   const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
   const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
@@ -23242,6 +23249,11 @@ await group('h-child-process-entry', () => {
     registry([])
     const shrunk = run()
     eq('入口：挪完删掉那一行以 0 退出，列出挪走了它', [shrunk.status, String(shrunk.stdout).includes('挪走了 old.ts')], [0, true])
+    // 基线那份登记表坏了：无从判断，不当成空表
+    g('checkout', '-q', '-f', 'main'); put('scripts/check/child-process-registry.json', '{'); g('commit', '-qam', 'broken')
+    g('checkout', '-q', '-b', 'work-broken'); g('commit', '-q', '--allow-empty', '-m', 'w'); registry(['old.ts'])
+    const brokenBase = run()
+    eq('入口：基线那份登记表解析不了时说无从判断、以 1 结束', [brokenBase.status, String(brokenBase.stderr).includes('基线那份登记表解析不了')], [1, true])
     // 基线上有这道闸门却没有登记表：无从判断
     g('checkout', '-q', '-f', 'main'); g('rm', '-q', 'scripts/check/child-process-registry.json'); g('commit', '-q', '-m', 'drop')
     g('checkout', '-q', '-b', 'work2'); g('commit', '-q', '--allow-empty', '-m', 'w'); registry([])
@@ -23249,7 +23261,7 @@ await group('h-child-process-entry', () => {
     eq('入口：基线上有闸门却没有登记表时说无从判断、以 1 结束', [noBase.status, String(noBase.stderr).includes('先合主干')], [1, true])
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
     const bare = run()
-    eq('入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 起子进程的接口：无从判断')], [1, true])
+    eq('起子进程接口闸门的入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 起子进程的接口：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 
