@@ -25280,7 +25280,7 @@
     {
       "id": "M-D6-bs",
       "req": "D6.ab",
-      "why": "KOL-108 第 1 条退回去：补 profile 的循环被 402 或费用错误打断时不打「N 人补全失败」那一行，汇总的 profile_failed 有数、stderr 却一句不提",
+      "why": "退回 402 收尾修复的第 1 项：补 profile 的循环被 402 或费用错误打断时不打「N 人补全失败」那一行，汇总的 profile_failed 有数、stderr 却一句不提",
       "file": "scripts/collect.ts",
       "find": "  } finally {\n    if (profileFailed) console.error(",
       "replace": "  } finally {\n    if (profileFailed && false) console.error(",
@@ -25303,7 +25303,7 @@
     {
       "id": "M-D6-bt",
       "req": "D6.aa",
-      "why": "KOL-108 第 2 条退回去：收尾那次保存评审正本失败时不算保存失败，按其余运行错误退 1，调用方读不出「没存上」",
+      "why": "退回 402 收尾修复的第 2 项：收尾那次保存评审正本失败时不算保存失败，按其余运行错误退 1，调用方读不出「没存上」",
       "file": "scripts/collect.ts",
       "find": "  saving(() => reviews.save(new Date().toISOString()))\n  saving(() => persistListAndStatus(",
       "replace": "  reviews.save(new Date().toISOString())\n  saving(() => persistListAndStatus(",
@@ -25315,7 +25315,7 @@
     {
       "id": "M-D6-bu",
       "req": "D6.aa",
-      "why": "KOL-108 第 2 条退回去：收尾写名单失败时不算保存失败，按其余运行错误退 1，调用方读不出名单没写上",
+      "why": "退回 402 收尾修复的第 2 项：收尾写名单失败时不算保存失败，按其余运行错误退 1，调用方读不出名单没写上",
       "file": "scripts/collect.ts",
       "find": "  saving(() => persistListAndStatus(dir, state, fin.kept, fin.memory_status))\n",
       "replace": "  persistListAndStatus(dir, state, fin.kept, fin.memory_status)\n",
