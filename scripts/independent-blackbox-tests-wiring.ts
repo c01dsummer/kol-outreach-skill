@@ -8,7 +8,7 @@
  * 冻结目录一个字节都不改（嵌入提交按 freeze-tests.sha256 核等；需求所有者批过的文件名例外与改后两份的 SHA256 见 ADR-195 第四节）。这里只做冻结包 `INTEGRATION.md` 写明留给整合方的几样：
  *
  * - `facility`：观察器的公开调用面，`observer-run.ts` 的 `certifyIsolation`、`runObserved` 与 `observer-rule.ts` 的
- *   `zeroVerdict`、`readEvents`（ADR-70 末尾那一节，`Zero` 是修复轮 1 修订后带 side/cause 的那一版）。`readEvents` 交回的
+ *   `zeroVerdict`、`readEvents`（ADR-70「零请求观察器与外层断网」，`Zero` 是修复轮 1 修订后带 side/cause 的那一版）。`readEvents` 交回的
  *   事件逐条浅拷贝一份，只为过类型（接口类型的事件不能直接当 `Record` 用），字段一个不增不减；其余原样传入。
  * - `sortForOutput`：`scripts/lib/rows.ts` 的导出函数，同一个数组原样传进去（G5-03 要看调用后输入有没有被改）。
  * - `conditions`：每条 `ref` 写着出处。登的是冻结单 B 节把「建议问谁」写成整合方、整合方又答得出出处的（冻结单 :1586、:1592）：

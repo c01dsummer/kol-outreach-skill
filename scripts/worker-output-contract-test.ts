@@ -189,7 +189,7 @@ const pause = (ms: number): void => { Atomics.wait(new Int32Array(new SharedArra
  */
 export function reclaimOwned(roots: readonly string[], groups: readonly number[] | null, deadlineMs = 5000): string | undefined {
   if (groups === null) return `kept ${roots.join(', ')}: the started process groups cannot be listed`
-  // An unreadable or stalled `ps` counts as not seen yet: look again until the deadline (the guardian's rule, ADR-70 line 2762).
+  // An unreadable or stalled `ps` counts as not seen yet: look again until the deadline (the guardian's rule, ADR-70「还第 2741 行」).
   for (const until = Date.now() + deadlineMs; ;) {
     const live = liveGroups(groups)
     const holders = live !== null && live.length === 0 ? cwdHolders(roots) : []
