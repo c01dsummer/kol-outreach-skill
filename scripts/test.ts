@@ -2974,6 +2974,31 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
 
   eq('记忆完好时只剩没联系过的那个', finalize(batch, 'p').kept.map(c => c.handle), ['fresh'])
 
+  // P4.a 的计数：「对任一 contacted 或 blocked 的记录，kept 不含该创作者，filtered_contacted 加一」。
+  // 读法：每排除一个候选加一 —— 不随它名下被标记的记录条数涨，标记只落在关联账号上也照样数。
+  // 同一个人这次没合并成一个候选、两个账号各成一行时，按两个候选各数一次，与名单的行数同一口径（ADR-214）。
+  {
+    const countMem = join(tmpdir(), `kol-p4count-${process.pid}.json`)
+    const rec = (platform: string, handle: string, over: Record<string, unknown>) => ({
+      platform, handle, nickname: '', followers: 50000, first_seen: '2026-01-01', recommendations: [],
+      contacted: false, replied: false, blocked: false, note: '', ...over })
+    writeFileSync(countMem, JSON.stringify({ version: 1, updated_at: '', creators: {
+      'tiktok:both': rec('tiktok', 'both', { contacted: true, linked_to: 'instagram:both' }),
+      'instagram:both': rec('instagram', 'both', { contacted: true }),
+      'tiktok:via': rec('tiktok', 'via', { linked_to: 'instagram:via' }),
+      'instagram:via': rec('instagram', 'via', { blocked: true }),
+    } }), 'utf8')
+    useMemoryFile(countMem)
+    const both = finalize([mk('tiktok', 'both', { followers: 50000 })], 'p')
+    eq('一个候选名下两条记录都被标记：被排除', both.kept.length, 0)
+    eq('一个候选名下两条记录都被标记：filtered_contacted 只加一', both.filtered_contacted, 1)
+    const via = finalize([mk('tiktok', 'via', { followers: 50000 })], 'p')
+    eq('候选自己那条没标、关联账号那条被屏蔽：被排除', via.kept.length, 0)
+    eq('候选自己那条没标、关联账号那条被屏蔽：filtered_contacted 照样加一', via.filtered_contacted, 1)
+    unlinkSync(countMem)
+    useMemoryFile(tmp)
+  }
+
   truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
 
   let threw = ''

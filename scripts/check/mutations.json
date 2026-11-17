@@ -21563,6 +21563,42 @@
       ]
     },
     {
+      "id": "M-P4-w",
+      "req": "P4.a",
+      "why": "filtered_contacted 按被标记的记录条数累加：一个候选名下两条记录都被标记时数成 2，统计多报了被挡掉的人。",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (entries.some(e => e.contacted || e.blocked)) { con++; continue }",
+      "replace": "    if (entries.some(e => e.contacted || e.blocked)) { con += entries.filter(e => e.contacted || e.blocked).length; continue }",
+      "by": "test",
+      "kills": [
+        "一个候选名下两条记录都被标记：filtered_contacted 只加一"
+      ]
+    },
+    {
+      "id": "M-P4-x",
+      "req": "P4.a",
+      "why": "只有候选自己那条记录被标记才计数：标记落在关联账号上时人被挡掉了，统计却少报。",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (entries.some(e => e.contacted || e.blocked)) { con++; continue }",
+      "replace": "    if (entries.some(e => e.contacted || e.blocked)) { const own = mem.creators[key(c)]; if (own && (own.contacted || own.blocked)) con++; continue }",
+      "by": "test",
+      "kills": [
+        "候选自己那条没标、关联账号那条被屏蔽：filtered_contacted 照样加一"
+      ]
+    },
+    {
+      "id": "M-P4-y",
+      "req": "P4.a",
+      "why": "查到的记录全都被标记才计数：一条标了、一条没标时人被挡掉了，统计却少报。",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (entries.some(e => e.contacted || e.blocked)) { con++; continue }",
+      "replace": "    if (entries.some(e => e.contacted || e.blocked)) { if (entries.every(e => e.contacted || e.blocked)) con++; continue }",
+      "by": "test",
+      "kills": [
+        "候选自己那条没标、关联账号那条被屏蔽：filtered_contacted 照样加一"
+      ]
+    },
+    {
       "id": "M-D26-a",
       "req": "D26.a",
       "why": "忽略未知或位置参数，未在读取任务前拒绝。",
