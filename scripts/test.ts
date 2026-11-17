@@ -15808,23 +15808,19 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   eq('字段：别的文件里给它赋值也算（lib 下的算，验证者里的不算），赋值处带着自己所在的文件', toyOf('lonely().bb')?.sites.map(s => [s.file, toyFiles[s.file].slice(s.start, s.end)]).sort(),
     [['scripts/check/c.ts', 'bb: 1'], ['scripts/lib/e.ts', 'bb: 3']])
 
-  // 新加的行：读 git diff 的输出
-  const diff = [
-    'diff --git a/scripts/check/a.ts b/scripts/check/a.ts', '--- a/scripts/check/a.ts', '+++ b/scripts/check/a.ts',
-    '@@ -3,2 +3,3 @@', ' same', '-old', '+new3', '++++ 四个加号开头的新增行', '@@ -10 +11 @@', '-x', '+y11', '\\ No newline at end of file',
-    'diff --git a/scripts/check/gone.ts b/scripts/check/gone.ts', '--- a/scripts/check/gone.ts', '+++ /dev/null', '@@ -1 +0,0 @@', '-bye',
-    'diff --git "a/scripts/check/\\344\\270\\255.ts" "b/scripts/check/\\344\\270\\255.ts"', '--- /dev/null', '+++ "b/scripts/check/\\344\\270\\255.ts"', '@@ -0,0 +1,2 @@', '+one', '+two',
-    '+++ "b/scripts/check/q\\"\\tx.ts"', '@@ -0,0 +1 @@', '+q',
-    'diff --git a/scripts/check/a b.ts b/scripts/check/a b.ts', '--- a/scripts/check/a b.ts\t', '+++ b/scripts/check/a b.ts\t', '@@ -1,3 +1,3 @@', ' x', '', '-y', '+z', '',
-  ].join('\n')
-  eq('新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数',
-    (() => { try { return [...addedLines(diff)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } })(), [['scripts/check/a.ts', [4, 5, 11]], ['scripts/check/中.ts', [1, 2]], ['scripts/check/q"\tx.ts', [1]], ['scripts/check/a b.ts', [3]]])
-  const unreadable = (text: string) => { try { addedLines(text); return '没抛' } catch (e) { return String(e).includes('读不懂的 diff 行') } }
-  eq('新加的行：读不懂的行抛错，不悄悄当成没改 —— 带颜色的、块里多出来的', ['\u001b[1mdiff --git a/x b/x\u001b[m', '+++ b/x\n@@ -1 +1 @@\n-a\n+b\n+c', '+++ b/x\n@@ -1 +1 @@\n?a', '+++ b/x\n@@ -1 +1,2 @@\n-a\n-b\n+c\n+d', '+++ b/x\n@@ -1,2 +1 @@\n+b\n+c\n-a\n-d'].map(unreadable), [true, true, true, true, true])
-  eq('新加的行：块还没完 diff 就断了也抛错 —— 缺的那几行里可能有新字段；末尾带不带换行都一样',
-    ['+++ b/x\n@@ -0,0 +1,2 @@\n+kept', '+++ b/x\n@@ -0,0 +1,2 @@\n+kept\n', '+++ b/x\n@@ -1,2 +1,3 @@\n-a\n+b\n', '+++ b/x\n@@ -1 +1,2 @@\n+kept\n'].map(unreadable), [true, true, true, true])
-  eq('新加的行：末尾换行切出来的空串不算一行；块的最后一行真是空的上下文行、末尾不带换行的最后一行，照常数',
-    ['+++ b/x\n@@ -1,2 +1,2 @@\n-a\n+b\n\n', '+++ b/x\n@@ -0,0 +1,2 @@\n+a\n+b'].map(t => { try { return [...addedLines(t)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } }), [[['x', [1]]], [['x', [1, 2]]]])
+  // 新加的行：文件名是 git 列出来的（原样作键），每个文件一份 git diff -U0 的输出，只读块头
+  const added = (diffs: [string, string][]) => { try { return [...addedLines(diffs)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } }
+  eq('新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）',
+    added([
+      ['scripts/check/a.ts', ['diff --git a/scripts/check/a.ts b/scripts/check/a.ts', 'index 1111111..2222222 100644', '--- a/scripts/check/a.ts', '+++ b/scripts/check/a.ts',
+        '@@ -3 +3,2 @@', '-old', '+new3', '+@@ -1 +99 @@ 正文里像块头的新增行', '@@ -10 +12 @@', '-x', '+y12', '\\ No newline at end of file', ''].join('\n')],
+      ['scripts/check/gone.ts', 'diff --git a/scripts/check/gone.ts b/scripts/check/gone.ts\n--- a/scripts/check/gone.ts\n+++ b/scripts/check/gone.ts\n@@ -5,2 +4,0 @@\n-p\n-q\n'],
+      ['scripts/check/same.ts', ''],
+      ['scripts/check/😀\t.ts', 'diff --git "a/scripts/check/😀\\t.ts" "b/scripts/check/😀\\t.ts"\nnew file mode 100644\n--- /dev/null\n+++ "b/scripts/check/😀\\t.ts"\n@@ -0,0 +1,2 @@\n+one\n+two\n'],
+    ]), [['scripts/check/a.ts', [3, 4, 12]], ['scripts/check/😀\t.ts', [1, 2]]])
+  eq('新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、块头不是块头样子的、合并时的三方块头',
+    ['\u001b[1mdiff --git a/x b/x\u001b[m\n@@ -1 +1 @@\n-a\n+b\n', 'x: 3 lines changed\n', 'diff --git a/x b/x\n@@ -1 +a @@\n+b\n', 'diff --git a/x b/x\n@@@ -1 -1 +1,2 @@@\n++b\n']
+      .map(t => { const r = added([['x', t]]); return typeof r === 'string' && r.includes('读不懂的 diff') }), [true, true, true, true])
   eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd', 'x'), markSite('f', 'ab cd ab', 'ab', 'x'), markSite('f', 'ab', 'x', 'y'), markSite('f', 'ab', '', 'y')],
     [{ file: 'f', start: 3, end: 5 }, undefined, undefined, undefined])
   eq('变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点', [markSite('f', '__a + b__', 'a + b', 'a - b'), markSite('f', '__a + b__', 'a + b', 'a + b + c'), markSite('f', 'xaay', 'aa', 'a')],

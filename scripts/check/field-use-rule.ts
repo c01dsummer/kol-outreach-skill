@@ -13,7 +13,7 @@
  *    （`find` 在文件里只出现一次，位置是确定的；`find` 与 `replace` 相同的开头结尾不算改动）和这个字段的某一处赋值重叠 —— 变异跑（`npm run mutate`）本来就要求每条变异都被测试打红，
  *    所以重叠就等于「把这个字段的值改坏，有测试会红」。
  * 3. **哪些是「新增」、红不红**（`fieldVerdict`）：字段声明所在的那一行，是这次改动相对基线（`size-rule.ts` 的 `resolveBaseline` 定的起点）
- *    新加的行（`addedLines` 读 `git diff` 的输出）。新增的字段没有变异守着、又没有具名豁免的，红。豁免写在字段声明前面独占几行的注释里、或那一行行尾的注释里：
+ *    新加的行（`addedLines` 读每个文件各自的 `git diff -U0` 块头）。新增的字段没有变异守着、又没有具名豁免的，红。豁免写在字段声明前面独占几行的注释里、或那一行行尾的注释里：
  *    `字段不入断言：<理由>`，理由必填；写了标记没写理由的照样红。HEAD 在主干上只报数（入口管）。
  *
  * ⚠️ 证不了的（ADR-198 第三节）：变异改到了赋值那一处，改坏的是不是这个字段的值、还是只改了旁边的东西，不核；打印出来的文字不是字段；
@@ -186,49 +186,27 @@ export function markSite(file: string, text: string, find: string, replace: stri
   return { file, start: start + head, end: start + find.length - tail }
 }
 
-/** git 引号里的路径（名字里有特殊字符时 `git diff` 这样写）：C 风格转义，`\ooo` 是 UTF-8 的字节 */
-function unquote(path: string): string {
-  if (!path.startsWith('"')) return path
-  const bytes: number[] = [], escapes: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 }
-  for (let i = 1; i < path.length - 1; i++) {
-    if (path[i] !== '\\') { bytes.push(...Buffer.from(path[i])); continue }
-    const octal = /^[0-7]{3}/.exec(path.slice(i + 1))
-    if (octal !== null) { bytes.push(parseInt(octal[0], 8)); i += 3 } else { bytes.push(escapes[path[i + 1]] ?? path.charCodeAt(i + 1)); i++ }
-  }
-  return Buffer.from(bytes).toString('utf8')
-}
-
-/** `git diff` 文件头、块头之外允许出现的行：读到别的（带颜色的、外部 diff 工具的）就是读不懂，不悄悄当成没有改动 */
-const HEADER = /^(diff --git |index |--- |old mode |new mode |deleted file mode |new file mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to |Binary files )/
-
 /**
- * 这次新加的行：读 `git diff` 的输出（入口带的参数见 ADR-198 第四节），交回「文件 → 新加的行号（从 1 起）」。
- * 按块头写的两边行数数，块里以 `+++ ` 开头的新增行不会被当成文件头；空的上下文行可能写成空串，照上下文算。
- * 读不懂的行抛错（入口报「无从判断」、红）：认错了会把新字段当成没改。
+ * 这次新加的行：交回「文件 → 新加的行号（从 1 起）」。文件名与改动文本都由 git 交出，这里不解析文件名、也不逐行数正文：
+ * - 文件名由入口用 `git diff --name-only -z` 列出（空字符分隔，git 不加引号、不转义），原样作键；
+ * - 每个文件各问一次 `git diff -U0 … -- <文件>`，值就是它的输出。`-U0` 下块里没有上下文行，块头 `@@ -a,b +c,d @@` 写的新文件那一边
+ *   第 c 行起的 d 行（d 省略时为 1）就是这一块新加的行；d 为 0 的块只删不加。统一 diff 格式里正文每行都带一个前缀字符（`+`、`-`、空格、`\`），
+ *   所以以 `@@` 开头的行一定是块头。
+ * 读不懂的抛错（入口报「无从判断」、红）：非空的输出不以 `diff --git ` 开头（带颜色的、外部 diff 工具的），或以 `@@` 开头的行不是块头的样子。
+ * 带了上下文行（没用 `-U0`）时上下文行也会算成新加的 —— 只会多报红。
  */
-export function addedLines(diff: string): Map<string, Set<number>> {
+export function addedLines(diffs: Iterable<readonly [string, string]>): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>()
-  let file: string | undefined, line = 0, oldLeft = 0, newLeft = 0 // 块头写的两边各还剩几行
-  const fail = (l: string): never => { throw new Error(`读不懂的 diff 行：${JSON.stringify(l)}`) }
-  const rows = diff.split('\n')
-  if (rows.at(-1) === '') rows.pop() // 输出末尾的换行切出来的那个空串不是一行；块里真的空上下文行在它前面
-  for (const l of rows) {
-    if (oldLeft > 0 || newLeft > 0) {
-      if (l.startsWith('+') && newLeft > 0) { if (file !== undefined) out.set(file, (out.get(file) ?? new Set()).add(line)); line++; newLeft-- }
-      else if (l.startsWith('-') && oldLeft > 0) oldLeft--
-      else if ((l.startsWith(' ') || l === '') && oldLeft > 0 && newLeft > 0) { line++; oldLeft--; newLeft-- }
-      else if (!l.startsWith('\\')) fail(l) // 「\ No newline at end of file」不占行
-      continue
+  for (const [file, diff] of diffs) {
+    if (diff !== '' && !diff.startsWith('diff --git ')) throw new Error(`读不懂的 diff：${file} 的输出不以「diff --git 」开头`)
+    for (const l of diff.split('\n')) {
+      if (!l.startsWith('@@')) continue
+      const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l)
+      if (h === null) throw new Error(`读不懂的 diff 块头：${file}：${JSON.stringify(l)}`)
+      const from = Number(h[1]), count = h[2] === undefined ? 1 : Number(h[2])
+      for (let n = from; n < from + count; n++) out.set(file, (out.get(file) ?? new Set()).add(n))
     }
-    if (l.startsWith('+++ ')) { // 路径里有空格时 git 在没加引号的路径后面补一个制表符
-      const path = l.slice(4)
-      file = (path.startsWith('"') ? unquote(path) : path.replace(/\t$/, '')).replace(/^b\//, ''); continue // 删掉的文件是 /dev/null，块头写着新文件这一边 0 行
-    }
-    const h = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(l)
-    if (h !== null) { oldLeft = h[1] === undefined ? 1 : Number(h[1]); line = Number(h[2]); newLeft = h[3] === undefined ? 1 : Number(h[3]); continue }
-    if (l !== '' && !l.startsWith('\\') && !HEADER.test(l)) fail(l)
   }
-  if (oldLeft > 0 || newLeft > 0) fail('（块还没完，diff 就断了）') // 截断的输入：缺的那几行里可能有新字段
   return out
 }
 
