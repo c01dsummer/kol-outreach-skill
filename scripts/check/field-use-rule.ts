@@ -210,7 +210,9 @@ export function addedLines(diff: string): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>()
   let file: string | undefined, line = 0, oldLeft = 0, newLeft = 0 // 块头写的两边各还剩几行
   const fail = (l: string): never => { throw new Error(`读不懂的 diff 行：${JSON.stringify(l)}`) }
-  for (const l of diff.split('\n')) {
+  const rows = diff.split('\n')
+  if (rows.at(-1) === '') rows.pop() // 输出末尾的换行切出来的那个空串不是一行；块里真的空上下文行在它前面
+  for (const l of rows) {
     if (oldLeft > 0 || newLeft > 0) {
       if (l.startsWith('+') && newLeft > 0) { if (file !== undefined) out.set(file, (out.get(file) ?? new Set()).add(line)); line++; newLeft-- }
       else if (l.startsWith('-') && oldLeft > 0) oldLeft--

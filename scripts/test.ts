@@ -15818,7 +15818,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   const unreadable = (text: string) => { try { addedLines(text); return '没抛' } catch (e) { return String(e).includes('读不懂的 diff 行') } }
   eq('新加的行：读不懂的行抛错，不悄悄当成没改 —— 带颜色的、块里多出来的', ['\u001b[1mdiff --git a/x b/x\u001b[m', '+++ b/x\n@@ -1 +1 @@\n-a\n+b\n+c', '+++ b/x\n@@ -1 +1 @@\n?a', '+++ b/x\n@@ -1 +1,2 @@\n-a\n-b\n+c\n+d', '+++ b/x\n@@ -1,2 +1 @@\n+b\n+c\n-a\n-d'].map(unreadable), [true, true, true, true, true])
   eq('新加的行：块还没完 diff 就断了也抛错 —— 缺的那几行里可能有新字段；末尾带不带换行都一样',
-    ['+++ b/x\n@@ -0,0 +1,2 @@\n+kept', '+++ b/x\n@@ -0,0 +1,2 @@\n+kept\n', '+++ b/x\n@@ -1,2 +1,3 @@\n-a\n+b\n'].map(unreadable), [true, true, true])
+    ['+++ b/x\n@@ -0,0 +1,2 @@\n+kept', '+++ b/x\n@@ -0,0 +1,2 @@\n+kept\n', '+++ b/x\n@@ -1,2 +1,3 @@\n-a\n+b\n', '+++ b/x\n@@ -1 +1,2 @@\n+kept\n'].map(unreadable), [true, true, true, true])
+  eq('新加的行：末尾换行切出来的空串不算一行；块的最后一行真是空的上下文行、末尾不带换行的最后一行，照常数',
+    ['+++ b/x\n@@ -1,2 +1,2 @@\n-a\n+b\n\n', '+++ b/x\n@@ -0,0 +1,2 @@\n+a\n+b'].map(t => { try { return [...addedLines(t)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } }), [[['x', [1]]], [['x', [1, 2]]]])
   eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd', 'x'), markSite('f', 'ab cd ab', 'ab', 'x'), markSite('f', 'ab', 'x', 'y'), markSite('f', 'ab', '', 'y')],
     [{ file: 'f', start: 3, end: 5 }, undefined, undefined, undefined])
   eq('变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点', [markSite('f', '__a + b__', 'a + b', 'a - b'), markSite('f', '__a + b__', 'a + b', 'a + b + c'), markSite('f', 'xaay', 'aa', 'a')],

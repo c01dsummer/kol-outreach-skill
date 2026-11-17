@@ -27137,6 +27137,30 @@
       ]
     },
     {
+      "id": "M-H198-hk",
+      "req": "harness",
+      "why": "末尾换行切出来的空串当成一行空的上下文：差一行就断了的块被它补齐，截断的输入照样交回，漏",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (rows.at(-1) === '') rows.pop()",
+      "replace": "if (false) rows.pop()",
+      "by": "test",
+      "kills": [
+        "新加的行：块还没完 diff 就断了也抛错 —— 缺的那几行里可能有新字段；末尾带不带换行都一样"
+      ]
+    },
+    {
+      "id": "M-H198-hl",
+      "req": "harness",
+      "why": "不管末尾是不是空串都丢掉最后一行：末尾不带换行的输入少了最后一行，误报读不懂",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (rows.at(-1) === '') rows.pop()",
+      "replace": "if (true) rows.pop()",
+      "by": "test",
+      "kills": [
+        "新加的行：末尾换行切出来的空串不算一行；块的最后一行真是空的上下文行、末尾不带换行的最后一行，照常数"
+      ]
+    },
+    {
       "id": "M-H196-a",
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",
