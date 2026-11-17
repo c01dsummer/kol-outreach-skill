@@ -163,7 +163,7 @@ export function fieldsOf(service: Ts.LanguageService, root: string): Field[] {
     const sf = decl.getSourceFile()
     const waiver = waiverOf(ts, decl)
     return {
-      file: rel(sf), via, line: sf.getLineAndCharacterOfPosition(nameNode(decl).getStart()).line + 1,
+      file: rel(sf), via, line: sf.text.slice(0, nameNode(decl).getStart()).split('\n').length, // 按 git 的算法数行：只认换行符；TypeScript 自己还把单独的回车、U+2028／U+2029 当换行，跟 git 的行号对不上
       sites: sites.get(decl) ?? [],
       ...(cut.has(decl) ? { cut: true as const } : {}),
       ...(waiver === undefined ? {} : { waiver }),
@@ -192,7 +192,8 @@ export function markSite(file: string, text: string, find: string, replace: stri
  * - 每个文件各问一次 `git diff -U0 … -- <文件>`，值就是它的输出。`-U0` 下块里没有上下文行，块头 `@@ -a,b +c,d @@` 写的新文件那一边
  *   第 c 行起的 d 行（d 省略时为 1）就是这一块新加的行；d 为 0 的块只删不加。统一 diff 格式里正文每行都带一个前缀字符（`+`、`-`、空格、`\`），
  *   所以以 `@@` 开头的行一定是块头。
- * 读不懂的抛错（入口报「无从判断」、红）：非空的输出不以 `diff --git ` 开头（带颜色的、外部 diff 工具的），或以 `@@` 开头的行不是块头的样子。
+ * 读不懂的抛错（入口报「无从判断」、红）：非空的输出不以 `diff --git ` 开头（带颜色的、外部 diff 工具的），以 `@@` 开头的行不是块头的样子，
+ * 或 git 把它当成二进制文件（文件里有空字节、`.gitattributes` 写了 `-diff`；入口带 `--text`，仍这样说就红，不当成没改）。
  * 带了上下文行（没用 `-U0`）时上下文行也会算成新加的 —— 只会多报红。
  */
 export function addedLines(diffs: Iterable<readonly [string, string]>): Map<string, Set<number>> {
@@ -200,6 +201,7 @@ export function addedLines(diffs: Iterable<readonly [string, string]>): Map<stri
   for (const [file, diff] of diffs) {
     if (diff !== '' && !diff.startsWith('diff --git ')) throw new Error(`读不懂的 diff：${file} 的输出不以「diff --git 」开头`)
     for (const l of diff.split('\n')) {
+      if (l.startsWith('Binary files ')) throw new Error(`读不懂的 diff：${file} 被 git 当成二进制文件，改了哪几行说不出来`)
       if (!l.startsWith('@@')) continue
       const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l)
       if (h === null) throw new Error(`读不懂的 diff 块头：${file}：${JSON.stringify(l)}`)

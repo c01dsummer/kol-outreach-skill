@@ -15813,14 +15813,16 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   eq('新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）',
     added([
       ['scripts/check/a.ts', ['diff --git a/scripts/check/a.ts b/scripts/check/a.ts', 'index 1111111..2222222 100644', '--- a/scripts/check/a.ts', '+++ b/scripts/check/a.ts',
-        '@@ -3 +3,2 @@', '-old', '+new3', '+@@ -1 +99 @@ 正文里像块头的新增行', '@@ -10 +12 @@', '-x', '+y12', '\\ No newline at end of file', ''].join('\n')],
+        '@@ -3 +3,2 @@', '-old', '+new3', '+@@ -1 +99 @@ 正文里像块头的新增行', '@@ -10 +12 @@ export function f() {', '-x', '+y12', '\\ No newline at end of file', ''].join('\n')],
+      ['scripts/check/mode.ts', 'diff --git a/scripts/check/mode.ts b/scripts/check/mode.ts\nold mode 100644\nnew mode 100755\n'],
       ['scripts/check/gone.ts', 'diff --git a/scripts/check/gone.ts b/scripts/check/gone.ts\n--- a/scripts/check/gone.ts\n+++ b/scripts/check/gone.ts\n@@ -5,2 +4,0 @@\n-p\n-q\n'],
       ['scripts/check/same.ts', ''],
       ['scripts/check/😀\t.ts', 'diff --git "a/scripts/check/😀\\t.ts" "b/scripts/check/😀\\t.ts"\nnew file mode 100644\n--- /dev/null\n+++ "b/scripts/check/😀\\t.ts"\n@@ -0,0 +1,2 @@\n+one\n+two\n'],
     ]), [['scripts/check/a.ts', [3, 4, 12]], ['scripts/check/😀\t.ts', [1, 2]]])
-  eq('新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、块头不是块头样子的、合并时的三方块头',
-    ['\u001b[1mdiff --git a/x b/x\u001b[m\n@@ -1 +1 @@\n-a\n+b\n', 'x: 3 lines changed\n', 'diff --git a/x b/x\n@@ -1 +a @@\n+b\n', 'diff --git a/x b/x\n@@@ -1 -1 +1,2 @@@\n++b\n']
-      .map(t => { const r = added([['x', t]]); return typeof r === 'string' && r.includes('读不懂的 diff') }), [true, true, true, true])
+  eq('新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的',
+    ['\u001b[1mdiff --git a/x b/x\u001b[m\n@@ -1 +1 @@\n-a\n+b\n', 'x: 3 lines changed\n', 'diff -u a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n', 'diff --git a/x b/x\n@@ -1 +a @@\n+b\n',
+      'diff --git a/x b/x\n@@ -1,0 +2,3\n', 'diff --git a/x b/x\n@@@ -1 -1 +1,2 @@@\n++b\n', 'diff --git a/x b/x\nnew file mode 100644\nBinary files /dev/null and b/x differ\n']
+      .map(t => { const r = added([['x', t]]); return typeof r === 'string' && r.includes('读不懂的 diff') }), [true, true, true, true, true, true, true])
   eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd', 'x'), markSite('f', 'ab cd ab', 'ab', 'x'), markSite('f', 'ab', 'x', 'y'), markSite('f', 'ab', '', 'y')],
     [{ file: 'f', start: 3, end: 5 }, undefined, undefined, undefined])
   eq('变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点', [markSite('f', '__a + b__', 'a + b', 'a - b'), markSite('f', '__a + b__', 'a + b', 'a + b + c'), markSite('f', 'xaay', 'aa', 'a')],
@@ -15882,6 +15884,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
       "export function waivers(): W { return { block: 1, spaced: 2, marked: '// 字段不入断言：字符串里的不算', plain: 3, starred: 4 } }",
       'export interface R16 { kept16: number; added16: number }', 'export function constrained<T extends R16>(v: T): T { return v }',
     ].join('\n'),
+    'scripts/check/cr.ts': 'export function cr(): { a: number; /* 单独的回车\r与\u2028行分隔符 */ b: number } { return { a: 1, b: 2 } }',
     'scripts/check/m.ts': [
       'export interface Box<T> { boxed: T }', 'export function boxes(): Box<Box<Box<{ inBox: number }>>> { return { boxed: { boxed: { boxed: { inBox: 1 } } } } }',
       'export function nestedMap(): Map<0, Map<0, Map<0, Map<0, { mapDeep: number }>>>> { return new Map() }', 'export interface Leaf { leafF: number }',
@@ -15891,6 +15894,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   })
   const { fs: more } = fieldToy(moreFiles)
   const moreOf = (via: string) => more.find(f => f.via === via)
+  eq('字段：行号按 git 的算法只认换行符 —— 注释里单独的回车、U+2028 不算换行，同一行上的两个字段行号相同', ['cr().a', 'cr().b'].map(k => moreOf(k)?.line), [1, 1])
   eq('字段：Readonly 这类映射、Record 与索引签名、交叉都展开；返回类型是类型参数的按约束找；返回类型声明在 lib 下的不算',
     vias(more, 'f.ts').filter(k => !k.startsWith('waivers()')), ['both().left', 'both().right', 'constrained().added16', 'constrained().kept16', 'indexed()[*].inIdx', 'rec()[*].inRec', 'ro().hiddenR', 'ro().kept'])
   eq('字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段',

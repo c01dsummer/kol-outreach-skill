@@ -26989,7 +26989,7 @@
       "replace": "false) throw",
       "by": "test",
       "kills": [
-        "新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、块头不是块头样子的、合并时的三方块头"
+        "新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的"
       ]
     },
     {
@@ -27001,7 +27001,67 @@
       "replace": "if (h === null) continue; if (false) throw new Error(",
       "by": "test",
       "kills": [
-        "新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、块头不是块头样子的、合并时的三方块头"
+        "新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的"
+      ]
+    },
+    {
+      "id": "M-H198-ht",
+      "req": "harness",
+      "why": "被 git 当成二进制的文件悄悄当成没改：文件里有个空字节，新加的字段全漏",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (l.startsWith('Binary files ')) throw",
+      "replace": "if (false) throw",
+      "by": "test",
+      "kills": [
+        "新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的"
+      ]
+    },
+    {
+      "id": "M-H198-hu",
+      "req": "harness",
+      "why": "行号按 TypeScript 的算法数：单独的回车、U+2028 也算换行，跟 git 的行号对不上，新字段漏判",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "line: sf.text.slice(0, nameNode(decl).getStart()).split('\\n').length,",
+      "replace": "line: sf.getLineAndCharacterOfPosition(nameNode(decl).getStart()).line + 1,",
+      "by": "test",
+      "kills": [
+        "字段：行号按 git 的算法只认换行符 —— 注释里单独的回车、U+2028 不算换行，同一行上的两个字段行号相同"
+      ]
+    },
+    {
+      "id": "M-H198-hv",
+      "req": "harness",
+      "why": "块头后面不许跟函数名：git 几乎每个块头后面都带着所在函数那一行，真输出全被当成读不懂",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "(?:,(\\d+))? @@/.exec(l)",
+      "replace": "(?:,(\\d+))? @@$/.exec(l)",
+      "by": "test",
+      "kills": [
+        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）"
+      ]
+    },
+    {
+      "id": "M-H198-hw",
+      "req": "harness",
+      "why": "块头不要求两个 @@ 收尾：断了的块头照样读",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "(?:,(\\d+))? @@/.exec(l)",
+      "replace": "(?:,(\\d+))?/.exec(l)",
+      "by": "test",
+      "kills": [
+        "新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的"
+      ]
+    },
+    {
+      "id": "M-H198-hx",
+      "req": "harness",
+      "why": "只看输出以 diff 开头：不是 git 的 diff（diff -u）也照读",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "!diff.startsWith('diff --git ')) throw",
+      "replace": "!diff.startsWith('diff')) throw",
+      "by": "test",
+      "kills": [
+        "新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的"
       ]
     },
     {
