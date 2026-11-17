@@ -345,8 +345,8 @@ ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.e
     // 问过、但那一次的条数没记下来（抛在记录之前）—— 仍然不写 0
     : k.found === null || k.found === undefined ? '未知'
     : String(k.found)
-  /** 入围／语义通过：`null` 是无从确认，印「—」；**不印 0** —— 那是把没测量说成零 */
-  const countText = (n: unknown): string => n === null || n === undefined ? '—' : String(n)
+  /** 入围／语义通过：`null` 是无从确认，照 P5.i、U3.b 原文印「无从确认」；**不印 0** —— 那是把没测量说成零（ADR-218） */
+  const countText = (n: unknown): string => n === null || n === undefined ? '无从确认' : String(n)
   // U11.m：旧调用未提供、来源未知和已查真零分别呈现。
   const manualCountText = (n: unknown): string =>
     n === undefined ? '未提供' : n === null ? '无从确认' : String(n)

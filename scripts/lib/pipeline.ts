@@ -450,7 +450,7 @@ export interface KeywordRow {
   status: TaskQueryStatus
   /**
    * 搜索命中条数 —— 第四态在这里：`0` 是「查过、一条都没返回」。
-   * `null` 是「这个数无从确认」，只在 `status` 不是 `queried` 时出现。
+   * `null` 是「这个数无从确认」：`status` 不是 `queried` 时一律是它；`queried` 而盘上没记下条数时也是它（报告印「未知」）。
    * **不要把 null 渲染成 0**：那是把没测量说成测量结果是零（同 P1.e 的口径）。
    */
   found: number | null

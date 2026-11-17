@@ -1048,6 +1048,30 @@
       ]
     },
     {
+      "id": "M-P5-p",
+      "req": "P5.j",
+      "why": "报告副标题的平台退回成从交付名单反推 —— 任务里有、却一个人都没采到的平台从副标题上消失，运营读成「这个平台没人」，其实是没查到或没查过",
+      "file": "scripts/lib/report.ts",
+      "find": "${esc((meta.platforms ?? []).join(' + '))}</div>",
+      "replace": "${esc([...new Set(creators.map((c: any) => c.platform))].join(' + '))}</div>",
+      "by": "test",
+      "kills": [
+        "报告副标题的平台照 meta 的任务平台列：没采到人的 Instagram 也在"
+      ]
+    },
+    {
+      "id": "M-P5-q",
+      "req": "P5.d",
+      "why": "「本次没做已联系去重」那句不再排在数据边界最前面，被邮箱、受众几句压在上面 —— 那句说的是这份名单可能让你二次打扰联系过甚至拉黑的人，排在「数据可能不全」后面，用户扫一眼就漏过去",
+      "file": "scripts/lib/report.ts",
+      "find": "  if (missingEmailVerification) {\n    notes.push('邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。')\n  }\n  if (missingAudienceGeo) {\n    notes.push('未配置增强层，无法确认这批人的粉丝是否在目标市场。')\n  }\n",
+      "replace": "  if (missingEmailVerification) {\n    notes.unshift('邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。')\n  }\n  if (missingAudienceGeo) {\n    notes.unshift('未配置增强层，无法确认这批人的粉丝是否在目标市场。')\n  }\n",
+      "by": "test",
+      "kills": [
+        "去重没做那一句排在没写回、邮箱、受众三句前面"
+      ]
+    },
+    {
       "id": "M-U3-a",
       "req": "U3.b",
       "why": "关键词表只列查询过的那些 —— 一次都没查过的词整行不出现在表上，而那张表正是用户决定下次投哪个方向的依据：看不见的方向等于不存在的方向",

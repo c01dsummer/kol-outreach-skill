@@ -88,7 +88,9 @@ creators.json  [{"platform":"tiktok","handle":"alice","nickname":"Alice","follow
 | `answered` 里有、`found` 里是 0 | `queried` | `0` | 0 |
 | `answered` 里有、`found` 里是 N | `queried` | N | N |
 
-上面那个最小目录导出后，第一行是查了 0 命中，第二行（Instagram 那个词）是未查询；入围、语义通过两格在没查过的行印「—」，不印 0。
+`answered` 写成 `null` 或别的不是对象的值，不算「没有表」，算进度损坏：render 以 2 拒收，stderr 写「answered 必须是按任务索引记录的对象」，什么都不写（核过）。
+
+上面那个最小目录导出后，第一行是查了 0 命中，第二行（Instagram 那个词）是未查询；入围、语义通过两格在没查过的行印「无从确认」，不印 0（P5.i）。
 
 ## 人工反馈模板（D23、D24、D26）
 
