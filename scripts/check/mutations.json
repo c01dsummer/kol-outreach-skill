@@ -28418,6 +28418,246 @@
       "replace": "",
       "by": "test",
       "kills": ["入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出"]
+    },
+    {
+      "id": "M-H217-a",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "带 node: 前缀的写法不认 —— `import … from 'node:child_process'` 这种仓库里最常见的写法全漏",
+      "find": "export const MODULE_NAMES: readonly string[] = ['child_process', 'node:child_process']",
+      "replace": "export const MODULE_NAMES: readonly string[] = ['child_process']",
+      "by": "test",
+      "kills": ["导入、require、import()、getBuiltinModule 与一个普通常量里写出模块名，两种写法都算，各带行号"]
+    },
+    {
+      "id": "M-H217-b",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "类型位置上的 import('…') 当成真加载 —— 只为拿一个类型的文件也被逼着登记",
+      "find": "      if (ts.isImportTypeNode(p)) return true\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["纯类型的导入（import type、export type … from、类型位置上的 import()）不算；带 type 修饰的单个名字仍算整条导入"]
+    },
+    {
+      "id": "M-H217-c",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "import type 也当成真加载 —— 纯类型导入被多报",
+      "find": "      if (ts.isImportDeclaration(p)) return p.importClause?.isTypeOnly === true",
+      "replace": "      if (ts.isImportDeclaration(p)) return false",
+      "by": "test",
+      "kills": ["纯类型的导入（import type、export type … from、类型位置上的 import()）不算；带 type 修饰的单个名字仍算整条导入"]
+    },
+    {
+      "id": "M-H217-d",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "带 type 修饰的单个名字当成整条都是类型 —— 运行时照样加载模块的那条导入被放过",
+      "find": "      if (ts.isImportDeclaration(p)) return p.importClause?.isTypeOnly === true",
+      "replace": "      if (ts.isImportDeclaration(p)) return true",
+      "by": "test",
+      "kills": ["纯类型的导入（import type、export type … from、类型位置上的 import()）不算；带 type 修饰的单个名字仍算整条导入"]
+    },
+    {
+      "id": "M-H217-e",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "createRequire 交出来存进变量的函数不当 require —— 换个名字就能动态取任何模块",
+      "find": "      requireNames.add(node.name.text)\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["动态取模块：实参不是字面量就算；createRequire 交出的函数直接调、存进变量再调、module.require 都算"]
+    },
+    {
+      "id": "M-H217-f",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "import() 不当成取模块 —— 动态 import 一个拼出来的名字不报",
+      "find": "    if (callee.kind === ts.SyntaxKind.ImportKeyword) return true",
+      "replace": "    if (callee.kind === ts.SyntaxKind.ImportKeyword) return false",
+      "by": "test",
+      "kills": ["动态取模块：实参不是字面量就算；createRequire 交出的函数直接调、存进变量再调、module.require 都算"]
+    },
+    {
+      "id": "M-H217-g",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "getBuiltinModule 不当成取模块 —— process.getBuiltinModule(变量) 拿到起进程的模块不报",
+      "find": "callee.name.text === 'require' || callee.name.text === 'getBuiltinModule'",
+      "replace": "callee.name.text === 'require'",
+      "by": "test",
+      "kills": ["动态取模块：实参不是字面量就算；createRequire 交出的函数直接调、存进变量再调、module.require 都算"]
+    },
+    {
+      "id": "M-H217-h",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "pathToFileURL(…) 的结果也当成判不了 —— 测试里几十处按文件路径动态加载全被多报",
+      "find": "    if (!ts.isCallExpression(call)) return false\n",
+      "replace": "    if (!ts.isCallExpression(call) || call) return false\n",
+      "by": "test",
+      "kills": ["实参是字面量、模板串里没有插值、或是 pathToFileURL(…) 及其 .href 的，不算动态"]
+    },
+    {
+      "id": "M-H217-i",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "没有插值的模板串不当字面量 —— 用反引号写模块名就漏，用反引号写别的模块又被当成动态",
+      "find": "    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : undefined",
+      "replace": "    ts.isStringLiteral(node) ? node.text : undefined",
+      "by": "test",
+      "kills": ["导入、require、import()、getBuiltinModule 与一个普通常量里写出模块名，两种写法都算，各带行号", "实参是字面量、模板串里没有插值、或是 pathToFileURL(…) 及其 .href 的，不算动态"]
+    },
+    {
+      "id": "M-H217-j",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "process[变量] 不报 —— 把 execve 拼出来就绕过了进程内部的口",
+      "find": "        : ts.isIdentifier(node.expression) && node.expression.text === 'process') add(node, '进程内部的口')",
+      "replace": "        : false) add(node, '进程内部的口')",
+      "by": "test",
+      "kills": ["进程内部的口：.execve、.binding、['execve']、process[不是字面量] 都算；process['env'] 不算"]
+    },
+    {
+      "id": "M-H217-k",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "声明文件也扫 —— @types 那种只描述类型的文件被逼着登记",
+      "find": "  return SCANNED.some(ext => path.endsWith(ext)) && !path.endsWith('.d.ts')",
+      "replace": "  return SCANNED.some(ext => path.endsWith(ext))",
+      "by": "test",
+      "kills": ["扫哪些文件：TypeScript 与 JavaScript 的几种扩展名；声明文件、Markdown、shell 不扫"]
+    },
+    {
+      "id": "M-H217-l",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "待挪里重复的名字不报 —— 同一个文件写两遍，删掉一遍看着像挪走了一个",
+      "find": "    if (toMove[i - 1] >= toMove[i]) throw",
+      "replace": "    if (toMove[i - 1] > toMove[i]) throw",
+      "by": "test",
+      "kills": ["形状不对一律抛错，不当成空表：多键、少键、理由空、登记不是对象、待挪没排序或重复、两节都在、说明不是字、根不是对象"]
+    },
+    {
+      "id": "M-H217-m",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "登记的理由只写空格也收 —— 「写清理由」成了摆设",
+      "find": "    if (typeof why !== 'string' || why.trim() === '') throw",
+      "replace": "    if (typeof why !== 'string' || why === '') throw",
+      "by": "test",
+      "kills": ["形状不对一律抛错，不当成空表：多键、少键、理由空、登记不是对象、待挪没排序或重复、两节都在、说明不是字、根不是对象"]
+    },
+    {
+      "id": "M-H217-n",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "一个文件两节都在也收 —— 挪走时只删待挪那一行，它照样挂在登记里永远合法",
+      "find": "  if (both.length) throw new Error(`这几个文件两节都在：${both.join('、')}`)\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["形状不对一律抛错，不当成空表：多键、少键、理由空、登记不是对象、待挪没排序或重复、两节都在、说明不是字、根不是对象"]
+    },
+    {
+      "id": "M-H217-o",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "一处都不碰的文件也当成没登记 —— 仓库里每个文件都要登记",
+      "find": "  const unlisted = [...sites].filter(([p, s]) => s.length > 0 && !listed(p))",
+      "replace": "  const unlisted = [...sites].filter(([p, s]) => s.length >= 0 && !listed(p))",
+      "by": "test",
+      "kills": ["不在两节里的文件碰了记下；空的不记"]
+    },
+    {
+      "id": "M-H217-p",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "待挪不和基线比 —— 新文件塞进待挪就合法了，名单只会越来越长",
+      "find": "  const grownToMove = baseMove ? now.toMove.filter(p => !baseMove.has(p)) : []",
+      "replace": "  const grownToMove: string[] = []",
+      "by": "test",
+      "kills": ["待挪比基线多出来的、已经一处不碰还挂着的、登记了却不在仓库里的，各记各的"]
+    },
+    {
+      "id": "M-H217-q",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "挪干净了的文件还挂在待挪里也不报 —— 名单永远清不了零，挂着的名字又成了新代码的掩护",
+      "find": "  const staleToMove = now.toMove.filter(p => sites.has(p) && sites.get(p)!.length === 0)",
+      "replace": "  const staleToMove: string[] = []",
+      "by": "test",
+      "kills": ["待挪比基线多出来的、已经一处不碰还挂着的、登记了却不在仓库里的，各记各的"]
+    },
+    {
+      "id": "M-H217-r",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "登记了不存在的文件也不报 —— 文件改名后旧名字留着，新名字靠别的路混进来",
+      "find": "  const missing = [...now.registered.keys(), ...now.toMove].filter(p => !sites.has(p)).sort()",
+      "replace": "  const missing: string[] = []",
+      "by": "test",
+      "kills": ["待挪比基线多出来的、已经一处不碰还挂着的、登记了却不在仓库里的，各记各的"]
+    },
+    {
+      "id": "M-H217-s",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "基线上还没有闸门时登记表不列给评审看 —— 引入它的那条 PR 登记了什么没人看见",
+      "find": "  const baseReg = base.kind === 'registry' ? base.registry.registered : new Map<string, string>()",
+      "replace": "  const baseReg = base.kind === 'registry' ? base.registry.registered : now.registered",
+      "by": "test",
+      "kills": ["基线上还没有这道闸门：待挪不比基线，登记整份列出"]
+    },
+    {
+      "id": "M-H217-t",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "主干上也判红 —— 推送之后 CI 才跑，判红只会让主干变红",
+      "find": "  if (onTrunk) {\n    out.push(...faults",
+      "replace": "  if (false) {\n    out.push(...faults",
+      "by": "test",
+      "kills": ["主干上只报不判：不红，不对的照样列出"]
+    },
+    {
+      "id": "M-H217-u",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "不对的那几处不写行号 —— 一个文件里几十行，读的人得自己找",
+      "find": "u.sites.map(s => `第 ${s.line} 行（${s.kind}）`).join('、')",
+      "replace": "u.sites.length",
+      "by": "test",
+      "kills": ["分支上有不对的就红，每一样都点出文件", "入口：没 git add 的新文件碰了也算，以 1 退出、点出文件与行号"]
+    },
+    {
+      "id": "M-H217-v",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "只扫已经 git add 的文件 —— 新写的文件提交之前闸门都看不见",
+      "find": "'--cached', '--others', '--exclude-standard'",
+      "replace": "'--cached'",
+      "by": "test",
+      "kills": ["入口：没 git add 的新文件碰了也算，以 1 退出、点出文件与行号"]
+    },
+    {
+      "id": "M-H217-w",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "基线上有闸门却没有登记表时当成第一次 —— 删掉登记表的那条改动之后，下一条 PR 往待挪里塞什么都合法",
+      "find": "  if (reg === '') return rule === '' ? { kind: 'no-gate' } :",
+      "replace": "  if (reg === '') return true ? { kind: 'no-gate' } :",
+      "by": "test",
+      "kills": ["入口：基线上有闸门却没有登记表时说无从判断、以 1 结束"]
+    },
+    {
+      "id": "M-H217-x",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "基线那份登记表不读，拿当前这份当基线 —— 待挪多了永远比不出来",
+      "find": "  const text = tryGit('cat-file', 'blob', `${base}:${REGISTRY_PATH}`)",
+      "replace": "  const text = readFileSync(REGISTRY_PATH, 'utf8')",
+      "by": "test",
+      "kills": ["入口：把新文件塞进「待挪」以 1 退出，点出待挪多了它"]
     }
   ],
   "exemptions": [

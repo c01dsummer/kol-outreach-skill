@@ -43,6 +43,7 @@ import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, led
 import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
+import { type Registry as LaunchRegistry, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -338,6 +339,9 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ticket-refs', needs: [] },
   { id: 'h-ticket-refs-entry', needs: [] },
   { id: 'h-ticket-refs-entry-edges', needs: [] },
+  { id: 'h-child-process-sites', needs: [] },
+  { id: 'h-child-process-judge', needs: [] },
+  { id: 'h-child-process-entry', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -23146,6 +23150,106 @@ await group('h-ticket-refs-entry-edges', () => {
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
     const bare = run(root)
     eq('入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 外部工单号：无从判断')], [1, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-child-process-sites', () => {
+  harness('起子进程接口闸门认哪几处：模块名字面量、动态取模块、进程内部的口；纯类型导入与确切是文件的不算')
+  const kinds = (src: string, path = 'a.ts') => launchSites(path, src).map(s => `${s.line}:${s.kind}`)
+  const CP = 'child' + '_process'
+  eq('导入、require、import()、getBuiltinModule 与一个普通常量里写出模块名，两种写法都算，各带行号',
+    kinds(`import a from '${CP}'\nconst b = require("node:${CP}")\nawait import(\`${CP}\`)\nprocess.getBuiltinModule('node:${CP}')\nconst n = '${CP}'\n`),
+    ['1:模块名', '2:模块名', '3:模块名', '4:模块名', '5:模块名'])
+  eq('纯类型的导入（import type、export type … from、类型位置上的 import()）不算；带 type 修饰的单个名字仍算整条导入',
+    kinds(`import type { ChildProcess } from '${CP}'\nexport type { SpawnOptions } from 'node:${CP}'\nlet x: typeof import('${CP}')\nimport { type ChildProcess as C } from '${CP}'\n`),
+    ['4:模块名'])
+  eq('只是长得像的字不算：别的模块、名字里多一个字、注释里的',
+    kinds(`import 'node:fs'\nconst a = '${CP}s'\n// ${CP}\nconst b = 'x${CP}'\n`), [])
+  eq('动态取模块：实参不是字面量就算；createRequire 交出的函数直接调、存进变量再调、module.require 都算',
+    kinds(`const m = 'x'\nrequire(m)\nawait import(m)\nprocess.getBuiltinModule(m)\nconst r = createRequire(import.meta.url)\nr(m)\ncreateRequire(u)(m)\nmodule.require(m)\n`),
+    ['2:动态取模块', '3:动态取模块', '4:动态取模块', '6:动态取模块', '7:动态取模块', '8:动态取模块'])
+  eq('实参是字面量、模板串里没有插值、或是 pathToFileURL(…) 及其 .href 的，不算动态',
+    kinds('require(\'node:fs\')\nawait import(`./x.js`)\nawait import(pathToFileURL(p).href)\nawait import(url.pathToFileURL(p))\nconst r = createRequire(u)\nr(\'typescript\')\n'), [])
+  eq('带插值的模板串、拼出来的串照样算动态', kinds('await import(`node:${m}`)\nrequire(\'child\' + \'_x\')\n'), ['1:动态取模块', '2:动态取模块'])
+  eq('进程内部的口：.execve、.binding、[\'execve\']、process[不是字面量] 都算；process[\'env\'] 不算',
+    kinds("process.execve(a)\nprocess.binding('spawn_sync')\nprocess['execve']\nprocess[k]\nprocess['env']\n"),
+    ['1:进程内部的口', '2:进程内部的口', '3:进程内部的口', '4:进程内部的口'])
+  eq('.js、.mjs、.cjs 也按语法树读（不是 TypeScript 也认得出 require）', kinds(`const c = require(m)\n`, 'x.cjs'), ['1:动态取模块'])
+  eq('扫哪些文件：TypeScript 与 JavaScript 的几种扩展名；声明文件、Markdown、shell 不扫',
+    ['a.ts', 'a.mts', 'a.cts', 'a.tsx', 'a.js', 'a.mjs', 'a.cjs', 'a.jsx', 'a.d.ts', 'a.md', 'a.sh'].map(launchScanned),
+    [true, true, true, true, true, true, true, true, false, false, false])
+})
+
+await group('h-child-process-judge', () => {
+  harness('起子进程接口闸门的判法：不在登记表里碰了就红，待挪只许减，清掉了还挂着也红，主干上只报不判')
+  const reg = (registered: Record<string, string>, toMove: string[]): LaunchRegistry => ({ registered: new Map(Object.entries(registered)), toMove })
+  const text = (o: unknown) => JSON.stringify(o)
+  const good = { '说明': 'x', '登记': { 'a.ts': '理由' }, '待挪': ['b.ts', 'c.ts'] }
+  eq('读登记表：两节原样读出', [...parseRegistry(text(good)).registered], [['a.ts', '理由']])
+  const bad = [
+    { ...good, '多的': 1 }, { '说明': 'x', '登记': { 'a.ts': '理由' } }, { ...good, '登记': { 'a.ts': '  ' } }, { ...good, '登记': ['a.ts'] },
+    { ...good, '待挪': ['c.ts', 'b.ts'] }, { ...good, '待挪': ['b.ts', 'b.ts'] }, { ...good, '待挪': ['a.ts'] }, { ...good, '说明': 1 }, [],
+  ]
+  eq('形状不对一律抛错，不当成空表：多键、少键、理由空、登记不是对象、待挪没排序或重复、两节都在、说明不是字、根不是对象',
+    bad.map(b => { try { parseRegistry(text(b)); return 'ok' } catch { return 'throw' } }), bad.map(() => 'throw'))
+  const site = [{ line: 3, kind: '模块名' as const }]
+  const sites = new Map([['a.ts', site], ['b.ts', site], ['c.ts', []], ['d.ts', site], ['e.ts', []]])
+  const now = reg({ 'a.ts': '理由', 'r.ts': '新' }, ['b.ts', 'c.ts', 'n.ts'])
+  const r = judgeUse(sites, now, { kind: 'registry', registry: reg({ 'a.ts': '理由' }, ['b.ts', 'c.ts', 'x.ts']) })
+  eq('不在两节里的文件碰了记下；空的不记', r.unlisted, [{ path: 'd.ts', sites: site }])
+  eq('待挪比基线多出来的、已经一处不碰还挂着的、登记了却不在仓库里的，各记各的',
+    [r.grownToMove, r.staleToMove, r.missing], [['n.ts'], ['c.ts'], ['n.ts', 'r.ts']])
+  eq('登记比基线多出的行与待挪少了的文件单列', [r.newRegistered, r.movedOut], [[{ path: 'r.ts', why: '新' }], ['x.ts']])
+  const first = judgeUse(sites, reg({ 'a.ts': '理由' }, ['b.ts', 'd.ts']), { kind: 'no-gate' })
+  eq('基线上还没有这道闸门：待挪不比基线，登记整份列出', [first.grownToMove, first.newRegistered.length, first.unlisted], [[], 1, []])
+  const branch = useLines(r, false, 'origin/main（abc1234）', false)
+  ok('分支上有不对的就红，每一样都点出文件',
+    !branch.ok && ['d.ts 碰了', '多了 n.ts', 'c.ts 已经一处都不碰', 'r.ts 不在仓库里', '第 3 行（模块名）'].every(w => branch.err.some(l => l.includes(w))))
+  const trunk = useLines(r, true, 'main 的上一版', false)
+  ok('主干上只报不判：不红，不对的照样列出', trunk.ok && trunk.err.length === 0 && trunk.out.some(l => l.includes('d.ts 碰了')) && trunk.out.some(l => l.includes('只报不判定')))
+  const clean = useLines(judgeUse(new Map([['a.ts', site]]), reg({ 'a.ts': '理由' }, []), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, ['g.ts']) }), false, 's', false)
+  ok('都对时不红，挪走的文件列出', clean.ok && clean.out.some(l => l.includes('挪走了 g.ts')))
+})
+
+await group('h-child-process-entry', () => {
+  harness('起子进程接口闸门的入口：在玩具仓库里真起，没登记的新文件、待挪多了、基线上没有登记表、不是仓库各情形照说')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-child-process-'))
+  const entry = cxJoin(process.cwd(), 'scripts/check/child-process-use.ts')
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS']) delete gitEnv[k]
+  const run = (cwd = root) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: gitEnv })
+  const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+  const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
+  const registry = (toMove: string[]) => put('scripts/check/child-process-registry.json', JSON.stringify({ '说明': 'x', '登记': { 'scripts/check/child-process-use-rule.ts': '判定' }, '待挪': toMove }))
+  const CP = 'node:child' + '_process'
+  try {
+    put('scripts/check/child-process-use-rule.ts', `export const N = '${CP}'\n`)
+    put('old.ts', `import { spawn } from '${CP}'\n`)
+    registry(['old.ts'])
+    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base')
+    g('commit', '-q', '--allow-empty', '-m', 'second'); g('checkout', '-q', '-b', 'work'); g('commit', '-q', '--allow-empty', '-m', 'w')
+    const clean = run(cxJoin(root, 'scripts'))
+    eq('入口：只有登记过的文件碰时以 0 退出（在子目录里跑也从仓库根扫）', [clean.status, String(clean.stdout).includes('待挪 1 个文件')], [0, true])
+    put('new.ts', `const cp = require('${CP}')\n`)
+    const unlisted = run()
+    eq('入口：没 git add 的新文件碰了也算，以 1 退出、点出文件与行号', [unlisted.status, String(unlisted.stderr).includes('new.ts 碰了起子进程的接口，却不在登记表里：第 1 行')], [1, true])
+    registry(['new.ts', 'old.ts'])
+    const grown = run()
+    eq('入口：把新文件塞进「待挪」以 1 退出，点出待挪多了它', [grown.status, String(grown.stderr).includes('「待挪」比基线多了 new.ts')], [1, true])
+    cxRmSync(cxJoin(root, 'new.ts')); put('old.ts', 'export {}\n'); registry(['old.ts'])
+    const stale = run()
+    eq('入口：待挪的文件已经不碰了还挂着，以 1 退出', [stale.status, String(stale.stderr).includes('old.ts 已经一处都不碰了')], [1, true])
+    registry([])
+    const shrunk = run()
+    eq('入口：挪完删掉那一行以 0 退出，列出挪走了它', [shrunk.status, String(shrunk.stdout).includes('挪走了 old.ts')], [0, true])
+    // 基线上有这道闸门却没有登记表：无从判断
+    g('checkout', '-q', '-f', 'main'); g('rm', '-q', 'scripts/check/child-process-registry.json'); g('commit', '-q', '-m', 'drop')
+    g('checkout', '-q', '-b', 'work2'); g('commit', '-q', '--allow-empty', '-m', 'w'); registry([])
+    const noBase = run()
+    eq('入口：基线上有闸门却没有登记表时说无从判断、以 1 结束', [noBase.status, String(noBase.stderr).includes('先合主干')], [1, true])
+    cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
+    const bare = run()
+    eq('入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 起子进程的接口：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 
