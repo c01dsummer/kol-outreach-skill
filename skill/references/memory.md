@@ -12,6 +12,8 @@
 
 `memory/creators.json`，单文件，本地。**不做多人共享** —— 单人使用足够，团队场景需要另行设计。
 
+路径相对于仓库根目录，也就是 `package.json` 所在的目录（和任务目录 `output/` 同一个起点）：`npm run` 总在那里起脚本，在仓库哪个子目录里敲 `npm run collect …`，读写的都是仓库根下的 `memory/creators.json`。
+
 ```json
 {
   "version": 1,

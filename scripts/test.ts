@@ -59,6 +59,7 @@ import {
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
+import { DEPTH, addedLines, fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, markSite, type Field as UseField } from './check/field-use-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -93,6 +94,7 @@ import {
 } from './check/size-rule.js'
 import {
   FILE_RE, PINS_FILE, adrSync, checkAll, encodeTarget, escapeCell, fileNameOf, historyFaults, markerFault, parsePins, pinFaults, pinOf,
+  trunkPinsText,
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
@@ -2539,9 +2541,9 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   //        只有属主可读，而这是一句注释说了、代码没做的事（ADR-42 追记）。
   //        umask 由这里定成 022、写完就还原：照会话的 umask 算期望值的话，
   //        077 下 0666 & ~077 正好是临时文件那一档 0600，停在那一档也照样绿
-  //        （ADR-70 第 3526 行）。同 ADR-42 的 0640 一样，挑一个不等于那一档的值。
+  //        （ADR-70 历史文件「整合方追加：观察器认证记录、CI 读数与一张欠条」一节）。同 ADR-42 的 0640 一样，挑一个不等于那一档的值。
   //        只取 022 一个点，证得出「等于 0644」、证不出「跟着 umask 走」—— 写死 0644
-  //        也照样绿（ADR-70 第 3549 行）。所以再取一个 002：0664、0644、0600 两两不等，
+  //        也照样绿（ADR-70 历史文件「整合方追加：观察器认证记录、CI 读数与一张欠条」一节）。所以再取一个 002：0664、0644、0600 两两不等，
   //        写死 0644 或停在临时文件那一档，第二条都会红。
   {
     const fresh = join(tmpdir(), `kol-d4-fresh-${process.pid}.json`)
@@ -3029,6 +3031,31 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
                  mk('tiktok', 'fresh', { followers: 50000 })]
 
   eq('记忆完好时只剩没联系过的那个', finalize(batch, 'p').kept.map(c => c.handle), ['fresh'])
+
+  // P4.a 的计数：「对任一 contacted 或 blocked 的记录，kept 不含该创作者，filtered_contacted 加一」。
+  // 读法：每排除一个候选加一 —— 不随它名下被标记的记录条数涨，标记只落在关联账号上也照样数。
+  // 同一个人这次没合并成一个候选、两个账号各成一行时，按两个候选各数一次，与名单的行数同一口径（ADR-214）。
+  {
+    const countMem = join(tmpdir(), `kol-p4count-${process.pid}.json`)
+    const rec = (platform: string, handle: string, over: Record<string, unknown>) => ({
+      platform, handle, nickname: '', followers: 50000, first_seen: '2026-01-01', recommendations: [],
+      contacted: false, replied: false, blocked: false, note: '', ...over })
+    writeFileSync(countMem, JSON.stringify({ version: 1, updated_at: '', creators: {
+      'tiktok:both': rec('tiktok', 'both', { contacted: true, linked_to: 'instagram:both' }),
+      'instagram:both': rec('instagram', 'both', { contacted: true }),
+      'tiktok:via': rec('tiktok', 'via', { linked_to: 'instagram:via' }),
+      'instagram:via': rec('instagram', 'via', { blocked: true }),
+    } }), 'utf8')
+    useMemoryFile(countMem)
+    const both = finalize([mk('tiktok', 'both', { followers: 50000 })], 'p')
+    eq('一个候选名下两条记录都被标记：被排除', both.kept.length, 0)
+    eq('一个候选名下两条记录都被标记：filtered_contacted 只加一', both.filtered_contacted, 1)
+    const via = finalize([mk('tiktok', 'via', { followers: 50000 })], 'p')
+    eq('候选自己那条没标、关联账号那条被屏蔽：被排除', via.kept.length, 0)
+    eq('候选自己那条没标、关联账号那条被屏蔽：filtered_contacted 照样加一', via.filtered_contacted, 1)
+    unlinkSync(countMem)
+    useMemoryFile(tmp)
+  }
 
   truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
 
@@ -4874,7 +4901,7 @@ harness('审计对一条需求的裁定')
   eq('一条都没有就是 0', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']) })).mutatedCrit, 0)
   // 交进来的判据级负片编号是全仓的：只数与这条需求判据的交集。上面两条喂的恰好都是 P9 自己的，
-  // 直接数集合大小也全绿 —— 那时审计会把全仓的总数印在每一条需求头上（ADR-70 第 345–354 行那张欠条）。
+  // 直接数集合大小也全绿 —— 那时审计会把全仓的总数印在每一条需求头上（ADR-70「2026-11-14 追记」）。
   // 手算：P9 的判据是 P9.a、P9.b，与 {P9.a, D9.a, P5.f} 的交集只有 P9.a，所以是 1
   eq('别的需求的判据级负片不算到这条头上', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']),
@@ -4991,7 +5018,7 @@ harness('变异集的 why 不许夹带实现原文')
     eq(`放行：${why.slice(0, 16)}…`, implementationLeak(why), undefined)
   }
 
-  // `--brief` 打出去的不止变异的 why：豁免的范围（写了才打）与 why 也打（ADR-70 末尾「清单夹带（判定）」一节）。
+  // `--brief` 打出去的不止变异的 why：豁免的范围（写了才打）与 why 也打（ADR-70「清单夹带（判定）」一节）。
   // 两侧分开交回，报的时候说得出是哪一边、哪一栏；不打的那一栏（缓解）不查
   const leakyWhy = '降完立刻被 tierOf 覆盖'
   const plain = '受众降权跑在分层之前'
@@ -8392,11 +8419,11 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   // 汇总是最后打的，紧跟着硬退出会在管道上把它截掉 —— 退出码非零、汇总没有，
   // 判定只能判「跑不起来」，而那是一条真被抓到的变异，还时红时绿（评审指出）。
   // 反例里那一串是拼出来的：`exitRace` 原先扫字面，本文件自己也是验证者，写成整串会判到它自己。
-  // 现在按语法树认（ADR-70 末尾「硬退出收口」一节），串里写全了的不是调用，拼不拼都一样；留着无害
+  // 现在按语法树认（ADR-70「硬退出收口」一节），串里写全了的不是调用，拼不拼都一样；留着无害
   const hardExit = `process.${'exit'}(1)`
   eq('打完汇总就硬退出的写法要认出来', exitRace(`console.error(汇总); ${hardExit}`), [1])
   eq('只提名字不调用的是散文，不算', exitRace('// 别用 process.exit 那种写法'), [])
-  // 按语法树认（ADR-70 末尾「硬退出收口」一节）：注释、字符串里写全了的结构上不是调用
+  // 按语法树认（ADR-70「硬退出收口」一节）：注释、字符串里写全了的结构上不是调用
   eq('注释里写全了的硬退出不算', exitRace(`// 别写 ${hardExit}`), [])
   eq('字符串里写全了的硬退出不算', exitRace(`const s = '${hardExit}'`), [])
   eq("process['exit'] 那种写法也认", exitRace(`process['${'exit'}'](1)`), [1])
@@ -8572,9 +8599,9 @@ harness('变异的锚点在目标文件里数几处：按起点数，重叠也�
 
 harness('变异目录对着树：锚点对不上的五种各有名字，没还原的变异认得出')
 {
-  // ADR-70 第 1394、2099 行：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
+  // ADR-70 历史文件「落地 3 第一片:自检开始发认领」第六小节与「合入后清点：#105 的欠条 PR」第三小节：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
   // 只断言判定；**不对真树断言**：需求测试自己就是验证者，变异跑它的时候树上正躺着那一条，
-  // 对真树断言的话每条不点名的变异都会被这一句抓到，功劳全记错（ADR-70 末尾「变异残留」一节）
+  // 对真树断言的话每条不点名的变异都会被这一句抓到，功劳全记错（ADR-70「变异残留」一节）
   const files = (tree: Record<string, string>) => (file: string): string | undefined => tree[file]
   const one = [{ id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' }]
   eq('干净的树：一条也不报', anchorFaults(one, files({ 'a.ts': 'return x\n' })), [])
@@ -8790,7 +8817,7 @@ harness('变异锚点那一步：git 读不到时是不是本来就不是仓库'
 harness('入口的硬退出收口：只有一处，退出前那句话同步写满')
 {
   // 判定 exitFaults：process.exit 只许在收口函数里；叫收口之前同一段里不许先 console. 一句
-  // （ADR-70 末尾「硬退出收口」一节）。反例里的硬退出照上面那块拼出来
+  // （ADR-70「硬退出收口」一节）。反例里的硬退出照上面那块拼出来
   const hardExit = `process.${'exit'}(code)`
   const helper = `function quit(code: number): never {\n  ${hardExit}\n}\n`
   eq('收口函数里那一处不报', exitFaults(`${helper}if (bad) quit(1)\n`, 'quit'), [])
@@ -8806,7 +8833,7 @@ harness('入口的硬退出收口：只有一处，退出前那句话同步写�
   eq('先异步写一句、再叫一个里面才收口的函数，报出来',
     exitFaults(`${helper}const stop = (): never => {\n  quit(1)\n}\nif (bad) {\n  console.error('坏了')\n  stop()\n}\n`, 'quit'),
     [{ kind: 'async-before', line: 9 }])
-  // 真入口：变异一步那一份（ADR-70 第 2082 行那张欠条说的「查不到 mutate.ts 自己」）
+  // 真入口：变异一步那一份（ADR-70 历史文件「合入后清点：#105 的欠条 PR」一节第三小节那张欠条说的「查不到 mutate.ts 自己」）
   eq('return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来',
     exitFaults(`${helper}function f(): never {\n  console.error('坏了')\n  return quit(1)\n}\nfunction g() {\n  console.error('坏了')\n  if (bad) quit(1)\n}\n`, 'quit'),
     [{ kind: 'async-before', line: 6 }, { kind: 'async-before', line: 10 }])
@@ -8878,7 +8905,7 @@ harness('by 与 kills 同进同出：四种写错各有名字')
 harness('记号真打在自检的诊断上：说了「夹具没造对」的带夹具记号，runBoth 报的失败带进程记号')
 {
   // 判定认记号（上面那几条），记号却是自检那边打的。selfcheck.ts 在验证基础设施的闭包里，
-  // 指名自检的变异施不上去，这一半只能在这里按语法树问真文件（ADR-70 第 1019 行那张欠条）。
+  // 指名自检的变异施不上去，这一半只能在这里按语法树问真文件（ADR-70「自检的诊断真带着记号：需求测试按语法树问」）。
   // 玩具源码头上那句 runBoth 是为了让进程记号那一半不来搅局
   const runBothOk = 'const runBoth = () => { console.error(`✗ x${SELFCHECK_PROCESS_MARK}：退出码不对`) }\n'
   const fixtureFaults = (src: string) => unmarkedDiagnostics(runBothOk + src).fixture
@@ -12392,7 +12419,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
   // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；零请求观察器那一片加了认证入口（自检组 observer-cert-entry 起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾零请求观察器那一节）＋ anchors.ts（ADR-70 末尾「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70「零请求观察器与外层断网」一节）＋ anchors.ts（ADR-70「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
   // 按字符串排（admission < adr（第三个字符 m < r） < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/admission.ts', 'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
@@ -12429,7 +12456,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   eq('注释里的也收 —— 宁可闭包偏大，不可偏小',
     importsOf('scripts/a.ts', `// 早先是 from './old.js'`).to, ['scripts/old.ts'])
   // 不带 from 的副作用 import 是 ESM 里合法的一句：只认 from 的话这条边收不到，
-  // 它加载的依赖落在闭包外，打在它身上、又指名了验证者的变异被放行（ADR-70 第 193–199 行那张欠条）
+  // 它加载的依赖落在闭包外，打在它身上、又指名了验证者的变异被放行（ADR-70「2026-11-14 追记」）
   eq('不带 from 的副作用 import 也是一条边',
     importsOf('scripts/check/a.ts', `import './b.js'\nimport '../lib/c.js'`).to,
     ['scripts/check/b.ts', 'scripts/lib/c.ts'])
@@ -12466,7 +12493,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   const real = infraClosure(f => existsSync(f) ? rf(f, 'utf8') : undefined)
   eq('真闭包里没有磁盘上不存在的路径', real.filter(f => !existsSync(f)), [])
   // 被测入口不能在真闭包里：种子里出现一句形状像加载它的引用，它就被收进来，打在它上面、
-  // 改跑自检的变异全被当成自己验自己拦下 —— collect.ts 上那条正是这条记录的头号用例（ADR-70 第 201–207 行那张欠条）。
+  // 改跑自检的变异全被当成自己验自己拦下 —— collect.ts 上那条正是这条记录的头号用例（ADR-70「2026-11-14 追记」）。
   // 名单从 package.json 里产品命令（带 --env-file-if-exists 起的那几条）读，不从闭包那边取，也不手抄
   const productCommands = Object.values(JSON.parse(rf('package.json', 'utf8')).scripts as Record<string, string>)
     .filter(cmd => cmd.includes('--env-file-if-exists'))
@@ -12479,7 +12506,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
     [true, true, true])
   eq('被测入口一个都不在真闭包里', real.filter(f => productEntries.includes(f)), [])
   // 抽边仍不认的两种写法（双引号的静态引用、动态 import()）在真闭包里今天一处都没有。哪天有了，这条红：
-  // 那时抽边要么再认一种形状，要么改写那一句 —— 漏收正是这道闸门最不该错的那一头（ADR-70 末尾 2026-11-14 那块）
+  // 那时抽边要么再认一种形状，要么改写那一句 —— 漏收正是这道闸门最不该错的那一头（ADR-70「2026-11-14 追记」）
   eq('真闭包里没有抽边认不得的引用写法',
     real.filter(f => existsSync(f) && statSync(f).isFile() && /\b(?:from|import)\s*"\.|\bimport\s*\(\s*['"`]\./.test(rf(f, 'utf8'))), [])
 
@@ -15066,6 +15093,60 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
     !legacy.ok && legacy.err.filter(e => e.includes('DECISIONS.md')).length === 1)
   rmSync(legacyToy, { recursive: true, force: true })
 
+  // 拿主干上的指纹表再比一遍（ADR-211 的欠条「历史文件指纹只靠评审看 diff 守着」）：本树的表这条分支改得动，主干上的改不动。
+  // `ask` 是假的 git：只答得上 `trunk` 这一个主干引用，`show` 交回 `trunkPins`
+  // 分叉点（merge-base）上那份才交 `trunkPins`；主干头上那份交 `headPins`（主干后来又钉的），默认读不到。
+  // `ls-tree` 问分叉点上有没有这份表：`trunkPins` 是 null 就答没有（空串），`unreadable` 时答有、可 `show` 读不出来
+  const fakeGit = (trunk: string | null, trunkPins: string | null, headPins: string | null = null, unreadable = false): GitAsk => (...a: string[]) =>
+    a[0] === 'rev-parse' && trunk !== null && a[2] === `${trunk}^{commit}` ? 'c0ffee'
+      : a[0] === 'merge-base' && trunk !== null && a[1] === trunk && a[2] === 'HEAD' ? 'f0rk'
+      : a[0] === 'ls-tree' && trunk !== null && a[2] === 'f0rk' ? (trunkPins === null && !unreadable ? '' : `docs/adr/${PINS_FILE}`)
+      : unreadable ? null
+      : a[0] === 'show' && trunk !== null && a[1] === `f0rk:docs/adr/${PINS_FILE}` ? trunkPins
+      : a[0] === 'show' && trunk !== null && a[1] === `${trunk}:docs/adr/${PINS_FILE}` ? headPins : null
+  const oldHistory = '# ADR-01 甲\n过程\n'
+  const trunkPinned = JSON.stringify({ 'ADR-01-甲.md': pinOf(B(oldHistory)) })
+  // 找主干的顺序要单拿一个能同时答好几个引用的假 git 才看得出：`resolvable` 是 rev-parse 认得的，`show` 对每个引用都交得出表
+  const refsGit = (resolvable: readonly string[], forks = true): GitAsk => (...a: string[]) =>
+    a[0] === 'rev-parse' ? (resolvable.some(r => a[2] === `${r}^{commit}`) ? 'c0ffee' : null)
+      : a[0] === 'merge-base' ? (forks && a[2] === 'HEAD' ? `fork-of-${a[1]}` : null)
+      : a[0] === 'ls-tree' ? `docs/adr/${PINS_FILE}`
+      : a[0] === 'show' ? a[1].slice(0, a[1].indexOf(':')) : null
+  eq('找主干先试 origin/main，没有再试 main', [trunkPinsText(refsGit(['main', 'origin/main'])), trunkPinsText(refsGit(['main']))], ['fork-of-origin/main', 'fork-of-main'])
+  eq('找不到主干：没有可比的，交回 null', trunkPinsText(refsGit([])), null)
+  eq('与主干没有分叉点：没有可比的，交回 null，不拿主干头比', trunkPinsText(refsGit(['origin/main'], false)), null)
+  const lsTreeFails: GitAsk = (...a: string[]) => a[0] === 'rev-parse' || a[0] === 'merge-base' ? 'c0ffee' : null
+  ok('问不出分叉点上有没有这份表（ls-tree 失败）：交回读不出来，不当成没有', (() => { const t = trunkPinsText(lsTreeFails); return t !== null && typeof t !== 'string' })())
+  const trunkToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-01-甲.md': '# ADR-01 甲\n改过\n', [PINS_FILE]: '{}\n' })
+  const trunkWrite = adrSync(trunkToy, true, fakeGit('origin/main', trunkPinned))
+  ok('主干钉过的历史文件被改、本树指纹表里那一行被删：比主干报红，--write 也拒绝、不把改过的钉上去',
+    !trunkWrite.ok && trunkWrite.err.join('\n').includes('比主干上的指纹表') && trunkWrite.err.join('\n').includes('被改了')
+      && rf(join(trunkToy, 'docs', 'adr', PINS_FILE), 'utf8') === '{}\n')
+  const noTrunkWrite = adrSync(trunkToy, true, fakeGit(null, null))
+  ok('同一棵树找不到主干：只比本树，--write 照钉（没有可比的就不拦）', noTrunkWrite.ok)
+  rmSync(trunkToy, { recursive: true, force: true })
+  const trunkGoneToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
+  const trunkGone = adrSync(trunkGoneToy, false, fakeGit('origin/main', trunkPinned))
+  ok('主干钉过的历史文件在这边整份没了：比主干报一条，点出文件',
+    !trunkGone.ok && trunkGone.err.some(e => e.includes('比主干上的指纹表') && e.includes('ADR-01-甲.md') && e.includes('没有这一份')))
+  rmSync(trunkGoneToy, { recursive: true, force: true })
+  const trunkSameToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-01-甲.md': oldHistory + '后来接着加的\n' })
+  ok('主干钉过、这边只在末尾接着加：比主干不报错，--write 钉住新的末尾', adrSync(trunkSameToy, true, fakeGit('origin/main', trunkPinned)).ok)
+  // 主干头上后来又钉了一份（乙），这边还没合主干、没有它：比分叉点不报红；拿主干头比就会报「没有这一份」
+  const aheadPins = JSON.stringify({ 'ADR-01-甲.md': pinOf(B(oldHistory)), 'ADR-02-乙.md': pinOf(B('# ADR-02 乙\n')) })
+  ok('落后于主干：主干后来新钉的那份这边没有，比的是分叉点上那份，不报红', adrSync(trunkSameToy, false, fakeGit('origin/main', trunkPinned, aheadPins)).ok)
+  rmSync(trunkSameToy, { recursive: true, force: true })
+  const unreadableToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-01-甲.md': '# ADR-01 甲\n改过\n', [PINS_FILE]: '{}\n' })
+  const unreadable = adrSync(unreadableToy, true, fakeGit('origin/main', null, null, true))
+  ok('分叉点上有这份表、却读不出来：报一条，--write 也拒绝，不当成没有可比的',
+    !unreadable.ok && unreadable.err.some(e => e.includes('读不出来')) && rf(join(unreadableToy, 'docs', 'adr', PINS_FILE), 'utf8') === '{}\n')
+  ok('分叉点上没有这份表：没有可比的，只比本树，--write 照钉', adrSync(unreadableToy, true, fakeGit('origin/main', null)).ok)
+  rmSync(unreadableToy, { recursive: true, force: true })
+  const trunkBadToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
+  const trunkBad = adrSync(trunkBadToy, false, fakeGit('origin/main', '{'))
+  ok('主干上的指纹表读不出来：报一条，不当成主干什么都没钉过', !trunkBad.ok && trunkBad.err.some(e => e.includes('主干上的') && e.includes('不是合法的 JSON')))
+  rmSync(trunkBadToy, { recursive: true, force: true })
+
   // 编号有空号是正常的：号不复用，包括还活在别的分支上的
   const idx = renderIndex([
     { file: 'ADR-10-十.md', num: 10, title: '十' },
@@ -15771,6 +15852,222 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
 
   eq('真仓库：每个记录文件一行，索引不在表里', citeTable(adrDocs()).map(r => r.file).sort(),
     readdirSync('docs/adr').filter(f => FILE_RE.test(f)).map(f => `docs/adr/${f}`).sort())
+}
+
+harness('字段断言闸门：检查链判定新增的返回字段，没有登记被测试打红的变异就红（ADR-198）')
+{
+  // 玩具仓库：几份判定文件、一份不归它管的 lib、一份验证者。期望值按 field-use-rule.ts 文件头的三条规则手推，不从运行结果抄
+  const fieldToy = (tweak: (files: Record<string, string>) => void = () => {}) => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'field-use-toy-')))
+    const files: Record<string, string> = {
+      'scripts/check/a.ts': [
+        'export interface Row { kept: number; idle: number }',
+        'export function rows(): Row[] { return [] }',
+        "export type Shape = { kind: 'dot'; x: number } | { kind: 'box'; w: number }",
+        "export function shape(): Shape { return { kind: 'dot', x: 1 } }",
+        "export function inferred() { return { one: 1, two: 'b' } }",
+        'export function listed() {\n  return {\n    first: 1, // 字段不入断言：逗号后面的行尾注释\n    second: 2,\n  }\n}',
+        'export async function later(): Promise<{ awaited: number }> { return { awaited: 1 } }',
+        'export function withCallback(): { run: () => { hidden: number } } { return { run: () => ({ hidden: 1 }) } }',
+        'export interface Quiet {',
+        '  // 字段不入断言：只能从子进程输出验到',
+        '  quiet: number',
+        '  bare: number // 字段不入断言：',
+        '  after: number',
+        '}',
+        'export function quiet(): Quiet { return { quiet: 1, bare: 2, after: 3 } }',
+        'export function store(): Map<string, { held: number }> { return new Map() }',
+      ].join('\n'),
+      'scripts/check/b.ts': 'export function whole(): { w1: number; nest: { w2: number }[] } { return { w1: 1, nest: [] } }',
+      'scripts/check/c.ts': 'export function lonely(): { bb: number } { return { bb: 1 } }',
+      'scripts/check/s.ts': [
+        'export interface Res { ok: boolean; readonly n: number; late: number }',
+        'export function make(x: number): Res {',
+        '  const n = x * 2',
+        '  const r: Res = { ok: x > 0, n, late: 0 }',
+        '  r.late = 1',
+        "  r['late'] += 1",
+        '  r[`late`] = 2',
+        '  if (r.late > 5) r.ok = false',
+        '  return r',
+        '}',
+        'export function amb(): { value: number } | { value: string } { return { value: 1 } }',
+        'function local(): { late: number } | Res { return { late: 9 } }',
+        'export function short() { const a = 1; return { a } }',
+        "export function esc(): { added: number; \\u0062oth: number } { return { '\\u0061dded': 1, both: 2 } }",
+      ].join('\n'),
+      'scripts/lib/d.ts': 'export function lib(): { libField: number } { return { libField: 1 } }',
+      'scripts/lib/e.ts': "import type { lonely } from '../check/c.js'\nexport const e: ReturnType<typeof lonely> = { bb: 3 }",
+      'scripts/test.ts': "import type { lonely } from './check/c.js'\nexport function own(): { verifierOwn: number } { return { verifierOwn: 1 } }\nexport const v: ReturnType<typeof lonely> = { bb: 2 }",
+    }
+    tweak(files)
+    for (const [path, text] of Object.entries(files)) { mkdirSync(join(root, dirname(path)), { recursive: true }); writeFileSync(join(root, path), text) }
+    const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript')
+    const options = {
+      target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true, noEmit: true, types: [], lib: ['lib.es2022.d.ts'],
+    }
+    const names = Object.keys(files).map(p => join(root, p))
+    const service = ts.createLanguageService({
+      getScriptFileNames: () => names, getScriptVersion: () => '1', getCompilationSettings: () => options, getCurrentDirectory: () => root,
+      getScriptSnapshot: f => { const t = ts.sys.readFile(f); return t === undefined ? undefined : ts.ScriptSnapshot.fromString(t) },
+      getDefaultLibFileName: o => ts.getDefaultLibFilePath(o), fileExists: ts.sys.fileExists, readFile: ts.sys.readFile,
+    })
+    try { return { fs: fieldsOf(service, root), files } } finally { service.dispose(); rmSync(root, { recursive: true, force: true }) }
+  }
+  const { fs: toy, files: toyFiles } = fieldToy()
+  const vias = (fs: readonly UseField[], file?: string) => fs.filter(f => file === undefined || f.file === `scripts/check/${file}`).map(f => f.via).sort()
+  const toyOf = (via: string) => toy.find(f => f.via === via)
+  const textOf = (f: UseField | undefined, files = toyFiles) => f?.sites.map(s => files[s.file].slice(s.start, s.end))
+  // 期望里有 undefined 的用严格深比较：eq 按 JSON 比，数组里的 undefined 与 null 分不开
+  const strict = (got: unknown, want: unknown): [unknown, unknown] => [isDeepStrictEqual(got, want) ? got : { 严格比对不等: got }, want]
+  eq('字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条）',
+    vias(toy), [
+      'amb().value', 'amb().value', 'esc().added', 'esc().both', 'inferred().one', 'inferred().two', 'later()<>.awaited', 'listed().first', 'listed().second', 'lonely().bb',
+      'make().late', 'make().n', 'make().ok', 'quiet().after', 'quiet().bare', 'quiet().quiet', 'rows()[].idle', 'rows()[].kept',
+      'shape().kind', 'shape().kind', 'shape().w', 'shape().x', 'short().a', 'store()<>.held', 'whole().nest', 'whole().nest[].w2', 'whole().w1', 'withCallback().run',
+    ])
+  eq('字段：豁免写在上一行或同一行；标记后面空着就是空串', ...strict(['quiet().quiet', 'quiet().bare', 'rows()[].idle'].map(k => toyOf(k)?.waiver), ['只能从子进程输出验到', '', undefined]))
+  eq('字段：上一个字段行尾的豁免不漏到下一个字段上', ...strict(toyOf('quiet().after')?.waiver, undefined))
+  eq('字段：推断出来的对象字面量里，逗号后面的行尾豁免也认，不漏到下一行', ...strict(['listed().first', 'listed().second'].map(k => toyOf(k)?.waiver), ['逗号后面的行尾注释', undefined]))
+  eq('字段：行号从 1 起，指向属性名那一行；交回的每一项带着它所在的文件', [toyOf('quiet().quiet')?.line, toyOf('listed().second')?.line, toyOf('whole().nest[].w2')?.file], [16, 9, 'scripts/check/b.ts'])
+
+  // 赋值处：问「跳到定义」，只认跳到恰好一个字段的
+  eq('字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x[\'f\'] += …；变量的初始值、比较不算；带 readonly 的照样认',
+    ['make().ok', 'make().n', 'make().late'].map(k => textOf(toyOf(k))), [['ok: x > 0', 'r.ok = false'], ['n'], ['late: 0', 'r.late = 1', "r['late'] += 1", 'r[`late`] = 2']])
+  eq('字段：名字按解析后的比，不按源码原文 —— 声明写普通名、赋值写转义，或反过来，都认得到',
+    ['esc().added', 'esc().both'].map(k => textOf(toyOf(k))), [["'\\u0061dded': 1"], ['both: 2']])
+  eq('字段：推断出来的对象字面量，字段的赋值处就是它自己那一项，简写的也是', [textOf(toyOf('inferred().one')), textOf(toyOf('short().a'))], [['one: 1'], ['a']])
+  eq('字段：跳到定义交回一个字段加一个别的（不导出的那个成员），不算这个字段的赋值处', textOf(toyOf('make().late'))?.includes('late: 9'), false)
+  eq('字段：判别联合按判别值分到成员，赋值处只算到那一个成员的字段上；没分开的联合（两个成员都有 value、没有判别值）一处都不算',
+    [textOf(toyOf('shape().x')), textOf(toyOf('shape().w')), toy.filter(f => f.via === 'shape().kind').map(f => textOf(f)!.length).sort(), toy.filter(f => f.via === 'amb().value').map(f => f.sites.length)],
+    [['x: 1'], [], [0, 1], [0, 0]])
+  eq('字段：别的文件里给它赋值也算（lib 下的算，验证者里的不算），赋值处带着自己所在的文件', toyOf('lonely().bb')?.sites.map(s => [s.file, toyFiles[s.file].slice(s.start, s.end)]).sort(),
+    [['scripts/check/c.ts', 'bb: 1'], ['scripts/lib/e.ts', 'bb: 3']])
+
+  // 新加的行：文件名是 git 列出来的（原样作键），每个文件一份 git diff -U0 的输出，只读块头
+  const added = (diffs: [string, string][]) => { try { return [...addedLines(diffs)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } }
+  eq('新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）',
+    added([
+      ['scripts/check/a.ts', ['diff --git a/scripts/check/a.ts b/scripts/check/a.ts', 'index 1111111..2222222 100644', '--- a/scripts/check/a.ts', '+++ b/scripts/check/a.ts',
+        '@@ -3 +3,2 @@', '-old', '+new3', '+@@ -1 +99 @@ 正文里像块头的新增行', '@@ -10 +12 @@ export function f() {', '-x', '+y12', '\\ No newline at end of file', ''].join('\n')],
+      ['scripts/check/mode.ts', 'diff --git a/scripts/check/mode.ts b/scripts/check/mode.ts\nold mode 100644\nnew mode 100755\n'],
+      ['scripts/check/gone.ts', 'diff --git a/scripts/check/gone.ts b/scripts/check/gone.ts\n--- a/scripts/check/gone.ts\n+++ b/scripts/check/gone.ts\n@@ -5,2 +4,0 @@\n-p\n-q\n'],
+      ['scripts/check/same.ts', ''],
+      ['scripts/check/😀\t.ts', 'diff --git "a/scripts/check/😀\\t.ts" "b/scripts/check/😀\\t.ts"\nnew file mode 100644\n--- /dev/null\n+++ "b/scripts/check/😀\\t.ts"\n@@ -0,0 +1,2 @@\n+one\n+two\n'],
+    ]), [['scripts/check/a.ts', [3, 4, 12]], ['scripts/check/😀\t.ts', [1, 2]]])
+  eq('新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的',
+    ['\u001b[1mdiff --git a/x b/x\u001b[m\n@@ -1 +1 @@\n-a\n+b\n', 'x: 3 lines changed\n', 'diff -u a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n', 'diff --git a/x b/x\n@@ -1 +a @@\n+b\n',
+      'diff --git a/x b/x\n@@ -1,0 +2,3\n', 'diff --git a/x b/x\n@@@ -1 -1 +1,2 @@@\n++b\n', 'diff --git a/x b/x\nnew file mode 100644\nBinary files /dev/null and b/x differ\n']
+      .map(t => { const r = added([['x', t]]); return typeof r === 'string' && r.includes('读不懂的 diff') }), [true, true, true, true, true, true, true])
+  eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd', 'x'), markSite('f', 'ab cd ab', 'ab', 'x'), markSite('f', 'ab', 'x', 'y'), markSite('f', 'ab', '', 'y')],
+    [{ file: 'f', start: 3, end: 5 }, undefined, undefined, undefined])
+  eq('变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点', [markSite('f', '__a + b__', 'a + b', 'a - b'), markSite('f', '__a + b__', 'a + b', 'a + b + c'), markSite('f', 'xaay', 'aa', 'a')],
+    [{ file: 'f', start: 4, end: 5 }, { file: 'f', start: 7, end: 7 }, { file: 'f', start: 2, end: 3 }])
+
+  // 判红：手搭的字段，一个只钉一件事
+  const fld = (line: number, more: Partial<UseField> = {}): UseField => ({ file: 'f', line, via: `v${line}`, sites: [{ file: 'f', start: line * 10, end: line * 10 + 5 }], ...more })
+  const lines = (...ls: number[]) => new Map([['f', new Set(ls)]])
+  const at = (start: number, end: number, file = 'f') => ({ file, start, end })
+  const ids = (fs: readonly UseField[]) => fs.map(f => f.line)
+  const v1 = fieldVerdict([fld(2), fld(1), fld(3)], lines(1, 2), [])
+  eq('字段闸门：声明那一行是这次加的才算新增，按文件、行号排；没登记变异、没豁免的报出来、红', [ids(v1.fresh), ids(v1.unmarked), v1.red], [[1, 2], [1, 2], true])
+  eq('字段闸门：先按文件排，再按行号', fieldVerdict([{ ...fld(1), file: 'g' }, fld(2)], new Map([['f', new Set([2])], ['g', new Set([1])]]), []).fresh.map(f => f.file), ['f', 'g'])
+  eq('字段闸门：别的文件同一行号加了行，不算这个字段新增', fieldVerdict([fld(1)], new Map([['g', new Set([1])]]), []).fresh.length, 0)
+  eq('字段闸门：变异的那段和字段的一处赋值重叠就守住；只挨着（一个的结尾正好是另一个的开头）、在别的文件里的不算',
+    [[at(12, 13)], [at(5, 11)], [at(14, 20)], [at(5, 10)], [at(15, 20)], [at(10, 15, 'g')]].map(ms => fieldVerdict([fld(1)], lines(1), ms).red), [false, false, false, true, true, true])
+  eq('字段闸门：只插入的变异，插入点落在赋值处里面才算；落在开头、结尾上不算',
+    [at(12, 12), at(10, 10), at(15, 15)].map(m => fieldVerdict([fld(1)], lines(1), [m]).red), [false, true, true])
+  eq('字段闸门：有几处赋值的，变异守着其中任一处就算', fieldVerdict([fld(1, { sites: [at(0, 2), at(50, 60)] })], lines(1), [at(55, 56)]).red, false)
+  eq('字段闸门：没有赋值处的字段，什么变异都守不住', fieldVerdict([fld(1, { sites: [] })], lines(1), [at(0, 1000)]).unmarked.length, 1)
+  const two = [fld(1, { via: 'same' }), fld(2, { via: 'same' })]
+  eq('字段闸门：同名的两个字段各判各的 —— 变异守着一个，不替另一个挡；一个写了豁免，也不替另一个挡',
+    [ids(fieldVerdict(two, lines(1, 2), [at(10, 11)]).unmarked), ids(fieldVerdict([two[0], { ...two[1], waiver: '子进程' }], lines(1, 2), []).unmarked)], [[2], [1]])
+  eq('字段闸门：同名的两个字段只有一个是这次新加的，两条变异都只改旧的那个，新加的照样报缺变异', ids(fieldVerdict(two, lines(2), [at(10, 12), at(12, 14)]).unmarked), [2])
+  const w = fieldVerdict([fld(1, { waiver: '子进程' }), fld(2, { waiver: '' }), fld(3, { waiver: '  ' }), fld(4, { waiver: '' })], lines(1, 2, 3, 4), [at(40, 41)])
+  eq('字段闸门：有理由的豁免放行、不红；空理由与只有空白的理由不成立、红，有变异守着也算不成立，也不重复报缺变异',
+    [ids(w.waived), ids(w.unjustified), ids(w.unmarked), w.red, fieldVerdict([fld(1, { waiver: '子进程' })], lines(1), []).red], [[1], [2, 3, 4], [], true, false])
+  eq('字段闸门：有变异守着的字段写了理由，不算靠豁免放行', fieldVerdict([fld(1, { waiver: '子进程' })], lines(1), [at(10, 11)]).waived.length, 0)
+  const cutField = fld(9, { cut: true, sites: [] })
+  eq('字段闸门：「没展开完」那一条不论哪一行改没改都判；变异守不了，写了豁免才放行',
+    [ids(fieldVerdict([cutField], new Map(), [at(0, 1000)]).unmarked), fieldVerdict([{ ...cutField, waiver: '故意套二十层' }], new Map(), []).red], [[9], false])
+  const real = fieldVerdict(toy, new Map([['scripts/check/c.ts', new Set([1])], ['scripts/check/s.ts', new Set([1])]]), [markSite('scripts/check/c.ts', toyFiles['scripts/check/c.ts'], 'bb: 1', 'bb: 2')!])
+  eq('字段闸门：玩具上 —— 新加的行上的字段才判，变异改到它的赋值处就守住', [real.fresh.map(f => f.via), real.unmarked.map(f => f.via)],
+    [['lonely().bb', 'make().ok', 'make().n', 'make().late'], ['make().ok', 'make().n', 'make().late']])
+
+  // 第二个玩具：映射与索引签名、豁免的写法、递归
+  const moreFiles = (files: Record<string, string>) => Object.assign(files, {
+    'scripts/lib/d.ts': 'export interface LibShape { libOnly: number }',
+    'scripts/check/f.ts': [
+      "import type { LibShape } from '../lib/d.js'",
+      'export interface Base { kept: number; hiddenR: number }',
+      'export function ro(): Readonly<Base> { return { kept: 1, hiddenR: 2 } }',
+      'export function rec(): Record<string, { inRec: number }> { return {} }',
+      'export function indexed(): { [k: string]: { inIdx: number } } { return {} }',
+      'export function both(): { left: number } & { right: number } { return { left: 1, right: 2 } }',
+      'export function libShaped(): LibShape { return { libOnly: 1 } }',
+      'export interface W {',
+      '  /** 字段不入断言：块注释里的理由 */',
+      '  block: number',
+      '  spaced: number // 字段不入断言：   ',
+      "  marked: '// 字段不入断言：字符串里的不算'",
+      '  plain: number',
+      '  /**',
+      '   * 字段不入断言：',
+      '   *',
+      '   */',
+      '  starred: number',
+      '}',
+      "export function waivers(): W { return { block: 1, spaced: 2, marked: '// 字段不入断言：字符串里的不算', plain: 3, starred: 4 } }",
+      'export interface R16 { kept16: number; added16: number }', 'export function constrained<T extends R16>(v: T): T { return v }',
+    ].join('\n'),
+    'scripts/check/cr.ts': 'export function cr(): { a: number; /* 单独的回车\r与\u2028行分隔符 */ b: number } { return { a: 1, b: 2 } }',
+    'scripts/check/m.ts': [
+      'export interface Box<T> { boxed: T }', 'export function boxes(): Box<Box<Box<{ inBox: number }>>> { return { boxed: { boxed: { boxed: { inBox: 1 } } } } }',
+      'export function nestedMap(): Map<0, Map<0, Map<0, Map<0, { mapDeep: number }>>>> { return new Map() }', 'export interface Leaf { leafF: number }',
+      `// 字段不入断言：故意套二十层\nexport function twice(): { deep?: ${'Box<'.repeat(20)}Leaf${'>'.repeat(20)} } { return {} }`,
+      `// 字段不入断言：箭头函数也套二十层\nexport const twice2 = (): { deep?: ${'Box<'.repeat(20)}Leaf${'>'.repeat(20)} } => ({})`,
+    ].join('\n'),
+  })
+  const { fs: more } = fieldToy(moreFiles)
+  const moreOf = (via: string) => more.find(f => f.via === via)
+  eq('字段：行号按 git 的算法只认换行符 —— 注释里单独的回车、U+2028 不算换行，同一行上的两个字段行号相同', ['cr().a', 'cr().b'].map(k => moreOf(k)?.line), [1, 1])
+  eq('字段：Readonly 这类映射、Record 与索引签名、交叉都展开；返回类型是类型参数的按约束找；返回类型声明在 lib 下的不算',
+    vias(more, 'f.ts').filter(k => !k.startsWith('waivers()')), ['both().left', 'both().right', 'constrained().added16', 'constrained().kept16', 'indexed()[*].inIdx', 'rec()[*].inRec', 'ro().hiddenR', 'ro().kept'])
+  eq('字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段',
+    ...strict(['block', 'spaced', 'marked', 'plain', 'starred'].map(k => moreOf(`waivers().${k}`)?.waiver), ['块注释里的理由', '', undefined, undefined, '']))
+  const cutLines = (fs: readonly UseField[], file: string) => fs.filter(f => f.file === `scripts/check/${file}`).map(f => `${f.line}${f.cut === true ? '…' : ''}`).sort()
+  const chained = (() => { // 递归泛型：每展开一层都是新实例；找字段要停得下来，停不下来就是栈溢出
+    try {
+      return cutLines(fieldToy(files => {
+        files['scripts/check/r.ts'] = 'export interface Chain<T> { link: T; next?: Chain<T[]> }\nexport function chain(): Chain<{ deepLink: number }> { return { link: { deepLink: 1 } } }\nexport type Loop<T> = Loop<T[]>[]\nexport function loop(): Loop<{ inLoop: number }> { return [] }\nexport type Tup<T> = [Tup<T[]>]\nexport function tup(): Tup<0> { return null as never }\nexport interface RChain<T> { link: T; next?: Readonly<RChain<T[]>> }\nexport function rchain(): RChain<{ deepR: number }> { return { link: { deepR: 1 } } }'
+      }).fs, 'r.ts')
+    } catch (e) { return String(e).slice(0, 60) }
+  })()
+  eq('字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数在函数名那一行记一条「没展开完」',
+    chained, ['1', '1', '2', '2…', '4…', '6…', '7', '7', '8', '8…'])
+  const box12 = 'Box<'.repeat(20) + 'number' + '>'.repeat(20)
+  const exposed = (() => { try { return cutLines(fieldToy(files => {
+    files['scripts/check/r.ts'] = `import * as selfR from './r.js'\nexport function expose(): typeof selfR { return selfR }\nexport interface Box<T> { boxed: T }\nexport function deep(): ${box12} { return null as never }`
+  }).fs, 'r.ts').filter(k => k.endsWith('…')) } catch (e) { return String(e).slice(0, 60) } })()
+  const fanned = (() => { try { return cutLines(fieldToy(files => { // 不递归、只有十二层，但每层分两叉、类型实参各不相同 —— 一共四千多步，只有步数上限会停
+    const levels = Array.from({ length: 12 }, (_, i) => `export interface L${i}<T> { a: L${i + 1}<[T]>; b: L${i + 1}<{ x: T }> }`).join('\n')
+    files['scripts/check/r.ts'] = `${levels}\nexport interface L12<T> { end: number }\nexport function fanned(): L0<0> { return null as never }\nexport function after(): { ok: number } { return { ok: 1 } }`
+  }).fs, 'r.ts').filter(k => k.endsWith('…')) } catch (e) { return String(e).slice(0, 60) } })()
+  eq('字段：层数没到上限、但每层分叉一次从头走的步数超了上限，同样停下、记「没展开完」；后面的函数从头另算，不受牵连', fanned, ['14…'])
+  eq('字段：函数先被别的导出（返回整个模块）记过一次，自己找字段停下时照样记「没展开完」', exposed, ['4…'])
+  eq('字段：同一个泛型套三层，没到层数上限，照常展开、最里面的字段找得到', moreOf('boxes().boxed.boxed.boxed.inBox') !== undefined, true)
+  const edge = (() => { try { const n = DEPTH - 1; return cutLines(fieldToy(files => { // 深的那条路正好在 Leaf2 那一层碰到上限，浅的那条随后走到同一个 Leaf2
+    files['scripts/check/r.ts'] = `export interface Box<T> { boxed: T }\nexport interface Leaf2 { leafG: number }\nexport function edge(): { deep: ${'Box<'.repeat(n)}Leaf2${'>'.repeat(n)}; flat: Leaf2 } { return null as never }`
+  }).fs, 'r.ts') } catch (e) { return String(e).slice(0, 60) } })()
+  eq('字段：在深处被停下的类型，从浅处走到照样展开', edge, ['1', '2', '3', '3', '3…'])
+  eq('字段：库里的泛型（Map 这类）也按层数算，套四层没到上限，照样找到最里面的字段', [moreOf('nestedMap()<><><><>.mapDeep') !== undefined, cutLines(more, 'm.ts').filter(k => k.endsWith('…'))], [true, ['6…', '8…']])
+  eq('字段：「没展开完」那一条带着函数前的豁免（export const 的箭头函数写在整句前面），没有赋值处',
+    ...strict(more.filter(f => f.cut === true).map(f => [f.line, f.waiver, f.sites.length]), [[6, '故意套二十层', 0], [8, '箭头函数也套二十层', 0]]))
+  eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
+    'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
+  eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),
+    [true, false, false, false])
 }
 
 harness('周回访定期清点：欠条哪天登记、按什么名字认、列过没有（拆过的记录取拆之前那一行）')
@@ -22191,7 +22488,7 @@ await group('h-worker-output-reclaim', async () => {
   }
 })
 
-// ---- 零请求观察器（ADR-70 末尾讲零请求观察器与外层断网的那一节）：判定、预加载、运行器各一组 ----
+// ---- 零请求观察器（ADR-70「零请求观察器与外层断网」）：判定、预加载、运行器各一组 ----
 // 期望值照那一节「对作者公开的协议」与下面手写的事实推，没有拿观察器跑出来的东西回填
 await group('h-observer-rule', () => {
   harness('零请求观察器的判定：响应脚本、事件读回、一次观察归哪一档、零请求四档、断网认证、白名单环境与沙箱参数')
@@ -22260,7 +22557,7 @@ await group('h-observer-rule', () => {
   const hit = [rq(1, 0, { status: 200 })], pos = ob({ requests: hit })
   eq('观察器零请求：入口自己的 armed、同一认证下同一入口的阳性看见了请求、观察成立 —— 判通过', zeroVerdict(ob(), pos), { verdict: 'pass' })
   eq('观察器零请求：观察成立、阳性合格时，归得到本次运行的请求判红', zeroVerdict(ob({ requests: hit }), pos), { verdict: 'red', requests: 1 })
-  // 设施故障先于语义红（ADR-70 末尾「修复轮 1」）：那一跑记下的请求照样归得到它，但那一跑本身不成立
+  // 设施故障先于语义红（ADR-70「修复轮 1」）：那一跑记下的请求照样归得到它，但那一跑本身不成立
   eq('观察器零请求：目标那一跑是设施故障时判设施故障，带上哪一跑、哪一因；观察器叫停的脚本外请求、请求之后被信号打死，记下的请求都不判红',
     [zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'observer', reason: 'x' }, requests: hit }), pos), zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'signal', reason: 'y' }, requests: hit }), pos)],
     [{ verdict: 'facility', side: 'target', cause: 'observer', reason: '目标：x' }, { verdict: 'facility', side: 'target', cause: 'signal', reason: '目标：y' }])
@@ -22355,7 +22652,7 @@ await group('h-observer-preload', () => {
       `const r4 = await fetch('https://h.invalid/b', { method: 'POST' }); try { await r4.json() } catch (e) { out.push(['body', e.name]) }`,
       `const r5 = await fetch('https://h.invalid/d'); out.push([r5.status, Buffer.from(await r5.arrayBuffer()).toString('hex')])`,
       `console.log(JSON.stringify(out))`].join('\n'))
-    // 玩具入口没印出合法 JSON 时给一个明示的失败值，让下面两条断言红，而不是异常冲出 group()（ADR-70 第 3564 行）
+    // 玩具入口没印出合法 JSON 时给一个明示的失败值，让下面两条断言红，而不是异常冲出 group()（ADR-70 历史文件「整合方追加：观察器认证记录、CI 读数与一张欠条」一节）
     const outA: unknown = (() => { try { return JSON.parse(a.stdout) } catch { return { notJson: a.stdout } } })()
     const armedA = a.events[0]
     eq('观察器预加载：armed 记本次运行、入口、脚本与本文件、加载顺序与环境变量名，观察配置在入口里看不见',
@@ -22423,7 +22720,7 @@ await group('h-observer-run', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
-// ADR-70 末尾「修复轮 1」：观察器看不到的执行上下文与吞掉的直连。连的都是本机 127.0.0.1 的 9 号端口（没人听），DNS 指到同一处
+// ADR-70「修复轮 1」：观察器看不到的执行上下文与吞掉的直连。连的都是本机 127.0.0.1 的 9 号端口（没人听），DNS 指到同一处
 await group('h-observer-contexts', () => {
   harness('零请求观察器看不到的路：入口起线程、子进程，绕过 fetch 查 DNS、经 http 直连，失败都吞掉也判观察器故障（真起五次玩具入口，不进沙箱）')
   const dir = mkdtempSync(join(tmpdir(), 'kol-obc-'))
@@ -22526,7 +22823,7 @@ await group('h-observer-records', async () => {
       ag(lines(ready(), reserved(1)), 2), ag(lines(ready(), reserved(1), rejected()), 2)], [0, 0, 1, 1, 1, 1])
 })
 
-// 独立黑盒测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 第 3765 行那张欠条要的，放在冻结包之外）：
+// 独立黑盒测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 历史文件「G3-09 冻结件换入」一节那张欠条要的，放在冻结包之外）：
 // 真实入口这一跑只新建一个，那一支跑不到；这里照冻结用例自己的判法，造一跑「新增两个、其中一个有无结果留存」交给它判
 await group('h-blackbox-many-task-files', async () => {
   harness('独立黑盒测试包 G3-09：运行后新增两个以上 task.json 时逐个判，有无结果留存的那一个判红、另一个判过')

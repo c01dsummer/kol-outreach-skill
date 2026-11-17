@@ -40,7 +40,7 @@ export type BriefLeak =
   | { side: 'exemption'; req: string; field: 'scope' | 'why'; leak: string }
 
 /**
- * `mutate --brief` 会打出去的每一段散文，逐段过 `implementationLeak`（ADR-70 末尾「清单夹带（判定）」一节）。
+ * `mutate --brief` 会打出去的每一段散文，逐段过 `implementationLeak`（ADR-70「清单夹带（判定）」一节）。
  *
  * 打出去的是：每条变异的 `why`；每条豁免的 `scope`（写了才打）与 `why`。豁免的 `mitigation` 不打，所以不查 ——
  * 查的范围跟着打的范围走，抬头那句「不含实现原文」说的就是这几段。两侧分开交回：变异的 `why` 归写变异的人改，
