@@ -42,6 +42,7 @@ import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/
 import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
 import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
+import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -58,6 +59,7 @@ import {
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
+import { DEPTH, addedLines, fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, markSite, type Field as UseField } from './check/field-use-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -333,6 +335,9 @@ const GROUPS: readonly Group[] = [
   { id: 'h-iou-file-reminder', needs: [] },
   { id: 'h-revisit-entry', needs: [] },
   { id: 'h-iou-file-reminder-entry', needs: [] },
+  { id: 'h-ticket-refs', needs: [] },
+  { id: 'h-ticket-refs-entry', needs: [] },
+  { id: 'h-ticket-refs-entry-edges', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -15767,6 +15772,222 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
     readdirSync('docs/adr').filter(f => FILE_RE.test(f)).map(f => `docs/adr/${f}`).sort())
 }
 
+harness('字段断言闸门：检查链判定新增的返回字段，没有登记被测试打红的变异就红（ADR-198）')
+{
+  // 玩具仓库：几份判定文件、一份不归它管的 lib、一份验证者。期望值按 field-use-rule.ts 文件头的三条规则手推，不从运行结果抄
+  const fieldToy = (tweak: (files: Record<string, string>) => void = () => {}) => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'field-use-toy-')))
+    const files: Record<string, string> = {
+      'scripts/check/a.ts': [
+        'export interface Row { kept: number; idle: number }',
+        'export function rows(): Row[] { return [] }',
+        "export type Shape = { kind: 'dot'; x: number } | { kind: 'box'; w: number }",
+        "export function shape(): Shape { return { kind: 'dot', x: 1 } }",
+        "export function inferred() { return { one: 1, two: 'b' } }",
+        'export function listed() {\n  return {\n    first: 1, // 字段不入断言：逗号后面的行尾注释\n    second: 2,\n  }\n}',
+        'export async function later(): Promise<{ awaited: number }> { return { awaited: 1 } }',
+        'export function withCallback(): { run: () => { hidden: number } } { return { run: () => ({ hidden: 1 }) } }',
+        'export interface Quiet {',
+        '  // 字段不入断言：只能从子进程输出验到',
+        '  quiet: number',
+        '  bare: number // 字段不入断言：',
+        '  after: number',
+        '}',
+        'export function quiet(): Quiet { return { quiet: 1, bare: 2, after: 3 } }',
+        'export function store(): Map<string, { held: number }> { return new Map() }',
+      ].join('\n'),
+      'scripts/check/b.ts': 'export function whole(): { w1: number; nest: { w2: number }[] } { return { w1: 1, nest: [] } }',
+      'scripts/check/c.ts': 'export function lonely(): { bb: number } { return { bb: 1 } }',
+      'scripts/check/s.ts': [
+        'export interface Res { ok: boolean; readonly n: number; late: number }',
+        'export function make(x: number): Res {',
+        '  const n = x * 2',
+        '  const r: Res = { ok: x > 0, n, late: 0 }',
+        '  r.late = 1',
+        "  r['late'] += 1",
+        '  r[`late`] = 2',
+        '  if (r.late > 5) r.ok = false',
+        '  return r',
+        '}',
+        'export function amb(): { value: number } | { value: string } { return { value: 1 } }',
+        'function local(): { late: number } | Res { return { late: 9 } }',
+        'export function short() { const a = 1; return { a } }',
+        "export function esc(): { added: number; \\u0062oth: number } { return { '\\u0061dded': 1, both: 2 } }",
+      ].join('\n'),
+      'scripts/lib/d.ts': 'export function lib(): { libField: number } { return { libField: 1 } }',
+      'scripts/lib/e.ts': "import type { lonely } from '../check/c.js'\nexport const e: ReturnType<typeof lonely> = { bb: 3 }",
+      'scripts/test.ts': "import type { lonely } from './check/c.js'\nexport function own(): { verifierOwn: number } { return { verifierOwn: 1 } }\nexport const v: ReturnType<typeof lonely> = { bb: 2 }",
+    }
+    tweak(files)
+    for (const [path, text] of Object.entries(files)) { mkdirSync(join(root, dirname(path)), { recursive: true }); writeFileSync(join(root, path), text) }
+    const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript')
+    const options = {
+      target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true, noEmit: true, types: [], lib: ['lib.es2022.d.ts'],
+    }
+    const names = Object.keys(files).map(p => join(root, p))
+    const service = ts.createLanguageService({
+      getScriptFileNames: () => names, getScriptVersion: () => '1', getCompilationSettings: () => options, getCurrentDirectory: () => root,
+      getScriptSnapshot: f => { const t = ts.sys.readFile(f); return t === undefined ? undefined : ts.ScriptSnapshot.fromString(t) },
+      getDefaultLibFileName: o => ts.getDefaultLibFilePath(o), fileExists: ts.sys.fileExists, readFile: ts.sys.readFile,
+    })
+    try { return { fs: fieldsOf(service, root), files } } finally { service.dispose(); rmSync(root, { recursive: true, force: true }) }
+  }
+  const { fs: toy, files: toyFiles } = fieldToy()
+  const vias = (fs: readonly UseField[], file?: string) => fs.filter(f => file === undefined || f.file === `scripts/check/${file}`).map(f => f.via).sort()
+  const toyOf = (via: string) => toy.find(f => f.via === via)
+  const textOf = (f: UseField | undefined, files = toyFiles) => f?.sites.map(s => files[s.file].slice(s.start, s.end))
+  // 期望里有 undefined 的用严格深比较：eq 按 JSON 比，数组里的 undefined 与 null 分不开
+  const strict = (got: unknown, want: unknown): [unknown, unknown] => [isDeepStrictEqual(got, want) ? got : { 严格比对不等: got }, want]
+  eq('字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条）',
+    vias(toy), [
+      'amb().value', 'amb().value', 'esc().added', 'esc().both', 'inferred().one', 'inferred().two', 'later()<>.awaited', 'listed().first', 'listed().second', 'lonely().bb',
+      'make().late', 'make().n', 'make().ok', 'quiet().after', 'quiet().bare', 'quiet().quiet', 'rows()[].idle', 'rows()[].kept',
+      'shape().kind', 'shape().kind', 'shape().w', 'shape().x', 'short().a', 'store()<>.held', 'whole().nest', 'whole().nest[].w2', 'whole().w1', 'withCallback().run',
+    ])
+  eq('字段：豁免写在上一行或同一行；标记后面空着就是空串', ...strict(['quiet().quiet', 'quiet().bare', 'rows()[].idle'].map(k => toyOf(k)?.waiver), ['只能从子进程输出验到', '', undefined]))
+  eq('字段：上一个字段行尾的豁免不漏到下一个字段上', ...strict(toyOf('quiet().after')?.waiver, undefined))
+  eq('字段：推断出来的对象字面量里，逗号后面的行尾豁免也认，不漏到下一行', ...strict(['listed().first', 'listed().second'].map(k => toyOf(k)?.waiver), ['逗号后面的行尾注释', undefined]))
+  eq('字段：行号从 1 起，指向属性名那一行；交回的每一项带着它所在的文件', [toyOf('quiet().quiet')?.line, toyOf('listed().second')?.line, toyOf('whole().nest[].w2')?.file], [16, 9, 'scripts/check/b.ts'])
+
+  // 赋值处：问「跳到定义」，只认跳到恰好一个字段的
+  eq('字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x[\'f\'] += …；变量的初始值、比较不算；带 readonly 的照样认',
+    ['make().ok', 'make().n', 'make().late'].map(k => textOf(toyOf(k))), [['ok: x > 0', 'r.ok = false'], ['n'], ['late: 0', 'r.late = 1', "r['late'] += 1", 'r[`late`] = 2']])
+  eq('字段：名字按解析后的比，不按源码原文 —— 声明写普通名、赋值写转义，或反过来，都认得到',
+    ['esc().added', 'esc().both'].map(k => textOf(toyOf(k))), [["'\\u0061dded': 1"], ['both: 2']])
+  eq('字段：推断出来的对象字面量，字段的赋值处就是它自己那一项，简写的也是', [textOf(toyOf('inferred().one')), textOf(toyOf('short().a'))], [['one: 1'], ['a']])
+  eq('字段：跳到定义交回一个字段加一个别的（不导出的那个成员），不算这个字段的赋值处', textOf(toyOf('make().late'))?.includes('late: 9'), false)
+  eq('字段：判别联合按判别值分到成员，赋值处只算到那一个成员的字段上；没分开的联合（两个成员都有 value、没有判别值）一处都不算',
+    [textOf(toyOf('shape().x')), textOf(toyOf('shape().w')), toy.filter(f => f.via === 'shape().kind').map(f => textOf(f)!.length).sort(), toy.filter(f => f.via === 'amb().value').map(f => f.sites.length)],
+    [['x: 1'], [], [0, 1], [0, 0]])
+  eq('字段：别的文件里给它赋值也算（lib 下的算，验证者里的不算），赋值处带着自己所在的文件', toyOf('lonely().bb')?.sites.map(s => [s.file, toyFiles[s.file].slice(s.start, s.end)]).sort(),
+    [['scripts/check/c.ts', 'bb: 1'], ['scripts/lib/e.ts', 'bb: 3']])
+
+  // 新加的行：文件名是 git 列出来的（原样作键），每个文件一份 git diff -U0 的输出，只读块头
+  const added = (diffs: [string, string][]) => { try { return [...addedLines(diffs)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } }
+  eq('新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）',
+    added([
+      ['scripts/check/a.ts', ['diff --git a/scripts/check/a.ts b/scripts/check/a.ts', 'index 1111111..2222222 100644', '--- a/scripts/check/a.ts', '+++ b/scripts/check/a.ts',
+        '@@ -3 +3,2 @@', '-old', '+new3', '+@@ -1 +99 @@ 正文里像块头的新增行', '@@ -10 +12 @@ export function f() {', '-x', '+y12', '\\ No newline at end of file', ''].join('\n')],
+      ['scripts/check/mode.ts', 'diff --git a/scripts/check/mode.ts b/scripts/check/mode.ts\nold mode 100644\nnew mode 100755\n'],
+      ['scripts/check/gone.ts', 'diff --git a/scripts/check/gone.ts b/scripts/check/gone.ts\n--- a/scripts/check/gone.ts\n+++ b/scripts/check/gone.ts\n@@ -5,2 +4,0 @@\n-p\n-q\n'],
+      ['scripts/check/same.ts', ''],
+      ['scripts/check/😀\t.ts', 'diff --git "a/scripts/check/😀\\t.ts" "b/scripts/check/😀\\t.ts"\nnew file mode 100644\n--- /dev/null\n+++ "b/scripts/check/😀\\t.ts"\n@@ -0,0 +1,2 @@\n+one\n+two\n'],
+    ]), [['scripts/check/a.ts', [3, 4, 12]], ['scripts/check/😀\t.ts', [1, 2]]])
+  eq('新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的',
+    ['\u001b[1mdiff --git a/x b/x\u001b[m\n@@ -1 +1 @@\n-a\n+b\n', 'x: 3 lines changed\n', 'diff -u a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n', 'diff --git a/x b/x\n@@ -1 +a @@\n+b\n',
+      'diff --git a/x b/x\n@@ -1,0 +2,3\n', 'diff --git a/x b/x\n@@@ -1 -1 +1,2 @@@\n++b\n', 'diff --git a/x b/x\nnew file mode 100644\nBinary files /dev/null and b/x differ\n']
+      .map(t => { const r = added([['x', t]]); return typeof r === 'string' && r.includes('读不懂的 diff') }), [true, true, true, true, true, true, true])
+  eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd', 'x'), markSite('f', 'ab cd ab', 'ab', 'x'), markSite('f', 'ab', 'x', 'y'), markSite('f', 'ab', '', 'y')],
+    [{ file: 'f', start: 3, end: 5 }, undefined, undefined, undefined])
+  eq('变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点', [markSite('f', '__a + b__', 'a + b', 'a - b'), markSite('f', '__a + b__', 'a + b', 'a + b + c'), markSite('f', 'xaay', 'aa', 'a')],
+    [{ file: 'f', start: 4, end: 5 }, { file: 'f', start: 7, end: 7 }, { file: 'f', start: 2, end: 3 }])
+
+  // 判红：手搭的字段，一个只钉一件事
+  const fld = (line: number, more: Partial<UseField> = {}): UseField => ({ file: 'f', line, via: `v${line}`, sites: [{ file: 'f', start: line * 10, end: line * 10 + 5 }], ...more })
+  const lines = (...ls: number[]) => new Map([['f', new Set(ls)]])
+  const at = (start: number, end: number, file = 'f') => ({ file, start, end })
+  const ids = (fs: readonly UseField[]) => fs.map(f => f.line)
+  const v1 = fieldVerdict([fld(2), fld(1), fld(3)], lines(1, 2), [])
+  eq('字段闸门：声明那一行是这次加的才算新增，按文件、行号排；没登记变异、没豁免的报出来、红', [ids(v1.fresh), ids(v1.unmarked), v1.red], [[1, 2], [1, 2], true])
+  eq('字段闸门：先按文件排，再按行号', fieldVerdict([{ ...fld(1), file: 'g' }, fld(2)], new Map([['f', new Set([2])], ['g', new Set([1])]]), []).fresh.map(f => f.file), ['f', 'g'])
+  eq('字段闸门：别的文件同一行号加了行，不算这个字段新增', fieldVerdict([fld(1)], new Map([['g', new Set([1])]]), []).fresh.length, 0)
+  eq('字段闸门：变异的那段和字段的一处赋值重叠就守住；只挨着（一个的结尾正好是另一个的开头）、在别的文件里的不算',
+    [[at(12, 13)], [at(5, 11)], [at(14, 20)], [at(5, 10)], [at(15, 20)], [at(10, 15, 'g')]].map(ms => fieldVerdict([fld(1)], lines(1), ms).red), [false, false, false, true, true, true])
+  eq('字段闸门：只插入的变异，插入点落在赋值处里面才算；落在开头、结尾上不算',
+    [at(12, 12), at(10, 10), at(15, 15)].map(m => fieldVerdict([fld(1)], lines(1), [m]).red), [false, true, true])
+  eq('字段闸门：有几处赋值的，变异守着其中任一处就算', fieldVerdict([fld(1, { sites: [at(0, 2), at(50, 60)] })], lines(1), [at(55, 56)]).red, false)
+  eq('字段闸门：没有赋值处的字段，什么变异都守不住', fieldVerdict([fld(1, { sites: [] })], lines(1), [at(0, 1000)]).unmarked.length, 1)
+  const two = [fld(1, { via: 'same' }), fld(2, { via: 'same' })]
+  eq('字段闸门：同名的两个字段各判各的 —— 变异守着一个，不替另一个挡；一个写了豁免，也不替另一个挡',
+    [ids(fieldVerdict(two, lines(1, 2), [at(10, 11)]).unmarked), ids(fieldVerdict([two[0], { ...two[1], waiver: '子进程' }], lines(1, 2), []).unmarked)], [[2], [1]])
+  eq('字段闸门：同名的两个字段只有一个是这次新加的，两条变异都只改旧的那个，新加的照样报缺变异', ids(fieldVerdict(two, lines(2), [at(10, 12), at(12, 14)]).unmarked), [2])
+  const w = fieldVerdict([fld(1, { waiver: '子进程' }), fld(2, { waiver: '' }), fld(3, { waiver: '  ' }), fld(4, { waiver: '' })], lines(1, 2, 3, 4), [at(40, 41)])
+  eq('字段闸门：有理由的豁免放行、不红；空理由与只有空白的理由不成立、红，有变异守着也算不成立，也不重复报缺变异',
+    [ids(w.waived), ids(w.unjustified), ids(w.unmarked), w.red, fieldVerdict([fld(1, { waiver: '子进程' })], lines(1), []).red], [[1], [2, 3, 4], [], true, false])
+  eq('字段闸门：有变异守着的字段写了理由，不算靠豁免放行', fieldVerdict([fld(1, { waiver: '子进程' })], lines(1), [at(10, 11)]).waived.length, 0)
+  const cutField = fld(9, { cut: true, sites: [] })
+  eq('字段闸门：「没展开完」那一条不论哪一行改没改都判；变异守不了，写了豁免才放行',
+    [ids(fieldVerdict([cutField], new Map(), [at(0, 1000)]).unmarked), fieldVerdict([{ ...cutField, waiver: '故意套二十层' }], new Map(), []).red], [[9], false])
+  const real = fieldVerdict(toy, new Map([['scripts/check/c.ts', new Set([1])], ['scripts/check/s.ts', new Set([1])]]), [markSite('scripts/check/c.ts', toyFiles['scripts/check/c.ts'], 'bb: 1', 'bb: 2')!])
+  eq('字段闸门：玩具上 —— 新加的行上的字段才判，变异改到它的赋值处就守住', [real.fresh.map(f => f.via), real.unmarked.map(f => f.via)],
+    [['lonely().bb', 'make().ok', 'make().n', 'make().late'], ['make().ok', 'make().n', 'make().late']])
+
+  // 第二个玩具：映射与索引签名、豁免的写法、递归
+  const moreFiles = (files: Record<string, string>) => Object.assign(files, {
+    'scripts/lib/d.ts': 'export interface LibShape { libOnly: number }',
+    'scripts/check/f.ts': [
+      "import type { LibShape } from '../lib/d.js'",
+      'export interface Base { kept: number; hiddenR: number }',
+      'export function ro(): Readonly<Base> { return { kept: 1, hiddenR: 2 } }',
+      'export function rec(): Record<string, { inRec: number }> { return {} }',
+      'export function indexed(): { [k: string]: { inIdx: number } } { return {} }',
+      'export function both(): { left: number } & { right: number } { return { left: 1, right: 2 } }',
+      'export function libShaped(): LibShape { return { libOnly: 1 } }',
+      'export interface W {',
+      '  /** 字段不入断言：块注释里的理由 */',
+      '  block: number',
+      '  spaced: number // 字段不入断言：   ',
+      "  marked: '// 字段不入断言：字符串里的不算'",
+      '  plain: number',
+      '  /**',
+      '   * 字段不入断言：',
+      '   *',
+      '   */',
+      '  starred: number',
+      '}',
+      "export function waivers(): W { return { block: 1, spaced: 2, marked: '// 字段不入断言：字符串里的不算', plain: 3, starred: 4 } }",
+      'export interface R16 { kept16: number; added16: number }', 'export function constrained<T extends R16>(v: T): T { return v }',
+    ].join('\n'),
+    'scripts/check/cr.ts': 'export function cr(): { a: number; /* 单独的回车\r与\u2028行分隔符 */ b: number } { return { a: 1, b: 2 } }',
+    'scripts/check/m.ts': [
+      'export interface Box<T> { boxed: T }', 'export function boxes(): Box<Box<Box<{ inBox: number }>>> { return { boxed: { boxed: { boxed: { inBox: 1 } } } } }',
+      'export function nestedMap(): Map<0, Map<0, Map<0, Map<0, { mapDeep: number }>>>> { return new Map() }', 'export interface Leaf { leafF: number }',
+      `// 字段不入断言：故意套二十层\nexport function twice(): { deep?: ${'Box<'.repeat(20)}Leaf${'>'.repeat(20)} } { return {} }`,
+      `// 字段不入断言：箭头函数也套二十层\nexport const twice2 = (): { deep?: ${'Box<'.repeat(20)}Leaf${'>'.repeat(20)} } => ({})`,
+    ].join('\n'),
+  })
+  const { fs: more } = fieldToy(moreFiles)
+  const moreOf = (via: string) => more.find(f => f.via === via)
+  eq('字段：行号按 git 的算法只认换行符 —— 注释里单独的回车、U+2028 不算换行，同一行上的两个字段行号相同', ['cr().a', 'cr().b'].map(k => moreOf(k)?.line), [1, 1])
+  eq('字段：Readonly 这类映射、Record 与索引签名、交叉都展开；返回类型是类型参数的按约束找；返回类型声明在 lib 下的不算',
+    vias(more, 'f.ts').filter(k => !k.startsWith('waivers()')), ['both().left', 'both().right', 'constrained().added16', 'constrained().kept16', 'indexed()[*].inIdx', 'rec()[*].inRec', 'ro().hiddenR', 'ro().kept'])
+  eq('字段：块注释里的豁免认；理由只有空白、或只有多行注释行首的星号算空串；字符串里的标记不算，也不漏到下一个字段',
+    ...strict(['block', 'spaced', 'marked', 'plain', 'starred'].map(k => moreOf(`waivers().${k}`)?.waiver), ['块注释里的理由', '', undefined, undefined, '']))
+  const cutLines = (fs: readonly UseField[], file: string) => fs.filter(f => f.file === `scripts/check/${file}`).map(f => `${f.line}${f.cut === true ? '…' : ''}`).sort()
+  const chained = (() => { // 递归泛型：每展开一层都是新实例；找字段要停得下来，停不下来就是栈溢出
+    try {
+      return cutLines(fieldToy(files => {
+        files['scripts/check/r.ts'] = 'export interface Chain<T> { link: T; next?: Chain<T[]> }\nexport function chain(): Chain<{ deepLink: number }> { return { link: { deepLink: 1 } } }\nexport type Loop<T> = Loop<T[]>[]\nexport function loop(): Loop<{ inLoop: number }> { return [] }\nexport type Tup<T> = [Tup<T[]>]\nexport function tup(): Tup<0> { return null as never }\nexport interface RChain<T> { link: T; next?: Readonly<RChain<T[]>> }\nexport function rchain(): RChain<{ deepR: number }> { return { link: { deepR: 1 } } }'
+      }).fs, 'r.ts')
+    } catch (e) { return String(e).slice(0, 60) }
+  })()
+  eq('字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数在函数名那一行记一条「没展开完」',
+    chained, ['1', '1', '2', '2…', '4…', '6…', '7', '7', '8', '8…'])
+  const box12 = 'Box<'.repeat(20) + 'number' + '>'.repeat(20)
+  const exposed = (() => { try { return cutLines(fieldToy(files => {
+    files['scripts/check/r.ts'] = `import * as selfR from './r.js'\nexport function expose(): typeof selfR { return selfR }\nexport interface Box<T> { boxed: T }\nexport function deep(): ${box12} { return null as never }`
+  }).fs, 'r.ts').filter(k => k.endsWith('…')) } catch (e) { return String(e).slice(0, 60) } })()
+  const fanned = (() => { try { return cutLines(fieldToy(files => { // 不递归、只有十二层，但每层分两叉、类型实参各不相同 —— 一共四千多步，只有步数上限会停
+    const levels = Array.from({ length: 12 }, (_, i) => `export interface L${i}<T> { a: L${i + 1}<[T]>; b: L${i + 1}<{ x: T }> }`).join('\n')
+    files['scripts/check/r.ts'] = `${levels}\nexport interface L12<T> { end: number }\nexport function fanned(): L0<0> { return null as never }\nexport function after(): { ok: number } { return { ok: 1 } }`
+  }).fs, 'r.ts').filter(k => k.endsWith('…')) } catch (e) { return String(e).slice(0, 60) } })()
+  eq('字段：层数没到上限、但每层分叉一次从头走的步数超了上限，同样停下、记「没展开完」；后面的函数从头另算，不受牵连', fanned, ['14…'])
+  eq('字段：函数先被别的导出（返回整个模块）记过一次，自己找字段停下时照样记「没展开完」', exposed, ['4…'])
+  eq('字段：同一个泛型套三层，没到层数上限，照常展开、最里面的字段找得到', moreOf('boxes().boxed.boxed.boxed.inBox') !== undefined, true)
+  const edge = (() => { try { const n = DEPTH - 1; return cutLines(fieldToy(files => { // 深的那条路正好在 Leaf2 那一层碰到上限，浅的那条随后走到同一个 Leaf2
+    files['scripts/check/r.ts'] = `export interface Box<T> { boxed: T }\nexport interface Leaf2 { leafG: number }\nexport function edge(): { deep: ${'Box<'.repeat(n)}Leaf2${'>'.repeat(n)}; flat: Leaf2 } { return null as never }`
+  }).fs, 'r.ts') } catch (e) { return String(e).slice(0, 60) } })()
+  eq('字段：在深处被停下的类型，从浅处走到照样展开', edge, ['1', '2', '3', '3', '3…'])
+  eq('字段：库里的泛型（Map 这类）也按层数算，套四层没到上限，照样找到最里面的字段', [moreOf('nestedMap()<><><><>.mapDeep') !== undefined, cutLines(more, 'm.ts').filter(k => k.endsWith('…'))], [true, ['6…', '8…']])
+  eq('字段：「没展开完」那一条带着函数前的豁免（export const 的箭头函数写在整句前面），没有赋值处',
+    ...strict(more.filter(f => f.cut === true).map(f => [f.line, f.waiver, f.sites.length]), [[6, '故意套二十层', 0], [8, '箭头函数也套二十层', 0]]))
+  eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
+    'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
+  eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),
+    [true, false, false, false])
+}
+
 harness('周回访定期清点：欠条哪天登记、按什么名字认、列过没有（拆过的记录取拆之前那一行）')
 {
   // 一张欠条三种处境各钉一次：没拆过、拆过且条件没再改、拆过以后条件又改了。日期按提交时间钉死，北京时间不跨日
@@ -22753,6 +22974,153 @@ await group('h-iou-file-reminder-entry', () => {
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
     const bare = run(root)
     eq('入口：不是 git 仓库时说无从比较，仍以 0 退出', [bare.status, bare.stdout.startsWith('欠条点名提醒：无从比较（')], [0, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+// 外部工单号闸门（ADR-205）。夹具里的号与链接都在运行时拼出来：照原样写进源码，本文件自己就多了号，闸门会红
+const TK = (n: number) => ['KOL', String(n)].join('-')
+const TK_LINK = (n: number) => 'https://linear' + '.app/ws/issue/' + TK(n)
+const TK_PROJECT = 'https://linear' + '.app/ws/project/kol-outreach'
+
+await group('h-ticket-refs', () => {
+  harness('外部工单号闸门的判定：每个文件里的号只许减不许加，新文件为零，主干上只报数')
+  eq('数出来的每一处带着路径；同一个文件出现几次算几次；路径里的空格、冒号与中文原样保留',
+    [...parseRefs(`a.md\0${TK(1)}\na.md\0${TK(2)}\nb/c d:e.md\0${TK(3)}\n中文.md\0${TK(4)}\n`)],
+    [['a.md', 2], ['b/c d:e.md', 1], ['中文.md', 1]])
+  eq('数基线那棵树时路径前面的「提交号:」去掉，两边按同一个路径对得上',
+    [...parseRefs(`abc123:a.md\0${TK(1)}\nabc123:b.md\0${TK(2)}\n`, 'abc123')], [['a.md', 1], ['b.md', 1]])
+  eq('git grep 一处都没找到（退 1）算零个，不算出错；退 0 原样交回；别的退出码与被信号杀掉都算无从判断',
+    [grepOutput(0, 'x', ''), grepOutput(1, '', ''), grepOutput(2, '', ''), grepOutput(null, '', '')], ['x', '', null, null])
+  eq('git grep 退 0 或退 1 却在 stderr 说了话（有文件没读成），也算无从判断',
+    [grepOutput(0, 'x', 'fatal: x'), grepOutput(1, '', 'error: y')], [null, null])
+  const before = new Map([['old.md', 3], ['same.md', 2], ['gone.md', 1]])
+  const now = new Map([['old.md', 4], ['same.md', 2], ['new.md', 1]])
+  const r = judgeRefs(before, now)
+  eq('比基线多一个也算多；基线上没有的文件有一个就算多；一样多的不列',
+    r.grown, [{ path: 'new.md', before: 0, now: 1 }, { path: 'old.md', before: 3, now: 4 }])
+  eq('比基线少的单列，删掉的文件按零个算', r.shrunk, [{ path: 'gone.md', before: 1, now: 0 }])
+  eq('总数两边各自加起来', [r.before, r.now], [6, 7])
+  const onBranch = refsLines(r, false, 'origin/main（abc1234）')
+  ok('分支上有文件比基线多：判红，红的那几行写着路径与前后个数',
+    !onBranch.ok && onBranch.err.some(l => l.includes('old.md  3 → 4')) && onBranch.err.some(l => l.includes('new.md  0 → 1')))
+  const onTrunk = refsLines(r, true, 'main 的上一版（abc1234）')
+  ok('主干上多了只报数不判定：不红，但照样把多了的文件列出来',
+    onTrunk.ok && onTrunk.err.length === 0 && onTrunk.out.some(l => l.includes('old.md  3 → 4')) && onTrunk.out.some(l => l.includes('只报数不判定')))
+  const clean = refsLines(judgeRefs(before, new Map([['old.md', 3]])), false, 'origin/main')
+  ok('分支上只少不多：不红，少了的文件照样列出', clean.ok && clean.out.some(l => l.includes('gone.md  1 → 0')) && clean.out.some(l => l.includes('same.md  2 → 0')))
+  const split = judgeRefs(new Map([['docs/adr/ADR-7-甲.md', 5]]),
+    new Map([['docs/adr/ADR-7-甲.md', 1], ['docs/adr/历史/ADR-7-甲.md', 4]]))
+  const splitMore = judgeRefs(new Map([['docs/adr/ADR-7-甲.md', 5]]),
+    new Map([['docs/adr/ADR-7-甲.md', 1], ['docs/adr/历史/ADR-7-甲.md', 5]]))
+  eq('决策记录拆成主文件与历史文件时两份合一本账：号原样搬过去不算多，搬完往历史文件里再添一个才算多',
+    [split.grown, split.shrunk, splitMore.grown], [[], [], [{ path: 'docs/adr/ADR-7-甲.md', before: 5, now: 6 }]])
+  eq('只有 docs/adr/历史/ 下一层、名字是「ADR-编号-标题」的文件记在主文件那本账上，别的照旧各记各的',
+    ['docs/adr/历史/ADR-7-甲.md', 'docs/adr/历史/sub/ADR-7-甲.md', 'docs/历史/ADR-7-甲.md', 'docs/adr/历史/说明.md', 'docs/adr/ADR-7-甲.md'].map(ledgerOf),
+    ['docs/adr/ADR-7-甲.md', 'docs/adr/历史/sub/ADR-7-甲.md', 'docs/历史/ADR-7-甲.md', 'docs/adr/历史/说明.md', 'docs/adr/ADR-7-甲.md'])
+  const args = refsArgs('abc123')
+  ok('数的时候每一处单出一行、路径后跟 NUL、跳过二进制文件；给了树就数那棵树，没给就数工作区',
+    ['--no-color', '-o', '-z', '-I', '-i', '--full-name', '-E', TICKET_PATTERN, ':(top)'].every(a => args.includes(a)) && args.indexOf('abc123') > args.indexOf(TICKET_PATTERN)
+      && args.indexOf('abc123') < args.indexOf('--') && !refsArgs().includes('abc123') && refsArgs().length === args.length - 1)
+})
+
+// 入口在玩具仓库里真起：每组各起几次，和判定那组的变异分开放、入口自己也拆成两组，启动乘条数才不过上限（ADR-145）
+type TicketToy = { root: string; run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => ReturnType<typeof cxSpawnSync>; g: (...args: string[]) => ReturnType<typeof cxSpawnSync> }
+/**
+ * 玩具仓库：主干上一个提交（基线），一份旧记录里两个号、一条卡片链接（链接连同末尾的号算一处，共三处）；
+ * 一份只有项目页链接与一个不带数字的词；根上一份带一个号的（在子目录里跑时它也得数到）。总共四处。
+ * `branch` 为真时再在主干上补一个空提交、切到自己的分支并提交一次 —— 不然它与主干的共同祖先就是 HEAD 自己，入口会当成在主干上。
+ */
+function ticketToy(root: string, branch: boolean, beforeBranch?: (t: TicketToy) => void): TicketToy {
+  const entry = cxJoin(process.cwd(), 'scripts/check/ticket-refs.ts')
+  // 往上找仓库停在夹具根的上一层：不是仓库那一例才不会摸到外面的仓库
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
+  const t: TicketToy = {
+    root,
+    run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, ...extraEnv } }),
+    g: (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv }),
+  }
+  cxMkdirSync(cxJoin(root, 'docs'))
+  cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}\n`)
+  cxWriteFileSync(cxJoin(root, 'docs/entry.md'), `项目入口 ${TK_PROJECT}\nKOL-ABC 不是号\n`)
+  cxWriteFileSync(cxJoin(root, 'top.md'), `根上 ${TK(9)}\n`)
+  t.g('init', '-q', '-b', 'main'); t.g('add', '.'); t.g('commit', '-q', '-m', 'base')
+  beforeBranch?.(t)
+  if (branch) {
+    t.g('commit', '-q', '--allow-empty', '-m', 'second')
+    t.g('checkout', '-q', '-b', 'work'); t.g('commit', '-q', '--allow-empty', '-m', 'work')
+  }
+  return t
+}
+
+await group('h-ticket-refs-entry', () => {
+  harness('外部工单号闸门的入口：在玩具仓库里真起，多了以 1 退出，少了、新文件、小写分支名、主干上各情形照说')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-ticket-refs-'))
+  try {
+    const { run, g } = ticketToy(root, true)
+    // 同一行再加一个号：多一个就红，路径与前后个数在红的那几行里；没提交的改动也算
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)} 又 ${TK(5)}\n见 ${TK_LINK(3)}\n`)
+    const grew = run(root)
+    eq('入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4',
+      [grew.status, String(grew.stderr).includes('docs/old.md  3 → 4')], [1, true])
+    // 撤掉一个号：只少不多，以 0 退出，少了的那个文件列出来
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)}\n见 ${TK_LINK(3)}\n`)
+    const shrank = run(root)
+    eq('入口：旧文件里撤掉一个号以 0 退出，列出那个文件从 3 到 2', [shrank.status, String(shrank.stdout).includes('docs/old.md  3 → 2')], [0, true])
+    // 项目页链接与不带数字的词不算；指向一张卡的链接算
+    cxWriteFileSync(cxJoin(root, 'docs/new.md'), `还是项目入口 ${TK_PROJECT}\nKOL-ABC\n`)
+    g('add', 'docs/new.md')
+    const projectOnly = run(root)
+    // 引一个小写的分支名，里面带着号：不分大小写，照样算
+    cxWriteFileSync(cxJoin(root, 'docs/new.md'), `分支 claude/${TK(8).toLowerCase()}-docs\n`)
+    const lower = run(root)
+    eq('入口：新文件里引一个小写的、带号的分支名也算一处，以 1 退出', [lower.status, String(lower.stderr).includes('docs/new.md  0 → 1')], [1, true])
+    // 链接末尾用别的团队前缀，不带工单号：认得出全靠认链接本身；`/issue/` 前面那一段工作区名可有可无
+    cxWriteFileSync(cxJoin(root, 'docs/new.md'), `一张卡 ${'https://linear' + '.app/ws/issue/OPS-9/some-title'}\n另一张 ${'https://linear' + '.app/issue/OPS-10'}\n`)
+    const cardLink = run(root)
+    eq('入口：新文件里只有项目页链接与不带数字的词时不红；写进两条指向卡的链接（带工作区一段的与不带的）就以 1 退出，点出新文件从 0 到 2',
+      [projectOnly.status, cardLink.status, String(cardLink.stderr).includes('docs/new.md  0 → 2')], [0, 1, true])
+    // 主干上：直接在 main 上提交一个多出来的号，只报数，以 0 退出
+    g('checkout', '-q', '-f', 'main'); cxRmSync(cxJoin(root, 'docs/new.md'), { force: true })
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)} 与 ${TK(6)}\n见 ${TK_LINK(3)}\n`); g('commit', '-qam', 'more')
+    const trunk = run(root)
+    eq('入口：HEAD 就在主干上时多了也只报数，以 0 退出',
+      [trunk.status, String(trunk.stdout).includes('只报数不判定'), String(trunk.stdout).includes('docs/old.md  3 → 4')], [0, true, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-ticket-refs-entry-edges', () => {
+  harness('外部工单号闸门的入口：只有一个提交、本机开了颜色、在子目录里跑、链接后紧跟号、不是仓库')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-ticket-refs-edges-'))
+  try {
+    // 主干上只有一个提交：没有上一版可比
+    let first: ReturnType<typeof cxSpawnSync> | undefined
+    const { run, g } = ticketToy(root, true, t => { first = t.run(root) })
+    eq('入口：主干上只有一个提交时说不适用，以 0 结束', [first?.status, String(first?.stdout).includes('不适用')], [0, true])
+    // 本机把颜色开成总是开着：输出里的路径会被颜色码包住，两边对不上就个个文件都像新的
+    g('config', 'color.ui', 'always')
+    const colored = run(root)
+    eq('入口：本机把颜色开成总是开着时，没改动的仓库照样以 0 退出、一个文件都不列',
+      [colored.status, String(colored.stdout).includes('4 处 → 4 处'), String(colored.stdout).includes('→ 0'), String(colored.stderr)], [0, true, false, ''])
+    const inDocs = run(cxJoin(root, 'docs'))
+    eq('入口：在子目录里跑也从仓库根数，总数与在根上跑一样', [inDocs.status, String(inDocs.stdout).includes('4 处 → 4 处')], [0, true])
+    // 链接后面紧跟中文标点再写一个号：那个号不被吞进链接，单算一处
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}）、${TK(7)}\n`)
+    const glued = run(root)
+    eq('入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出',
+      [glued.status, String(glued.stderr).includes('docs/old.md  3 → 4')], [1, true])
+    // git grep 照常退出、却在 stderr 说了话（有文件没读成）：在 PATH 最前面放一个包一层的 git，只在 grep 时往 stderr 写一句
+    const realGit = String(cxSpawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout).trim()
+    cxMkdirSync(cxJoin(root, 'fakebin'))
+    cxWriteFileSync(cxJoin(root, 'fakebin/git'),
+      `#!/bin/sh\nfor a in "$@"; do [ "$a" = grep ] && echo 'error: 假装有个文件读不了' >&2 && break; done\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 })
+    const noisy = run(root, { PATH: `${cxJoin(root, 'fakebin')}:${process.env.PATH ?? ''}` })
+    eq('入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出',
+      [noisy.status, String(noisy.stderr).includes('✗ 外部工单号：无从判断'), String(noisy.stderr).includes('error: 假装有个文件读不了')], [1, true, true])
+    cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
+    const bare = run(root)
+    eq('入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 外部工单号：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 
