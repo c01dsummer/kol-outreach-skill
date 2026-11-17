@@ -261,15 +261,20 @@ const MARKER_FAULT: Record<MarkerFault, string> = {
  * 找主干的顺序同体量闸门（`TRUNK_CANDIDATES`），取的是这边与主干的分叉点（`merge-base`）上那份，同体量闸门：
  * 落后于主干的分支不会因为主干后来新钉的历史文件报红，分叉点上那份这条分支同样改不动。
  * 不是 git 仓库、找不到主干、没有分叉点、分叉点上还没有这份表，都答 `null`：
- * 没有可比的，只比本树。
+ * 没有可比的，只比本树。分叉点上有这份表、却读不出来（`git show` 失败），交回 `{ unreadable }`：
+ * 那不是「没有可比的」，要报红、拦住 `--write`，否则这一下失败就等于把比主干那一道静默关掉。
+ * 有没有这份表先用 `ls-tree` 问（没有时它照常成功、什么都不打），读不出来与没有才分得开。
  */
-export function trunkPinsText(ask: GitAsk): string | null {
+export function trunkPinsText(ask: GitAsk): string | null | { unreadable: string } {
   const trunk = TRUNK_CANDIDATES.find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)
   if (trunk === undefined) return null
   // 比分叉点，不比主干头：还没合进主干新钉的那几份，这边本来就没有，不该报红
   const base = ask('merge-base', trunk, 'HEAD')
   if (base === null) return null
-  return ask('show', `${base}:docs/adr/${PINS_FILE}`)
+  const listed = ask('ls-tree', '--name-only', base, '--', `docs/adr/${PINS_FILE}`)
+  if (listed === null) return { unreadable: `问不出分叉点 ${base} 上有没有 docs/adr/${PINS_FILE}` }
+  if (listed === '') return null
+  return ask('show', `${base}:docs/adr/${PINS_FILE}`) ?? { unreadable: `分叉点 ${base} 上有 docs/adr/${PINS_FILE}，却读不出来` }
 }
 
 /**
@@ -319,7 +324,8 @@ export function adrSync(root: string, write: boolean, ask?: GitAsk): { ok: boole
   errors.push(...pinErrors)
   // 主干钉过的每一份：这边还在、不比钉住时短、钉住的那段一个字节没变。比出错就和本树的错一样拦住 `--write`
   const trunkText = ask ? trunkPinsText(ask) : null
-  if (trunkText !== null) {
+  if (trunkText !== null && typeof trunkText !== 'string') errors.push(`主干上的指纹表：${trunkText.unreadable} —— 比不了主干，按出错处理`)
+  else if (trunkText !== null) {
     const trunk = parsePins(trunkText)
     errors.push(...trunk.errors.map(e => `主干上的 ${e}`))
     errors.push(...pinFaults(trunk.pins, history).errors.map(e => `比主干上的指纹表：${e}`))

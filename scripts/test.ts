@@ -2479,9 +2479,9 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   //        只有属主可读，而这是一句注释说了、代码没做的事（ADR-42 追记）。
   //        umask 由这里定成 022、写完就还原：照会话的 umask 算期望值的话，
   //        077 下 0666 & ~077 正好是临时文件那一档 0600，停在那一档也照样绿
-  //        （ADR-70 历史文件第 3526 行）。同 ADR-42 的 0640 一样，挑一个不等于那一档的值。
+  //        （ADR-70 历史文件「整合方追加：观察器认证记录、CI 读数与一张欠条」一节）。同 ADR-42 的 0640 一样，挑一个不等于那一档的值。
   //        只取 022 一个点，证得出「等于 0644」、证不出「跟着 umask 走」—— 写死 0644
-  //        也照样绿（ADR-70 历史文件第 3549 行）。所以再取一个 002：0664、0644、0600 两两不等，
+  //        也照样绿（ADR-70 历史文件「整合方追加：观察器认证记录、CI 读数与一张欠条」一节）。所以再取一个 002：0664、0644、0600 两两不等，
   //        写死 0644 或停在临时文件那一档，第二条都会红。
   {
     const fresh = join(tmpdir(), `kol-d4-fresh-${process.pid}.json`)
@@ -8512,7 +8512,7 @@ harness('变异的锚点在目标文件里数几处：按起点数，重叠也�
 
 harness('变异目录对着树：锚点对不上的五种各有名字，没还原的变异认得出')
 {
-  // ADR-70 历史文件第 1394、2099 行：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
+  // ADR-70 历史文件「落地 3 第一片:自检开始发认领」第六小节与「合入后清点：#105 的欠条 PR」第三小节：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
   // 只断言判定；**不对真树断言**：需求测试自己就是验证者，变异跑它的时候树上正躺着那一条，
   // 对真树断言的话每条不点名的变异都会被这一句抓到，功劳全记错（ADR-70「变异残留」一节）
   const files = (tree: Record<string, string>) => (file: string): string | undefined => tree[file]
@@ -8746,7 +8746,7 @@ harness('入口的硬退出收口：只有一处，退出前那句话同步写�
   eq('先异步写一句、再叫一个里面才收口的函数，报出来',
     exitFaults(`${helper}const stop = (): never => {\n  quit(1)\n}\nif (bad) {\n  console.error('坏了')\n  stop()\n}\n`, 'quit'),
     [{ kind: 'async-before', line: 9 }])
-  // 真入口：变异一步那一份（ADR-70 历史文件第 2082 行那张欠条说的「查不到 mutate.ts 自己」）
+  // 真入口：变异一步那一份（ADR-70 历史文件「合入后清点：#105 的欠条 PR」一节第三小节那张欠条说的「查不到 mutate.ts 自己」）
   eq('return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来',
     exitFaults(`${helper}function f(): never {\n  console.error('坏了')\n  return quit(1)\n}\nfunction g() {\n  console.error('坏了')\n  if (bad) quit(1)\n}\n`, 'quit'),
     [{ kind: 'async-before', line: 6 }, { kind: 'async-before', line: 10 }])
@@ -15008,10 +15008,13 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
 
   // 拿主干上的指纹表再比一遍（ADR-211 的欠条「历史文件指纹只靠评审看 diff 守着」）：本树的表这条分支改得动，主干上的改不动。
   // `ask` 是假的 git：只答得上 `trunk` 这一个主干引用，`show` 交回 `trunkPins`
-  // 分叉点（merge-base）上那份才交 `trunkPins`；主干头上那份交 `headPins`（主干后来又钉的），默认读不到
-  const fakeGit = (trunk: string | null, trunkPins: string | null, headPins: string | null = null): GitAsk => (...a: string[]) =>
+  // 分叉点（merge-base）上那份才交 `trunkPins`；主干头上那份交 `headPins`（主干后来又钉的），默认读不到。
+  // `ls-tree` 问分叉点上有没有这份表：`trunkPins` 是 null 就答没有（空串），`unreadable` 时答有、可 `show` 读不出来
+  const fakeGit = (trunk: string | null, trunkPins: string | null, headPins: string | null = null, unreadable = false): GitAsk => (...a: string[]) =>
     a[0] === 'rev-parse' && trunk !== null && a[2] === `${trunk}^{commit}` ? 'c0ffee'
       : a[0] === 'merge-base' && trunk !== null && a[1] === trunk && a[2] === 'HEAD' ? 'f0rk'
+      : a[0] === 'ls-tree' && trunk !== null && a[2] === 'f0rk' ? (trunkPins === null && !unreadable ? '' : `docs/adr/${PINS_FILE}`)
+      : unreadable ? null
       : a[0] === 'show' && trunk !== null && a[1] === `f0rk:docs/adr/${PINS_FILE}` ? trunkPins
       : a[0] === 'show' && trunk !== null && a[1] === `${trunk}:docs/adr/${PINS_FILE}` ? headPins : null
   const oldHistory = '# ADR-01 甲\n过程\n'
@@ -15020,10 +15023,13 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   const refsGit = (resolvable: readonly string[], forks = true): GitAsk => (...a: string[]) =>
     a[0] === 'rev-parse' ? (resolvable.some(r => a[2] === `${r}^{commit}`) ? 'c0ffee' : null)
       : a[0] === 'merge-base' ? (forks && a[2] === 'HEAD' ? `fork-of-${a[1]}` : null)
+      : a[0] === 'ls-tree' ? `docs/adr/${PINS_FILE}`
       : a[0] === 'show' ? a[1].slice(0, a[1].indexOf(':')) : null
   eq('找主干先试 origin/main，没有再试 main', [trunkPinsText(refsGit(['main', 'origin/main'])), trunkPinsText(refsGit(['main']))], ['fork-of-origin/main', 'fork-of-main'])
   eq('找不到主干：没有可比的，交回 null', trunkPinsText(refsGit([])), null)
   eq('与主干没有分叉点：没有可比的，交回 null，不拿主干头比', trunkPinsText(refsGit(['origin/main'], false)), null)
+  const lsTreeFails: GitAsk = (...a: string[]) => a[0] === 'rev-parse' || a[0] === 'merge-base' ? 'c0ffee' : null
+  ok('问不出分叉点上有没有这份表（ls-tree 失败）：交回读不出来，不当成没有', (() => { const t = trunkPinsText(lsTreeFails); return t !== null && typeof t !== 'string' })())
   const trunkToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-01-甲.md': '# ADR-01 甲\n改过\n', [PINS_FILE]: '{}\n' })
   const trunkWrite = adrSync(trunkToy, true, fakeGit('origin/main', trunkPinned))
   ok('主干钉过的历史文件被改、本树指纹表里那一行被删：比主干报红，--write 也拒绝、不把改过的钉上去',
@@ -15043,6 +15049,12 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   const aheadPins = JSON.stringify({ 'ADR-01-甲.md': pinOf(B(oldHistory)), 'ADR-02-乙.md': pinOf(B('# ADR-02 乙\n')) })
   ok('落后于主干：主干后来新钉的那份这边没有，比的是分叉点上那份，不报红', adrSync(trunkSameToy, false, fakeGit('origin/main', trunkPinned, aheadPins)).ok)
   rmSync(trunkSameToy, { recursive: true, force: true })
+  const unreadableToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-01-甲.md': '# ADR-01 甲\n改过\n', [PINS_FILE]: '{}\n' })
+  const unreadable = adrSync(unreadableToy, true, fakeGit('origin/main', null, null, true))
+  ok('分叉点上有这份表、却读不出来：报一条，--write 也拒绝，不当成没有可比的',
+    !unreadable.ok && unreadable.err.some(e => e.includes('读不出来')) && rf(join(unreadableToy, 'docs', 'adr', PINS_FILE), 'utf8') === '{}\n')
+  ok('分叉点上没有这份表：没有可比的，只比本树，--write 照钉', adrSync(unreadableToy, true, fakeGit('origin/main', null)).ok)
+  rmSync(unreadableToy, { recursive: true, force: true })
   const trunkBadToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
   const trunkBad = adrSync(trunkBadToy, false, fakeGit('origin/main', '{'))
   ok('主干上的指纹表读不出来：报一条，不当成主干什么都没钉过', !trunkBad.ok && trunkBad.err.some(e => e.includes('主干上的') && e.includes('不是合法的 JSON')))
@@ -22337,7 +22349,7 @@ await group('h-observer-preload', () => {
       `const r4 = await fetch('https://h.invalid/b', { method: 'POST' }); try { await r4.json() } catch (e) { out.push(['body', e.name]) }`,
       `const r5 = await fetch('https://h.invalid/d'); out.push([r5.status, Buffer.from(await r5.arrayBuffer()).toString('hex')])`,
       `console.log(JSON.stringify(out))`].join('\n'))
-    // 玩具入口没印出合法 JSON 时给一个明示的失败值，让下面两条断言红，而不是异常冲出 group()（ADR-70 历史文件第 3564 行）
+    // 玩具入口没印出合法 JSON 时给一个明示的失败值，让下面两条断言红，而不是异常冲出 group()（ADR-70 历史文件「整合方追加：观察器认证记录、CI 读数与一张欠条」一节）
     const outA: unknown = (() => { try { return JSON.parse(a.stdout) } catch { return { notJson: a.stdout } } })()
     const armedA = a.events[0]
     eq('观察器预加载：armed 记本次运行、入口、脚本与本文件、加载顺序与环境变量名，观察配置在入口里看不见',
@@ -22508,7 +22520,7 @@ await group('h-observer-records', async () => {
       ag(lines(ready(), reserved(1)), 2), ag(lines(ready(), reserved(1), rejected()), 2)], [0, 0, 1, 1, 1, 1])
 })
 
-// 独立黑盒测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 历史文件第 3765 行那张欠条要的，放在冻结包之外）：
+// 独立黑盒测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 历史文件「G3-09 冻结件换入」一节那张欠条要的，放在冻结包之外）：
 // 真实入口这一跑只新建一个，那一支跑不到；这里照冻结用例自己的判法，造一跑「新增两个、其中一个有无结果留存」交给它判
 await group('h-blackbox-many-task-files', async () => {
   harness('独立黑盒测试包 G3-09：运行后新增两个以上 task.json 时逐个判，有无结果留存的那一个判红、另一个判过')
