@@ -104,7 +104,7 @@ const CREATOR: Table<Creator> = {
   source_keyword: 'str', source_dimension: 'dimension', source_tasks: 'num[]?', discovery_sources: 'opaque?', recent_posts: 'posts?',
   email: 'str|null?', email_verified: 'bool?', audience_geo: 'geo?', fake_follower_score: 'num?',
   cross_platform: 'bool?', linked_handle: 'str?', merged_into: 'str?',
-  score: 'num?', fit: 'fit?', fit_reason: 'str?', tier: 'tier?', outreach_draft: 'str?', eligibility: 'eligibility?',
+  score: 'num?', fit: 'fit?', fit_reason: 'str?', tier: 'tier?', outreach_draft: 'str?', creator_sources: 'opaque?', eligibility: 'eligibility?',
   adoption_priority: 'priority?', observed_content: 'str?', work_evidence: 'str?', natural_integration: 'str?', mismatch_risk: 'str?',
   brand_calibration_version: 'str?', review_status: 'review?', linked_agent_review: 'opaque?',
   manual_eligible: 'opaque?', manual_adopted: 'opaque?', manual_content_fit: 'opaque?', manual_engagement: 'opaque?',
