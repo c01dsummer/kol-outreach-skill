@@ -18,7 +18,8 @@ function tryGit(...args: string[]): string | null {
 
 function count(tree?: string): Map<string, number> | null {
   const r = spawnSync('git', [...GIT_CONFIG, ...refsArgs(tree)], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
-  const out = grepOutput(r.status, r.stdout ?? '')
+  if (r.stderr) process.stderr.write(r.stderr)
+  const out = grepOutput(r.status, r.stdout ?? '', r.stderr ?? '')
   return out === null ? null : parseRefs(out, tree)
 }
 

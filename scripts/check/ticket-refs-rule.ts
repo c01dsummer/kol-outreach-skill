@@ -24,11 +24,12 @@
 import { HISTORY_DIR } from './adr-rule.js'
 
 /**
- * `git grep -E -i` 用的扩展正则：工单号，或指向一张卡的链接。链接只吃网址里会出现的那几种字符
+ * `git grep -E -i` 用的扩展正则：工单号，或指向一张卡的链接（`/issue/` 前面那一段工作区名可有可无，
+ * Linear 两种都认）。链接只吃网址里会出现的那几种字符
  * （字母、数字与 `_./#?=&%-`），所以链接末尾带着的那个号随链接算一处、不另算一处；
  * 链接后面紧跟着的中文标点和别的号不被吞进去，照样各算一处。
  */
-export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\.app/[^/[:space:]]+/issue/[A-Za-z0-9_./#?=&%-]*'
+export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\.app/([^/[:space:]]+/)?issue/[A-Za-z0-9_./#?=&%-]*'
 
 /**
  * 数号的那条 `git grep`。`-o` 每处一行（同一行两个号算两个），`-z` 让路径后面跟 NUL 不跟冒号
@@ -43,9 +44,11 @@ export function refsArgs(tree?: string): string[] {
 
 /**
  * `git grep` 的退出码：0 是找到了，1 是**一处都没有**（不是出错），别的都是出错。
+ * 退 0、退 1 却在 stderr 说了话（例如某个受控文件读不了），也算出错：那一份没数到，结果不全。
  * 出错交回 `null` —— 无从判断，不退化成「零个，通过」。
  */
-export function grepOutput(status: number | null, stdout: string): string | null {
+export function grepOutput(status: number | null, stdout: string, stderr: string): string | null {
+  if (stderr !== '') return null
   if (status === 0) return stdout
   if (status === 1) return ''
   return null

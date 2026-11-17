@@ -27201,11 +27201,11 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs-rule.ts",
       "why": "只认工单号、不认指向一张卡的链接 —— 换成贴链接就绕过去了",
-      "find": "export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\\\.app/[^/[:space:]]+/issue/[A-Za-z0-9_./#?=&%-]*'",
+      "find": "export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\\\.app/([^/[:space:]]+/)?issue/[A-Za-z0-9_./#?=&%-]*'",
       "replace": "export const TICKET_PATTERN = 'KOL-[0-9]+'",
       "by": "test",
       "kills": [
-        "入口：新文件里只有项目页链接与不带数字的词时不红；写进一条指向卡的链接就以 1 退出，点出新文件从 0 到 1"
+        "入口：新文件里只有项目页链接与不带数字的词时不红；写进两条指向卡的链接（带工作区一段的与不带的）就以 1 退出，点出新文件从 0 到 2"
       ]
     },
     {
@@ -27213,8 +27213,8 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs-rule.ts",
       "why": "卡片链接末尾带着的号另算一处 —— 同一条链接数成两处，数和人读的对不上",
-      "find": "/issue/[A-Za-z0-9_./#?=&%-]*'",
-      "replace": "/issue/'",
+      "find": "issue/[A-Za-z0-9_./#?=&%-]*'",
+      "replace": "issue/'",
       "by": "test",
       "kills": [
         "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
@@ -27297,8 +27297,8 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs-rule.ts",
       "why": "卡片链接一直吃到空白为止 —— 中文里链接后面紧跟「）、」再写一个号，那个号被吞进链接，往旧记录里添号悄悄放过",
-      "find": "/issue/[A-Za-z0-9_./#?=&%-]*'",
-      "replace": "/issue/[^[:space:]]*'",
+      "find": "issue/[A-Za-z0-9_./#?=&%-]*'",
+      "replace": "issue/[^[:space:]]*'",
       "by": "test",
       "kills": [
         "入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出"
@@ -27350,6 +27350,30 @@
       "by": "test",
       "kills": [
         "入口：主干上只有一个提交时说不适用，以 0 结束"
+      ]
+    },
+    {
+      "id": "M-H205-w",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "卡片链接非得在 /issue/ 前面带一段工作区名 —— 不带那一段的单卡链接（Linear 也给这种）写进新文件，闸门认不出",
+      "find": "linear\\\\.app/([^/[:space:]]+/)?issue/",
+      "replace": "linear\\\\.app/[^/[:space:]]+/issue/",
+      "by": "test",
+      "kills": [
+        "入口：新文件里只有项目页链接与不带数字的词时不红；写进两条指向卡的链接（带工作区一段的与不带的）就以 1 退出，点出新文件从 0 到 2"
+      ]
+    },
+    {
+      "id": "M-H205-x",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "git grep 在 stderr 说了话也照常数 —— 有受控文件读不了时它没被数到，少数的那几处悄悄放过",
+      "find": "  if (stderr !== '') return null\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "git grep 退 0 或退 1 却在 stderr 说了话（有文件没读成），也算无从判断"
       ]
     }
   ],

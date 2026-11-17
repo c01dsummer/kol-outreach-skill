@@ -22697,7 +22697,9 @@ await group('h-ticket-refs', () => {
   eq('数基线那棵树时路径前面的「提交号:」去掉，两边按同一个路径对得上',
     [...parseRefs(`abc123:a.md\0${TK(1)}\nabc123:b.md\0${TK(2)}\n`, 'abc123')], [['a.md', 1], ['b.md', 1]])
   eq('git grep 一处都没找到（退 1）算零个，不算出错；退 0 原样交回；别的退出码与被信号杀掉都算无从判断',
-    [grepOutput(0, 'x'), grepOutput(1, ''), grepOutput(2, ''), grepOutput(null, '')], ['x', '', null, null])
+    [grepOutput(0, 'x', ''), grepOutput(1, '', ''), grepOutput(2, '', ''), grepOutput(null, '', '')], ['x', '', null, null])
+  eq('git grep 退 0 或退 1 却在 stderr 说了话（有文件没读成），也算无从判断',
+    [grepOutput(0, 'x', 'fatal: x'), grepOutput(1, '', 'error: y')], [null, null])
   const before = new Map([['old.md', 3], ['same.md', 2], ['gone.md', 1]])
   const now = new Map([['old.md', 4], ['same.md', 2], ['new.md', 1]])
   const r = judgeRefs(before, now)
@@ -22781,11 +22783,11 @@ await group('h-ticket-refs-entry', () => {
     cxWriteFileSync(cxJoin(root, 'docs/new.md'), `分支 claude/${TK(8).toLowerCase()}-docs\n`)
     const lower = run(root)
     eq('入口：新文件里引一个小写的、带号的分支名也算一处，以 1 退出', [lower.status, String(lower.stderr).includes('docs/new.md  0 → 1')], [1, true])
-    // 链接末尾用别的团队前缀，不带工单号：认得出全靠认链接本身
-    cxWriteFileSync(cxJoin(root, 'docs/new.md'), `一张卡 ${'https://linear' + '.app/ws/issue/OPS-9/some-title'}\n`)
+    // 链接末尾用别的团队前缀，不带工单号：认得出全靠认链接本身；`/issue/` 前面那一段工作区名可有可无
+    cxWriteFileSync(cxJoin(root, 'docs/new.md'), `一张卡 ${'https://linear' + '.app/ws/issue/OPS-9/some-title'}\n另一张 ${'https://linear' + '.app/issue/OPS-10'}\n`)
     const cardLink = run(root)
-    eq('入口：新文件里只有项目页链接与不带数字的词时不红；写进一条指向卡的链接就以 1 退出，点出新文件从 0 到 1',
-      [projectOnly.status, cardLink.status, String(cardLink.stderr).includes('docs/new.md  0 → 1')], [0, 1, true])
+    eq('入口：新文件里只有项目页链接与不带数字的词时不红；写进两条指向卡的链接（带工作区一段的与不带的）就以 1 退出，点出新文件从 0 到 2',
+      [projectOnly.status, cardLink.status, String(cardLink.stderr).includes('docs/new.md  0 → 2')], [0, 1, true])
     // 主干上：直接在 main 上提交一个多出来的号，只报数，以 0 退出
     g('checkout', '-q', '-f', 'main'); cxRmSync(cxJoin(root, 'docs/new.md'), { force: true })
     cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)} 与 ${TK(6)}\n见 ${TK_LINK(3)}\n`); g('commit', '-qam', 'more')
