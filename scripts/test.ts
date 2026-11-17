@@ -42,6 +42,7 @@ import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/
 import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
 import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
+import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -333,6 +334,9 @@ const GROUPS: readonly Group[] = [
   { id: 'h-iou-file-reminder', needs: [] },
   { id: 'h-revisit-entry', needs: [] },
   { id: 'h-iou-file-reminder-entry', needs: [] },
+  { id: 'h-ticket-refs', needs: [] },
+  { id: 'h-ticket-refs-entry', needs: [] },
+  { id: 'h-ticket-refs-entry-edges', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -9179,7 +9183,7 @@ try {
   const ask = (...args: string[]) => maintenanceGit(repository, ...args);
   const comparison = resolveMutationBaseline(ask, base);
   eq('维护-显式基线取真实祖先与HEAD', JSON.stringify(comparison), JSON.stringify({ kind: 'compare', base, head }));
-  // 短 SHA 每跑不同，标签里写成固定的名字：同一配置两次正常基线的打印要逐字相同（ADR-145 第 1134 行那一类）
+  // 短 SHA 每跑不同，标签里写成固定的名字：同一配置两次正常基线的打印要逐字相同（ADR-145 第一节「限定」第 3 条）
   for (const [name, invalid] of [['""', ''], ['" "', ' '], ['"HEAD"', 'HEAD'], ['基线的12位短SHA', base.slice(0, 12)],
     [JSON.stringify('0'.repeat(40)), '0'.repeat(40)], [JSON.stringify('z'.repeat(40)), 'z'.repeat(40)]]) {
     eq(`维护-显式基线拒绝非法SHA ${name}`, resolveMutationBaseline(ask, invalid).kind, 'cannot-answer');
@@ -9672,7 +9676,7 @@ const keyOf = (by: LaunchVerifier, only: readonly string[]): string => configura
 const canon = (v: unknown): unknown => Array.isArray(v) ? v.map(canon) : v !== null && typeof v === 'object'
   ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canon((v as Record<string, unknown>)[k])])) : v
 const loose = (fs: readonly LaunchFinding[]): unknown => canon(fs.map(f => f.kind === 'missing' ? { ...f, ids: [...f.ids].sort() } : f))
-// 判定的断言都直接写成 eq('…', loose(…), loose(…))：变异点名用的清册只认 eq、ok 的字面量首参，包一层就点不着（ADR-145 复核发现 1）
+// 判定的断言都直接写成 eq('…', loose(…), loose(…))：变异点名用的清册只认 eq、ok 的字面量首参，包一层就点不着（ADR-145 第十节第 2 条）
 
 // ── 两条线（结论、第二节）与停不停（第一节：有点名的断言，且不是「需求测试 ＋ 选了组」）
 eq('规则一的线是每条会提前停的变异 50 次入口启动', LAUNCH_LIMIT.paid, 50)
@@ -12567,7 +12571,7 @@ await group('h-order-rule', () => {
 harness('顺序契约表的字面绑定：点名的变异要在变异目录里，它的 file 要在这一行的位置栏里（ADR-148）')
 // 期望值只从 ADR-148 第二到第四节推出，没读判定模块的函数体，也没把它的输出抄回来。前 27 条先于实现写成（写时它是抛错的桩），其后各条写于实现之后、出自没读它的上下文。
 // 整组只调纯函数 orderBindingFaults，0 次启动。经 bind 调它：抛错时返回一个哨兵，每条断言各自红、整组不崩。
-// eq、ok 不包 —— 变异点名用的清册只认直接传给它们的字面量首参（ADR-145 第 242 行）。
+// eq、ok 不包 —— 变异点名用的清册只认直接传给它们的字面量首参（ADR-145 第十节第 2 条）。
 // 字段的书写先后不是契约：bind 把每条问题的键按字母排好、undefined 记成 null；下面的期望也按字母序写键，
 // 多一个、少一个字段都对不上（第四节末：恰好带那几个字段）。
 const A = 'scripts/a.ts', B = 'scripts/b.ts'
@@ -12834,7 +12838,7 @@ await group('h-skill-rule', () => {
 harness('Skill 结构五样关系：frontmatter、两个软链、reference 点名、npm 命令名、脚本路径，一次报全（ADR-156）')
 // 期望值只从 ADR-156 第二节（字面规则）与第五节（接口）手推；写时 skill-rule.ts 是抛错的桩，没有函数体可读，也没有输出可抄。
 // 整组只调纯函数 skillFaults，0 次启动、不读文件。经 guard 调它：抛错时返回哨兵 ['抛错', 消息]，每条断言各自红、整组不崩。
-// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第 242 行）。
+// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第十节第 2 条）。
 // faults 把每条问题去掉 fix（措辞不算契约，第二节末）、键按字母排、undefined（连同没写出来的 line、subject）记成 null；
 // 下面 SF(…) 写出的期望也按字母序排键，多一个字段就对不上。fix 的三条契约在组末另由三条断言专门验，经同一个 guard。
 const guard = (run: () => unknown): unknown => {
@@ -13316,7 +13320,7 @@ harness('准入读物包的纯判定：需求单、变异说明、签名扫描�
 // 期望值只从 ADR-202 第二到第五节手推（第二节的版式与认法、第三节的三种、第四节的判法、第五节的接口）；
 // 写时 admission-rule.ts 是抛错的桩，没有函数体可读，也没有输出可抄。整组只调第五节那四个纯函数与 ADR-208 后加的 entryScripts、entrySheet 两个，共六个纯函数，0 次启动、不读文件。
 // 经 guard 调：抛错时返回哨兵 ['抛错', 消息]，每条断言各自红、整组不崩（ADR-156 第七节的先例）。
-// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第 242 行）。
+// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第十节第 2 条）。
 // 写这一组时问出的含糊处已回写进 ADR-202 第二、三节（3db4b85），后补的断言照回写后的原文手推。
 // 一处期望不出自 ADR-202 本身，是它交给 why-rule.ts 的：夹带实现原文认出的那一段，只对代码运算符断言是哪一段，
 // 认出标识符的只断言交出了哪一条。
@@ -22915,6 +22919,153 @@ await group('h-iou-file-reminder-entry', () => {
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
     const bare = run(root)
     eq('入口：不是 git 仓库时说无从比较，仍以 0 退出', [bare.status, bare.stdout.startsWith('欠条点名提醒：无从比较（')], [0, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+// 外部工单号闸门（ADR-205）。夹具里的号与链接都在运行时拼出来：照原样写进源码，本文件自己就多了号，闸门会红
+const TK = (n: number) => ['KOL', String(n)].join('-')
+const TK_LINK = (n: number) => 'https://linear' + '.app/ws/issue/' + TK(n)
+const TK_PROJECT = 'https://linear' + '.app/ws/project/kol-outreach'
+
+await group('h-ticket-refs', () => {
+  harness('外部工单号闸门的判定：每个文件里的号只许减不许加，新文件为零，主干上只报数')
+  eq('数出来的每一处带着路径；同一个文件出现几次算几次；路径里的空格、冒号与中文原样保留',
+    [...parseRefs(`a.md\0${TK(1)}\na.md\0${TK(2)}\nb/c d:e.md\0${TK(3)}\n中文.md\0${TK(4)}\n`)],
+    [['a.md', 2], ['b/c d:e.md', 1], ['中文.md', 1]])
+  eq('数基线那棵树时路径前面的「提交号:」去掉，两边按同一个路径对得上',
+    [...parseRefs(`abc123:a.md\0${TK(1)}\nabc123:b.md\0${TK(2)}\n`, 'abc123')], [['a.md', 1], ['b.md', 1]])
+  eq('git grep 一处都没找到（退 1）算零个，不算出错；退 0 原样交回；别的退出码与被信号杀掉都算无从判断',
+    [grepOutput(0, 'x', ''), grepOutput(1, '', ''), grepOutput(2, '', ''), grepOutput(null, '', '')], ['x', '', null, null])
+  eq('git grep 退 0 或退 1 却在 stderr 说了话（有文件没读成），也算无从判断',
+    [grepOutput(0, 'x', 'fatal: x'), grepOutput(1, '', 'error: y')], [null, null])
+  const before = new Map([['old.md', 3], ['same.md', 2], ['gone.md', 1]])
+  const now = new Map([['old.md', 4], ['same.md', 2], ['new.md', 1]])
+  const r = judgeRefs(before, now)
+  eq('比基线多一个也算多；基线上没有的文件有一个就算多；一样多的不列',
+    r.grown, [{ path: 'new.md', before: 0, now: 1 }, { path: 'old.md', before: 3, now: 4 }])
+  eq('比基线少的单列，删掉的文件按零个算', r.shrunk, [{ path: 'gone.md', before: 1, now: 0 }])
+  eq('总数两边各自加起来', [r.before, r.now], [6, 7])
+  const onBranch = refsLines(r, false, 'origin/main（abc1234）')
+  ok('分支上有文件比基线多：判红，红的那几行写着路径与前后个数',
+    !onBranch.ok && onBranch.err.some(l => l.includes('old.md  3 → 4')) && onBranch.err.some(l => l.includes('new.md  0 → 1')))
+  const onTrunk = refsLines(r, true, 'main 的上一版（abc1234）')
+  ok('主干上多了只报数不判定：不红，但照样把多了的文件列出来',
+    onTrunk.ok && onTrunk.err.length === 0 && onTrunk.out.some(l => l.includes('old.md  3 → 4')) && onTrunk.out.some(l => l.includes('只报数不判定')))
+  const clean = refsLines(judgeRefs(before, new Map([['old.md', 3]])), false, 'origin/main')
+  ok('分支上只少不多：不红，少了的文件照样列出', clean.ok && clean.out.some(l => l.includes('gone.md  1 → 0')) && clean.out.some(l => l.includes('same.md  2 → 0')))
+  const split = judgeRefs(new Map([['docs/adr/ADR-7-甲.md', 5]]),
+    new Map([['docs/adr/ADR-7-甲.md', 1], ['docs/adr/历史/ADR-7-甲.md', 4]]))
+  const splitMore = judgeRefs(new Map([['docs/adr/ADR-7-甲.md', 5]]),
+    new Map([['docs/adr/ADR-7-甲.md', 1], ['docs/adr/历史/ADR-7-甲.md', 5]]))
+  eq('决策记录拆成主文件与历史文件时两份合一本账：号原样搬过去不算多，搬完往历史文件里再添一个才算多',
+    [split.grown, split.shrunk, splitMore.grown], [[], [], [{ path: 'docs/adr/ADR-7-甲.md', before: 5, now: 6 }]])
+  eq('只有 docs/adr/历史/ 下一层、名字是「ADR-编号-标题」的文件记在主文件那本账上，别的照旧各记各的',
+    ['docs/adr/历史/ADR-7-甲.md', 'docs/adr/历史/sub/ADR-7-甲.md', 'docs/历史/ADR-7-甲.md', 'docs/adr/历史/说明.md', 'docs/adr/ADR-7-甲.md'].map(ledgerOf),
+    ['docs/adr/ADR-7-甲.md', 'docs/adr/历史/sub/ADR-7-甲.md', 'docs/历史/ADR-7-甲.md', 'docs/adr/历史/说明.md', 'docs/adr/ADR-7-甲.md'])
+  const args = refsArgs('abc123')
+  ok('数的时候每一处单出一行、路径后跟 NUL、跳过二进制文件；给了树就数那棵树，没给就数工作区',
+    ['--no-color', '-o', '-z', '-I', '-i', '--full-name', '-E', TICKET_PATTERN, ':(top)'].every(a => args.includes(a)) && args.indexOf('abc123') > args.indexOf(TICKET_PATTERN)
+      && args.indexOf('abc123') < args.indexOf('--') && !refsArgs().includes('abc123') && refsArgs().length === args.length - 1)
+})
+
+// 入口在玩具仓库里真起：每组各起几次，和判定那组的变异分开放、入口自己也拆成两组，启动乘条数才不过上限（ADR-145）
+type TicketToy = { root: string; run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => ReturnType<typeof cxSpawnSync>; g: (...args: string[]) => ReturnType<typeof cxSpawnSync> }
+/**
+ * 玩具仓库：主干上一个提交（基线），一份旧记录里两个号、一条卡片链接（链接连同末尾的号算一处，共三处）；
+ * 一份只有项目页链接与一个不带数字的词；根上一份带一个号的（在子目录里跑时它也得数到）。总共四处。
+ * `branch` 为真时再在主干上补一个空提交、切到自己的分支并提交一次 —— 不然它与主干的共同祖先就是 HEAD 自己，入口会当成在主干上。
+ */
+function ticketToy(root: string, branch: boolean, beforeBranch?: (t: TicketToy) => void): TicketToy {
+  const entry = cxJoin(process.cwd(), 'scripts/check/ticket-refs.ts')
+  // 往上找仓库停在夹具根的上一层：不是仓库那一例才不会摸到外面的仓库
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
+  const t: TicketToy = {
+    root,
+    run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, ...extraEnv } }),
+    g: (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv }),
+  }
+  cxMkdirSync(cxJoin(root, 'docs'))
+  cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}\n`)
+  cxWriteFileSync(cxJoin(root, 'docs/entry.md'), `项目入口 ${TK_PROJECT}\nKOL-ABC 不是号\n`)
+  cxWriteFileSync(cxJoin(root, 'top.md'), `根上 ${TK(9)}\n`)
+  t.g('init', '-q', '-b', 'main'); t.g('add', '.'); t.g('commit', '-q', '-m', 'base')
+  beforeBranch?.(t)
+  if (branch) {
+    t.g('commit', '-q', '--allow-empty', '-m', 'second')
+    t.g('checkout', '-q', '-b', 'work'); t.g('commit', '-q', '--allow-empty', '-m', 'work')
+  }
+  return t
+}
+
+await group('h-ticket-refs-entry', () => {
+  harness('外部工单号闸门的入口：在玩具仓库里真起，多了以 1 退出，少了、新文件、小写分支名、主干上各情形照说')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-ticket-refs-'))
+  try {
+    const { run, g } = ticketToy(root, true)
+    // 同一行再加一个号：多一个就红，路径与前后个数在红的那几行里；没提交的改动也算
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)} 又 ${TK(5)}\n见 ${TK_LINK(3)}\n`)
+    const grew = run(root)
+    eq('入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4',
+      [grew.status, String(grew.stderr).includes('docs/old.md  3 → 4')], [1, true])
+    // 撤掉一个号：只少不多，以 0 退出，少了的那个文件列出来
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)}\n见 ${TK_LINK(3)}\n`)
+    const shrank = run(root)
+    eq('入口：旧文件里撤掉一个号以 0 退出，列出那个文件从 3 到 2', [shrank.status, String(shrank.stdout).includes('docs/old.md  3 → 2')], [0, true])
+    // 项目页链接与不带数字的词不算；指向一张卡的链接算
+    cxWriteFileSync(cxJoin(root, 'docs/new.md'), `还是项目入口 ${TK_PROJECT}\nKOL-ABC\n`)
+    g('add', 'docs/new.md')
+    const projectOnly = run(root)
+    // 引一个小写的分支名，里面带着号：不分大小写，照样算
+    cxWriteFileSync(cxJoin(root, 'docs/new.md'), `分支 claude/${TK(8).toLowerCase()}-docs\n`)
+    const lower = run(root)
+    eq('入口：新文件里引一个小写的、带号的分支名也算一处，以 1 退出', [lower.status, String(lower.stderr).includes('docs/new.md  0 → 1')], [1, true])
+    // 链接末尾用别的团队前缀，不带工单号：认得出全靠认链接本身；`/issue/` 前面那一段工作区名可有可无
+    cxWriteFileSync(cxJoin(root, 'docs/new.md'), `一张卡 ${'https://linear' + '.app/ws/issue/OPS-9/some-title'}\n另一张 ${'https://linear' + '.app/issue/OPS-10'}\n`)
+    const cardLink = run(root)
+    eq('入口：新文件里只有项目页链接与不带数字的词时不红；写进两条指向卡的链接（带工作区一段的与不带的）就以 1 退出，点出新文件从 0 到 2',
+      [projectOnly.status, cardLink.status, String(cardLink.stderr).includes('docs/new.md  0 → 2')], [0, 1, true])
+    // 主干上：直接在 main 上提交一个多出来的号，只报数，以 0 退出
+    g('checkout', '-q', '-f', 'main'); cxRmSync(cxJoin(root, 'docs/new.md'), { force: true })
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)} 与 ${TK(6)}\n见 ${TK_LINK(3)}\n`); g('commit', '-qam', 'more')
+    const trunk = run(root)
+    eq('入口：HEAD 就在主干上时多了也只报数，以 0 退出',
+      [trunk.status, String(trunk.stdout).includes('只报数不判定'), String(trunk.stdout).includes('docs/old.md  3 → 4')], [0, true, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-ticket-refs-entry-edges', () => {
+  harness('外部工单号闸门的入口：只有一个提交、本机开了颜色、在子目录里跑、链接后紧跟号、不是仓库')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-ticket-refs-edges-'))
+  try {
+    // 主干上只有一个提交：没有上一版可比
+    let first: ReturnType<typeof cxSpawnSync> | undefined
+    const { run, g } = ticketToy(root, true, t => { first = t.run(root) })
+    eq('入口：主干上只有一个提交时说不适用，以 0 结束', [first?.status, String(first?.stdout).includes('不适用')], [0, true])
+    // 本机把颜色开成总是开着：输出里的路径会被颜色码包住，两边对不上就个个文件都像新的
+    g('config', 'color.ui', 'always')
+    const colored = run(root)
+    eq('入口：本机把颜色开成总是开着时，没改动的仓库照样以 0 退出、一个文件都不列',
+      [colored.status, String(colored.stdout).includes('4 处 → 4 处'), String(colored.stdout).includes('→ 0'), String(colored.stderr)], [0, true, false, ''])
+    const inDocs = run(cxJoin(root, 'docs'))
+    eq('入口：在子目录里跑也从仓库根数，总数与在根上跑一样', [inDocs.status, String(inDocs.stdout).includes('4 处 → 4 处')], [0, true])
+    // 链接后面紧跟中文标点再写一个号：那个号不被吞进链接，单算一处
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}）、${TK(7)}\n`)
+    const glued = run(root)
+    eq('入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出',
+      [glued.status, String(glued.stderr).includes('docs/old.md  3 → 4')], [1, true])
+    // git grep 照常退出、却在 stderr 说了话（有文件没读成）：在 PATH 最前面放一个包一层的 git，只在 grep 时往 stderr 写一句
+    const realGit = String(cxSpawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout).trim()
+    cxMkdirSync(cxJoin(root, 'fakebin'))
+    cxWriteFileSync(cxJoin(root, 'fakebin/git'),
+      `#!/bin/sh\nfor a in "$@"; do [ "$a" = grep ] && echo 'error: 假装有个文件读不了' >&2 && break; done\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 })
+    const noisy = run(root, { PATH: `${cxJoin(root, 'fakebin')}:${process.env.PATH ?? ''}` })
+    eq('入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出',
+      [noisy.status, String(noisy.stderr).includes('✗ 外部工单号：无从判断'), String(noisy.stderr).includes('error: 假装有个文件读不了')], [1, true, true])
+    cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
+    const bare = run(root)
+    eq('入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 外部工单号：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 

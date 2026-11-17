@@ -8264,7 +8264,7 @@ group('stop-if-seen', [], () => {
   if (stopOut === undefined) {
     // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
   } else if (!/M-X-i\s+\[X1\]/.test(stopOut)) {
-    // 认的是结果那一行（编号后面跟着名下）：只认编号的话，启动数那段报告里「M-X-i 是全跑变异」那行会提前满足它（ADR-145 第 557 行）
+    // 认的是结果那一行（编号后面跟着名下）：只认编号的话，启动数那段报告里「M-X-i 是全跑变异」那行会提前满足它（ADR-145 历史文件第十九节第 9 条那张欠条，已还）
     failed++; console.error('  ✗ mutate 没报出那条变异的结果')
   } else if (!/M-X-i\s+\[X1\] 被抓到/.test(stopOut)) {
     failed++
@@ -8905,7 +8905,7 @@ group('mutation-baseline', [], () => {
   }
 
   const bad = seed('mutation-baseline-reject', true)
-  // 上一跑留下的启动数文件：mutate 开跑先删（ADR-145 第二十一节第 2 小节）；这一跑基线不绿、不写新的，跑完就不该还在
+  // 上一跑留下的启动数文件：mutate 开跑先删（ADR-145 第十三节第 2 小节）；这一跑基线不绿、不写新的，跑完就不该还在
   const stale = join(bad.dir, 'output', 'mutation-launches', 'launches.json')
   mkdirSync(dirname(stale), { recursive: true }); writeFileSync(stale, JSON.stringify({ schema: 'mutation-launches/v1', findings: [] }))
   const denied = runToolBoth('mutate 正常代码的子集已失败，不施加任何变异',
@@ -8928,7 +8928,7 @@ group('mutation-baseline', [], () => {
     `退出码 ${held.status}，验证者调用=${JSON.stringify(fileText(stuck.marker))}，输出末几行：${stderrTail(`${held.stdout}\n${held.stderr}`)}`)
 })
 
-// ---- 变异入口的启动数：真起 mutate，核计数接上了、只报数不判红（ADR-145 第十三节第 4 小节第二条）----
+// ---- 变异入口的启动数：真起 mutate，核计数接上了、只报数不判红（ADR-145 第十三节第 4 小节）----
 // 不进任何变异的路由（与 mutation-cost-entry 同一要求）。期望全部从 ADR-145 第一、九、十三节手推、写在断言旁边，没有照实现的输出抄。
 group('launch-count-entry', [], () => {
   const root = join(tmp, 'launch-count-entry'), calls = join(tmp, 'launch-count-entry.calls')
@@ -10618,7 +10618,7 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
       named('维护入口-事件拒绝零验证者执行 ' + kind, (entryRead(fixture.marker, 'utf8')) === ('sentinel\n'), '实际值必须与既定期望完全相同');
       named('维护入口-事件拒绝未施变 ' + kind, (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
     }
-    // 标签写固定的名字，不拼玩具仓库这一跑的提交号：同一配置两次正常基线的打印要逐字相同（ADR-145 第 1134 行那张欠条）
+    // 标签写固定的名字，不拼玩具仓库这一跑的提交号：同一配置两次正常基线的打印要逐字相同（ADR-145 第一节「限定」第 3 条）
     for (const [name, base] of [['等于HEAD', head], ['invalid-base', 'invalid-base']]) {
       entryWrite(fixture.marker, 'sentinel\n');
       entryRefusal('维护入口-显式基线拒绝 ' + name, entryRun(fixture.cwd, base));
