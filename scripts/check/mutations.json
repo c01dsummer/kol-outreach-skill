@@ -26277,6 +26277,18 @@
       ]
     },
     {
+      "id": "M-H198-hg",
+      "req": "harness",
+      "why": "同名的字段共用赋值处：变异守着旧的那一个，新加的同名字段也算守住了，漏",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const held = (f: Field): boolean => f.sites.some(",
+      "replace": "const held = (f: Field): boolean => now.filter(g => g.via === f.via).flatMap(g => g.sites).some(",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的两个字段只有一个是这次新加的，两条变异都只改旧的那个，新加的照样报缺变异"
+      ]
+    },
+    {
       "id": "M-H196-a",
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",
