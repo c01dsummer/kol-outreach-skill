@@ -161,6 +161,36 @@ export class Budget {
   }
 }
 
+/**
+ * 续跑命令里的目录写成 shell 的一个参数：只有字母、数字和 `_-./:@%+=,` 时原样，否则用单引号包住、
+ * 值里的单引号写成 `'\''`。目录名由产品名拼成，产品名可以带空格和引号（D29 只挡 `/`、`\`、NUL），
+ * 原样拼进去用户照抄就续不上（ADR-213，#498 上 CodeRabbit 第一轮）。
+ */
+export function shellArg(value: string): string {
+  return /^[A-Za-z0-9_\-./:@%+=,]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+/**
+ * 剩下的钱不够付下一次请求、停下时 collect 和 enrich 共用的收尾三行（D13.x；措辞由需求方 2026-11-15 选定，ADR-213）：
+ * 花了多少、存好了什么、想继续敲哪条命令。两边原先各说各的，还用了「断点」「enrichment.json」这种内部词。
+ *
+ * **只在进度真的存好之后调用** —— 第二行就是 P3.d 的「声明已保存」。保存失败那一路以 6 退出、
+ * 走不到调用点，所以这里不收「没存上」的参数。`saved` 是第二行冒号后面那半句，连同「续跑会不会重抓」
+ * 由入口自己说：enrich 带 --refresh 时那半句说的是另一回事（ADR-213 第一节）。
+ *
+ * 「花了多少无从确认」那一支两个入口今天都走不到（以额度不足停下，账必定先是可核的），留作防御，由单测守着。
+ */
+export function budgetStopLines(view: CostView, saved: string, command: string): string[] {
+  const spent = view.cost_status === 'known'
+    ? `最多已花 $${view.cost_estimate_usd} / 上限 $${view.budget_usd}`
+    : `花了多少无从确认：${view.cost_problems.map(p => `${p.path}: ${p.reason}`).join('; ')}`
+  return [
+    `⛔ 剩下的钱不够付下一次请求了（${spent}），已停下。`,
+    `✅ 进度已存好：${saved}。`,
+    `👉 想继续：把命令里的 <新总上限> 换成新的总上限（美元数字）再跑：${command}`,
+  ]
+}
+
 export function startBudget(state: CostState, limit: MicroUsd, scope: 'task' | 'process', notify?: NotifyCost, persist?: PersistCost): Budget {
   const engine = createCostBudget(limit, scope, TIKHUB_PRICE_CATALOG)
   setCostLimitField(state, limit)

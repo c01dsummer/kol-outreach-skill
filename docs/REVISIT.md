@@ -210,10 +210,10 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
 day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; mkdir -p "$tmp"
 [ -f docs/adr/README.md ] && git diff --quiet origin/main -- docs/adr && [ -z "$(git status --porcelain --untracked-files=all -- docs/adr)" ] || echo '工作区的 docs/adr/ 不是 origin/main 上的，或者不在仓库根目录'
 nums() { grep -oE 'ADR-[0-9]+' | sed -E 's/^ADR-0*//' | sort -n | uniq | tr '\n' ' '; }
-grep -HnE '^>.*欠条：同类第 [0-9]+ 次(（|\().*(）|\))(，|,) *通用句未进 `?process/' docs/adr/ADR-*.md | while IFS= read -r l; do
+grep -HnE '^>.*欠条(「.*」)?：同类第 [0-9]+ 次(（|\().*(）|\))(，|,) *通用句未进 `?process/' docs/adr/ADR-*.md | while IFS= read -r l; do
   f=${l%%:*}; r=${l#*:}; n=${r%%:*}; t=${r#*:}
-  N=$(sed -E 's/.*欠条：同类第 ([0-9]+) 次.*/\1/' <<<"$t")
-  S=$(sed -E 's/.*欠条：同类第 [0-9]+ 次(（|\()(.*)(）|\))(，|,) *通用句未进.*/\2/' <<<"$t" | nums)
+  N=$(sed -E 's/.*欠条(「.*」)?：同类第 ([0-9]+) 次.*/\2/' <<<"$t")
+  S=$(sed -E 's/.*欠条(「.*」)?：同类第 [0-9]+ 次(（|\()(.*)(）|\))(，|,) *通用句未进.*/\3/' <<<"$t" | nums)
   echo "$f|$n|$N|$S"
 done > "$tmp/触发"
 grep -HnE '^- 候选句来源：' docs/adr/ADR-*.md | while IFS= read -r l; do
@@ -222,7 +222,7 @@ grep -HnE '^- 候选句来源：' docs/adr/ADR-*.md | while IFS= read -r l; do
   if grep -qE '^> ⚠️ 驳回：' "$f"; then v=驳回; else v=活着; fi
   echo "$f|$S|$v"
 done > "$tmp/候选句记录"
-wc -l < "$tmp/触发"; wc -l < "$tmp/候选句记录"; grep -hE '^>.*欠条.{0,40}同类第' docs/adr/ADR-*.md | wc -l
+wc -l < "$tmp/触发"; wc -l < "$tmp/候选句记录"; grep -hE '^>.*欠条(「.*」)?.{0,40}同类第' docs/adr/ADR-*.md | wc -l
 awk -F'|' '$2 == "" { print "这一类没写出编号：" $1 }' "$tmp/候选句记录"
 awk -F'|' '{ if (split($4, u, " ") != $3) print "N 与括号里的编号数不等：" $1 " 第 " $2 " 行" }' "$tmp/触发"
 awk -F'|' '$3 == "活着" { print $1 }' "$tmp/候选句记录" | while IFS= read -r f; do

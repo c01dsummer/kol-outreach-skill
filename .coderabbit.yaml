@@ -2,7 +2,8 @@
 #
 # 评审规矩这份只做转发，不装 —— 和 .github/copilot-instructions.md、CLAUDE.md 同一个形状。
 # 规矩的正本在根目录 REVIEW.md，那里只有指针，真规则在 process/ 与 docs/。
-# 另有一个开关在末尾（auto_review），不是规矩，见那里的注释。
+# 另有一个开关在末尾（auto_review），不是规矩，见那里的注释；
+# 还有一条只管新增决策记录的点名（同类候选），见那里的注释。
 reviews:
   path_instructions:
     - path: "**"
@@ -10,6 +11,13 @@ reviews:
         本仓库的评审须知在根目录 `REVIEW.md`，先读它，再读它指向的那几份。
         这里不复述规则 —— 复述一份就多一份会漂的副本。
         一条要求特别强调：看不见 diff 之外的东西时说「我不知道」，不要补全。
+    # 下面这一条是点名，不是复述：四周里 CodeRabbit 一条同类候选也没提（ADR-151 第十五节），
+    # 需求所有者北京时间 2026-11-17 选了在这里点名这一步。做法只在 docs/adr/README.md「同类」一节，
+    # 那一节改名或挪走时，这一条要跟着改（docs/SYNC.md）。
+    - path: "docs/adr/ADR-*.md"
+      instructions: |
+        这条 PR 新增了决策记录时，照 `docs/adr/README.md`「同类」一节提同类候选。
+        做法以那一节为准，这里不复述。
   # 回访 PR（docs/REVISIT.md）按标题跳过自动评审；为什么按标题、关键词怎么定：ADR-151 第九节。
   # 标题的写法在说明书「日期、「本跑」与 PR」那节，那里一改，这一行就对不上了。
   auto_review:
