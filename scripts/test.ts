@@ -332,6 +332,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-iou-file-reminder-entry', needs: [] },
   { id: 'h-ticket-refs', needs: [] },
   { id: 'h-ticket-refs-entry', needs: [] },
+  { id: 'h-ticket-refs-entry-edges', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -22273,52 +22274,51 @@ await group('h-ticket-refs', () => {
       && args.indexOf('abc123') < args.indexOf('--') && !refsArgs().includes('abc123') && refsArgs().length === args.length - 1)
 })
 
-// 入口单列一组：它要在玩具仓库里真起好几次，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
+// 入口在玩具仓库里真起：每组各起几次，和判定那组的变异分开放、入口自己也拆成两组，启动乘条数才不过上限（ADR-145）
+type TicketToy = { root: string; run: (cwd: string) => ReturnType<typeof cxSpawnSync>; g: (...args: string[]) => ReturnType<typeof cxSpawnSync> }
+/**
+ * 玩具仓库：主干上一个提交（基线），一份旧记录里两个号、一条卡片链接（链接连同末尾的号算一处，共三处）；
+ * 一份只有项目页链接与一个不带数字的词；根上一份带一个号的（在子目录里跑时它也得数到）。总共四处。
+ * `branch` 为真时再在主干上补一个空提交、切到自己的分支并提交一次 —— 不然它与主干的共同祖先就是 HEAD 自己，入口会当成在主干上。
+ */
+function ticketToy(root: string, branch: boolean, beforeBranch?: (t: TicketToy) => void): TicketToy {
+  const entry = cxJoin(process.cwd(), 'scripts/check/ticket-refs.ts')
+  // 往上找仓库停在夹具根的上一层：不是仓库那一例才不会摸到外面的仓库
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
+  const t: TicketToy = {
+    root,
+    run: (cwd: string) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: gitEnv }),
+    g: (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv }),
+  }
+  cxMkdirSync(cxJoin(root, 'docs'))
+  cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}\n`)
+  cxWriteFileSync(cxJoin(root, 'docs/entry.md'), `项目入口 ${TK_PROJECT}\nKOL-ABC 不是号\n`)
+  cxWriteFileSync(cxJoin(root, 'top.md'), `根上 ${TK(9)}\n`)
+  t.g('init', '-q', '-b', 'main'); t.g('add', '.'); t.g('commit', '-q', '-m', 'base')
+  beforeBranch?.(t)
+  if (branch) {
+    t.g('commit', '-q', '--allow-empty', '-m', 'second')
+    t.g('checkout', '-q', '-b', 'work'); t.g('commit', '-q', '--allow-empty', '-m', 'work')
+  }
+  return t
+}
+
 await group('h-ticket-refs-entry', () => {
-  harness('外部工单号闸门的入口：在玩具仓库里真起，多了以 1 退出，少了、主干上、不是仓库各情形照说')
+  harness('外部工单号闸门的入口：在玩具仓库里真起，多了以 1 退出，少了、新文件、小写分支名、主干上各情形照说')
   const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-ticket-refs-'))
   try {
-    const entry = cxJoin(process.cwd(), 'scripts/check/ticket-refs.ts')
-    // 往上找仓库停在夹具根的上一层：不是仓库那一例才不会摸到外面的仓库
-    const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
-    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-      'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
-    const run = (cwd: string) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: gitEnv })
-    const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
-    cxMkdirSync(cxJoin(root, 'docs'))
-    // 基线：一份旧记录里有两个号、一条卡片链接（链接连同末尾的号算一处，共三处）；另一份只有项目页链接与一个不带数字的词；
-    // 根上还有一份带一个号的，在子目录里跑时它也得数到
-    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}\n`)
-    cxWriteFileSync(cxJoin(root, 'top.md'), `根上 ${TK(9)}\n`)
-    cxWriteFileSync(cxJoin(root, 'docs/entry.md'), `项目入口 ${TK_PROJECT}\nKOL-ABC 不是号\n`)
-    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base')
-    // 主干上只有一个提交：没有上一版可比
-    const first = run(root)
-    eq('入口：主干上只有一个提交时说不适用，以 0 结束', [first.status, first.stdout.includes('不适用')], [0, true])
-    g('commit', '-q', '--allow-empty', '-m', 'second')
-    // 分支上得有自己的提交，不然它与主干的共同祖先就是 HEAD 自己，入口会当成在主干上
-    g('checkout', '-q', '-b', 'work'); g('commit', '-q', '--allow-empty', '-m', 'work')
-    // 本机把颜色开成总是开着：输出里的路径会被颜色码包住，两边对不上就个个文件都像新的
-    g('config', 'color.ui', 'always')
-    const colored = run(root)
-    eq('入口：本机把颜色开成总是开着时，没改动的仓库照样以 0 退出、一个文件都不列',
-      [colored.status, colored.stdout.includes('4 处 → 4 处'), colored.stdout.includes('→ 0'), colored.stderr], [0, true, false, ''])
-    const inDocs = run(cxJoin(root, 'docs'))
-    eq('入口：在子目录里跑也从仓库根数，总数与在根上跑一样', [inDocs.status, inDocs.stdout.includes('4 处 → 4 处')], [0, true])
-    // 链接后面紧跟中文标点再写一个号：那个号不被吞进链接，单算一处
-    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}）、${TK(7)}\n`)
-    const glued = run(root)
-    eq('入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出',
-      [glued.status, glued.stderr.includes('docs/old.md  3 → 4')], [1, true])
+    const { run, g } = ticketToy(root, true)
     // 同一行再加一个号：多一个就红，路径与前后个数在红的那几行里；没提交的改动也算
     cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)} 又 ${TK(5)}\n见 ${TK_LINK(3)}\n`)
     const grew = run(root)
     eq('入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4',
-      [grew.status, grew.stderr.includes('docs/old.md  3 → 4')], [1, true])
+      [grew.status, String(grew.stderr).includes('docs/old.md  3 → 4')], [1, true])
     // 撤掉一个号：只少不多，以 0 退出，少了的那个文件列出来
     cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)}\n见 ${TK_LINK(3)}\n`)
     const shrank = run(root)
-    eq('入口：旧文件里撤掉一个号以 0 退出，列出那个文件从 3 到 2', [shrank.status, shrank.stdout.includes('docs/old.md  3 → 2')], [0, true])
+    eq('入口：旧文件里撤掉一个号以 0 退出，列出那个文件从 3 到 2', [shrank.status, String(shrank.stdout).includes('docs/old.md  3 → 2')], [0, true])
     // 项目页链接与不带数字的词不算；指向一张卡的链接算
     cxWriteFileSync(cxJoin(root, 'docs/new.md'), `还是项目入口 ${TK_PROJECT}\nKOL-ABC\n`)
     g('add', 'docs/new.md')
@@ -22326,20 +22326,44 @@ await group('h-ticket-refs-entry', () => {
     // 引一个小写的分支名，里面带着号：不分大小写，照样算
     cxWriteFileSync(cxJoin(root, 'docs/new.md'), `分支 claude/${TK(8).toLowerCase()}-docs\n`)
     const lower = run(root)
-    eq('入口：新文件里引一个小写的、带号的分支名也算一处，以 1 退出', [lower.status, lower.stderr.includes('docs/new.md  0 → 1')], [1, true])
+    eq('入口：新文件里引一个小写的、带号的分支名也算一处，以 1 退出', [lower.status, String(lower.stderr).includes('docs/new.md  0 → 1')], [1, true])
     // 链接末尾用别的团队前缀，不带工单号：认得出全靠认链接本身
     cxWriteFileSync(cxJoin(root, 'docs/new.md'), `一张卡 ${'https://linear' + '.app/ws/issue/OPS-9/some-title'}\n`)
     const cardLink = run(root)
     eq('入口：新文件里只有项目页链接与不带数字的词时不红；写进一条指向卡的链接就以 1 退出，点出新文件从 0 到 1',
-      [projectOnly.status, cardLink.status, cardLink.stderr.includes('docs/new.md  0 → 1')], [0, 1, true])
+      [projectOnly.status, cardLink.status, String(cardLink.stderr).includes('docs/new.md  0 → 1')], [0, 1, true])
     // 主干上：直接在 main 上提交一个多出来的号，只报数，以 0 退出
     g('checkout', '-q', '-f', 'main'); cxRmSync(cxJoin(root, 'docs/new.md'), { force: true })
     cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)} 与 ${TK(6)}\n见 ${TK_LINK(3)}\n`); g('commit', '-qam', 'more')
     const trunk = run(root)
-    eq('入口：HEAD 就在主干上时多了也只报数，以 0 退出', [trunk.status, trunk.stdout.includes('只报数不判定'), trunk.stdout.includes('docs/old.md  3 → 4')], [0, true, true])
+    eq('入口：HEAD 就在主干上时多了也只报数，以 0 退出',
+      [trunk.status, String(trunk.stdout).includes('只报数不判定'), String(trunk.stdout).includes('docs/old.md  3 → 4')], [0, true, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-ticket-refs-entry-edges', () => {
+  harness('外部工单号闸门的入口：只有一个提交、本机开了颜色、在子目录里跑、链接后紧跟号、不是仓库')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-ticket-refs-edges-'))
+  try {
+    // 主干上只有一个提交：没有上一版可比
+    let first: ReturnType<typeof cxSpawnSync> | undefined
+    const { run, g } = ticketToy(root, true, t => { first = t.run(root) })
+    eq('入口：主干上只有一个提交时说不适用，以 0 结束', [first?.status, String(first?.stdout).includes('不适用')], [0, true])
+    // 本机把颜色开成总是开着：输出里的路径会被颜色码包住，两边对不上就个个文件都像新的
+    g('config', 'color.ui', 'always')
+    const colored = run(root)
+    eq('入口：本机把颜色开成总是开着时，没改动的仓库照样以 0 退出、一个文件都不列',
+      [colored.status, String(colored.stdout).includes('4 处 → 4 处'), String(colored.stdout).includes('→ 0'), String(colored.stderr)], [0, true, false, ''])
+    const inDocs = run(cxJoin(root, 'docs'))
+    eq('入口：在子目录里跑也从仓库根数，总数与在根上跑一样', [inDocs.status, String(inDocs.stdout).includes('4 处 → 4 处')], [0, true])
+    // 链接后面紧跟中文标点再写一个号：那个号不被吞进链接，单算一处
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}）、${TK(7)}\n`)
+    const glued = run(root)
+    eq('入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出',
+      [glued.status, String(glued.stderr).includes('docs/old.md  3 → 4')], [1, true])
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
     const bare = run(root)
-    eq('入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, bare.stderr.startsWith('✗ 外部工单号：无从判断')], [1, true])
+    eq('入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 外部工单号：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 
