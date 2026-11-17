@@ -1964,9 +1964,10 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     const creators = [mk('tiktok', 'meicooks')]
     const projected = projectAgentReviews(read.document, creators)
     eq('P2.e 投影到名单原样带上', projected[0].draft_sources, SOURCES)
-    // 投影没带上时不在这里抛错，交给上一条断言报红。
-    if (projected[0].draft_sources !== undefined) projected[0].draft_sources[0].draft = 'changed'
-    eq('P2.e 改投影不反向改正本', read.document.reviews[key].draft_sources![0].draft, 'Your series')
+    // 投影没带上或是空的时不在这里抛错，交给上一条断言报红。
+    const first = projected[0].draft_sources?.[0]
+    if (first !== undefined) first.draft = 'changed'
+    eq('P2.e 改投影不反向改正本', read.document.reviews[key].draft_sources?.[0]?.draft, 'Your series')
     const removed = structuredClone(read.document); delete removed.reviews[key].draft_sources
     ok('P2.e 正本删掉它后，带着旧投影的名单重投影时也消失', !('draft_sources' in projectAgentReviews(removed, projected)[0]))
     // 旧名单当种子时（采集原件缺席）出处登记和草稿一样是评审判断，要清掉，不带进新一轮的原件里。
