@@ -138,8 +138,9 @@ export function fieldsOf(service: Ts.LanguageService, root: string): Field[] {
   const fields = [...found.keys()].filter(d => !cut.has(d))
   const at = (d: Ts.Node): string => `${d.getSourceFile().fileName}\0${nameNode(d).getStart()}`
   const byName = new Map(fields.map(d => [at(d), d]))
-  const bare = (text: string): string => text.replace(/^['"`]|['"`]$/g, '') // 带引号的名字（`x['f']`、``x[`f`]``）去掉引号再比
-  const names = new Set(fields.map(d => bare(nameNode(d).getText())))
+  // 先按名字粗筛、省掉大多数「跳到定义」：比的是解析后的名字（`'f'`、`` `f` ``、`\u0066` 都是 f），源码原文里的引号与转义不算；算出来的名字（`[k]`）照原文
+  const key = (n: Ts.Node): string => ts.isIdentifier(n) || ts.isPrivateIdentifier(n) || ts.isStringLiteralLike(n) || ts.isNumericLiteral(n) ? n.text : n.getText()
+  const names = new Set(fields.map(d => key(nameNode(d))))
   const sites = new Map<Ts.Declaration, Site[]>()
   const visit = (sf: Ts.SourceFile, n: Ts.Node): void => {
     let name: Ts.Node | undefined
@@ -147,7 +148,7 @@ export function fieldsOf(service: Ts.LanguageService, root: string): Field[] {
     else if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) {
       name = ts.isPropertyAccessExpression(n.left) ? n.left.name : ts.isElementAccessExpression(n.left) && ts.isStringLiteralLike(n.left.argumentExpression) ? n.left.argumentExpression : undefined
     }
-    if (name !== undefined && names.has(bare(name.getText()))) {
+    if (name !== undefined && names.has(key(name))) {
       // 简写 `{ n }` 的「跳到定义」还会交回变量 `n` 自己，那一个不算；剩下的要恰好一个，而且是字段 —— 先数、后筛，跳到一个字段加一个别的（lib 下的、不导出的）也不算
       const value = new Set(ts.isShorthandPropertyAssignment(n) ? (tc.getShorthandAssignmentValueSymbol(n)?.declarations ?? []).map(at) : [])
       const defs = new Set((service.getDefinitionAtPosition(sf.fileName, name.getStart()) ?? []).map(d => `${d.fileName}\0${d.textSpan.start}`).filter(k => !value.has(k)))
@@ -225,6 +226,7 @@ export function addedLines(diff: string): Map<string, Set<number>> {
     if (h !== null) { oldLeft = h[1] === undefined ? 1 : Number(h[1]); line = Number(h[2]); newLeft = h[3] === undefined ? 1 : Number(h[3]); continue }
     if (l !== '' && !l.startsWith('\\') && !HEADER.test(l)) fail(l)
   }
+  if (oldLeft > 0 || newLeft > 0) fail('（块还没完，diff 就断了）') // 截断的输入：缺的那几行里可能有新字段
   return out
 }
 

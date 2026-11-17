@@ -15753,6 +15753,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
         'export function amb(): { value: number } | { value: string } { return { value: 1 } }',
         'function local(): { late: number } | Res { return { late: 9 } }',
         'export function short() { const a = 1; return { a } }',
+        "export function esc(): { added: number; \\u0062oth: number } { return { '\\u0061dded': 1, both: 2 } }",
       ].join('\n'),
       'scripts/lib/d.ts': 'export function lib(): { libField: number } { return { libField: 1 } }',
       'scripts/lib/e.ts': "import type { lonely } from '../check/c.js'\nexport const e: ReturnType<typeof lonely> = { bb: 3 }",
@@ -15781,7 +15782,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   const strict = (got: unknown, want: unknown): [unknown, unknown] => [isDeepStrictEqual(got, want) ? got : { 严格比对不等: got }, want]
   eq('字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条）',
     vias(toy), [
-      'amb().value', 'amb().value', 'inferred().one', 'inferred().two', 'later()<>.awaited', 'listed().first', 'listed().second', 'lonely().bb',
+      'amb().value', 'amb().value', 'esc().added', 'esc().both', 'inferred().one', 'inferred().two', 'later()<>.awaited', 'listed().first', 'listed().second', 'lonely().bb',
       'make().late', 'make().n', 'make().ok', 'quiet().after', 'quiet().bare', 'quiet().quiet', 'rows()[].idle', 'rows()[].kept',
       'shape().kind', 'shape().kind', 'shape().w', 'shape().x', 'short().a', 'store()<>.held', 'whole().nest', 'whole().nest[].w2', 'whole().w1', 'withCallback().run',
     ])
@@ -15793,6 +15794,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   // 赋值处：问「跳到定义」，只认跳到恰好一个字段的
   eq('字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x[\'f\'] += …；变量的初始值、比较不算；带 readonly 的照样认',
     ['make().ok', 'make().n', 'make().late'].map(k => textOf(toyOf(k))), [['ok: x > 0', 'r.ok = false'], ['n'], ['late: 0', 'r.late = 1', "r['late'] += 1", 'r[`late`] = 2']])
+  eq('字段：名字按解析后的比，不按源码原文 —— 声明写普通名、赋值写转义，或反过来，都认得到',
+    ['esc().added', 'esc().both'].map(k => textOf(toyOf(k))), [["'\\u0061dded': 1"], ['both: 2']])
   eq('字段：推断出来的对象字面量，字段的赋值处就是它自己那一项，简写的也是', [textOf(toyOf('inferred().one')), textOf(toyOf('short().a'))], [['one: 1'], ['a']])
   eq('字段：跳到定义交回一个字段加一个别的（不导出的那个成员），不算这个字段的赋值处', textOf(toyOf('make().late'))?.includes('late: 9'), false)
   eq('字段：判别联合按判别值分到成员，赋值处只算到那一个成员的字段上；没分开的联合（两个成员都有 value、没有判别值）一处都不算',
@@ -15814,6 +15817,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     (() => { try { return [...addedLines(diff)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } })(), [['scripts/check/a.ts', [4, 5, 11]], ['scripts/check/中.ts', [1, 2]], ['scripts/check/q"\tx.ts', [1]], ['scripts/check/a b.ts', [3]]])
   const unreadable = (text: string) => { try { addedLines(text); return '没抛' } catch (e) { return String(e).includes('读不懂的 diff 行') } }
   eq('新加的行：读不懂的行抛错，不悄悄当成没改 —— 带颜色的、块里多出来的', ['\u001b[1mdiff --git a/x b/x\u001b[m', '+++ b/x\n@@ -1 +1 @@\n-a\n+b\n+c', '+++ b/x\n@@ -1 +1 @@\n?a', '+++ b/x\n@@ -1 +1,2 @@\n-a\n-b\n+c\n+d', '+++ b/x\n@@ -1,2 +1 @@\n+b\n+c\n-a\n-d'].map(unreadable), [true, true, true, true, true])
+  eq('新加的行：块还没完 diff 就断了也抛错 —— 缺的那几行里可能有新字段；末尾带不带换行都一样',
+    ['+++ b/x\n@@ -0,0 +1,2 @@\n+kept', '+++ b/x\n@@ -0,0 +1,2 @@\n+kept\n', '+++ b/x\n@@ -1,2 +1,3 @@\n-a\n+b\n'].map(unreadable), [true, true, true])
   eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd', 'x'), markSite('f', 'ab cd ab', 'ab', 'x'), markSite('f', 'ab', 'x', 'y'), markSite('f', 'ab', '', 'y')],
     [{ file: 'f', start: 3, end: 5 }, undefined, undefined, undefined])
   eq('变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点', [markSite('f', '__a + b__', 'a + b', 'a - b'), markSite('f', '__a + b__', 'a + b', 'a + b + c'), markSite('f', 'xaay', 'aa', 'a')],
