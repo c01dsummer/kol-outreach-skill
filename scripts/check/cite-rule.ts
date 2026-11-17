@@ -14,16 +14,18 @@
  * - **欠条块里的单列**：块的定界与孤儿闸门是同一份（`debt-rule.ts` 的 `iouBlocks`）。
  *   主计数只数在块外引过它的记录；只在块里引过它的另成一栏，两栏加起来就是引过它的记录数。
  *   块头要以「⚠️ 欠条」开头 —— 「⚠️ 某日，那张又响了 … · 重启条件：…」那种重挂写法不算欠条块，
- *   块里的引用进主计数（与孤儿闸门同一个定义；量出来的效果记在 ADR-151 第七节）
+ *   块里的引用进主计数（与孤儿闸门同一个定义；量出来的效果记在 ADR-151 历史文件的第七节）
  * - **只认 `ADR-<编号>-<标题>.md` 这些文件**（`adr-rule.ts` 的 `FILE_RE`），引用方与被引方都是。
  *   索引 `README.md` 把每条都列一遍，算进来的话每条都白多一；引到目录里没有的编号，不进表
  * - **教训栏**：有一行以 `##`／`###` 加「教训」开头（节标题前可以带「四、」这样的序号），或以 `- `
  *   加「教训」开头（中间可以有加粗记号），同样过遮罩。提案 §1 表后那条 grep 不认带序号的节标题，
  *   而那是 ADR-145 以后的主流写法：照 grep 认的话 ADR-147、149、150 的「教训」一节都报成没有（独立复核指出）
+ * - **拆过的记录算一条**（ADR-211，主文件只放现行结论那一份）：主文件与 `历史/` 下的同名文件是同一条记录。
+ *   引用方按记录编号去重，同一处引用在两个文件里各出现一次也只算一条；表里只给主文件一行；教训栏在哪个文件里都算这条有
  */
 import { basename } from 'node:path'
 import { FILE_RE } from './adr-rule.js'
-import { iouBlocks } from './debt-rule.js'
+import { iouBlocks, isHistory } from './debt-rule.js'
 import { quotedMask } from './quoted.js'
 
 const REF = /ADR-(\d+)((?:\/\d+)*)/g
@@ -57,7 +59,7 @@ export function citeTable(docs: Map<string, string>): CiteRow[] {
     set.add(from)
     to.set(no, set)
   }
-  const lessons = new Set<string>()
+  const lessons = new Set<number>()
   for (const [file, text] of docs) {
     const self = recordNo(file)
     if (self === undefined) continue
@@ -67,16 +69,16 @@ export function citeTable(docs: Map<string, string>): CiteRow[] {
     for (const { start, end } of iouBlocks(lines, quoted)) for (let k = start; k < end; k++) inIou[k] = true
     lines.forEach((line, i) => {
       if (quoted[i]) return
-      if (LESSON.test(line)) lessons.add(file)
-      for (const no of refs(line)) if (no !== self) add(inIou[i] ? inside : outside, no, file)
+      if (LESSON.test(line)) lessons.add(self)
+      for (const no of refs(line)) if (no !== self) add(inIou[i] ? inside : outside, no, `ADR-${self}`)
     })
   }
   const rows: CiteRow[] = []
   for (const file of docs.keys()) {
     const no = recordNo(file)
-    if (no === undefined) continue
+    if (no === undefined || isHistory(file)) continue
     const out = outside.get(no) ?? new Set<string>()
-    rows.push({ file, no, cited: out.size, iouOnly: [...inside.get(no) ?? []].filter(f => !out.has(f)).length, lesson: lessons.has(file) })
+    rows.push({ file, no, cited: out.size, iouOnly: [...inside.get(no) ?? []].filter(f => !out.has(f)).length, lesson: lessons.has(no) })
   }
   return rows.sort((a, b) => b.cited - a.cited || a.no - b.no)
 }

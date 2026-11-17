@@ -19,7 +19,7 @@ import {
   type Claims,
 } from './claims.js'
 import { citeSummary, citeTable } from './cite-rule.js'
-import { ADR_DIR, adrDocs, iouNameFaults, entries as debtEntries, ledgerReport, ledgerSummary, orphanIous } from './debt-rule.js'
+import { ADR_DIR, adrDocs, iouNameFaults, entries as debtEntries, ledgerGaps, ledgerReport, ledgerSummary, orphanIous } from './debt-rule.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 import {
   REDLINE_CAT, criteriaCell, mutationCell, requirementVerdict, tensionEvidence, tensionVerdict,
@@ -261,21 +261,15 @@ const adrs = adrDocs()
 const debts = debtEntries(adrs)
 /** 硬失败先判,再看要不要只打清单 —— 反过来的话 `--debts` 这条路把闸门跳过去了 */
 const orphans = orphanIous(adrs)
-for (const o of orphans) {
-  hard++
-  gaps.push(`${o.file}:${o.line} 写了欠条却没写重启条件 —— ` +
-            '没有重启条件的登记不是登记，是免责声明（process/6-INTEGRATE.md）')
-}
 const badNames = iouNameFaults(adrs)
-for (const d of badNames) {
-  hard++
-  gaps.push(`${d.file}:${d.line} 欠条的短名字有错（${d.text}） —— ` +
-            '按名字写的状态行会关不上它，或分不清是哪一张（ADR-211，欠条用短名字互指那一份）')
-}
+// 孤儿与短名字有错各一张一行、每行一次硬失败；行怎么写在 `debt-rule.ts` 的 `ledgerGaps`，需求测试够得着
+const ledgerHard = ledgerGaps(orphans, badNames)
+hard += ledgerHard.length
+gaps.push(...ledgerHard)
 if (process.argv.includes('--debts')) {
   const { out, err } = ledgerReport(debts, orphans, badNames)
   // 等写完再退。全表一百多 KB，接在管道上时打完就硬退出，还在排队的那一截会被丢掉 ——
-  // 实测截到约 60 KB、汇总行没了、退出码照样是 0（独立复核，ADR-151 第六节）
+  // 实测截到约 60 KB、汇总行没了、退出码照样是 0（独立复核，ADR-151 历史文件的第六节）
   const flushed = (s: NodeJS.WriteStream, text: string) => new Promise<void>(done => s.write(text, () => done()))
   await flushed(process.stdout, out.map(line => `${line}\n`).join(''))
   if (err) await flushed(process.stderr, `${err}\n`)
