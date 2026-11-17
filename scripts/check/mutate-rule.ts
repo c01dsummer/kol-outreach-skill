@@ -114,7 +114,7 @@ export function processFailed(output: string, mark: string): boolean {
  * 判定认记号（上面那条 `processFailed`），可记号是自检那边打的：那边哪一句漏了，判定就把
  * 「夹具废了」「进程崩了」当成断言红了、记成被抓到。`selfcheck.ts` 在验证基础设施的闭包里，
  * 指名自检的变异施在它上面会被「自己验自己」拦下，所以这一半只能由需求测试静态地问
- * （ADR-70 第 1019 行那张欠条）。问两件：
+ * （ADR-70「自检的诊断真带着记号：需求测试按语法树问」）。问两件：
  *
  * - **说了「夹具没造对」的，要带夹具记号。** 一个串或模板串的某一段里有这几个字，往上最近的
  *   那个调用又是 `console.error` 或 `named`，它就得带着 `SELFCHECK_FIXTURE_MARK`。
@@ -287,7 +287,7 @@ export function anchorMatches(content: string, find: string): number {
 
 /**
  * 变异目录对着一棵树：每条变异的锚点在它的目标文件里还对不对得上。对不上的五种各有名字，
- * 全对得上交回空表（ADR-70 第 1394、2099 行那两张欠条；检查链第一步经下面的 `anchorVerdict` 用它，见 ADR-70「变异残留」几节）。
+ * 全对得上交回空表（ADR-70「变异残留：对着目录查锚点」那两张欠条；检查链第一步经下面的 `anchorVerdict` 用它，见 ADR-70「变异残留」几节）。
  *
  * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由检查链第一步与 `mutate.ts` 开跑前那道体检拦下）。
  * 一处变异没还原、躺在树里时（被打断、`--jobs=1` 正跑着就提交），那个文件是「`find` 换成了 `replace`」的
@@ -474,7 +474,7 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
  * 就是打完自己那句话直接退出,它的失败根本到不了汇总。
  *
  * **按语法树认，不按字面扫**（ADR-70 末尾「硬退出收口」一节；原先按正则扫，注释与字符串里长得一样的也算数，
- * ADR-70 第 2077 行那张欠条）：认的是 `process.exit(…)` 与 `process['exit'](…)` 这两种调用（前面带 `globalThis.` 的也认），注释、字符串、
+ * ADR-70「硬退出收口」）：认的是 `process.exit(…)` 与 `process['exit'](…)` 这两种调用（前面带 `globalThis.` 的也认），注释、字符串、
  * 模板串里写全了的结构上就不是调用（同 `labelsOf`）。先把它赋给别的名字再调的认不出，不假装认得出。
  * 套在调用目标或 `process` 外面的括号先剥掉：`(process.exit)(1)`、`(process).exit(1)` 没换名字，照认（#462 上 CodeRabbit 第一轮）。
  */

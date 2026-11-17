@@ -2479,9 +2479,9 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   //        只有属主可读，而这是一句注释说了、代码没做的事（ADR-42 追记）。
   //        umask 由这里定成 022、写完就还原：照会话的 umask 算期望值的话，
   //        077 下 0666 & ~077 正好是临时文件那一档 0600，停在那一档也照样绿
-  //        （ADR-70 第 3526 行）。同 ADR-42 的 0640 一样，挑一个不等于那一档的值。
+  //        （ADR-70 历史文件第 3526 行）。同 ADR-42 的 0640 一样，挑一个不等于那一档的值。
   //        只取 022 一个点，证得出「等于 0644」、证不出「跟着 umask 走」—— 写死 0644
-  //        也照样绿（ADR-70 第 3549 行）。所以再取一个 002：0664、0644、0600 两两不等，
+  //        也照样绿（ADR-70 历史文件第 3549 行）。所以再取一个 002：0664、0644、0600 两两不等，
   //        写死 0644 或停在临时文件那一档，第二条都会红。
   {
     const fresh = join(tmpdir(), `kol-d4-fresh-${process.pid}.json`)
@@ -4814,7 +4814,7 @@ harness('审计对一条需求的裁定')
   eq('一条都没有就是 0', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']) })).mutatedCrit, 0)
   // 交进来的判据级负片编号是全仓的：只数与这条需求判据的交集。上面两条喂的恰好都是 P9 自己的，
-  // 直接数集合大小也全绿 —— 那时审计会把全仓的总数印在每一条需求头上（ADR-70 第 345–354 行那张欠条）。
+  // 直接数集合大小也全绿 —— 那时审计会把全仓的总数印在每一条需求头上（ADR-70「2026-11-14 追记」）。
   // 手算：P9 的判据是 P9.a、P9.b，与 {P9.a, D9.a, P5.f} 的交集只有 P9.a，所以是 1
   eq('别的需求的判据级负片不算到这条头上', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']),
@@ -8512,7 +8512,7 @@ harness('变异的锚点在目标文件里数几处：按起点数，重叠也�
 
 harness('变异目录对着树：锚点对不上的五种各有名字，没还原的变异认得出')
 {
-  // ADR-70 第 1394、2099 行：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
+  // ADR-70「变异残留：对着目录查锚点」：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
   // 只断言判定；**不对真树断言**：需求测试自己就是验证者，变异跑它的时候树上正躺着那一条，
   // 对真树断言的话每条不点名的变异都会被这一句抓到，功劳全记错（ADR-70 末尾「变异残留」一节）
   const files = (tree: Record<string, string>) => (file: string): string | undefined => tree[file]
@@ -8746,7 +8746,7 @@ harness('入口的硬退出收口：只有一处，退出前那句话同步写�
   eq('先异步写一句、再叫一个里面才收口的函数，报出来',
     exitFaults(`${helper}const stop = (): never => {\n  quit(1)\n}\nif (bad) {\n  console.error('坏了')\n  stop()\n}\n`, 'quit'),
     [{ kind: 'async-before', line: 9 }])
-  // 真入口：变异一步那一份（ADR-70 第 2082 行那张欠条说的「查不到 mutate.ts 自己」）
+  // 真入口：变异一步那一份（ADR-70「硬退出收口」那张欠条说的「查不到 mutate.ts 自己」）
   eq('return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来',
     exitFaults(`${helper}function f(): never {\n  console.error('坏了')\n  return quit(1)\n}\nfunction g() {\n  console.error('坏了')\n  if (bad) quit(1)\n}\n`, 'quit'),
     [{ kind: 'async-before', line: 6 }, { kind: 'async-before', line: 10 }])
@@ -8818,7 +8818,7 @@ harness('by 与 kills 同进同出：四种写错各有名字')
 harness('记号真打在自检的诊断上：说了「夹具没造对」的带夹具记号，runBoth 报的失败带进程记号')
 {
   // 判定认记号（上面那几条），记号却是自检那边打的。selfcheck.ts 在验证基础设施的闭包里，
-  // 指名自检的变异施不上去，这一半只能在这里按语法树问真文件（ADR-70 第 1019 行那张欠条）。
+  // 指名自检的变异施不上去，这一半只能在这里按语法树问真文件（ADR-70「自检的诊断真带着记号：需求测试按语法树问」）。
   // 玩具源码头上那句 runBoth 是为了让进程记号那一半不来搅局
   const runBothOk = 'const runBoth = () => { console.error(`✗ x${SELFCHECK_PROCESS_MARK}：退出码不对`) }\n'
   const fixtureFaults = (src: string) => unmarkedDiagnostics(runBothOk + src).fixture
@@ -12332,7 +12332,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
   // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；零请求观察器那一片加了认证入口（自检组 observer-cert-entry 起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾零请求观察器那一节）＋ anchors.ts（ADR-70 末尾「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾零请求观察器那一节）＋ anchors.ts（ADR-70「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
   // 按字符串排（admission < adr（第三个字符 m < r） < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/admission.ts', 'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
@@ -12369,7 +12369,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   eq('注释里的也收 —— 宁可闭包偏大，不可偏小',
     importsOf('scripts/a.ts', `// 早先是 from './old.js'`).to, ['scripts/old.ts'])
   // 不带 from 的副作用 import 是 ESM 里合法的一句：只认 from 的话这条边收不到，
-  // 它加载的依赖落在闭包外，打在它身上、又指名了验证者的变异被放行（ADR-70 第 193–199 行那张欠条）
+  // 它加载的依赖落在闭包外，打在它身上、又指名了验证者的变异被放行（ADR-70「2026-11-14 追记」）
   eq('不带 from 的副作用 import 也是一条边',
     importsOf('scripts/check/a.ts', `import './b.js'\nimport '../lib/c.js'`).to,
     ['scripts/check/b.ts', 'scripts/lib/c.ts'])
@@ -12406,7 +12406,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   const real = infraClosure(f => existsSync(f) ? rf(f, 'utf8') : undefined)
   eq('真闭包里没有磁盘上不存在的路径', real.filter(f => !existsSync(f)), [])
   // 被测入口不能在真闭包里：种子里出现一句形状像加载它的引用，它就被收进来，打在它上面、
-  // 改跑自检的变异全被当成自己验自己拦下 —— collect.ts 上那条正是这条记录的头号用例（ADR-70 第 201–207 行那张欠条）。
+  // 改跑自检的变异全被当成自己验自己拦下 —— collect.ts 上那条正是这条记录的头号用例（ADR-70「2026-11-14 追记」）。
   // 名单从 package.json 里产品命令（带 --env-file-if-exists 起的那几条）读，不从闭包那边取，也不手抄
   const productCommands = Object.values(JSON.parse(rf('package.json', 'utf8')).scripts as Record<string, string>)
     .filter(cmd => cmd.includes('--env-file-if-exists'))
@@ -12419,7 +12419,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
     [true, true, true])
   eq('被测入口一个都不在真闭包里', real.filter(f => productEntries.includes(f)), [])
   // 抽边仍不认的两种写法（双引号的静态引用、动态 import()）在真闭包里今天一处都没有。哪天有了，这条红：
-  // 那时抽边要么再认一种形状，要么改写那一句 —— 漏收正是这道闸门最不该错的那一头（ADR-70 末尾 2026-11-14 那块）
+  // 那时抽边要么再认一种形状，要么改写那一句 —— 漏收正是这道闸门最不该错的那一头（ADR-70「2026-11-14 追记」）
   eq('真闭包里没有抽边认不得的引用写法',
     real.filter(f => existsSync(f) && statSync(f).isFile() && /\b(?:from|import)\s*"\.|\bimport\s*\(\s*['"`]\./.test(rf(f, 'utf8'))), [])
 
@@ -22165,7 +22165,7 @@ await group('h-worker-output-reclaim', async () => {
   }
 })
 
-// ---- 零请求观察器（ADR-70 末尾讲零请求观察器与外层断网的那一节）：判定、预加载、运行器各一组 ----
+// ---- 零请求观察器（ADR-70「零请求观察器与外层断网」）：判定、预加载、运行器各一组 ----
 // 期望值照那一节「对作者公开的协议」与下面手写的事实推，没有拿观察器跑出来的东西回填
 await group('h-observer-rule', () => {
   harness('零请求观察器的判定：响应脚本、事件读回、一次观察归哪一档、零请求四档、断网认证、白名单环境与沙箱参数')
@@ -22329,7 +22329,7 @@ await group('h-observer-preload', () => {
       `const r4 = await fetch('https://h.invalid/b', { method: 'POST' }); try { await r4.json() } catch (e) { out.push(['body', e.name]) }`,
       `const r5 = await fetch('https://h.invalid/d'); out.push([r5.status, Buffer.from(await r5.arrayBuffer()).toString('hex')])`,
       `console.log(JSON.stringify(out))`].join('\n'))
-    // 玩具入口没印出合法 JSON 时给一个明示的失败值，让下面两条断言红，而不是异常冲出 group()（ADR-70 第 3564 行）
+    // 玩具入口没印出合法 JSON 时给一个明示的失败值，让下面两条断言红，而不是异常冲出 group()（ADR-70 历史文件第 3564 行）
     const outA: unknown = (() => { try { return JSON.parse(a.stdout) } catch { return { notJson: a.stdout } } })()
     const armedA = a.events[0]
     eq('观察器预加载：armed 记本次运行、入口、脚本与本文件、加载顺序与环境变量名，观察配置在入口里看不见',
@@ -22500,7 +22500,7 @@ await group('h-observer-records', async () => {
       ag(lines(ready(), reserved(1)), 2), ag(lines(ready(), reserved(1), rejected()), 2)], [0, 0, 1, 1, 1, 1])
 })
 
-// 独立黑盒测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 第 3765 行那张欠条要的，放在冻结包之外）：
+// 独立黑盒测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 历史文件第 3765 行那张欠条要的，放在冻结包之外）：
 // 真实入口这一跑只新建一个，那一支跑不到；这里照冻结用例自己的判法，造一跑「新增两个、其中一个有无结果留存」交给它判
 await group('h-blackbox-many-task-files', async () => {
   harness('独立黑盒测试包 G3-09：运行后新增两个以上 task.json 时逐个判，有无结果留存的那一个判红、另一个判过')
