@@ -27094,9 +27094,7 @@
       "find": "    if (n > b) grown.push({ path, before: b, now: n })",
       "replace": "    if (n > b + 1) grown.push({ path, before: b, now: n })",
       "by": "test",
-      "kills": [
-        "比基线多一个也算多；基线上没有的文件有一个就算多；一样多的不列"
-      ]
+      "kills": ["比基线多一个也算多；基线上没有的文件有一个就算多；一样多的不列"]
     },
     {
       "id": "M-H205-b",
@@ -27106,9 +27104,7 @@
       "find": "    const b = before.get(path) ?? 0, n = now.get(path) ?? 0",
       "replace": "    const b = before.get(path) ?? now.get(path) ?? 0, n = now.get(path) ?? 0",
       "by": "test",
-      "kills": [
-        "比基线多一个也算多；基线上没有的文件有一个就算多；一样多的不列"
-      ]
+      "kills": ["比基线多一个也算多；基线上没有的文件有一个就算多；一样多的不列"]
     },
     {
       "id": "M-H205-c",
@@ -27118,9 +27114,7 @@
       "find": "    if (prefix && path.startsWith(prefix)) path = path.slice(prefix.length)",
       "replace": "    if (prefix && path.startsWith(prefix)) path = path.slice(0)",
       "by": "test",
-      "kills": [
-        "数基线那棵树时路径前面的「提交号:」去掉，两边按同一个路径对得上"
-      ]
+      "kills": ["数基线那棵树时路径前面的「提交号:」去掉，两边按同一个路径对得上"]
     },
     {
       "id": "M-H205-d",
@@ -27130,9 +27124,7 @@
       "find": "  if (status === 1) return ''",
       "replace": "  if (status === 1) return null",
       "by": "test",
-      "kills": [
-        "git grep 一处都没找到（退 1）算零个，不算出错；退 0 原样交回；别的退出码与被信号杀掉都算无从判断"
-      ]
+      "kills": ["git grep 一处都没找到（退 1）算零个，不算出错；退 0 原样交回；别的退出码与被信号杀掉都算无从判断"]
     },
     {
       "id": "M-H205-e",
@@ -27142,9 +27134,7 @@
       "find": "  if (status === 0) return stdout",
       "replace": "  if (status === 0 || status === 2) return stdout",
       "by": "test",
-      "kills": [
-        "git grep 一处都没找到（退 1）算零个，不算出错；退 0 原样交回；别的退出码与被信号杀掉都算无从判断"
-      ]
+      "kills": ["git grep 一处都没找到（退 1）算零个，不算出错；退 0 原样交回；别的退出码与被信号杀掉都算无从判断"]
     },
     {
       "id": "M-H205-f",
@@ -27154,9 +27144,7 @@
       "find": "  if (onTrunk) {",
       "replace": "  if (onTrunk || !onTrunk) {",
       "by": "test",
-      "kills": [
-        "分支上有文件比基线多：判红，红的那几行写着路径与前后个数"
-      ]
+      "kills": ["分支上有文件比基线多：判红，红的那几行写着路径与前后个数"]
     },
     {
       "id": "M-H205-g",
@@ -27166,9 +27154,7 @@
       "find": "  if (onTrunk) {\n    out.push",
       "replace": "  if (false) {\n    out.push",
       "by": "test",
-      "kills": [
-        "主干上多了只报数不判定：不红，但照样把多了的文件列出来"
-      ]
+      "kills": ["主干上多了只报数不判定：不红，但照样把多了的文件列出来"]
     },
     {
       "id": "M-H205-h",
@@ -27178,10 +27164,7 @@
       "find": "  return { ok: false, out, err }",
       "replace": "  return { ok: true, out, err }",
       "by": "test",
-      "kills": [
-        "分支上有文件比基线多：判红，红的那几行写着路径与前后个数",
-        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
-      ]
+      "kills": ["分支上有文件比基线多：判红，红的那几行写着路径与前后个数", "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"]
     },
     {
       "id": "M-H205-i",
@@ -27191,10 +27174,7 @@
       "find": "  return ['grep', '--no-color', '-o', '-z',",
       "replace": "  return ['grep', '--no-color', '-z',",
       "by": "test",
-      "kills": [
-        "数的时候每一处单出一行、路径后跟 NUL、跳过二进制文件；给了树就数那棵树，没给就数工作区",
-        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
-      ]
+      "kills": ["数的时候每一处单出一行、路径后跟 NUL、跳过二进制文件；给了树就数那棵树，没给就数工作区", "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"]
     },
     {
       "id": "M-H205-j",
@@ -27204,9 +27184,7 @@
       "find": "export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\\\.app/([^/[:space:]]+/)?issue/[A-Za-z0-9_./#?=&%-]*'",
       "replace": "export const TICKET_PATTERN = 'KOL-[0-9]+'",
       "by": "test",
-      "kills": [
-        "入口：新文件里只有项目页链接与不带数字的词时不红；写进两条指向卡的链接（带工作区一段的与不带的）就以 1 退出，点出新文件从 0 到 2"
-      ]
+      "kills": ["入口：新文件里只有项目页链接与不带数字的词时不红；写进两条指向卡的链接（带工作区一段的与不带的）就以 1 退出，点出新文件从 0 到 2"]
     },
     {
       "id": "M-H205-k",
@@ -27216,9 +27194,7 @@
       "find": "issue/[A-Za-z0-9_./#?=&%-]*'",
       "replace": "issue/'",
       "by": "test",
-      "kills": [
-        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
-      ]
+      "kills": ["入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"]
     },
     {
       "id": "M-H205-l",
@@ -27228,9 +27204,7 @@
       "find": "  return ok ? 0 : 1\n}",
       "replace": "  return 0\n}",
       "by": "test",
-      "kills": [
-        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
-      ]
+      "kills": ["入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"]
     },
     {
       "id": "M-H205-m",
@@ -27240,9 +27214,7 @@
       "find": "  console.error(`✗ 外部工单号：无从判断 —— ${why}`)\n  return 1",
       "replace": "  console.error(`✗ 外部工单号：无从判断 —— ${why}`)\n  return 0",
       "by": "test",
-      "kills": [
-        "入口：不是 git 仓库时说无从判断，以 1 退出"
-      ]
+      "kills": ["入口：不是 git 仓库时说无从判断，以 1 退出"]
     },
     {
       "id": "M-H205-n",
@@ -27252,9 +27224,7 @@
       "find": "const before = count(baseline.base)",
       "replace": "const before = count()",
       "by": "test",
-      "kills": [
-        "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
-      ]
+      "kills": ["入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"]
     },
     {
       "id": "M-H205-o",
@@ -27264,9 +27234,7 @@
       "find": "  return out === null ? null : parseRefs(out, tree)",
       "replace": "  return out === null ? null : parseRefs(out)",
       "by": "test",
-      "kills": [
-        "入口：旧文件里撤掉一个号以 0 退出，列出那个文件从 3 到 2"
-      ]
+      "kills": ["入口：旧文件里撤掉一个号以 0 退出，列出那个文件从 3 到 2"]
     },
     {
       "id": "M-H205-p",
@@ -27276,9 +27244,7 @@
       "find": "  return ['grep', '--no-color', '-o',",
       "replace": "  return ['grep', '-o',",
       "by": "test",
-      "kills": [
-        "入口：本机把颜色开成总是开着时，没改动的仓库照样以 0 退出、一个文件都不列"
-      ]
+      "kills": ["入口：本机把颜色开成总是开着时，没改动的仓库照样以 0 退出、一个文件都不列"]
     },
     {
       "id": "M-H205-q",
@@ -27288,9 +27254,7 @@
       "find": "'-I', '-i', '--full-name'",
       "replace": "'-I', '--full-name'",
       "by": "test",
-      "kills": [
-        "入口：新文件里引一个小写的、带号的分支名也算一处，以 1 退出"
-      ]
+      "kills": ["入口：新文件里引一个小写的、带号的分支名也算一处，以 1 退出"]
     },
     {
       "id": "M-H205-r",
@@ -27300,9 +27264,7 @@
       "find": "issue/[A-Za-z0-9_./#?=&%-]*'",
       "replace": "issue/[^[:space:]]*'",
       "by": "test",
-      "kills": [
-        "入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出"
-      ]
+      "kills": ["入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出"]
     },
     {
       "id": "M-H205-s",
@@ -27312,9 +27274,7 @@
       "find": "    ? `docs/adr/${path.slice(prefix.length)}` : path",
       "replace": "    ? path : path",
       "by": "test",
-      "kills": [
-        "决策记录拆成主文件与历史文件时两份合一本账：号原样搬过去不算多，搬完往历史文件里再添一个才算多"
-      ]
+      "kills": ["决策记录拆成主文件与历史文件时两份合一本账：号原样搬过去不算多，搬完往历史文件里再添一个才算多"]
     },
     {
       "id": "M-H205-t",
@@ -27324,9 +27284,7 @@
       "find": "  return path.startsWith(prefix) && /^ADR-\\d+-[^/]*$/.test(path.slice(prefix.length))",
       "replace": "  return /^ADR-\\d+-[^/]*$/.test(path.split('/').pop()!)",
       "by": "test",
-      "kills": [
-        "只有 docs/adr/历史/ 下一层、名字是「ADR-编号-标题」的文件记在主文件那本账上，别的照旧各记各的"
-      ]
+      "kills": ["只有 docs/adr/历史/ 下一层、名字是「ADR-编号-标题」的文件记在主文件那本账上，别的照旧各记各的"]
     },
     {
       "id": "M-H205-u",
@@ -27336,9 +27294,7 @@
       "find": "TICKET_PATTERN, ...(tree ? [tree] : []), '--', ':(top)']",
       "replace": "TICKET_PATTERN, ...(tree ? [tree] : []), '--']",
       "by": "test",
-      "kills": [
-        "入口：在子目录里跑也从仓库根数，总数与在根上跑一样"
-      ]
+      "kills": ["入口：在子目录里跑也从仓库根数，总数与在根上跑一样"]
     },
     {
       "id": "M-H205-v",
@@ -27348,9 +27304,7 @@
       "find": "    console.log(`✓ 外部工单号：不适用 —— HEAD 就是 ${baseline.trunk} 且没有父提交`)\n    return 0",
       "replace": "    console.log(`✓ 外部工单号：不适用 —— HEAD 就是 ${baseline.trunk} 且没有父提交`)\n    return 1",
       "by": "test",
-      "kills": [
-        "入口：主干上只有一个提交时说不适用，以 0 结束"
-      ]
+      "kills": ["入口：主干上只有一个提交时说不适用，以 0 结束"]
     },
     {
       "id": "M-H205-w",
@@ -27360,9 +27314,7 @@
       "find": "linear\\\\.app/([^/[:space:]]+/)?issue/",
       "replace": "linear\\\\.app/[^/[:space:]]+/issue/",
       "by": "test",
-      "kills": [
-        "入口：新文件里只有项目页链接与不带数字的词时不红；写进两条指向卡的链接（带工作区一段的与不带的）就以 1 退出，点出新文件从 0 到 2"
-      ]
+      "kills": ["入口：新文件里只有项目页链接与不带数字的词时不红；写进两条指向卡的链接（带工作区一段的与不带的）就以 1 退出，点出新文件从 0 到 2"]
     },
     {
       "id": "M-H205-x",
@@ -27372,9 +27324,7 @@
       "find": "  if (stderr !== '') return null\n",
       "replace": "",
       "by": "test",
-      "kills": [
-        "git grep 退 0 或退 1 却在 stderr 说了话（有文件没读成），也算无从判断"
-      ]
+      "kills": ["git grep 退 0 或退 1 却在 stderr 说了话（有文件没读成），也算无从判断"]
     },
     {
       "id": "M-H205-y",
@@ -27384,9 +27334,7 @@
       "find": "  const out = grepOutput(r.status, r.stdout ?? '', r.stderr ?? '')",
       "replace": "  const out = grepOutput(r.status, r.stdout ?? '', '')",
       "by": "test",
-      "kills": [
-        "入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出"
-      ]
+      "kills": ["入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出"]
     },
     {
       "id": "M-H205-z",
@@ -27396,9 +27344,7 @@
       "find": "  if (r.stderr) process.stderr.write(r.stderr)\n",
       "replace": "",
       "by": "test",
-      "kills": [
-        "入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出"
-      ]
+      "kills": ["入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出"]
     }
   ],
   "exemptions": [
