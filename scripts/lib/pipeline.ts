@@ -55,7 +55,7 @@ export function reviewRelations(...lists: (readonly Creator[])[]): Creator[] {
 export function rawSeedFromLegacy(previous: readonly Creator[]): Creator[] {
   const seed = structuredClone([...previous])
   const fields = [
-    'fit', 'fit_reason', 'outreach_draft', 'eligibility', 'adoption_priority',
+    'fit', 'fit_reason', 'outreach_draft', 'creator_sources', 'eligibility', 'adoption_priority',
     'observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk',
     'brand_calibration_version', 'review_status', 'linked_agent_review',
     'manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement',
