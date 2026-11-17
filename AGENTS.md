@@ -48,7 +48,7 @@
 
 | 你要做的事 | 读 |
 |---|---|
-| 接手任务、查看当前进度与依赖 | [Linear 项目](https://linear.app/c01dsummer/project/kol-outreach-skill-84d60f579773/issues)；采用决定、职责边界与迁移口径见 [ADR-181](docs/adr/ADR-181-Linear-作为长期任务入口，需求与欠条依据仍在仓库.md) |
+| 接手任务、查看当前进度与依赖 | [Linear 项目](https://linear.app/c01dsummer/project/kol-outreach-skill-84d60f579773/issues)；采用决定、职责边界与迁移口径见 [ADR-181](docs/adr/ADR-181-Linear-作为长期任务入口，需求与欠条依据仍在仓库.md)；仓库里能不能写卡号见 `process/3-BUILD.md` 第 7 条与 ADR-205 |
 | 写/改需求 | `process/1-REQUIREMENTS.md` |
 | 想改需求、撞见两条需求打架、或想说"这个太麻烦" | `process/2-CHANGE.md` |
 | 写代码 | `process/3-BUILD.md` + **`docs/CONVENTIONS.md`** |
@@ -81,7 +81,7 @@
 - **评审发现的去向**：见 `process/6-INTEGRATE.md`「五档路由」「从第三轮起只登记,阻塞项除外」(含欠条 PR 的例外)、
   「合并者核对去向」与「登记怎么做：欠条 PR」
 - **检查命令**：`npm run check`
-  = **变异锚点** → **体量闸门** → **变异负载闸门** → SPEC 一致性 → Skill 结构 → **决策记录** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计 → **启动数闸门**
+  = **变异锚点** → **体量闸门** → **变异负载闸门** → **外部工单号闸门** → SPEC 一致性 → Skill 结构 → **决策记录** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计 → **启动数闸门**
   （第一步可以在提交前单跑：`npm run anchors`，查树上与暂存区里有没有没还原的变异，不起验证者）
 - **审计命令**：`npm run audit`
 - **欠条点名提醒**：`npm run debt-touch` —— 这条分支改到的文件被哪几条开着的欠条写进了正文；只提醒、不拦，CI 每跑也列一次（ADR-196）
