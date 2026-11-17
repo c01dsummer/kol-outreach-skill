@@ -14,9 +14,11 @@
  * 2. 动态取模块：`require`、`import()`、`getBuiltinModule` 的实参不是字面量 —— 取到的是什么判不了，
  *    宁可多报。`createRequire(…)` 交出来的函数被调、或存进变量后被调，也算 `require`。
  *    实参是 `pathToFileURL(…)` 的结果（或它的 `.href`）的不算：那确切是一个文件，不是内建模块。
- * 3. 进程内部的口：名为 `execve`、`binding` 的属性访问（含 `x['execve']`），与 `process[不是字面量]`。
+ * 3. 进程内部的口：`execve`、`binding` 这两个名字出现在任何位置（属性访问、按名字导入、解构，写成标识符或字符串），
+ *    与 `process[不是字面量]`。宁可多报：别的对象上同名的字段也记。
  *
- * **认不出的**（ADR-217 第三节列全了，这几样仍靠评审）：写在字符串里、运行时再落成文件去跑的代码；
+ * **认不出的**（ADR-217 第三节，那里按复核实测列出，这几样仍靠评审与第二片的运行时拒绝）：写在字符串里的代码（落成文件去跑、或当场 eval）；
+ * 换了形状的动态取模块（改名导入 `createRequire`、`getBuiltinModule`，先声明后赋值，`require` 存进别的变量，`Module._load`）；
  * 模块对象从登记过的文件经 `any` 或参数递出来；别的会起进程的内建模块（`node:cluster` 的 `fork`、
  * `worker_threads` 不起进程不算）；拿到子进程对象后碰未公开的内部方法；不在仓库受控文件里、
  * 扩展名不在 `SCANNED` 里的文件（`.sh`、工作流 yaml）。
@@ -43,13 +45,13 @@ export const REGISTRY_PATH = 'scripts/check/child-process-registry.json'
 export const RULE_PATH = 'scripts/check/child-process-use-rule.ts'
 /** 起子进程那个内建模块的两种写法。 */
 export const MODULE_NAMES: readonly string[] = ['child_process', 'node:child_process']
-/** 要扫的扩展名：TypeScript 的语法树都读得懂。 */
+/** 要扫的扩展名：TypeScript 的语法树都读得懂。声明文件（`.d.ts`）也扫：tsx 下它能被当成真代码加载。 */
 export const SCANNED: readonly string[] = ['.ts', '.mts', '.cts', '.tsx', '.js', '.mjs', '.cjs', '.jsx']
 /** 进程内部、能绕开这个模块起进程的两个口。 */
 const INTERNAL_NAMES: readonly string[] = ['execve', 'binding']
 
 export function isScanned(path: string): boolean {
-  return SCANNED.some(ext => path.endsWith(ext)) && !path.endsWith('.d.ts')
+  return SCANNED.some(ext => path.endsWith(ext))
 }
 
 export type SiteKind = '模块名' | '动态取模块' | '进程内部的口'
@@ -112,12 +114,10 @@ export function launchSites(path: string, text: string): Site[] {
       const first = node.arguments[0]
       if (first !== undefined && literalText(first) === undefined && !isFileUrl(first)) add(node, '动态取模块')
     }
-    if (ts.isPropertyAccessExpression(node) && INTERNAL_NAMES.includes(node.name.text)) add(node, '进程内部的口')
-    if (ts.isElementAccessExpression(node)) {
-      const key = literalText(node.argumentExpression)
-      if (key !== undefined ? INTERNAL_NAMES.includes(key)
-        : ts.isIdentifier(node.expression) && node.expression.text === 'process') add(node, '进程内部的口')
-    }
+    // 名字本身出现就记：属性访问、按名字导入、解构、对象字面量的键，写成标识符或字符串都一样
+    if ((ts.isIdentifier(node) && INTERNAL_NAMES.includes(node.text)) || (text !== undefined && INTERNAL_NAMES.includes(text))) add(node, '进程内部的口')
+    if (ts.isElementAccessExpression(node) && literalText(node.argumentExpression) === undefined
+        && ts.isIdentifier(node.expression) && node.expression.text === 'process') add(node, '进程内部的口')
     ts.forEachChild(node, visit)
   }
   visit(tree)
@@ -221,7 +221,7 @@ export function useLines(report: UseReport, onTrunk: boolean, scope: string, fir
     return { ok: true, out, err: [] }
   }
   const err = [`✗ 起子进程的接口：${faults.length} 处不对`, ...faults,
-    `  起进程走通用启动函数，调 git 走 git 入口；这两个还没有的时候，新代码也不许直接碰 —— 登记表在 ${REGISTRY_PATH}。`,
+    `  起进程走通用的启动函数，调 git 走 git 入口（这两个模块由后面几片建）；还没有的时候，新代码也不许直接碰 —— 登记表在 ${REGISTRY_PATH}。`,
     '  「待挪」只许减：挪走了就删掉那一行；新文件要碰，只能进「登记」并写清理由，由评审判（ADR-217）。']
   return { ok: false, out, err }
 }

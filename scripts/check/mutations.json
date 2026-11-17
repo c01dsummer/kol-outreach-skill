@@ -28514,20 +28514,10 @@
       "req": "harness",
       "file": "scripts/check/child-process-use-rule.ts",
       "why": "process[变量] 不报 —— 把 execve 拼出来就绕过了进程内部的口",
-      "find": "        : ts.isIdentifier(node.expression) && node.expression.text === 'process') add(node, '进程内部的口')",
-      "replace": "        : false) add(node, '进程内部的口')",
+      "find": "        && ts.isIdentifier(node.expression) && node.expression.text === 'process') add(node, '进程内部的口')",
+      "replace": "        && false) add(node, '进程内部的口')",
       "by": "test",
       "kills": ["进程内部的口：.execve、.binding、['execve']、process[不是字面量] 都算；process['env'] 不算"]
-    },
-    {
-      "id": "M-H217-k",
-      "req": "harness",
-      "file": "scripts/check/child-process-use-rule.ts",
-      "why": "声明文件也扫 —— @types 那种只描述类型的文件被逼着登记",
-      "find": "  return SCANNED.some(ext => path.endsWith(ext)) && !path.endsWith('.d.ts')",
-      "replace": "  return SCANNED.some(ext => path.endsWith(ext))",
-      "by": "test",
-      "kills": ["扫哪些文件：TypeScript 与 JavaScript 的几种扩展名；声明文件、Markdown、shell 不扫"]
     },
     {
       "id": "M-H217-l",
@@ -28668,6 +28658,36 @@
       "replace": "  console.error(`✗ 起子进程的接口：无从判断 —— ${why}`)\n  return 0\n",
       "by": "test",
       "kills": ["入口：基线那份登记表解析不了时说无从判断、以 1 结束", "入口：基线上有闸门却没有登记表时说无从判断、以 1 结束"]
+    },
+    {
+      "id": "M-H217-z",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "execve、binding 只认写成字符串的 —— `import { execve } from 'node:process'` 这种最平常的写法拿到换程序的能力一处不记",
+      "find": "    if ((ts.isIdentifier(node) && INTERNAL_NAMES.includes(node.text)) || (text !== undefined",
+      "replace": "    if ((text !== undefined",
+      "by": "test",
+      "kills": ["进程内部的口：按名字导入、改名导入、解构、字符串键的解构都算，不必写成属性访问"]
+    },
+    {
+      "id": "M-H217-aa",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "带名字的再导出当成纯类型 —— `export { spawn } from` 把起进程的函数递给别的文件却一处不记",
+      "find": "      if (ts.isExportDeclaration(p)) return p.isTypeOnly",
+      "replace": "      if (ts.isExportDeclaration(p)) return true",
+      "by": "test",
+      "kills": ["带名字的再导出与整个再导出都会加载模块，算"]
+    },
+    {
+      "id": "M-H217-ab",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "问基线有没有登记表时路径按当前目录算 —— 在子目录里跑，基线上的登记表看不见，待挪多了也放行",
+      "find": "tryGit('ls-tree', '-z', '--full-tree', '--name-only', base, '--', path)",
+      "replace": "tryGit('ls-tree', '-z', '--name-only', base, '--', path)",
+      "by": "test",
+      "kills": ["入口：在子目录里跑，基线那份登记表照样读得到，待挪多了照样以 1 退出"]
     }
   ],
   "exemptions": [

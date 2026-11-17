@@ -23174,10 +23174,15 @@ await group('h-child-process-sites', () => {
   eq('进程内部的口：.execve、.binding、[\'execve\']、process[不是字面量] 都算；process[\'env\'] 不算',
     kinds("process.execve(a)\nprocess.binding('spawn_sync')\nprocess['execve']\nprocess[k]\nprocess['env']\n"),
     ['1:进程内部的口', '2:进程内部的口', '3:进程内部的口', '4:进程内部的口'])
+  eq('进程内部的口：按名字导入、改名导入、解构、字符串键的解构都算，不必写成属性访问',
+    kinds("import { execve } from 'node:process'\nimport { binding as b } from 'node:process'\nconst { execve: e } = process\nconst { 'binding': c } = process\n"),
+    ['1:进程内部的口', '2:进程内部的口', '3:进程内部的口', '4:进程内部的口'])
+  eq('带名字的再导出与整个再导出都会加载模块，算',
+    kinds(`export { spawn } from '${CP}'\nexport * from 'node:${CP}'\nexport * as cp from '${CP}'\n`), ['1:模块名', '2:模块名', '3:模块名'])
   eq('.js、.mjs、.cjs 也按语法树读（不是 TypeScript 也认得出 require）', kinds(`const c = require(m)\n`, 'x.cjs'), ['1:动态取模块'])
-  eq('扫哪些文件：TypeScript 与 JavaScript 的几种扩展名；声明文件、Markdown、shell 不扫',
+  eq('扫哪些文件：TypeScript 与 JavaScript 的几种扩展名，声明文件也扫（tsx 下能当真代码加载）；Markdown、shell 不扫',
     ['a.ts', 'a.mts', 'a.cts', 'a.tsx', 'a.js', 'a.mjs', 'a.cjs', 'a.jsx', 'a.d.ts', 'a.md', 'a.sh'].map(launchScanned),
-    [true, true, true, true, true, true, true, true, false, false, false])
+    [true, true, true, true, true, true, true, true, true, false, false])
 })
 
 await group('h-child-process-judge', () => {
@@ -23243,6 +23248,11 @@ await group('h-child-process-entry', () => {
     registry(['new.ts', 'old.ts'])
     const grown = run()
     eq('入口：把新文件塞进「待挪」以 1 退出，点出待挪多了它', [grown.status, String(grown.stderr).includes('「待挪」比基线多了 new.ts')], [1, true])
+    const grownInSub = run(cxJoin(root, 'scripts'))
+    eq('入口：在子目录里跑，基线那份登记表照样读得到，待挪多了照样以 1 退出', [grownInSub.status, String(grownInSub.stderr).includes('「待挪」比基线多了 new.ts')], [1, true])
+    put('scripts/check/child-process-registry.json', '{')
+    const brokenNow = run()
+    eq('入口：当前那份登记表解析不了时说无从判断、以 1 结束，不当成空表', [brokenNow.status, String(brokenNow.stderr).includes('读不了或解析不了')], [1, true])
     cxRmSync(cxJoin(root, 'new.ts')); put('old.ts', 'export {}\n'); registry(['old.ts'])
     const stale = run()
     eq('入口：待挪的文件已经不碰了还挂着，以 1 退出', [stale.status, String(stale.stderr).includes('old.ts 已经一处都不碰了')], [1, true])

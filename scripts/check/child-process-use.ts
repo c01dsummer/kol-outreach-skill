@@ -27,7 +27,8 @@ function cannotAnswer(why: string): number {
 
 /** 基线那份登记表。`ls-tree` 答「没有这个文件」与 git 出错分开；读到了解析不了就抛错。 */
 function baselineRegistry(base: string): BaselineRegistry | string {
-  const has = (path: string) => tryGit('ls-tree', '-z', '--name-only', base, '--', path)
+  // --full-tree：路径从仓库根算，在子目录里跑也问得对
+  const has = (path: string) => tryGit('ls-tree', '-z', '--full-tree', '--name-only', base, '--', path)
   const reg = has(REGISTRY_PATH), rule = has(RULE_PATH)
   if (reg === null || rule === null) return '`git ls-tree` 读不了基线'
   if (reg === '') return rule === '' ? { kind: 'no-gate' } : '基线上有这道闸门却没有登记表（无从判断，先合主干）'
