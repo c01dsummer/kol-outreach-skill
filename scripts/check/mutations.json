@@ -27189,6 +27189,66 @@
       "kills": ["块头与条件隔着只有 > 的一行，仍按块头取名字（与孤儿闸门同一份定界）"]
     },
     {
+      "id": "M-H211-ay",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "入口给了 git 也不拿主干上的指纹表比 —— 本树指纹表里钉过的一行被删，改过的历史文件照样被 `--write` 钉上",
+      "find": "  const trunkText = ask ? trunkPinsText(ask) : null",
+      "replace": "  const trunkText = null as string | null",
+      "by": "test",
+      "kills": [
+        "主干钉过的历史文件被改、本树指纹表里那一行被删：比主干报红，--write 也拒绝、不把改过的钉上去"
+      ]
+    },
+    {
+      "id": "M-H211-az",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "比主干比出的错不进错误单 —— 改过的历史文件照样过、照样被钉",
+      "find": "    errors.push(...pinFaults(trunk.pins, history).errors.map(e => `比主干上的指纹表：${e}`))",
+      "replace": "    void pinFaults(trunk.pins, history)",
+      "by": "test",
+      "kills": [
+        "主干钉过的历史文件被改、本树指纹表里那一行被删：比主干报红，--write 也拒绝、不把改过的钉上去"
+      ]
+    },
+    {
+      "id": "M-H211-ba",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "主干上的指纹表读不出来时不报 —— 当成主干什么都没钉过，比主干这一道等于没有",
+      "find": "    errors.push(...trunk.errors.map(e => `主干上的 ${e}`))",
+      "replace": "    void trunk.errors",
+      "by": "test",
+      "kills": [
+        "主干上的指纹表读不出来：报一条，不当成主干什么都没钉过"
+      ]
+    },
+    {
+      "id": "M-H211-bb",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "找不到主干也硬读 origin/main 上的表 —— 没有可比的时候不该假装有",
+      "find": "  if (trunk === undefined) return null\n  return ask('show', `${trunk}:docs/adr/${PINS_FILE}`)",
+      "replace": "  return ask('show', `${trunk ?? 'origin/main'}:docs/adr/${PINS_FILE}`)",
+      "by": "test",
+      "kills": [
+        "找不到主干：没有可比的，交回 null"
+      ]
+    },
+    {
+      "id": "M-H211-bc",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "找主干的顺序反了 —— 本地 main 落后时拿旧表比，和体量闸门认的主干不是同一个",
+      "find": "  const trunk = TRUNK_CANDIDATES.find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)",
+      "replace": "  const trunk = [...TRUNK_CANDIDATES].reverse().find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)",
+      "by": "test",
+      "kills": [
+        "找主干先试 origin/main，没有再试 main"
+      ]
+    },
+    {
       "id": "M-H211-as",
       "req": "harness",
       "file": "scripts/check/revisit-due.ts",

@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { quotedMask } from './quoted.js'
+import { TRUNK_CANDIDATES, type GitAsk } from './size-rule.js'
 
 /** `ADR-08-采集累加器与交付物拆成两个文件.md` */
 export const FILE_RE = /^ADR-(\d+)-(.+)\.md$/
@@ -254,12 +255,26 @@ const MARKER_FAULT: Record<MarkerFault, string> = {
 }
 
 /**
+ * 主干上的那份指纹表，没有就交回 `null`（ADR-211 的欠条「历史文件指纹只靠评审看 diff 守着」）。
+ * 本树的指纹表这条分支自己改得动：钉过的一行被删掉（或整份换成 `{}`），本树只看得出「整份还没钉过」，
+ * `--write` 就把改过的内容照钉上去。主干上那份这条分支改不动，所以拿它再比一遍。
+ * 找主干的顺序同体量闸门（`TRUNK_CANDIDATES`）；不是 git 仓库、找不到主干、主干上还没有这份表，都答 `null`：
+ * 没有可比的，只比本树。
+ */
+export function trunkPinsText(ask: GitAsk): string | null {
+  const trunk = TRUNK_CANDIDATES.find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)
+  if (trunk === undefined) return null
+  return ask('show', `${trunk}:docs/adr/${PINS_FILE}`)
+}
+
+/**
  * `npm run adr` 整条：在仓库根 `root` 下读 `docs/adr/`，判、比，`write` 时回写索引与指纹表。
  *
  * 入口只剩打印与退出码，读目录、跳过历史目录、核历史文件这些接线都在这里 ——
  * 留在入口里的话需求测试够不着，删掉一行检查链照样全绿（ADR-211 的欠条「两处入口接线没有测试」）。
+ * 给了 `ask`（入口给的是真 git）就再拿主干上的指纹表比一遍，见 `trunkPinsText`；玩具目录不给，只比本树。
  */
-export function adrSync(root: string, write: boolean): { ok: boolean; out: string[]; err: string[] } {
+export function adrSync(root: string, write: boolean, ask?: GitAsk): { ok: boolean; out: string[]; err: string[] } {
   const dir = join(root, 'docs', 'adr')
   const index = join(dir, 'README.md')
   const pinsPath = join(dir, PINS_FILE)
@@ -297,6 +312,13 @@ export function adrSync(root: string, write: boolean): { ok: boolean; out: strin
   errors.push(...parsed.errors)
   const { errors: pinErrors, unpinned } = pinFaults(parsed.pins, history)
   errors.push(...pinErrors)
+  // 主干钉过的每一份：这边还在、不比钉住时短、钉住的那段一个字节没变。比出错就和本树的错一样拦住 `--write`
+  const trunkText = ask ? trunkPinsText(ask) : null
+  if (trunkText !== null) {
+    const trunk = parsePins(trunkText)
+    errors.push(...trunk.errors.map(e => `主干上的 ${e}`))
+    errors.push(...pinFaults(trunk.pins, history).errors.map(e => `比主干上的指纹表：${e}`))
+  }
 
   /** 拆开之后 `DECISIONS.md` 只做转发。写回整册就是把冲突面又装回去。 */
   const legacy = join(root, LEGACY)

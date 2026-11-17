@@ -92,6 +92,7 @@ import {
 } from './check/size-rule.js'
 import {
   FILE_RE, PINS_FILE, adrSync, checkAll, encodeTarget, escapeCell, fileNameOf, historyFaults, markerFault, parsePins, pinFaults, pinOf,
+  trunkPinsText,
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
@@ -15004,6 +15005,40 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   ok('玩具仓库：转发页里引文之外又出现记录标题，报一条；引文里的示例不算',
     !legacy.ok && legacy.err.filter(e => e.includes('DECISIONS.md')).length === 1)
   rmSync(legacyToy, { recursive: true, force: true })
+
+  // 拿主干上的指纹表再比一遍（ADR-211 的欠条「历史文件指纹只靠评审看 diff 守着」）：本树的表这条分支改得动，主干上的改不动。
+  // `ask` 是假的 git：只答得上 `trunk` 这一个主干引用，`show` 交回 `trunkPins`
+  const fakeGit = (trunk: string | null, trunkPins: string | null): GitAsk => (...a: string[]) =>
+    a[0] === 'rev-parse' && trunk !== null && a[2] === `${trunk}^{commit}` ? 'c0ffee'
+      : a[0] === 'show' && trunk !== null && a[1] === `${trunk}:docs/adr/${PINS_FILE}` ? trunkPins : null
+  const oldHistory = '# ADR-01 甲\n过程\n'
+  const trunkPinned = JSON.stringify({ 'ADR-01-甲.md': pinOf(B(oldHistory)) })
+  // 找主干的顺序要单拿一个能同时答好几个引用的假 git 才看得出：`resolvable` 是 rev-parse 认得的，`show` 对每个引用都交得出表
+  const refsGit = (resolvable: readonly string[]): GitAsk => (...a: string[]) =>
+    a[0] === 'rev-parse' ? (resolvable.some(r => a[2] === `${r}^{commit}`) ? 'c0ffee' : null)
+      : a[0] === 'show' ? a[1].slice(0, a[1].indexOf(':')) : null
+  eq('找主干先试 origin/main，没有再试 main', [trunkPinsText(refsGit(['main', 'origin/main'])), trunkPinsText(refsGit(['main']))], ['origin/main', 'main'])
+  eq('找不到主干：没有可比的，交回 null', trunkPinsText(refsGit([])), null)
+  const trunkToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-01-甲.md': '# ADR-01 甲\n改过\n', [PINS_FILE]: '{}\n' })
+  const trunkWrite = adrSync(trunkToy, true, fakeGit('origin/main', trunkPinned))
+  ok('主干钉过的历史文件被改、本树指纹表里那一行被删：比主干报红，--write 也拒绝、不把改过的钉上去',
+    !trunkWrite.ok && trunkWrite.err.join('\n').includes('比主干上的指纹表') && trunkWrite.err.join('\n').includes('被改了')
+      && rf(join(trunkToy, 'docs', 'adr', PINS_FILE), 'utf8') === '{}\n')
+  const noTrunkWrite = adrSync(trunkToy, true, fakeGit(null, null))
+  ok('同一棵树找不到主干：只比本树，--write 照钉（没有可比的就不拦）', noTrunkWrite.ok)
+  rmSync(trunkToy, { recursive: true, force: true })
+  const trunkGoneToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
+  const trunkGone = adrSync(trunkGoneToy, false, fakeGit('origin/main', trunkPinned))
+  ok('主干钉过的历史文件在这边整份没了：比主干报一条，点出文件',
+    !trunkGone.ok && trunkGone.err.some(e => e.includes('比主干上的指纹表') && e.includes('ADR-01-甲.md') && e.includes('没有这一份')))
+  rmSync(trunkGoneToy, { recursive: true, force: true })
+  const trunkSameToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-01-甲.md': oldHistory + '后来接着加的\n' })
+  ok('主干钉过、这边只在末尾接着加：比主干不报错，--write 钉住新的末尾', adrSync(trunkSameToy, true, fakeGit('origin/main', trunkPinned)).ok)
+  rmSync(trunkSameToy, { recursive: true, force: true })
+  const trunkBadToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
+  const trunkBad = adrSync(trunkBadToy, false, fakeGit('origin/main', '{'))
+  ok('主干上的指纹表读不出来：报一条，不当成主干什么都没钉过', !trunkBad.ok && trunkBad.err.some(e => e.includes('主干上的') && e.includes('不是合法的 JSON')))
+  rmSync(trunkBadToy, { recursive: true, force: true })
 
   // 编号有空号是正常的：号不复用，包括还活在别的分支上的
   const idx = renderIndex([
