@@ -15404,10 +15404,13 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
         '  const r: Res = { ok: x > 0, n, late: 0 }',
         '  r.late = 1',
         "  r['late'] += 1",
+        '  r[`late`] = 2',
         '  if (r.late > 5) r.ok = false',
         '  return r',
         '}',
         'export function amb(): { value: number } | { value: string } { return { value: 1 } }',
+        'function local(): { late: number } | Res { return { late: 9 } }',
+        'export function short() { const a = 1; return { a } }',
       ].join('\n'),
       'scripts/lib/d.ts': 'export function lib(): { libField: number } { return { libField: 1 } }',
       'scripts/lib/e.ts': "import type { lonely } from '../check/c.js'\nexport const e: ReturnType<typeof lonely> = { bb: 3 }",
@@ -15438,7 +15441,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     vias(toy), [
       'amb().value', 'amb().value', 'inferred().one', 'inferred().two', 'later()<>.awaited', 'listed().first', 'listed().second', 'lonely().bb',
       'make().late', 'make().n', 'make().ok', 'quiet().after', 'quiet().bare', 'quiet().quiet', 'rows()[].idle', 'rows()[].kept',
-      'shape().kind', 'shape().kind', 'shape().w', 'shape().x', 'store()<>.held', 'whole().nest', 'whole().nest[].w2', 'whole().w1', 'withCallback().run',
+      'shape().kind', 'shape().kind', 'shape().w', 'shape().x', 'short().a', 'store()<>.held', 'whole().nest', 'whole().nest[].w2', 'whole().w1', 'withCallback().run',
     ])
   eq('字段：豁免写在上一行或同一行；标记后面空着就是空串', ...strict(['quiet().quiet', 'quiet().bare', 'rows()[].idle'].map(k => toyOf(k)?.waiver), ['只能从子进程输出验到', '', undefined]))
   eq('字段：上一个字段行尾的豁免不漏到下一个字段上', ...strict(toyOf('quiet().after')?.waiver, undefined))
@@ -15447,8 +15450,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
 
   // 赋值处：问「跳到定义」，只认跳到恰好一个字段的
   eq('字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x[\'f\'] += …；变量的初始值、比较不算；带 readonly 的照样认',
-    ['make().ok', 'make().n', 'make().late'].map(k => textOf(toyOf(k))), [['ok: x > 0', 'r.ok = false'], ['n'], ['late: 0', 'r.late = 1', "r['late'] += 1"]])
-  eq('字段：推断出来的对象字面量，字段的赋值处就是它自己那一项', textOf(toyOf('inferred().one')), ['one: 1'])
+    ['make().ok', 'make().n', 'make().late'].map(k => textOf(toyOf(k))), [['ok: x > 0', 'r.ok = false'], ['n'], ['late: 0', 'r.late = 1', "r['late'] += 1", 'r[`late`] = 2']])
+  eq('字段：推断出来的对象字面量，字段的赋值处就是它自己那一项，简写的也是', [textOf(toyOf('inferred().one')), textOf(toyOf('short().a'))], [['one: 1'], ['a']])
+  eq('字段：跳到定义交回一个字段加一个别的（不导出的那个成员），不算这个字段的赋值处', textOf(toyOf('make().late'))?.includes('late: 9'), false)
   eq('字段：判别联合按判别值分到成员，赋值处只算到那一个成员的字段上；没分开的联合（两个成员都有 value、没有判别值）一处都不算',
     [textOf(toyOf('shape().x')), textOf(toyOf('shape().w')), toy.filter(f => f.via === 'shape().kind').map(f => textOf(f)!.length).sort(), toy.filter(f => f.via === 'amb().value').map(f => f.sites.length)],
     [['x: 1'], [], [0, 1], [0, 0]])
@@ -15462,11 +15466,16 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     'diff --git a/scripts/check/gone.ts b/scripts/check/gone.ts', '--- a/scripts/check/gone.ts', '+++ /dev/null', '@@ -1 +0,0 @@', '-bye',
     'diff --git "a/scripts/check/\\344\\270\\255.ts" "b/scripts/check/\\344\\270\\255.ts"', '--- /dev/null', '+++ "b/scripts/check/\\344\\270\\255.ts"', '@@ -0,0 +1,2 @@', '+one', '+two',
     '+++ "b/scripts/check/q\\"\\tx.ts"', '@@ -0,0 +1 @@', '+q',
+    'diff --git a/scripts/check/a b.ts b/scripts/check/a b.ts', '--- a/scripts/check/a b.ts\t', '+++ b/scripts/check/a b.ts\t', '@@ -1,3 +1,3 @@', ' x', '', '-y', '+z', '',
   ].join('\n')
-  eq('新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）',
-    [...addedLines(diff)].map(([f, ls]) => [f, [...ls]]), [['scripts/check/a.ts', [4, 5, 11]], ['scripts/check/中.ts', [1, 2]], ['scripts/check/q"\tx.ts', [1]]])
-  eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd'), markSite('f', 'ab cd ab', 'ab'), markSite('f', 'ab', 'x'), markSite('f', 'ab', '')],
+  eq('新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数',
+    (() => { try { return [...addedLines(diff)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } })(), [['scripts/check/a.ts', [4, 5, 11]], ['scripts/check/中.ts', [1, 2]], ['scripts/check/q"\tx.ts', [1]], ['scripts/check/a b.ts', [3]]])
+  const unreadable = (text: string) => { try { addedLines(text); return '没抛' } catch (e) { return String(e).includes('读不懂的 diff 行') } }
+  eq('新加的行：读不懂的行抛错，不悄悄当成没改 —— 带颜色的、块里多出来的', ['\u001b[1mdiff --git a/x b/x\u001b[m', '+++ b/x\n@@ -1 +1 @@\n-a\n+b\n+c', '+++ b/x\n@@ -1 +1 @@\n?a', '+++ b/x\n@@ -1 +1,2 @@\n-a\n-b\n+c\n+d', '+++ b/x\n@@ -1,2 +1 @@\n+b\n+c\n-a\n-d'].map(unreadable), [true, true, true, true, true])
+  eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd', 'x'), markSite('f', 'ab cd ab', 'ab', 'x'), markSite('f', 'ab', 'x', 'y'), markSite('f', 'ab', '', 'y')],
     [{ file: 'f', start: 3, end: 5 }, undefined, undefined, undefined])
+  eq('变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点', [markSite('f', '__a + b__', 'a + b', 'a - b'), markSite('f', '__a + b__', 'a + b', 'a + b + c'), markSite('f', 'xaay', 'aa', 'a')],
+    [{ file: 'f', start: 4, end: 5 }, { file: 'f', start: 7, end: 7 }, { file: 'f', start: 2, end: 3 }])
 
   // 判红：手搭的字段，一个只钉一件事
   const fld = (line: number, more: Partial<UseField> = {}): UseField => ({ file: 'f', line, via: `v${line}`, sites: [{ file: 'f', start: line * 10, end: line * 10 + 5 }], ...more })
@@ -15479,6 +15488,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   eq('字段闸门：别的文件同一行号加了行，不算这个字段新增', fieldVerdict([fld(1)], new Map([['g', new Set([1])]]), []).fresh.length, 0)
   eq('字段闸门：变异的那段和字段的一处赋值重叠就守住；只挨着（一个的结尾正好是另一个的开头）、在别的文件里的不算',
     [[at(12, 13)], [at(5, 11)], [at(14, 20)], [at(5, 10)], [at(15, 20)], [at(10, 15, 'g')]].map(ms => fieldVerdict([fld(1)], lines(1), ms).red), [false, false, false, true, true, true])
+  eq('字段闸门：只插入的变异，插入点落在赋值处里面才算；落在开头、结尾上不算',
+    [at(12, 12), at(10, 10), at(15, 15)].map(m => fieldVerdict([fld(1)], lines(1), [m]).red), [false, true, true])
   eq('字段闸门：有几处赋值的，变异守着其中任一处就算', fieldVerdict([fld(1, { sites: [at(0, 2), at(50, 60)] })], lines(1), [at(55, 56)]).red, false)
   eq('字段闸门：没有赋值处的字段，什么变异都守不住', fieldVerdict([fld(1, { sites: [] })], lines(1), [at(0, 1000)]).unmarked.length, 1)
   const two = [fld(1, { via: 'same' }), fld(2, { via: 'same' })]
@@ -15491,7 +15502,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   const cutField = fld(9, { cut: true, sites: [] })
   eq('字段闸门：「没展开完」那一条不论哪一行改没改都判；变异守不了，写了豁免才放行',
     [ids(fieldVerdict([cutField], new Map(), [at(0, 1000)]).unmarked), fieldVerdict([{ ...cutField, waiver: '故意套二十层' }], new Map(), []).red], [[9], false])
-  const real = fieldVerdict(toy, new Map([['scripts/check/c.ts', new Set([1])], ['scripts/check/s.ts', new Set([1])]]), [markSite('scripts/check/c.ts', toyFiles['scripts/check/c.ts'], 'bb: 1')!])
+  const real = fieldVerdict(toy, new Map([['scripts/check/c.ts', new Set([1])], ['scripts/check/s.ts', new Set([1])]]), [markSite('scripts/check/c.ts', toyFiles['scripts/check/c.ts'], 'bb: 1', 'bb: 2')!])
   eq('字段闸门：玩具上 —— 新加的行上的字段才判，变异改到它的赋值处就守住', [real.fresh.map(f => f.via), real.unmarked.map(f => f.via)],
     [['lonely().bb', 'make().ok', 'make().n', 'make().late'], ['make().ok', 'make().n', 'make().late']])
 
@@ -15525,6 +15536,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
       'export interface Box<T> { boxed: T }', 'export function boxes(): Box<Box<Box<{ inBox: number }>>> { return { boxed: { boxed: { boxed: { inBox: 1 } } } } }',
       'export function nestedMap(): Map<0, Map<0, Map<0, Map<0, { mapDeep: number }>>>> { return new Map() }', 'export interface Leaf { leafF: number }',
       `// 字段不入断言：故意套二十层\nexport function twice(): { deep?: ${'Box<'.repeat(20)}Leaf${'>'.repeat(20)} } { return {} }`,
+      `// 字段不入断言：箭头函数也套二十层\nexport const twice2 = (): { deep?: ${'Box<'.repeat(20)}Leaf${'>'.repeat(20)} } => ({})`,
     ].join('\n'),
   })
   const { fs: more } = fieldToy(moreFiles)
@@ -15558,9 +15570,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     files['scripts/check/r.ts'] = `export interface Box<T> { boxed: T }\nexport interface Leaf2 { leafG: number }\nexport function edge(): { deep: ${'Box<'.repeat(n)}Leaf2${'>'.repeat(n)}; flat: Leaf2 } { return null as never }`
   }).fs, 'r.ts') } catch (e) { return String(e).slice(0, 60) } })()
   eq('字段：在深处被停下的类型，从浅处走到照样展开', edge, ['1', '2', '3', '3', '3…'])
-  eq('字段：库里的泛型（Map 这类）也按层数算，套四层没到上限，照样找到最里面的字段', [moreOf('nestedMap()<><><><>.mapDeep') !== undefined, cutLines(more, 'm.ts').filter(k => k.endsWith('…'))], [true, ['6…']])
-  eq('字段：「没展开完」那一条带着函数前的豁免，没有赋值处',
-    ...strict(more.filter(f => f.cut === true).map(f => [f.line, f.waiver, f.sites.length]), [[6, '故意套二十层', 0]]))
+  eq('字段：库里的泛型（Map 这类）也按层数算，套四层没到上限，照样找到最里面的字段', [moreOf('nestedMap()<><><><>.mapDeep') !== undefined, cutLines(more, 'm.ts').filter(k => k.endsWith('…'))], [true, ['6…', '8…']])
+  eq('字段：「没展开完」那一条带着函数前的豁免（export const 的箭头函数写在整句前面），没有赋值处',
+    ...strict(more.filter(f => f.cut === true).map(f => [f.line, f.waiver, f.sites.length]), [[6, '故意套二十层', 0], [8, '箭头函数也套二十层', 0]]))
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
   eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),

@@ -25811,10 +25811,10 @@
     {
       "id": "M-H198-fr",
       "req": "harness",
-      "why": "带引号的名字（`x['f']`）对不上字段名，被筛掉，误红",
+      "why": "带引号的名字（`x['f']`、``x[`f`]``）去掉引号时漏了反引号：模板字符串写的赋值处对不上字段名，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "names.has(name.getText().replace(/^['\"]|['\"]$/g, ''))",
-      "replace": "names.has(name.getText())",
+      "find": "/^['\"`]|['\"`]$/g",
+      "replace": "/^['\"]|['\"]$/g",
       "by": "test",
       "kills": [
         "字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x['f'] += …；变量的初始值、比较不算；带 readonly 的照样认"
@@ -25823,13 +25823,13 @@
     {
       "id": "M-H198-fs",
       "req": "harness",
-      "why": "跳到几个字段的（没分开的联合）算给每一个赋值：一条变异替好几个字段作保，漏",
+      "why": "先筛成字段、后数个数：跳到一个字段加一个别的（不导出的成员）时，赋值处被算到这个字段头上，一条变异替它作保，漏",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "if (hit.size === 1)",
-      "replace": "if (hit.size >= 1)",
+      "find": "defs.size === 1 ? byName.get([...defs][0]) : undefined",
+      "replace": "[...defs].map(k => byName.get(k)).find(x => x !== undefined)",
       "by": "test",
       "kills": [
-        "字段：判别联合按判别值分到成员，赋值处只算到那一个成员的字段上；没分开的联合（两个成员都有 value、没有判别值）一处都不算"
+        "字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x['f'] += …；变量的初始值、比较不算；带 readonly 的照样认"
       ]
     },
     {
@@ -25849,8 +25849,8 @@
       "req": "harness",
       "why": "字段按声明的起点认、不按名字认：带 readonly 的字段对不上跳到定义交回的位置，赋值处一个都没有，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "`${d.getSourceFile().fileName}\\0${nameNode(d).getStart()}`",
-      "replace": "`${d.getSourceFile().fileName}\\0${d.getStart()}`",
+      "find": "const at = (d: Ts.Node): string => `${d.getSourceFile().fileName}\\0${nameNode(d).getStart()}`",
+      "replace": "const at = (d: Ts.Node): string => `${d.getSourceFile().fileName}\\0${d.getStart()}`",
       "by": "test",
       "kills": [
         "字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x['f'] += …；变量的初始值、比较不算；带 readonly 的照样认"
@@ -25889,7 +25889,7 @@
       "replace": "if (true) return path",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -25901,7 +25901,7 @@
       "replace": "parseInt(octal[0], 10)",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -25913,7 +25913,7 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -25925,7 +25925,7 @@
       "replace": "i += 2 }",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -25937,7 +25937,7 @@
       "replace": "i < path.length; i++",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -25949,7 +25949,7 @@
       "replace": "out.set(file, (out.get(file) ?? new Set()).add(line)); newLeft--",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -25957,23 +25957,23 @@
       "req": "harness",
       "why": "上下文行不占行：后面的新增行号全错",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "else if (l.startsWith(' ')) { line++; newLeft-- }",
-      "replace": "else if (l.startsWith(' ')) { newLeft-- }",
+      "find": "{ line++; oldLeft--; newLeft-- }",
+      "replace": "{ oldLeft--; newLeft-- }",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
       "id": "M-H198-gg",
       "req": "harness",
-      "why": "新增行不减剩余行数：块读不完，下一块的头被吞掉",
+      "why": "新增行不减剩余行数：块读不完，下一块的头被当成读不懂的行",
       "file": "scripts/check/field-use-rule.ts",
       "find": "add(line)); line++; newLeft--",
       "replace": "add(line)); line++",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -25981,11 +25981,11 @@
       "req": "harness",
       "why": "块头没写行数时当 0 行：只加一行的块漏掉",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "newLeft = h[2] === undefined ? 1 :",
-      "replace": "newLeft = h[2] === undefined ? 0 :",
+      "find": "newLeft = h[3] === undefined ? 1 :",
+      "replace": "newLeft = h[3] === undefined ? 0 :",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -25993,11 +25993,11 @@
       "req": "harness",
       "why": "不去掉 b/ 前缀：文件名对不上，新字段漏判",
       "file": "scripts/check/field-use-rule.ts",
-      "find": ".replace(/^b\\//, ''); continue }",
-      "replace": "; continue }",
+      "find": ".replace(/^b\\//, ''); continue",
+      "replace": "; continue",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -26005,11 +26005,11 @@
       "req": "harness",
       "why": "块里的行也当文件头、块头读：以 +++ 开头的新增行被当成换了文件",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "    if (newLeft > 0) {",
+      "find": "    if (oldLeft > 0 || newLeft > 0) {",
       "replace": "    if (false) {",
       "by": "test",
       "kills": [
-        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）"
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
       ]
     },
     {
@@ -26142,6 +26142,138 @@
       "by": "test",
       "kills": [
         "字段闸门：变异的那段和字段的一处赋值重叠就守住；只挨着（一个的结尾正好是另一个的开头）、在别的文件里的不算"
+      ]
+    },
+    {
+      "id": "M-H198-gv",
+      "req": "harness",
+      "why": "简写的「跳到定义」不去掉变量自己：交回两个，简写写的字段一处赋值都没有，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": ".filter(k => !value.has(k))",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x['f'] += …；变量的初始值、比较不算；带 readonly 的照样认"
+      ]
+    },
+    {
+      "id": "M-H198-gw",
+      "req": "harness",
+      "why": "推断出来的字面量里的简写不认它自己是字段声明：`return { a }` 里的 a 没有赋值处，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const d = byName.get(at(n)) ?? ",
+      "replace": "const d = ",
+      "by": "test",
+      "kills": [
+        "字段：推断出来的对象字面量，字段的赋值处就是它自己那一项，简写的也是"
+      ]
+    },
+    {
+      "id": "M-H198-gx",
+      "req": "harness",
+      "why": "`export const f = () => …` 的豁免只从 const 后面找：写在整句前面的不认，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "ts.isVariableDeclaration(decl) && ts.isVariableStatement(decl.parent.parent) ? decl.parent.parent : decl",
+      "replace": "decl",
+      "by": "test",
+      "kills": [
+        "字段：「没展开完」那一条带着函数前的豁免（export const 的箭头函数写在整句前面），没有赋值处"
+      ]
+    },
+    {
+      "id": "M-H198-gy",
+      "req": "harness",
+      "why": "find 与 replace 相同的开头算成改动：只改了后半截的变异，也守住前半截那个字段，漏",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "while (head < find.length && head < replace.length && find[head] === replace[head]) head++",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点"
+      ]
+    },
+    {
+      "id": "M-H198-gz",
+      "req": "harness",
+      "why": "find 与 replace 相同的结尾算成改动：只改了前半截的变异，也守住后半截那个字段，漏",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "while (tail < find.length - head && tail < replace.length - head && find[find.length - 1 - tail] === replace[replace.length - 1 - tail]) tail++",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点"
+      ]
+    },
+    {
+      "id": "M-H198-ha",
+      "req": "harness",
+      "why": "空的上下文行（写成空串）不认：行号数错、后面的块被当成读不懂",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "(l.startsWith(' ') || l === '')",
+      "replace": "l.startsWith(' ')",
+      "by": "test",
+      "kills": [
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
+      ]
+    },
+    {
+      "id": "M-H198-hb",
+      "req": "harness",
+      "why": "带空格的路径不去掉 git 补的制表符：文件名对不上，这个文件的新字段全漏",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "path.replace(/\\t$/, '')",
+      "replace": "path",
+      "by": "test",
+      "kills": [
+        "新加的行：按块头的行号数，上下文行占行、删掉的行不占；以 +++ 开头的新增行不当成文件头；删掉的文件没有；引号里的路径解开（中文按字节、\\t 这类转义）；带空格的路径去掉 git 补的制表符；空的上下文行写成空串也照上下文数"
+      ]
+    },
+    {
+      "id": "M-H198-hc",
+      "req": "harness",
+      "why": "块外读不懂的行（带颜色的、外部 diff 工具的）悄悄跳过：一行都读不出来，什么都不算新增，漏",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "    if (l !== '' && !l.startsWith('\\\\') && !HEADER.test(l)) fail(l)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "新加的行：读不懂的行抛错，不悄悄当成没改 —— 带颜色的、块里多出来的"
+      ]
+    },
+    {
+      "id": "M-H198-hd",
+      "req": "harness",
+      "why": "块里读不懂的行悄悄跳过：行数对不上也不报",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "      else if (!l.startsWith('\\\\')) fail(l)",
+      "replace": "      else if (false) fail(l)",
+      "by": "test",
+      "kills": [
+        "新加的行：读不懂的行抛错，不悄悄当成没改 —— 带颜色的、块里多出来的"
+      ]
+    },
+    {
+      "id": "M-H198-he",
+      "req": "harness",
+      "why": "块里新文件那边的行数用完了还认 +：多出来的新增行照样记、不报读不懂",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "l.startsWith('+') && newLeft > 0",
+      "replace": "l.startsWith('+')",
+      "by": "test",
+      "kills": [
+        "新加的行：读不懂的行抛错，不悄悄当成没改 —— 带颜色的、块里多出来的"
+      ]
+    },
+    {
+      "id": "M-H198-hf",
+      "req": "harness",
+      "why": "块里旧文件那边的行数用完了还认 -：行数对不上也不报",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "l.startsWith('-') && oldLeft > 0",
+      "replace": "l.startsWith('-')",
+      "by": "test",
+      "kills": [
+        "新加的行：读不懂的行抛错，不悄悄当成没改 —— 带颜色的、块里多出来的"
       ]
     },
     {
