@@ -60,6 +60,7 @@ const EXEMPT: Record<string, string> = {
   // 只提醒、恒以 0 退出的入口，不在检查链里（CI 单列一步）。它在玩具 git 仓库上的真起由需求测试组
   // `h-iou-file-reminder-entry` 做（改被点名的文件列出、改别的不列、改名、CI 输出、无从比较，每次都以 0 退出），这里不再起一遍（ADR-196）
   'scripts/check/debt-touch.ts': '欠条点名提醒入口：需求测试组 h-iou-file-reminder-entry 在玩具仓库上真起',
+  'scripts/check/revisit-due.ts': '周回访定期清点入口：需求测试组 h-revisit-entry 在玩具仓库上真起 --due 与 --born',
 }
 
 /**
@@ -8574,6 +8575,7 @@ group('audit-entry', [], () => {
   let runnerReportedFailure = false;
   let observedA: string | undefined;
   let observedB: string | undefined;
+  let dupNamesRun: { status: number | null; stdout: string; stderr: string } | undefined;
   // 夹具没造对只报一次、只计一次失败。`raw` 是要交给人读的那份原始报告（报告认不出那一支给）：
   // 逐行加前缀再打，免得报告里自己的 `✗ …` 行顶格打出来，被 `killsMatched` 与汇总正则当成自检的话
   const fixtureFailure = (why: string, raw?: { stdout: string; stderr: string }): void => {
@@ -8750,6 +8752,16 @@ group('audit-entry', [], () => {
       fixtureFailure('解释合格了，却没交回 X1.a、X1.b 两条记录');
       return;
     }
+    // 第二跑：玩具树里加一份决策记录，里面两张欠条同名。审计要把「短名字有错」计成硬失败、以 1 退出 ——
+    // 行怎么写由需求测试守着（`ledgerGaps`），计进硬失败这一下只有真起审计才看得见（ADR-211 的欠条「两处入口接线没有测试」）
+    writeFileSync(join(ownedToyRoot, 'docs', 'adr', 'ADR-1-玩具.md'),
+      '# ADR-1 玩具\n\n> ⚠️ 欠条「甲」：x · 重启条件：y\n\n> ⚠️ 欠条「甲」：z · 重启条件：w\n');
+    const dup = runToolBoth('audit-entry 起普通审计：一条记录里两张欠条同名', 'audit', [], ownedToyRoot, { status: 1, soft: [0] });
+    if (!dup.ok) {
+      runnerReportedFailure = true;
+      return;
+    }
+    dupNamesRun = { status: dup.status, stdout: dup.stdout, stderr: dup.stderr };
   } catch (error) {
     fixtureFailure(error instanceof Error ? error.message : String(error));
     return;
@@ -8764,6 +8776,9 @@ group('audit-entry', [], () => {
     'X1.a 那条豁免（理由带 TOY_EXEMPT_ALPHA_7c6f）该说「名下有负片」');
   named('audit-exempt-X1.b-has-no-mutation', observedB === 'no-mutation',
     'X1.b 那条豁免（理由带 TOY_EXEMPT_BETA_2d91）该说「名下无变异」');
+  named('审计入口：一条记录里两张欠条同名时把短名字有错计成硬失败，以 1 退出',
+    dupNamesRun?.status === 1 && dupNamesRun.stdout.includes('docs/adr/ADR-1-玩具.md:5 欠条的短名字有错'),
+    `退出码 ${dupNamesRun?.status}；输出：\n${dupNamesRun?.stdout}stderr 末几行：${stderrTail(dupNamesRun?.stderr ?? '')}`);
 });
 
 // ---- 子集基线：先验正常代码，同一配置只验一次，未通过就不能施加变异 ----
