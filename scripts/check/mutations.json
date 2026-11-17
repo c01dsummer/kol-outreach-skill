@@ -7813,8 +7813,8 @@
       "req": "harness",
       "file": "scripts/check/cite-rule.ts",
       "why": "按行去重、不按文件 —— 一条记录在十行里提到另一条，就被算成十条记录引了它，被引数量的是谁写得啰嗦",
-      "find": "add(inIou[i] ? inside : outside, no, file)",
-      "replace": "add(inIou[i] ? inside : outside, no, `${file}:${i}`)",
+      "find": "add(inIou[i] ? inside : outside, no, `ADR-${self}`)",
+      "replace": "add(inIou[i] ? inside : outside, no, `ADR-${self}:${i}`)",
       "by": "test",
       "kills": [
         "同一条记录引几次都只算一条"
@@ -7838,8 +7838,8 @@
       "req": "harness",
       "file": "scripts/check/cite-rule.ts",
       "why": "欠条块里的引用也进了主计数 —— 需求所有者选的是排除、单列，一串欠条反复点同一条记录，会把它顶到前列",
-      "find": "add(inIou[i] ? inside : outside, no, file)",
-      "replace": "add(outside, no, file)",
+      "find": "add(inIou[i] ? inside : outside, no, `ADR-${self}`)",
+      "replace": "add(outside, no, `ADR-${self}`)",
       "by": "test",
       "kills": [
         "只在欠条块里引的不进主计数、另成一栏"
@@ -13813,8 +13813,8 @@
       "req": "harness",
       "why": "自己也写那份状态的组（惰性建夹具）也按闭包判，同族里互不依赖的几组被报成缺依赖",
       "file": "scripts/check/share-rule.ts",
-      "find": "!state.startsWith(PATH) && !e.writes.has(state)",
-      "replace": "!state.startsWith(PATH)",
+      "find": "!isPath(state) && !e.writes.has(state)",
+      "replace": "!isPath(state)",
       "by": "test",
       "kills": ["惰性夹具：同族的几组互不在闭包里，不报"]
     },
@@ -14043,8 +14043,8 @@
       "req": "harness",
       "why": "登记先后连自己也写那份状态的组（惰性夹具）也判：谁先跑谁建、看不出谁靠谁的那几组被报成顺序错",
       "file": "scripts/check/share-rule.ts",
-      "find": "&& !e.writes.has(state) && !state.startsWith(PATH)\n",
-      "replace": "&& !state.startsWith(PATH)\n",
+      "find": "&& !e.writes.has(state) && !isPath(state)\n",
+      "replace": "&& !isPath(state)\n",
       "by": "test",
       "kills": ["惰性夹具：总入口登记在最前也不报"]
     },
@@ -14063,7 +14063,7 @@
       "req": "harness",
       "why": "登记先后连 tmp 下的路径也判：路径谁写谁读源码里看不出，提到目录的那组被报成先读了写文件那组的东西",
       "file": "scripts/check/share-rule.ts",
-      "find": " && !state.startsWith(PATH)\n          && registered",
+      "find": " && !isPath(state)\n          && registered",
       "replace": "\n          && registered",
       "by": "test",
       "kills": ["同族碰 tmp 下重叠的路径、登记在前的那组提到目录：不报"]
@@ -14083,8 +14083,8 @@
       "req": "harness",
       "why": "登记先后不再限于同一族：跨族的两组本来在不同进程里跑、谈不上谁先谁后，读方登记在前时除了跨族那一条又多报一条顺序错",
       "file": "scripts/check/share-rule.ts",
-      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !state.startsWith(PATH)",
-      "replace": "      if (!e.writes.has(state) && !state.startsWith(PATH)",
+      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !isPath(state)",
+      "replace": "      if (!e.writes.has(state) && !isPath(state)",
       "by": "test",
       "kills": ["跨族、读方登记在写方之前：只报 family，不报 order"]
     },
@@ -25428,7 +25428,7 @@
     {
       "id": "M-D6-bs",
       "req": "D6.ab",
-      "why": "KOL-108 第 1 条退回去：补 profile 的循环被 402 或费用错误打断时不打「N 人补全失败」那一行，汇总的 profile_failed 有数、stderr 却一句不提",
+      "why": "退回 402 收尾修复的第 1 项：补 profile 的循环被 402 或费用错误打断时不打「N 人补全失败」那一行，汇总的 profile_failed 有数、stderr 却一句不提",
       "file": "scripts/collect.ts",
       "find": "  } finally {\n    if (profileFailed) console.error(",
       "replace": "  } finally {\n    if (profileFailed && false) console.error(",
@@ -25451,7 +25451,7 @@
     {
       "id": "M-D6-bt",
       "req": "D6.aa",
-      "why": "KOL-108 第 2 条退回去：收尾那次保存评审正本失败时不算保存失败，按其余运行错误退 1，调用方读不出「没存上」",
+      "why": "退回 402 收尾修复的第 2 项：收尾那次保存评审正本失败时不算保存失败，按其余运行错误退 1，调用方读不出「没存上」",
       "file": "scripts/collect.ts",
       "find": "  saving(() => reviews.save(new Date().toISOString()))\n  saving(() => persistListAndStatus(",
       "replace": "  reviews.save(new Date().toISOString())\n  saving(() => persistListAndStatus(",
@@ -25463,7 +25463,7 @@
     {
       "id": "M-D6-bu",
       "req": "D6.aa",
-      "why": "KOL-108 第 2 条退回去：收尾写名单失败时不算保存失败，按其余运行错误退 1，调用方读不出名单没写上",
+      "why": "退回 402 收尾修复的第 2 项：收尾写名单失败时不算保存失败，按其余运行错误退 1，调用方读不出名单没写上",
       "file": "scripts/collect.ts",
       "find": "  saving(() => persistListAndStatus(dir, state, fin.kept, fin.memory_status))\n",
       "replace": "  persistListAndStatus(dir, state, fin.kept, fin.memory_status)\n",
@@ -25899,6 +25899,127 @@
       ]
     },
     {
+      "id": "M-H212-a",
+      "req": "harness",
+      "why": "tmp 本身不算一处路径：拿它当当前目录的组与别族碰到的路径不再比，整条通道又看不见了",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const isPath = (s: string): boolean => s === root || s.startsWith(PATH)",
+      "replace": "const isPath = (s: string): boolean => s.startsWith(PATH)",
+      "by": "test",
+      "kills": [
+        "拿 tmp 本身当当前目录：与别族在 tmp 下写死的路径重叠，两个方向都报"
+      ]
+    },
+    {
+      "id": "M-H212-b",
+      "req": "harness",
+      "why": "空串当成 tmp 底下一个没名字的子目录：拿 tmp 本身当当前目录不再与它底下的路径重叠",
+      "file": "scripts/check/share-rule.ts",
+      "find": "rel => rel === '' ? root : `${root}/${rel}`",
+      "replace": "rel => `${root}/${rel}`",
+      "by": "test",
+      "kills": [
+        "两族都拿 tmp 本身当当前目录：两个方向都报"
+      ]
+    },
+    {
+      "id": "M-H212-c",
+      "req": "harness",
+      "why": "当前目录只算读、不算写：判定只拿写方去比，当前目录这一笔从此不报",
+      "file": "scripts/check/share-rule.ts",
+      "find": "writes: new Set([...e.writes, ...here])",
+      "replace": "writes: new Set(e.writes)",
+      "by": "test",
+      "kills": [
+        "一组的当前目录在另一组的底下：两个方向都报"
+      ]
+    },
+    {
+      "id": "M-H212-d",
+      "req": "harness",
+      "why": "记下了当前目录、却不在组表里的组静默丢掉：组改了名、记账却按旧名记，那几笔当前目录没人比",
+      "file": "scripts/check/share-rule.ts",
+      "find": "  if (stray.length) throw new Error(`记下了当前目录、却不在组表里的组：${stray.join('、')}`)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "记下了当前目录的组不在组表里：当场抛并点名"
+      ]
+    },
+    {
+      "id": "M-H212-e",
+      "req": "harness",
+      "why": "不在 tmp 底下的当前目录也交回相对路径：仓库根被记成 tmp 底下的一处",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))",
+      "replace": "if (!isAbsolute(rel))",
+      "by": "test",
+      "kills": [
+        "仓库根：不在底下"
+      ]
+    },
+    {
+      "id": "M-H212-f",
+      "req": "harness",
+      "why": "当前目录只按原样比、不按真实路径比：macOS 上 tmp 取的是真实路径、子进程的当前目录经软链给时，记不下来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const here = safe(real, resolve(cwd))",
+      "replace": "const here = resolve(cwd)",
+      "by": "test",
+      "kills": [
+        "tmp 取的是真实路径、当前目录经软链给：照样认得",
+        "经 tmp 里的软链起：记成它指向的那一处"
+      ]
+    },
+    {
+      "id": "M-H212-g",
+      "req": "harness",
+      "why": "子进程回报里当前目录那一栏不核：缺了这一栏也读得进去，父进程合并时当成那几组一个子进程都没起",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (typeof c !== 'object' || c === null || Array.isArray(c) || !Object.values(c).every(strings)) return undefined\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "没有当前目录那一栏读不出"
+      ]
+    },
+    {
+      "id": "M-H212-h",
+      "req": "harness",
+      "why": "合并当前目录时不看派工：子进程多跑的组也把当前目录交上来",
+      "file": "scripts/check/group-rule.ts",
+      "find": "if (run.family.includes(id)) cwds.set(id, [...dirs])",
+      "replace": "cwds.set(id, [...dirs])",
+      "by": "test",
+      "kills": [
+        "当前目录按组收拢：派给哪个子进程就收哪个子进程交回的那一份"
+      ]
+    },
+    {
+      "id": "M-H212-i",
+      "req": "harness",
+      "why": "tmp 只按原样比、不按真实路径比：macOS 上 tmp 在软链底下，取了真实路径的当前目录记不下来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const base = safe(real, resolve(tmp))",
+      "replace": "const base = resolve(tmp)",
+      "by": "test",
+      "kills": [
+        "tmp 是软链、当前目录取的是真实路径：照样认得"
+      ]
+    },
+    {
+      "id": "M-H212-j",
+      "req": "harness",
+      "why": "凡以两个点开头的相对路径都当成不在 tmp 底下：tmp 里一个名字以两个点开头的目录当当前目录时记不下来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)",
+      "replace": "!rel.startsWith('..') && !isAbsolute(rel)",
+      "by": "test",
+      "kills": [
+        "tmp 底下名字以两个点开头的目录：仍在底下"
+      ]
+    },
+    {
       "id": "M-H211-a",
       "req": "harness",
       "file": "scripts/check/adr-rule.ts",
@@ -26070,6 +26191,336 @@
         "块头第一个「⚠️ 欠条」没带名字，说明里再提一个带名字的块头也不算这张的",
         "拆过的记录，主文件里这样的欠条照样报没起名字"
       ]
+    },
+    {
+      "id": "M-H211-r",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "历史文件在被引表里另占一行 —— 拆过的记录变成两条，历史那行一律被引 0 次、无教训栏，前十与各档条数都被它带偏",
+      "find": "if (no === undefined || isHistory(file)) continue",
+      "replace": "if (no === undefined) continue",
+      "by": "test",
+      "kills": ["拆过的记录：表里只给主文件一行"]
+    },
+    {
+      "id": "M-H211-s",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "引用方按文件去重、不按记录 —— 拆过的记录主文件与历史文件各引一次，被引的那条就白多一票",
+      "find": "add(inIou[i] ? inside : outside, no, `ADR-${self}`)",
+      "replace": "add(inIou[i] ? inside : outside, no, file)",
+      "by": "test",
+      "kills": ["拆过的记录：主文件与历史文件都引同一条，只算一条"]
+    },
+    {
+      "id": "M-H211-t",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "只认主文件里的教训栏 —— 教训一节随过程挪进历史文件后，这条记录在表里就成了无教训栏",
+      "find": "if (LESSON.test(line)) lessons.add(self)",
+      "replace": "if (LESSON.test(line) && !isHistory(file)) lessons.add(self)",
+      "by": "test",
+      "kills": ["拆过的记录：教训栏写在历史文件里也算这条有"]
+    },
+    {
+      "id": "M-H211-u",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "不再跳过历史目录 —— 它被当成一份文件名不合格式的记录，每次检查都红，或者有人为了变绿把历史目录删掉",
+      "find": "    if (file === HISTORY_DIR && statSync(join(dir, file)).isDirectory()) continue",
+      "replace": "    if (false) continue",
+      "by": "test",
+      "kills": ["玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名", "玩具仓库：有一份配得上的历史文件时 --write 成功，指纹表钉住它、历史目录不进索引"]
+    },
+    {
+      "id": "M-H211-v",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "历史文件那几项判定算了却不计入 —— 孤儿历史文件、第一行编号不对的历史文件都放行",
+      "find": "    errors.push(...historyFaults(adrs.map(a => a.file),",
+      "replace": "    void (historyFaults(adrs.map(a => a.file),",
+      "by": "test",
+      "kills": ["玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名"]
+    },
+    {
+      "id": "M-H211-w",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "历史目录里的子目录不报 —— 里面的东西谁也不核",
+      "find": "for (const f of names.filter(f => !isFile(f))) errors.push(",
+      "replace": "for (const f of names.filter(f => !isFile(f))) [].push(",
+      "by": "test",
+      "kills": ["玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名"]
+    },
+    {
+      "id": "M-H211-x",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "指纹比对算了却不计入 —— 历史文件里钉住的旧文字被改了，检查照样绿，--write 还把改过的钉上去",
+      "find": "  errors.push(...pinErrors)",
+      "replace": "  void pinErrors",
+      "by": "test",
+      "kills": ["玩具仓库：历史文件里钉住的旧文字被改了，--write 也拒绝、不把改过的钉上去"]
+    },
+    {
+      "id": "M-H211-y",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "不比钉住那段的指纹 —— 历史文件里的旧文字改了只要长度没变短就放行",
+      "find": "    if (pinOf(h.data.subarray(0, pin.bytes)).sha256 !== pin.sha256) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["钉住的旧字节被改了：报一条、点出文件，不当成「还没钉」"]
+    },
+    {
+      "id": "M-H211-z",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "不查变短 —— 删掉一段旧文字只被说成「改了」，读的人不知道是少了一截",
+      "find": "    if (h.data.length < pin.bytes) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["比钉住时短了：报一条"]
+    },
+    {
+      "id": "M-H211-aa",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "钉着的历史文件整份被删也放行",
+      "find": "    if (!have.has(f)) errors.push(`${PINS_FILE} 钉着",
+      "replace": "    if (false) errors.push(`${PINS_FILE} 钉着",
+      "by": "test",
+      "kills": ["钉着的历史文件不见了：报一条"]
+    },
+    {
+      "id": "M-H211-ab",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "检查不比指纹表是不是最新 —— 历史文件末尾新加的那段永远没钉上，之后被改了也看不出",
+      "find": "  if (wantPins !== pinsText) {\n    // 整份没钉过的",
+      "replace": "  if (false) {\n    // 整份没钉过的",
+      "by": "test",
+      "kills": ["玩具仓库：历史文件末尾新加了一段、还没钉住，检查报红并让人跑 --write"]
+    },
+    {
+      "id": "M-H211-ac",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "--write 不写指纹表 —— 新拆的记录永远钉不上，检查一直红着让人跑一条修不好它的命令",
+      "find": "      if (wantPins) writeFileSync(pinsPath, wantPins, 'utf8'); else rmSync(pinsPath, { force: true })",
+      "replace": "      void 0",
+      "by": "test",
+      "kills": ["玩具仓库：有一份配得上的历史文件时 --write 成功，指纹表钉住它、历史目录不进索引"]
+    },
+    {
+      "id": "M-H211-ad",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "指纹表一项缺了 sha256 也收 —— 拿 undefined 去比，所有历史文件都成了「被改了」，或者被当成钉过",
+      "find": "      || typeof p.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(p.sha256)) {",
+      "replace": "      || false) {",
+      "by": "test",
+      "kills": ["指纹表里一项缺 sha256：报一条、不收这一项"]
+    },
+    {
+      "id": "M-H211-ae",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "指纹表读不出来不计入 —— 当成什么都没钉过，--write 照新内容重钉一遍，改过的旧文字就此洗白",
+      "find": "  errors.push(...parsed.errors)",
+      "replace": "  void parsed.errors",
+      "by": "test",
+      "kills": ["玩具仓库：指纹表读不出来时报一条、--write 也拒绝，不当成什么都没钉过"]
+    },
+    {
+      "id": "M-H211-af",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "转发页里又写回记录标题也放行 —— 整册的冲突面又装回去",
+      "find": "    if (src.split('\\n').some((l, i) => !mask[i] && RECORD_HEADING.test(l))) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["玩具仓库：转发页里引文之外又出现记录标题，报一条；引文里的示例不算"]
+    },
+    {
+      "id": "M-H211-ag",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "审计不把短名字有错计进硬失败 —— 重名的欠条按名字一关就关掉两张，取不出名字的永远关不上，检查链照样绿",
+      "find": "    ...badNames.map(d => `${d.file}:${d.line} 欠条的短名字有错（${d.text}） —— `",
+      "replace": "    ...[].map(d => `${d.file}:${d.line} 欠条的短名字有错（${d.text}） —— `",
+      "by": "test",
+      "kills": ["审计硬失败：孤儿与短名字有错各一行，短名字那行点出文件与行号、说短名字有错"]
+    },
+    {
+      "id": "M-H211-ah",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "「历史」是个普通文件时当目录去读 —— 检查直接崩掉，报不出哪里不对",
+      "find": "  if (existsSync(historyDir) && statSync(historyDir).isDirectory()) {",
+      "replace": "  if (existsSync(historyDir)) {",
+      "by": "test",
+      "kills": ["玩具仓库：「历史」是个普通文件时报文件名不合格式，不抛错"]
+    },
+    {
+      "id": "M-H211-ai",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "钉过又被从指纹表删掉的历史文件说成「末尾新加」—— 评审看不出 --write 要把整份重钉，改过的旧内容就此洗白",
+      "find": "    const fresh = unpinned.filter(f => !(f in parsed.pins)), grown = unpinned.filter(f => f in parsed.pins)",
+      "replace": "    const fresh: string[] = [], grown = unpinned",
+      "by": "test",
+      "kills": ["玩具仓库：钉过的那份被从指纹表删掉，检查说它整份还没钉过，不说成末尾新加"]
+    },
+    {
+      "id": "M-H211-aj",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "拆以后条件又改过，登记日照样取原文那天 —— 改过的条件不满四周也被当成到期，回访把它当老欠条列出来",
+      "find": "    if (olds.length && git.blame(run, file, line)?.commit === split) {",
+      "replace": "    if (olds.length && true) {",
+      "by": "test",
+      "kills": ["拆以后条件又改过：登记日取改的那天，旧行号照给"]
+    },
+    {
+      "id": "M-H211-ak",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "条件拆后改过就丢了旧行号 —— 拆以前按行号列过的那张，回访又列一次",
+      "find": "      at = 'line' in first ? first.line : conditionLineOf(git.show(src, main) ?? '', first.name)\n    }\n  }",
+      "replace": "      at = 'line' in first ? first.line : conditionLineOf(git.show(src, main) ?? '', first.name)\n    } else olds = []\n  }",
+      "by": "test",
+      "kills": ["拆以后条件又改过：登记日取改的那天，旧行号照给"]
+    },
+    {
+      "id": "M-H211-al",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "只按名字认「列过」、不认旧行号 —— 拆以前列过的欠条换了名字又被列一次",
+      "find": "  const open = due.filter(r => ![r.key, ...r.aliases].some(k => listed.has(k))).sort(rowCompare).map(line)",
+      "replace": "  const open = due.filter(r => ![r.key].some(k => listed.has(k))).sort(rowCompare).map(line)",
+      "by": "test",
+      "kills": ["三个数与前几行：取不到登记日 1、满四周 4、没列过 1（名字列过、第二个旧行号列过、旧名字列过的都算列过）"]
+    },
+    {
+      "id": "M-H211-am",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "历史文件里拆时才补的那几行也去原文取日期 —— 原文没有那一行，登记日取不到",
+      "find": "    if (original !== undefined && line <= lineCount(original)) { src = `${split}^`; path = main }",
+      "replace": "    if (original !== undefined && true) { src = `${split}^`; path = main }",
+      "by": "test",
+      "kills": ["历史文件里拆时才补的那几行：照常取它自己那一行（拆的那天）"]
+    },
+    {
+      "id": "M-H211-an",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "条件那一行不在块里也借上一块的名字 —— 隔着空行的另一张欠条被记成同一个名字",
+      "find": "  const block = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i && i < b.end).at(-1)",
+      "replace": "  const block = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i).at(-1)",
+      "by": "test",
+      "kills": ["隔着空行的下一块不借上一块的名字"]
+    },
+    {
+      "id": "M-H211-ao",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "登记日按 UTC 算 —— 北京时间凌晨进主干的欠条早记一天，满四周差一天",
+      "find": "  return new Date((time + 8 * 3600) * 1000).toISOString().slice(0, 10)",
+      "replace": "  return new Date((time + 0) * 1000).toISOString().slice(0, 10)",
+      "by": "test",
+      "kills": ["北京时间：UTC 16:00 已是第二天"]
+    },
+    {
+      "id": "M-H211-ap",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "「读过、没进候选」那一行不按「、」切 —— 一行里列了几张，一张也认不出列过",
+      "find": "    for (const item of splitItems(cell)) out.add(item.replace(/^ +| +$/g, ''))",
+      "replace": "    for (const item of [cell]) out.add(item.replace(/^ +| +$/g, ''))",
+      "by": "test",
+      "kills": ["列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样"]
+    },
+    {
+      "id": "M-H211-aq",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "编号按字比 —— 同一天 ADR-120 排到 ADR-80 前面，取前 5 张取错",
+      "find": "  if (na !== nb) return na - nb",
+      "replace": "  void 0",
+      "by": "test",
+      "kills": ["同一天按编号的数比：ADR-80 排在 ADR-120 前面"]
+    },
+    {
+      "id": "M-H211-ar",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "取不到登记日的排在最前 —— 「只起草一条」取第一行，就起草了一张日子都不知道的欠条",
+      "find": "  if ((a.date === undefined) !== (b.date === undefined)) return a.date === undefined ? 1 : -1",
+      "replace": "  if ((a.date === undefined) !== (b.date === undefined)) return a.date === undefined ? -1 : 1",
+      "by": "test",
+      "kills": ["先按日期，取不到日期的排最后", "两道门「过」的几张按登记日排，取不到登记日的（行号越界）排最后，不当成最老的先起草"]
+    },
+    {
+      "id": "M-H211-at",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "书名号里的「、」也切 —— 名字里带顿号的那张被切成两半，列过了也认不出，回访又列一次",
+      "find": "    if (ch === '、' && depth === 0) { out.push(cur); cur = ''; continue }",
+      "replace": "    if (ch === '、') { out.push(cur); cur = ''; continue }",
+      "by": "test",
+      "kills": ["列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样"]
+    },
+    {
+      "id": "M-H211-au",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "只认按旧行号的「已重挂」—— 老欠条本来有名字的，拆以后登记日变成拆的那天、按旧名字列过的又被列一次",
+      "find": "    else if (n) out.push({ name: n[1] })",
+      "replace": "    else if (false) out.push({ name: n![1] })",
+      "by": "test",
+      "kills": ["拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名", "已重挂两种写法都认、按出现先后"]
+    },
+    {
+      "id": "M-H211-av",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "按旧名字回溯时取块头那一行 —— 条件后来改过的，登记日早于台账上那一行真正写下的那天",
+      "find": "  if (b) for (let i = b.start; i < b.end; i++) if (!quoted[i] && CONDITION.test(lines[i])) return i + 1",
+      "replace": "  if (b) return b.start + 1",
+      "by": "test",
+      "kills": ["拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名"]
+    },
+    {
+      "id": "M-H211-aw",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "旧名字不当别名 —— ADR-152 里按旧名字列过的那张，拆以后换了新名字又被列一次",
+      "find": "    aliases: [...oldLines.map(n => `${id} 第 ${n} 行`), ...oldNames.map(n => `${id}「${n}」`)],",
+      "replace": "    aliases: [...oldLines.map(n => `${id} 第 ${n} 行`)],",
+      "by": "test",
+      "kills": ["拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名"]
+    },
+    {
+      "id": "M-H211-ax",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "只有 `>` 的一行把引用块截断 —— 块头与条件隔着这样一行的欠条，回访取不到短名字、改按行号记，孤儿闸门也把它当成没写条件",
+      "find": "           (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++",
+      "replace": "           (quotedBlock ? lines[end].trimStart().startsWith('>') && lines[end].trim() !== '>' : lines[end].trim() !== '')) end++",
+      "by": "test",
+      "kills": ["块头与条件隔着只有 > 的一行，仍按块头取名字（与孤儿闸门同一份定界）"]
+    },
+    {
+      "id": "M-H211-as",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "台账里列着、工作区没有的文件让入口当场抛错 —— 三个数一个都打不出来",
+      "find": "const text = (file: string) => existsSync(file) ? readFileSync(file, 'utf8') : ''",
+      "replace": "const text = (file: string) => readFileSync(file, 'utf8')",
+      "by": "test",
+      "kills": ["入口 --due：取不到 1（文件不在）、满四周 2、没列过 1（ADR-152 里读的那一行列过 ADR-9 第 3 行），打出那一行"]
     },
     {
       "id": "M-H211-n",
