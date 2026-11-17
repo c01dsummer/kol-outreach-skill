@@ -28006,6 +28006,138 @@
       "kills": ["块头与条件隔着只有 > 的一行，仍按块头取名字（与孤儿闸门同一份定界）"]
     },
     {
+      "id": "M-H211-ay",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "入口给了 git 也不拿主干上的指纹表比 —— 本树指纹表里钉过的一行被删，改过的历史文件照样被 `--write` 钉上",
+      "find": "  const trunkText = ask ? trunkPinsText(ask) : null",
+      "replace": "  const trunkText = null as string | null",
+      "by": "test",
+      "kills": [
+        "主干钉过的历史文件被改、本树指纹表里那一行被删：比主干报红，--write 也拒绝、不把改过的钉上去"
+      ]
+    },
+    {
+      "id": "M-H211-az",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "比主干比出的错不进错误单 —— 改过的历史文件照样过、照样被钉",
+      "find": "    errors.push(...pinFaults(trunk.pins, history).errors.map(e => `比主干上的指纹表：${e}`))",
+      "replace": "    void pinFaults(trunk.pins, history)",
+      "by": "test",
+      "kills": [
+        "主干钉过的历史文件被改、本树指纹表里那一行被删：比主干报红，--write 也拒绝、不把改过的钉上去"
+      ]
+    },
+    {
+      "id": "M-H211-ba",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "主干上的指纹表读不出来时不报 —— 当成主干什么都没钉过，比主干这一道等于没有",
+      "find": "    errors.push(...trunk.errors.map(e => `主干上的 ${e}`))",
+      "replace": "    void trunk.errors",
+      "by": "test",
+      "kills": [
+        "主干上的指纹表读不出来：报一条，不当成主干什么都没钉过"
+      ]
+    },
+    {
+      "id": "M-H211-bb",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "找不到主干也接着往下问分叉点、读表 —— 没有可比的时候不该假装有",
+      "find": "  if (trunk === undefined) return null\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "找不到主干：没有可比的，交回 null"
+      ]
+    },
+    {
+      "id": "M-H211-bc",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "找主干的顺序反了 —— 本地 main 落后时拿旧表比，和体量闸门认的主干不是同一个",
+      "find": "  const trunk = TRUNK_CANDIDATES.find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)",
+      "replace": "  const trunk = [...TRUNK_CANDIDATES].reverse().find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)",
+      "by": "test",
+      "kills": [
+        "找主干先试 origin/main，没有再试 main"
+      ]
+    },
+    {
+      "id": "M-H211-bd",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "与主干没有分叉点也接着读表 —— 读的是一个不存在的提交上的表",
+      "find": "  if (base === null) return null\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "与主干没有分叉点：没有可比的，交回 null，不拿主干头比"
+      ]
+    },
+    {
+      "id": "M-H211-be",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "拿主干头上的表比、不拿分叉点上的 —— 落后于主干的分支会因主干后来新钉的历史文件误红",
+      "find": "  return ask('show', `${base}:docs/adr/${PINS_FILE}`)",
+      "replace": "  return ask('show', `${trunk}:docs/adr/${PINS_FILE}`)",
+      "by": "test",
+      "kills": [
+        "落后于主干：主干后来新钉的那份这边没有，比的是分叉点上那份，不报红"
+      ]
+    },
+    {
+      "id": "M-H211-bf",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "问不出分叉点上有没有那份表时当成没有 —— git 一失败，比主干那一道就静默关掉",
+      "find": "  if (listed === null) return { unreadable: `问不出分叉点 ${base} 上有没有 docs/adr/${PINS_FILE}` }\n",
+      "replace": "  if (listed === null) return null\n",
+      "by": "test",
+      "kills": [
+        "问不出分叉点上有没有这份表（ls-tree 失败）：交回读不出来，不当成没有"
+      ]
+    },
+    {
+      "id": "M-H211-bg",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "分叉点上没有那份表也去读 —— 主干还没钉过任何历史文件时，每一跑都报读不出来",
+      "find": "  if (listed === '') return null\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "分叉点上没有这份表：没有可比的，只比本树，--write 照钉"
+      ]
+    },
+    {
+      "id": "M-H211-bh",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "分叉点上有那份表、读不出来时交回 null —— 当成没有可比的，删一行再 --write 的路又通了",
+      "find": "  return ask('show', `${base}:docs/adr/${PINS_FILE}`) ?? { unreadable: `分叉点 ${base} 上有 docs/adr/${PINS_FILE}，却读不出来` }",
+      "replace": "  return ask('show', `${base}:docs/adr/${PINS_FILE}`)",
+      "by": "test",
+      "kills": [
+        "分叉点上有这份表、却读不出来：报一条，--write 也拒绝，不当成没有可比的"
+      ]
+    },
+    {
+      "id": "M-H211-bi",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "主干上的表读不出来时不进错误单 —— --write 照钉改过的历史文件",
+      "find": "  if (trunkText !== null && typeof trunkText !== 'string') errors.push(`主干上的指纹表：${trunkText.unreadable} —— 比不了主干，按出错处理`)",
+      "replace": "  if (trunkText !== null && typeof trunkText !== 'string') void trunkText",
+      "by": "test",
+      "kills": [
+        "分叉点上有这份表、却读不出来：报一条，--write 也拒绝，不当成没有可比的"
+      ]
+    },
+    {
       "id": "M-H211-as",
       "req": "harness",
       "file": "scripts/check/revisit-due.ts",
