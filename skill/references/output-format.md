@@ -26,7 +26,7 @@ output/{product}-{YYYYMMDDHHmm}/
 但 CSV 是通用交换格式，脚本、导入工具、其他系统都读它。**两个文件各司其职，不能只留一个** ——
 只留 xlsx 会让机器消费变麻烦，只留 CSV 就没法分层切换。要逐字原值的机器读者读 xlsx（见下文「防公式」）。
 
-新建任务的命令与配置文件长这样（配置文件放在哪都行，路径按当前目录解析）：
+新建任务的命令与配置文件长这样（`--config` 的路径按仓库根目录、也就是 `package.json` 所在的目录解析：`npm run` 总在那里起脚本，不管你在哪个子目录里敲命令）：
 
 ```bash
 npm run collect -- --config product.json
@@ -48,7 +48,7 @@ npm run collect -- --config product.json --ignore-memory # 只在用户明确接
 ```
 
 `market`、`target_count`、`budget_usd` 可以不写（分别按 US、50、$2；`market` 与预算用了默认值时 stderr 会说一句，`target_count` 不说）；`sender_name`、`brand_calibration` 可选，见 SKILL.md。
-任务目录 `output/…` 与跨任务记忆 `memory/creators.json` 都相对于运行命令时的当前目录，不相对于仓库或配置文件。
+任务目录 `output/…` 与跨任务记忆 `memory/creators.json` 也都相对于仓库根目录（理由同上），不相对于配置文件所在的目录。
 
 `{product}` 用短横线小写，如 `anker-powerbank`。它不能含 `/`、`\` 或 NUL：任务目录由它拼成，含这几个字符时 collect 新建任务以 2 拒绝、不建目录（D29）。
 
