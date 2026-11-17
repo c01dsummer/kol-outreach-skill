@@ -7349,7 +7349,7 @@ group('mutate-anchor-not-unique', [], () => {
     `a.ts 变成了 ${JSON.stringify(readFileSync(join(anchorTmp, 'a.ts'), 'utf8'))}`)
 })
 
-// ---- 清单夹带：入口开跑前用 briefLeaks 查 --brief 要打的每一段，两侧分开报（ADR-70 末尾「清单夹带（入口）」一节）----
+// ---- 清单夹带：入口开跑前用 briefLeaks 查 --brief 要打的每一段，两侧分开报（ADR-70「清单夹带（入口）」一节）----
 group('mutate-brief-leak-entry', [], () => {
   // 判定是纯函数 briefLeaks，由需求测试 h-why 断言、M-H1-b..h 守着；剩下的那一半是**入口真的调了它、
   // 豁免一侧也拦、两侧分开说、`--brief` 一行清单也不打、以 1 结束**。入口在自检的验证基础设施闭包里，
@@ -7408,7 +7408,7 @@ group('mutate-brief-leak-entry', [], () => {
     ex.stderr)
 })
 
-// ---- 变异锚点对着树：入口真的读了目录与目标文件、逐条点名并照判定退出（ADR-70 末尾「变异残留」第三片，接线证明）----
+// ---- 变异锚点对着树：入口真的读了目录与目标文件、逐条点名并照判定退出（ADR-70「变异残留」第三片，接线证明）----
 group('anchor-residue-entry', [], () => {
   // 判定是纯函数 anchorVerdict（编号重复先报、anchorFaults 的五种、连带），由需求测试 h-mutate 断言、M-H45-* 守着；
   // 剩下的那一半是**入口真的读了变异目录与每条的目标文件、调了判定、逐条点名、照它退出**。
@@ -7888,7 +7888,7 @@ group('admission-entry', [], () => {
     refused(ghost.stderr, '不存在的入口') && ghost.stderr.includes('scripts/gone.ts') && !existsSync(ghostPkg), ghost.stderr)
 })
 
-// ---- 变异锚点读暂存区：入口真的读了 git 暂存区与 HEAD（ADR-70 末尾「变异残留：暂存区」第五片，接线证明）----
+// ---- 变异锚点读暂存区：入口真的读了 git 暂存区与 HEAD（ADR-70「变异残留：暂存区」第五片，接线证明）----
 group('anchor-staged-entry', [], () => {
   // 判定是纯函数 stagedResidue 与 notARepo，由需求测试 h-mutate 断言、M-H45-ah…an 守着；剩下的那一半是**入口真的
   // 读了暂存区与 HEAD、交给判定、点名、照它退出，git 读不到时分得开不是仓库与坏了**。不配负片的理由同 anchor-residue-entry。
@@ -8290,7 +8290,7 @@ group('stop-if-seen', [], () => {
     `孩子起来之后 ${childLateMs} 毫秒照样写出了 ${childLate} —— 见齐就停只停了手上那一个，验证者自己起的子进程活着跑完`)
 })
 
-// ---- 施加变异照字面：入口真的用 applyMutation 落盘（ADR-70 末尾「施加照字面」一节，接线证明）----
+// ---- 施加变异照字面：入口真的用 applyMutation 落盘（ADR-70「施加照字面」一节，接线证明）----
 group('literal-apply', [], () => {
   // 判定是纯函数 applyMutation，由需求测试 h-mutate 断言、M-H45-i/j 守着；剩下的那一半是**入口施加时真的走它**。
   // 入口这一半不配负片，是选择：指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦（M-H68-a 就这样守 mutate.ts），
@@ -8704,7 +8704,7 @@ group('audit-entry', [], () => {
   // 解释器只按编号与理由记号认豁免行。两条预期是照上面自造的资料关系手推的，不取自审计的运行结果：
   // `mutationData` 只有一条变异、记在 X1.a 名下，所以 X1.a 那条豁免该说「名下有负片」；X1.b 名下
   // 一条也没有，该说「名下无变异」。预期只写在文末两条 `named` 里 —— 标签是字面量，清册才看得见。
-  // 推导与三种弄坏法的实测见 ADR-70 末尾「还第 790 行」那一节。
+  // 推导与三种弄坏法的实测见 ADR-70「还第 790 行」那一节。
   const definitions = [
     {
       "criterion": "X1.a",
@@ -9970,7 +9970,7 @@ group('mutate-crash-keeps-verifier-output', [], () => {
   //           唯一理由就是诊断它；头一版只有这一种，于是反过来把上面那一支漏空了。
   // 用 `exitCode` 而不是那个硬退出的写法：`exitRace` 原先扫**源码字面**，把那一串原样
   // 写进这里，本文件自己就被判成「打完汇总立刻退出」（断言 `selfcheck 这个验证者不硬退出` 当场红过）。
-  // 现在它按语法树认，串里写全了的不算（ADR-70 末尾「硬退出收口」一节）；语料照旧用 `exitCode`，
+  // 现在它按语法树认，串里写全了的不算（ADR-70「硬退出收口」一节）；语料照旧用 `exitCode`，
   // 也是因为它本来就不该硬退出。
   writeFileSync(join(crashTmp, 'scripts', 'test.ts'),
     `import { v } from ${q}./check/a.js${q}\n`
@@ -12861,7 +12861,7 @@ group('sender-entry', [], () => {
 // 在临时目录里真起一遍认证入口，验的是接线：跑得完，汇总与退出码对得上，列出的证据都在、SHA256 对得上。这一跑**不是认证**。
 // 断网起不起得来随机器：另起一个最小的 bwrap 断网问一句，起得来就要认证成立、逐项成立；起不来就要认证不成立、
 // 一个入口也不起、以 1 退出 —— 两种都判，不跳过。期望的项数照认证入口的设计手数：断网 1、四个入口各两条、设施故障 10
-// （ADR-70 末尾「修复轮 1」从 6 加到 10：入口起线程、绕过 Worker 那一道起线程、起子进程、直连并吞掉失败）
+// （ADR-70「修复轮 1」从 6 加到 10：入口起线程、绕过 Worker 那一道起线程、起子进程、直连并吞掉失败）
 group('observer-cert-entry', [], () => {
   const out = join(tmp, 'observer-cert')
   const r = runToolBoth('observer-cert 在临时目录里跑一遍（接线，不是认证）', 'observer-cert', ['--out', out], process.cwd(), { status: 0, soft: [1] })

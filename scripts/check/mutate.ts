@@ -30,7 +30,7 @@
  * 见 process/4-VERIFY.md 的「给测试上下文一张准入读物清单」。
  *
  * 这条防线的强度取决于打出去的那几段怎么写 —— 开跑前用 `why-rule.ts` 的 `briefLeaks` 逐段查，
- * 夹带了实现原文就不开跑、`--brief` 也不打（ADR-70 末尾「清单夹带（入口）」一节）。查得出的只是
+ * 夹带了实现原文就不开跑、`--brief` 也不打（ADR-70「清单夹带（入口）」一节）。查得出的只是
  * 形如代码的那几种写法，snake_case 的内部名字挡不住（见 `why-rule.ts`）；打的清单（下面 `--brief`
  * 那一段）与查的清单（`briefLeaks`）各写一份，哪天这边多打一栏，那边不跟也不红。
  */
@@ -72,7 +72,7 @@ import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 import { realIo, writeAllSync } from './sync-write.js'
 
 /**
- * 本文件**唯一**的硬退出（ADR-70 末尾「硬退出收口」一节）：退出前要说的话先同步写满 fd 2，再退出。
+ * 本文件**唯一**的硬退出（ADR-70「硬退出收口」一节）：退出前要说的话先同步写满 fd 2，再退出。
  *
  * 接管道时 `console.error` 是异步的，排在队里那句会被紧跟着的硬退出掐掉（ADR-72 第 431 行起那张表）；
  * 光换成 `writeFileSync` 也不够，管道一满它写进去一截就抛（`sync-write.ts` 头注释那次实测）。所以退出前的话
@@ -191,7 +191,7 @@ if (fault?.kind === 'orphan') {
 
 // `--brief` 打出去的每一段（变异的 why、豁免的范围与 why）都过一遍；排在上面拒重复编号之后 ——
 // `briefLeaks` 按编号报、自己不拒重复（ADR-34 末尾）。两侧分开报：变异的 why 归写变异的人改，
-// 豁免的归登记豁免的人改（ADR-70 末尾「清单夹带（入口）」一节）。
+// 豁免的归登记豁免的人改（ADR-70「清单夹带（入口）」一节）。
 const leaks = briefLeaks(muts, exemptions)
 if (leaks.length) {
   const mutSide = leaks.flatMap(l => l.side === 'mutation' ? [`    ${l.id}  why 夹带实现原文：${l.leak}`] : [])
@@ -344,7 +344,7 @@ if (process.argv.includes('--brief')) {
   // 另外 6 次停在 139／140／221／233 行。而豁免行恰好在最末尾，正是要断言的那一段。
   // 这就是 `mutate-rule.ts` 的 `exitRace` 记着的那个坑 —— 那道判据当时只查**验证者**，
   // 查不到 `mutate.ts` 自己，于是同一个坑在检查链自己身上又踩了一次（#91 评审引出）。
-  // 现在本文件的硬退出收口在 `exitWith`，由 `exitFaults` 查（ADR-70 末尾「硬退出收口」一节）。
+  // 现在本文件的硬退出收口在 `exitWith`，由 `exitFaults` 查（ADR-70「硬退出收口」一节）。
   const out = ['\n变异集 —— 每条变异「违反了什么」。不含实现原文，可以交给写测试的上下文。\n']
   for (const m of muts) out.push(`  ${m.id}  [${m.req}]  ${m.why}`)
   for (const e of exemptions) {
@@ -353,7 +353,7 @@ if (process.argv.includes('--brief')) {
   }
   out.push(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
   // 主产物：写不满不放过（不设上限），写不出去（读的那头关了）就非零退出、在 fd 2 说一句 —— 交给写测试的
-  // 上下文的那份读物缺了半截还以 0 退出，比崩溃更坏（ADR-70 末尾「硬退出收口」一节）
+  // 上下文的那份读物缺了半截还以 0 退出，比崩溃更坏（ADR-70「硬退出收口」一节）
   if (writeAllSync(1, `${out.join('\n')}\n`, realIo, Infinity)) exitWith(0)
   exitWith(1, '✗ 变异测试：--brief 那份清单没写完 —— 读的那头关了')
 }
@@ -863,7 +863,7 @@ const dispatch = async (jobs: number): Promise<void> => {
   //
   // 是 #111 的 CI 逼出来的：同一个提交两个 job 一绿一红，红的那次报「隔离目录没收干净」。
   // 本地同形状 32 次复现到 2 次，插同步标记定位到死在「杀第 N 个 pid=undefined」那一句。
-  // 起不来那几条路要说的那句话交进来、头一个同步写出去（ADR-70 末尾「硬退出收口」一节）：先 `console.error`
+  // 起不来那几条路要说的那句话交进来、头一个同步写出去（ADR-70「硬退出收口」一节）：先 `console.error`
   // 再叫它的话，那句排在队里，随后的硬退出把它掐掉 —— ADR-72 那张表「派工循环」三行说的正是这几条路
   const hardStop = (...lines: string[]): never => {
     if (lines.length) writeAllSync(2, `${lines.join('\n')}\n`)
@@ -1203,7 +1203,7 @@ if (subsets.size) {
     dropJobs()
   }
   if (faults.length) {
-    // 先同步写出来再等成本段：顺序同原来（诊断在前），而且不在异步那条路上排队（ADR-70 末尾「硬退出收口」一节）
+    // 先同步写出来再等成本段：顺序同原来（诊断在前），而且不在异步那条路上排队（ADR-70「硬退出收口」一节）
     writeAllSync(2, `${[...faults.map(fault => `\n✗ 子集基线：${fault}`),
       `\n✗ 变异测试：${faults.length} 种子集未通过正常代码基线，未施加任何变异`].join('\n')}\n`)
     identity.state = 'failed'

@@ -287,7 +287,7 @@ export function anchorMatches(content: string, find: string): number {
 
 /**
  * 变异目录对着一棵树：每条变异的锚点在它的目标文件里还对不对得上。对不上的五种各有名字，
- * 全对得上交回空表（ADR-70「变异残留：对着目录查锚点」那两张欠条；检查链第一步经下面的 `anchorVerdict` 用它，见 ADR-70「变异残留」几节）。
+ * 全对得上交回空表（ADR-70 历史文件第 1394、2099 行那两张欠条；检查链第一步经下面的 `anchorVerdict` 用它，见 ADR-70「变异残留」几节）。
  *
  * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由检查链第一步与 `mutate.ts` 开跑前那道体检拦下）。
  * 一处变异没还原、躺在树里时（被打断、`--jobs=1` 正跑着就提交），那个文件是「`find` 换成了 `replace`」的
@@ -359,7 +359,7 @@ export function anchorCatalog(json: unknown): { id: string; file: string; find: 
 
 /**
  * 检查链第一步（`anchors.ts`）的判定：先问编号唯一，再按 `anchorFaults` 逐条判，再标连带、定附哪两句话
- * （ADR-70 末尾「变异残留」第二片）。
+ * （ADR-70「变异残留」第二片）。
  *
  * **先问编号**：报告按编号指回目录里那一行，两条重名时指不回（ADR-34）。这一步排在 `mutate.ts` 那道重复编号检查之前，
  * 所以自己先问，用的是同一个 `duplicateIds`。先后有语义，所以在这里，不在入口（`docs/CONVENTIONS.md` 第 10 条）。
@@ -393,7 +393,7 @@ export function anchorVerdict(muts: readonly { id: string; file: string; find: s
 export type StagedFault = { kind: 'residue' | 'unclear' | 'unconfirmed'; id: string; file: string }
 
 /**
- * 暂存区里躺着的变异：工作树上那一条对得上，暂存区里却是施加之后的样子（ADR-70 末尾「暂存区」一节；#457 上 CodeRabbit 第六轮）。
+ * 暂存区里躺着的变异：工作树上那一条对得上，暂存区里却是施加之后的样子（ADR-70「暂存区」一节；#457 上 CodeRabbit 第六轮）。
  *
  * 检查链第一步读的是工作树。变异被 `git add` 进了暂存区、工作树那一处后来又按回去了的，工作树上锚点完好，
  * `anchorVerdict` 一条也不报 —— 下一次 `git commit` 却会把暂存区里那一处带进去。所以对暂存区再判一遍，只交回两种：
@@ -433,14 +433,14 @@ export function stagedResidue(muts: readonly { id: string; file: string; find: s
  * 只有前一种放过，其余都算没得核 —— 没得核不是核过了。认的是 `LC_ALL=C` 下 git 的那句原话；调用方要按这个语言起 git。
  * 认的是**往上找仓库没找到**那一句（带括号里「或任何一层上级目录」，停在挂载点的那一种也算）：`GIT_DIR` 指向一个不存在的目录时
  * git 也说「not a git repository」，可那时人明明在仓库里，只是环境变量指错了，放过就是对着仓库说「不是仓库，暂存区没查」（#460 上 CodeRabbit 第三轮）。
- * ADR-70 末尾「变异残留：暂存区」第五片（复审实测：属主不符时 `git diff` 以 129 退出，旧入口当成不是仓库、以 0 退出）。
+ * ADR-70「变异残留：暂存区」第五片（复审实测：属主不符时 `git diff` 以 129 退出，旧入口当成不是仓库、以 0 退出）。
  */
 export function notARepo(gitStderr: string): boolean {
   return /^fatal: not a git repository \(or any (?:of the )?parent/m.test(gitStderr)
 }
 
 /**
- * 把一条变异施加到源码上：`find` 的第一处换成 `replace`，**照字面**（ADR-70 末尾「施加照字面」一节）。
+ * 把一条变异施加到源码上：`find` 的第一处换成 `replace`，**照字面**（ADR-70「施加照字面」一节）。
  *
  * `String.prototype.replace` 的字符串形式把替换文本里的 `$$`、`$&`、`` $` ``、`$'` 当记号展开，盘上写出的
  * 就不是目录里登记的那一段 —— `M-D13-r` 登记的是两个 `$`，施加时只剩一个，顺带多改了一处。交一个函数进去，
@@ -473,7 +473,7 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
  * 顺带买到第二样:**没有提前退出,就没有绕过汇总的路** —— 自检原先「孤儿文件」那一条
  * 就是打完自己那句话直接退出,它的失败根本到不了汇总。
  *
- * **按语法树认，不按字面扫**（ADR-70 末尾「硬退出收口」一节；原先按正则扫，注释与字符串里长得一样的也算数，
+ * **按语法树认，不按字面扫**（ADR-70「硬退出收口」一节；原先按正则扫，注释与字符串里长得一样的也算数，
  * ADR-70「硬退出收口」）：认的是 `process.exit(…)` 与 `process['exit'](…)` 这两种调用（前面带 `globalThis.` 的也认），注释、字符串、
  * 模板串里写全了的结构上就不是调用（同 `labelsOf`）。先把它赋给别的名字再调的认不出，不假装认得出。
  * 套在调用目标或 `process` 外面的括号先剥掉：`(process.exit)(1)`、`(process).exit(1)` 没换名字，照认（#462 上 CodeRabbit 第一轮）。
@@ -512,7 +512,7 @@ export function exitRace(source: string): number[] {
 export interface ExitFault { kind: 'outside' | 'async-before'; line: number }
 
 /**
- * 一个**入口**的硬退出收没收口（ADR-70 末尾「硬退出收口」一节，还第 2082 行那张：`exitRace` 只查验证者，
+ * 一个**入口**的硬退出收没收口（ADR-70「硬退出收口」一节，还第 2082 行那张：`exitRace` 只查验证者，
  * 查不到 `mutate.ts` 自己）。
  *
  * 入口跟验证者不一样，不能一处硬退出都没有：被打断时要当场杀干净、收目录、退出，等不了进程自己走完。

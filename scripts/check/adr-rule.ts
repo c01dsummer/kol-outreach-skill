@@ -258,13 +258,18 @@ const MARKER_FAULT: Record<MarkerFault, string> = {
  * 主干上的那份指纹表，没有就交回 `null`（ADR-211 的欠条「历史文件指纹只靠评审看 diff 守着」）。
  * 本树的指纹表这条分支自己改得动：钉过的一行被删掉（或整份换成 `{}`），本树只看得出「整份还没钉过」，
  * `--write` 就把改过的内容照钉上去。主干上那份这条分支改不动，所以拿它再比一遍。
- * 找主干的顺序同体量闸门（`TRUNK_CANDIDATES`）；不是 git 仓库、找不到主干、主干上还没有这份表，都答 `null`：
+ * 找主干的顺序同体量闸门（`TRUNK_CANDIDATES`），取的是这边与主干的分叉点（`merge-base`）上那份，同体量闸门：
+ * 落后于主干的分支不会因为主干后来新钉的历史文件报红，分叉点上那份这条分支同样改不动。
+ * 不是 git 仓库、找不到主干、没有分叉点、分叉点上还没有这份表，都答 `null`：
  * 没有可比的，只比本树。
  */
 export function trunkPinsText(ask: GitAsk): string | null {
   const trunk = TRUNK_CANDIDATES.find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)
   if (trunk === undefined) return null
-  return ask('show', `${trunk}:docs/adr/${PINS_FILE}`)
+  // 比分叉点，不比主干头：还没合进主干新钉的那几份，这边本来就没有，不该报红
+  const base = ask('merge-base', trunk, 'HEAD')
+  if (base === null) return null
+  return ask('show', `${base}:docs/adr/${PINS_FILE}`)
 }
 
 /**

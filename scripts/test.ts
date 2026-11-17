@@ -4931,7 +4931,7 @@ harness('变异集的 why 不许夹带实现原文')
     eq(`放行：${why.slice(0, 16)}…`, implementationLeak(why), undefined)
   }
 
-  // `--brief` 打出去的不止变异的 why：豁免的范围（写了才打）与 why 也打（ADR-70 末尾「清单夹带（判定）」一节）。
+  // `--brief` 打出去的不止变异的 why：豁免的范围（写了才打）与 why 也打（ADR-70「清单夹带（判定）」一节）。
   // 两侧分开交回，报的时候说得出是哪一边、哪一栏；不打的那一栏（缓解）不查
   const leakyWhy = '降完立刻被 tierOf 覆盖'
   const plain = '受众降权跑在分层之前'
@@ -8332,11 +8332,11 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   // 汇总是最后打的，紧跟着硬退出会在管道上把它截掉 —— 退出码非零、汇总没有，
   // 判定只能判「跑不起来」，而那是一条真被抓到的变异，还时红时绿（评审指出）。
   // 反例里那一串是拼出来的：`exitRace` 原先扫字面，本文件自己也是验证者，写成整串会判到它自己。
-  // 现在按语法树认（ADR-70 末尾「硬退出收口」一节），串里写全了的不是调用，拼不拼都一样；留着无害
+  // 现在按语法树认（ADR-70「硬退出收口」一节），串里写全了的不是调用，拼不拼都一样；留着无害
   const hardExit = `process.${'exit'}(1)`
   eq('打完汇总就硬退出的写法要认出来', exitRace(`console.error(汇总); ${hardExit}`), [1])
   eq('只提名字不调用的是散文，不算', exitRace('// 别用 process.exit 那种写法'), [])
-  // 按语法树认（ADR-70 末尾「硬退出收口」一节）：注释、字符串里写全了的结构上不是调用
+  // 按语法树认（ADR-70「硬退出收口」一节）：注释、字符串里写全了的结构上不是调用
   eq('注释里写全了的硬退出不算', exitRace(`// 别写 ${hardExit}`), [])
   eq('字符串里写全了的硬退出不算', exitRace(`const s = '${hardExit}'`), [])
   eq("process['exit'] 那种写法也认", exitRace(`process['${'exit'}'](1)`), [1])
@@ -8512,9 +8512,9 @@ harness('变异的锚点在目标文件里数几处：按起点数，重叠也�
 
 harness('变异目录对着树：锚点对不上的五种各有名字，没还原的变异认得出')
 {
-  // ADR-70「变异残留：对着目录查锚点」：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
+  // ADR-70 历史文件第 1394、2099 行：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
   // 只断言判定；**不对真树断言**：需求测试自己就是验证者，变异跑它的时候树上正躺着那一条，
-  // 对真树断言的话每条不点名的变异都会被这一句抓到，功劳全记错（ADR-70 末尾「变异残留」一节）
+  // 对真树断言的话每条不点名的变异都会被这一句抓到，功劳全记错（ADR-70「变异残留」一节）
   const files = (tree: Record<string, string>) => (file: string): string | undefined => tree[file]
   const one = [{ id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' }]
   eq('干净的树：一条也不报', anchorFaults(one, files({ 'a.ts': 'return x\n' })), [])
@@ -8730,7 +8730,7 @@ harness('变异锚点那一步：git 读不到时是不是本来就不是仓库'
 harness('入口的硬退出收口：只有一处，退出前那句话同步写满')
 {
   // 判定 exitFaults：process.exit 只许在收口函数里；叫收口之前同一段里不许先 console. 一句
-  // （ADR-70 末尾「硬退出收口」一节）。反例里的硬退出照上面那块拼出来
+  // （ADR-70「硬退出收口」一节）。反例里的硬退出照上面那块拼出来
   const hardExit = `process.${'exit'}(code)`
   const helper = `function quit(code: number): never {\n  ${hardExit}\n}\n`
   eq('收口函数里那一处不报', exitFaults(`${helper}if (bad) quit(1)\n`, 'quit'), [])
@@ -8746,7 +8746,7 @@ harness('入口的硬退出收口：只有一处，退出前那句话同步写�
   eq('先异步写一句、再叫一个里面才收口的函数，报出来',
     exitFaults(`${helper}const stop = (): never => {\n  quit(1)\n}\nif (bad) {\n  console.error('坏了')\n  stop()\n}\n`, 'quit'),
     [{ kind: 'async-before', line: 9 }])
-  // 真入口：变异一步那一份（ADR-70「硬退出收口」那张欠条说的「查不到 mutate.ts 自己」）
+  // 真入口：变异一步那一份（ADR-70 历史文件第 2082 行那张欠条说的「查不到 mutate.ts 自己」）
   eq('return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来',
     exitFaults(`${helper}function f(): never {\n  console.error('坏了')\n  return quit(1)\n}\nfunction g() {\n  console.error('坏了')\n  if (bad) quit(1)\n}\n`, 'quit'),
     [{ kind: 'async-before', line: 6 }, { kind: 'async-before', line: 10 }])
@@ -12332,7 +12332,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
   // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；零请求观察器那一片加了认证入口（自检组 observer-cert-entry 起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾零请求观察器那一节）＋ anchors.ts（ADR-70「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70「零请求观察器与外层断网」一节）＋ anchors.ts（ADR-70「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
   // 按字符串排（admission < adr（第三个字符 m < r） < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/admission.ts', 'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
@@ -15008,17 +15008,22 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
 
   // 拿主干上的指纹表再比一遍（ADR-211 的欠条「历史文件指纹只靠评审看 diff 守着」）：本树的表这条分支改得动，主干上的改不动。
   // `ask` 是假的 git：只答得上 `trunk` 这一个主干引用，`show` 交回 `trunkPins`
-  const fakeGit = (trunk: string | null, trunkPins: string | null): GitAsk => (...a: string[]) =>
+  // 分叉点（merge-base）上那份才交 `trunkPins`；主干头上那份交 `headPins`（主干后来又钉的），默认读不到
+  const fakeGit = (trunk: string | null, trunkPins: string | null, headPins: string | null = null): GitAsk => (...a: string[]) =>
     a[0] === 'rev-parse' && trunk !== null && a[2] === `${trunk}^{commit}` ? 'c0ffee'
-      : a[0] === 'show' && trunk !== null && a[1] === `${trunk}:docs/adr/${PINS_FILE}` ? trunkPins : null
+      : a[0] === 'merge-base' && trunk !== null && a[1] === trunk && a[2] === 'HEAD' ? 'f0rk'
+      : a[0] === 'show' && trunk !== null && a[1] === `f0rk:docs/adr/${PINS_FILE}` ? trunkPins
+      : a[0] === 'show' && trunk !== null && a[1] === `${trunk}:docs/adr/${PINS_FILE}` ? headPins : null
   const oldHistory = '# ADR-01 甲\n过程\n'
   const trunkPinned = JSON.stringify({ 'ADR-01-甲.md': pinOf(B(oldHistory)) })
   // 找主干的顺序要单拿一个能同时答好几个引用的假 git 才看得出：`resolvable` 是 rev-parse 认得的，`show` 对每个引用都交得出表
-  const refsGit = (resolvable: readonly string[]): GitAsk => (...a: string[]) =>
+  const refsGit = (resolvable: readonly string[], forks = true): GitAsk => (...a: string[]) =>
     a[0] === 'rev-parse' ? (resolvable.some(r => a[2] === `${r}^{commit}`) ? 'c0ffee' : null)
+      : a[0] === 'merge-base' ? (forks && a[2] === 'HEAD' ? `fork-of-${a[1]}` : null)
       : a[0] === 'show' ? a[1].slice(0, a[1].indexOf(':')) : null
-  eq('找主干先试 origin/main，没有再试 main', [trunkPinsText(refsGit(['main', 'origin/main'])), trunkPinsText(refsGit(['main']))], ['origin/main', 'main'])
+  eq('找主干先试 origin/main，没有再试 main', [trunkPinsText(refsGit(['main', 'origin/main'])), trunkPinsText(refsGit(['main']))], ['fork-of-origin/main', 'fork-of-main'])
   eq('找不到主干：没有可比的，交回 null', trunkPinsText(refsGit([])), null)
+  eq('与主干没有分叉点：没有可比的，交回 null，不拿主干头比', trunkPinsText(refsGit(['origin/main'], false)), null)
   const trunkToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-01-甲.md': '# ADR-01 甲\n改过\n', [PINS_FILE]: '{}\n' })
   const trunkWrite = adrSync(trunkToy, true, fakeGit('origin/main', trunkPinned))
   ok('主干钉过的历史文件被改、本树指纹表里那一行被删：比主干报红，--write 也拒绝、不把改过的钉上去',
@@ -15034,6 +15039,9 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   rmSync(trunkGoneToy, { recursive: true, force: true })
   const trunkSameToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-01-甲.md': oldHistory + '后来接着加的\n' })
   ok('主干钉过、这边只在末尾接着加：比主干不报错，--write 钉住新的末尾', adrSync(trunkSameToy, true, fakeGit('origin/main', trunkPinned)).ok)
+  // 主干头上后来又钉了一份（乙），这边还没合主干、没有它：比分叉点不报红；拿主干头比就会报「没有这一份」
+  const aheadPins = JSON.stringify({ 'ADR-01-甲.md': pinOf(B(oldHistory)), 'ADR-02-乙.md': pinOf(B('# ADR-02 乙\n')) })
+  ok('落后于主干：主干后来新钉的那份这边没有，比的是分叉点上那份，不报红', adrSync(trunkSameToy, false, fakeGit('origin/main', trunkPinned, aheadPins)).ok)
   rmSync(trunkSameToy, { recursive: true, force: true })
   const trunkBadToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
   const trunkBad = adrSync(trunkBadToy, false, fakeGit('origin/main', '{'))
@@ -22234,7 +22242,7 @@ await group('h-observer-rule', () => {
   const hit = [rq(1, 0, { status: 200 })], pos = ob({ requests: hit })
   eq('观察器零请求：入口自己的 armed、同一认证下同一入口的阳性看见了请求、观察成立 —— 判通过', zeroVerdict(ob(), pos), { verdict: 'pass' })
   eq('观察器零请求：观察成立、阳性合格时，归得到本次运行的请求判红', zeroVerdict(ob({ requests: hit }), pos), { verdict: 'red', requests: 1 })
-  // 设施故障先于语义红（ADR-70 末尾「修复轮 1」）：那一跑记下的请求照样归得到它，但那一跑本身不成立
+  // 设施故障先于语义红（ADR-70「修复轮 1」）：那一跑记下的请求照样归得到它，但那一跑本身不成立
   eq('观察器零请求：目标那一跑是设施故障时判设施故障，带上哪一跑、哪一因；观察器叫停的脚本外请求、请求之后被信号打死，记下的请求都不判红',
     [zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'observer', reason: 'x' }, requests: hit }), pos), zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'signal', reason: 'y' }, requests: hit }), pos)],
     [{ verdict: 'facility', side: 'target', cause: 'observer', reason: '目标：x' }, { verdict: 'facility', side: 'target', cause: 'signal', reason: '目标：y' }])
@@ -22397,7 +22405,7 @@ await group('h-observer-run', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
-// ADR-70 末尾「修复轮 1」：观察器看不到的执行上下文与吞掉的直连。连的都是本机 127.0.0.1 的 9 号端口（没人听），DNS 指到同一处
+// ADR-70「修复轮 1」：观察器看不到的执行上下文与吞掉的直连。连的都是本机 127.0.0.1 的 9 号端口（没人听），DNS 指到同一处
 await group('h-observer-contexts', () => {
   harness('零请求观察器看不到的路：入口起线程、子进程，绕过 fetch 查 DNS、经 http 直连，失败都吞掉也判观察器故障（真起五次玩具入口，不进沙箱）')
   const dir = mkdtempSync(join(tmpdir(), 'kol-obc-'))

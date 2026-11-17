@@ -27228,9 +27228,9 @@
       "id": "M-H211-bb",
       "req": "harness",
       "file": "scripts/check/adr-rule.ts",
-      "why": "找不到主干也硬读 origin/main 上的表 —— 没有可比的时候不该假装有",
-      "find": "  if (trunk === undefined) return null\n  return ask('show', `${trunk}:docs/adr/${PINS_FILE}`)",
-      "replace": "  return ask('show', `${trunk ?? 'origin/main'}:docs/adr/${PINS_FILE}`)",
+      "why": "找不到主干也接着往下问分叉点、读表 —— 没有可比的时候不该假装有",
+      "find": "  if (trunk === undefined) return null\n",
+      "replace": "",
       "by": "test",
       "kills": [
         "找不到主干：没有可比的，交回 null"
@@ -27246,6 +27246,30 @@
       "by": "test",
       "kills": [
         "找主干先试 origin/main，没有再试 main"
+      ]
+    },
+    {
+      "id": "M-H211-bd",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "与主干没有分叉点也接着读表 —— 读的是一个不存在的提交上的表",
+      "find": "  if (base === null) return null\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "与主干没有分叉点：没有可比的，交回 null，不拿主干头比"
+      ]
+    },
+    {
+      "id": "M-H211-be",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "拿主干头上的表比、不拿分叉点上的 —— 落后于主干的分支会因主干后来新钉的历史文件误红",
+      "find": "  return ask('show', `${base}:docs/adr/${PINS_FILE}`)",
+      "replace": "  return ask('show', `${trunk}:docs/adr/${PINS_FILE}`)",
+      "by": "test",
+      "kills": [
+        "落后于主干：主干后来新钉的那份这边没有，比的是分叉点上那份，不报红"
       ]
     },
     {
