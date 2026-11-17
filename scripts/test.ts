@@ -9178,7 +9178,7 @@ try {
   const ask = (...args: string[]) => maintenanceGit(repository, ...args);
   const comparison = resolveMutationBaseline(ask, base);
   eq('维护-显式基线取真实祖先与HEAD', JSON.stringify(comparison), JSON.stringify({ kind: 'compare', base, head }));
-  // 短 SHA 每跑不同，标签里写成固定的名字：同一配置两次正常基线的打印要逐字相同（ADR-145 第 1134 行那一类）
+  // 短 SHA 每跑不同，标签里写成固定的名字：同一配置两次正常基线的打印要逐字相同（ADR-145 第一节「限定」第 3 条）
   for (const [name, invalid] of [['""', ''], ['" "', ' '], ['"HEAD"', 'HEAD'], ['基线的12位短SHA', base.slice(0, 12)],
     [JSON.stringify('0'.repeat(40)), '0'.repeat(40)], [JSON.stringify('z'.repeat(40)), 'z'.repeat(40)]]) {
     eq(`维护-显式基线拒绝非法SHA ${name}`, resolveMutationBaseline(ask, invalid).kind, 'cannot-answer');
@@ -9671,7 +9671,7 @@ const keyOf = (by: LaunchVerifier, only: readonly string[]): string => configura
 const canon = (v: unknown): unknown => Array.isArray(v) ? v.map(canon) : v !== null && typeof v === 'object'
   ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canon((v as Record<string, unknown>)[k])])) : v
 const loose = (fs: readonly LaunchFinding[]): unknown => canon(fs.map(f => f.kind === 'missing' ? { ...f, ids: [...f.ids].sort() } : f))
-// 判定的断言都直接写成 eq('…', loose(…), loose(…))：变异点名用的清册只认 eq、ok 的字面量首参，包一层就点不着（ADR-145 复核发现 1）
+// 判定的断言都直接写成 eq('…', loose(…), loose(…))：变异点名用的清册只认 eq、ok 的字面量首参，包一层就点不着（ADR-145 第十节第 2 条）
 
 // ── 两条线（结论、第二节）与停不停（第一节：有点名的断言，且不是「需求测试 ＋ 选了组」）
 eq('规则一的线是每条会提前停的变异 50 次入口启动', LAUNCH_LIMIT.paid, 50)
@@ -12566,7 +12566,7 @@ await group('h-order-rule', () => {
 harness('顺序契约表的字面绑定：点名的变异要在变异目录里，它的 file 要在这一行的位置栏里（ADR-148）')
 // 期望值只从 ADR-148 第二到第四节推出，没读判定模块的函数体，也没把它的输出抄回来。前 27 条先于实现写成（写时它是抛错的桩），其后各条写于实现之后、出自没读它的上下文。
 // 整组只调纯函数 orderBindingFaults，0 次启动。经 bind 调它：抛错时返回一个哨兵，每条断言各自红、整组不崩。
-// eq、ok 不包 —— 变异点名用的清册只认直接传给它们的字面量首参（ADR-145 第 242 行）。
+// eq、ok 不包 —— 变异点名用的清册只认直接传给它们的字面量首参（ADR-145 第十节第 2 条）。
 // 字段的书写先后不是契约：bind 把每条问题的键按字母排好、undefined 记成 null；下面的期望也按字母序写键，
 // 多一个、少一个字段都对不上（第四节末：恰好带那几个字段）。
 const A = 'scripts/a.ts', B = 'scripts/b.ts'
@@ -12833,7 +12833,7 @@ await group('h-skill-rule', () => {
 harness('Skill 结构五样关系：frontmatter、两个软链、reference 点名、npm 命令名、脚本路径，一次报全（ADR-156）')
 // 期望值只从 ADR-156 第二节（字面规则）与第五节（接口）手推；写时 skill-rule.ts 是抛错的桩，没有函数体可读，也没有输出可抄。
 // 整组只调纯函数 skillFaults，0 次启动、不读文件。经 guard 调它：抛错时返回哨兵 ['抛错', 消息]，每条断言各自红、整组不崩。
-// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第 242 行）。
+// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第十节第 2 条）。
 // faults 把每条问题去掉 fix（措辞不算契约，第二节末）、键按字母排、undefined（连同没写出来的 line、subject）记成 null；
 // 下面 SF(…) 写出的期望也按字母序排键，多一个字段就对不上。fix 的三条契约在组末另由三条断言专门验，经同一个 guard。
 const guard = (run: () => unknown): unknown => {
@@ -13315,7 +13315,7 @@ harness('准入读物包的纯判定：需求单、变异说明、签名扫描�
 // 期望值只从 ADR-202 第二到第五节手推（第二节的版式与认法、第三节的三种、第四节的判法、第五节的接口）；
 // 写时 admission-rule.ts 是抛错的桩，没有函数体可读，也没有输出可抄。整组只调第五节那四个纯函数与 ADR-208 后加的 entryScripts、entrySheet 两个，共六个纯函数，0 次启动、不读文件。
 // 经 guard 调：抛错时返回哨兵 ['抛错', 消息]，每条断言各自红、整组不崩（ADR-156 第七节的先例）。
-// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第 242 行）。
+// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第十节第 2 条）。
 // 写这一组时问出的含糊处已回写进 ADR-202 第二、三节（3db4b85），后补的断言照回写后的原文手推。
 // 一处期望不出自 ADR-202 本身，是它交给 why-rule.ts 的：夹带实现原文认出的那一段，只对代码运算符断言是哪一段，
 // 认出标识符的只断言交出了哪一条。

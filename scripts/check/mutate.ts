@@ -87,7 +87,7 @@ function exitWith(code: number, ...lines: string[]): never {
 // 观察不参与检查判定；普通收尾的人读行与机器段共用这一份原料。
 const costEnabled = !process.argv.includes('--brief') && !process.argv.includes('--worker')
 // 启动数文件这一跑重写，开跑先删旧的，排在变异集体检之前：这一跑在哪一步停下、数没数成，
-// 检查链最后一步都读不到上一跑的（ADR-145 第二十一节第 2 小节）。删不掉（比如那是个目录、没有权限）
+// 检查链最后一步都读不到上一跑的（ADR-145 第十三节第 2 小节）。删不掉（比如那是个目录、没有权限）
 // 就以 1 退出、不往下跑，同变异集那几道体检：留着它，最后一步读到的就是上一跑的数
 // 分份跑写的那几份（ADR-200）一起删：留着别的份上一跑的，最后一步会拿它与这一跑的拼在一起
 const LAUNCHES_FILE = 'output/mutation-launches/launches.json'
