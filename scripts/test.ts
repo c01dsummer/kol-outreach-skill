@@ -15608,6 +15608,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   const two = [fld(1, { via: 'same' }), fld(2, { via: 'same' })]
   eq('字段闸门：同名的两个字段各判各的 —— 变异守着一个，不替另一个挡；一个写了豁免，也不替另一个挡',
     [ids(fieldVerdict(two, lines(1, 2), [at(10, 11)]).unmarked), ids(fieldVerdict([two[0], { ...two[1], waiver: '子进程' }], lines(1, 2), []).unmarked)], [[2], [1]])
+  eq('字段闸门：同名的两个字段只有一个是这次新加的，两条变异都只改旧的那个，新加的照样报缺变异', ids(fieldVerdict(two, lines(2), [at(10, 12), at(12, 14)]).unmarked), [2])
   const w = fieldVerdict([fld(1, { waiver: '子进程' }), fld(2, { waiver: '' }), fld(3, { waiver: '  ' }), fld(4, { waiver: '' })], lines(1, 2, 3, 4), [at(40, 41)])
   eq('字段闸门：有理由的豁免放行、不红；空理由与只有空白的理由不成立、红，有变异守着也算不成立，也不重复报缺变异',
     [ids(w.waived), ids(w.unjustified), ids(w.unmarked), w.red, fieldVerdict([fld(1, { waiver: '子进程' })], lines(1), []).red], [[1], [2, 3, 4], [], true, false])
