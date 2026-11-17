@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { quotedMask } from './quoted.js'
+import { TRUNK_CANDIDATES, type GitAsk } from './size-rule.js'
 
 /** `ADR-08-采集累加器与交付物拆成两个文件.md` */
 export const FILE_RE = /^ADR-(\d+)-(.+)\.md$/
@@ -254,12 +255,36 @@ const MARKER_FAULT: Record<MarkerFault, string> = {
 }
 
 /**
+ * 主干上的那份指纹表，没有就交回 `null`（ADR-211 的欠条「历史文件指纹只靠评审看 diff 守着」）。
+ * 本树的指纹表这条分支自己改得动：钉过的一行被删掉（或整份换成 `{}`），本树只看得出「整份还没钉过」，
+ * `--write` 就把改过的内容照钉上去。主干上那份这条分支改不动，所以拿它再比一遍。
+ * 找主干的顺序同体量闸门（`TRUNK_CANDIDATES`），取的是这边与主干的分叉点（`merge-base`）上那份，同体量闸门：
+ * 落后于主干的分支不会因为主干后来新钉的历史文件报红，分叉点上那份这条分支同样改不动。
+ * 不是 git 仓库、找不到主干、没有分叉点、分叉点上还没有这份表，都答 `null`：
+ * 没有可比的，只比本树。分叉点上有这份表、却读不出来（`git show` 失败），交回 `{ unreadable }`：
+ * 那不是「没有可比的」，要报红、拦住 `--write`，否则这一下失败就等于把比主干那一道静默关掉。
+ * 有没有这份表先用 `ls-tree` 问（没有时它照常成功、什么都不打），读不出来与没有才分得开。
+ */
+export function trunkPinsText(ask: GitAsk): string | null | { unreadable: string } {
+  const trunk = TRUNK_CANDIDATES.find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)
+  if (trunk === undefined) return null
+  // 比分叉点，不比主干头：还没合进主干新钉的那几份，这边本来就没有，不该报红
+  const base = ask('merge-base', trunk, 'HEAD')
+  if (base === null) return null
+  const listed = ask('ls-tree', '--name-only', base, '--', `docs/adr/${PINS_FILE}`)
+  if (listed === null) return { unreadable: `问不出分叉点 ${base} 上有没有 docs/adr/${PINS_FILE}` }
+  if (listed === '') return null
+  return ask('show', `${base}:docs/adr/${PINS_FILE}`) ?? { unreadable: `分叉点 ${base} 上有 docs/adr/${PINS_FILE}，却读不出来` }
+}
+
+/**
  * `npm run adr` 整条：在仓库根 `root` 下读 `docs/adr/`，判、比，`write` 时回写索引与指纹表。
  *
  * 入口只剩打印与退出码，读目录、跳过历史目录、核历史文件这些接线都在这里 ——
  * 留在入口里的话需求测试够不着，删掉一行检查链照样全绿（ADR-211 的欠条「两处入口接线没有测试」）。
+ * 给了 `ask`（入口给的是真 git）就再拿主干上的指纹表比一遍，见 `trunkPinsText`；玩具目录不给，只比本树。
  */
-export function adrSync(root: string, write: boolean): { ok: boolean; out: string[]; err: string[] } {
+export function adrSync(root: string, write: boolean, ask?: GitAsk): { ok: boolean; out: string[]; err: string[] } {
   const dir = join(root, 'docs', 'adr')
   const index = join(dir, 'README.md')
   const pinsPath = join(dir, PINS_FILE)
@@ -297,6 +322,14 @@ export function adrSync(root: string, write: boolean): { ok: boolean; out: strin
   errors.push(...parsed.errors)
   const { errors: pinErrors, unpinned } = pinFaults(parsed.pins, history)
   errors.push(...pinErrors)
+  // 主干钉过的每一份：这边还在、不比钉住时短、钉住的那段一个字节没变。比出错就和本树的错一样拦住 `--write`
+  const trunkText = ask ? trunkPinsText(ask) : null
+  if (trunkText !== null && typeof trunkText !== 'string') errors.push(`主干上的指纹表：${trunkText.unreadable} —— 比不了主干，按出错处理`)
+  else if (trunkText !== null) {
+    const trunk = parsePins(trunkText)
+    errors.push(...trunk.errors.map(e => `主干上的 ${e}`))
+    errors.push(...pinFaults(trunk.pins, history).errors.map(e => `比主干上的指纹表：${e}`))
+  }
 
   /** 拆开之后 `DECISIONS.md` 只做转发。写回整册就是把冲突面又装回去。 */
   const legacy = join(root, LEGACY)
