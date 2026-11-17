@@ -28514,7 +28514,7 @@
       "req": "harness",
       "file": "scripts/check/child-process-use-rule.ts",
       "why": "process[变量] 不报 —— 把 execve 拼出来就绕过了进程内部的口",
-      "find": "        && ts.isIdentifier(node.expression) && node.expression.text === 'process') add(node, '进程内部的口')",
+      "find": "        && isProcess(unwrap(node.expression))) add(node, '进程内部的口')",
       "replace": "        && false) add(node, '进程内部的口')",
       "by": "test",
       "kills": ["进程内部的口：.execve、.binding、['execve']、process[不是字面量] 都算；process['env'] 不算"]
@@ -28688,6 +28688,26 @@
       "replace": "tryGit('ls-tree', '-z', '--name-only', base, '--', path)",
       "by": "test",
       "kills": ["入口：在子目录里跑，基线那份登记表照样读得到，待挪多了照样以 1 退出"]
+    },
+    {
+      "id": "M-H217-ac",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "声明文件又不扫了 —— `.d.ts` 里放真代码、再按路径加载它，在 tsx 下照样跑起来",
+      "find": "  return SCANNED.some(ext => path.endsWith(ext))\n",
+      "replace": "  return SCANNED.some(ext => path.endsWith(ext)) && !path.endsWith('.d.ts')\n",
+      "by": "test",
+      "kills": ["扫哪些文件：TypeScript 与 JavaScript 的几种扩展名，声明文件也扫（tsx 下能当真代码加载）；Markdown、shell 不扫"]
+    },
+    {
+      "id": "M-H217-ad",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "不剥 process 外层的括号与类型断言 —— `(process as any)[k]` 这种编译得过的写法拼出 execve 就绕过了",
+      "find": "        && isProcess(unwrap(node.expression))) add(node, '进程内部的口')",
+      "replace": "        && isProcess(node.expression)) add(node, '进程内部的口')",
+      "by": "test",
+      "kills": ["process 外面套括号、类型断言、! 再取下标也算"]
     }
   ],
   "exemptions": [

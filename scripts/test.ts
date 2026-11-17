@@ -23177,6 +23177,8 @@ await group('h-child-process-sites', () => {
   eq('进程内部的口：按名字导入、改名导入、解构、字符串键的解构都算，不必写成属性访问',
     kinds("import { execve } from 'node:process'\nimport { binding as b } from 'node:process'\nconst { execve: e } = process\nconst { 'binding': c } = process\n"),
     ['1:进程内部的口', '2:进程内部的口', '3:进程内部的口', '4:进程内部的口'])
+  eq('process 外面套括号、类型断言、! 再取下标也算',
+    kinds('(process as any)[k];\n(process)[k];\nprocess![k];\n(<any>process)[k];\n'), ['1:进程内部的口', '2:进程内部的口', '3:进程内部的口', '4:进程内部的口'])
   eq('带名字的再导出与整个再导出都会加载模块，算',
     kinds(`export { spawn } from '${CP}'\nexport * from 'node:${CP}'\nexport * as cp from '${CP}'\n`), ['1:模块名', '2:模块名', '3:模块名'])
   eq('.js、.mjs、.cjs 也按语法树读（不是 TypeScript 也认得出 require）', kinds(`const c = require(m)\n`, 'x.cjs'), ['1:动态取模块'])

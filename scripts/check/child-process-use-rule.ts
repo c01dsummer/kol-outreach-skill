@@ -107,6 +107,11 @@ export function launchSites(path: string, text: string): Site[] {
       || (ts.isPropertyAccessExpression(callee) && callee.name.text === 'pathToFileURL')
   }
 
+  // `process`，外面套括号、类型断言、`!` 的也算（`(process as any)[k]` 编译得过，裸写 `process[k]` 在 strict 下反而编译不过）
+  const isProcess = (node: Ts.Node): boolean => ts.isIdentifier(node) && node.text === 'process'
+  const unwrap = (node: Ts.Expression): Ts.Expression =>
+    ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)
+      || ts.isNonNullExpression(node) || ts.isSatisfiesExpression(node) ? unwrap(node.expression) : node
   const visit = (node: Ts.Node): void => {
     const text = literalText(node)
     if (text !== undefined && MODULE_NAMES.includes(text) && !typeOnly(node)) add(node, '模块名')
@@ -117,7 +122,7 @@ export function launchSites(path: string, text: string): Site[] {
     // 名字本身出现就记：属性访问、按名字导入、解构、对象字面量的键，写成标识符或字符串都一样
     if ((ts.isIdentifier(node) && INTERNAL_NAMES.includes(node.text)) || (text !== undefined && INTERNAL_NAMES.includes(text))) add(node, '进程内部的口')
     if (ts.isElementAccessExpression(node) && literalText(node.argumentExpression) === undefined
-        && ts.isIdentifier(node.expression) && node.expression.text === 'process') add(node, '进程内部的口')
+        && isProcess(unwrap(node.expression))) add(node, '进程内部的口')
     ts.forEachChild(node, visit)
   }
   visit(tree)
