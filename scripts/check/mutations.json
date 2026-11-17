@@ -22511,8 +22511,8 @@
       "req": "P2.f",
       "why": "有草稿、什么都没有时这一行是空的，看不出是查过没问题",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "  return line.length ? line.join('　｜　') : '无'",
-      "replace": "  return line.join('　｜　')",
+      "find": "  if (line.length === 0) return '无'\n",
+      "replace": "",
       "by": "test",
       "kills": [
         "P2.f 有草稿、没有一个字要登记（只有标点）时写「无」"
@@ -22607,8 +22607,8 @@
       "req": "P2.f",
       "why": "一句里只登记了一小段，整句就算有出处了，没登记的半句不印出来",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "    if (touched && rest) placed.push(",
-      "replace": "    if (false) placed.push(",
+      "find": "    if (touched && rest) { seen.add(s); placed.push(",
+      "replace": "    if (false) { seen.add(s); placed.push(",
       "by": "test",
       "kills": [
         "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
@@ -22849,8 +22849,8 @@
       "req": "P2.f",
       "why": "一个字都没登记的句子不列出来，没登记的话没人看",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "    else if (!touched && /[^\\s\\p{P}]/u.test(s)) placed.push",
-      "replace": "    else if (false) placed.push",
+      "find": "    else if (!touched && /[^\\s\\p{P}]/u.test(s)) { seen.add(s); placed.push",
+      "replace": "    else if (false) { seen.add(s); placed.push",
       "by": "test",
       "kills": [
         "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记",
@@ -22862,8 +22862,8 @@
       "req": "P2.f",
       "why": "只有标点、破折号的一段也当没登记的话列出来，报告里全是噪音",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "    else if (!touched && /[^\\s\\p{P}]/u.test(s)) placed.push",
-      "replace": "    else if (!touched) placed.push",
+      "find": "    else if (!touched && /[^\\s\\p{P}]/u.test(s)) { seen.add(s); placed.push",
+      "replace": "    else if (!touched) { seen.add(s); placed.push",
       "by": "test",
       "kills": [
         "P2.f 有草稿、没有一个字要登记（只有标点）时写「无」",
@@ -22949,11 +22949,11 @@
       "req": "P2.c",
       "why": "价钱登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['price', 'phrase', 'alnum', 'word'])",
-      "replace": "new Set(['phrase', 'alnum', 'word'])",
+      "find": "new Set(['date', 'time', 'digits'])",
+      "replace": "new Set(['date', 'time', 'digits', 'price'])",
       "by": "test",
       "kills": [
-        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
       ]
     },
     {
@@ -22961,23 +22961,23 @@
       "req": "P2.c",
       "why": "承诺词登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['price', 'phrase', 'alnum', 'word'])",
-      "replace": "new Set(['price', 'phrase', 'alnum'])",
+      "find": "new Set(['date', 'time', 'digits'])",
+      "replace": "new Set(['date', 'time', 'digits', 'word'])",
       "by": "test",
       "kills": [
-        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
       ]
     },
     {
       "id": "M-P2-c-own6",
       "req": "P2.c",
-      "why": "百分比登记成发件人自己的话也移出「出处对不上」",
+      "why": "普通数量（带单位的数、倍数）登记成发件人自己的话也移出「出处对不上」，产品规格躲过检查",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "PRODUCT_SHAPED.has(kind) || (kind === 'num' && unit === '%')",
-      "replace": "PRODUCT_SHAPED.has(kind)",
+      "find": "new Set(['date', 'time', 'digits'])",
+      "replace": "new Set(['date', 'time', 'digits', 'num'])",
       "by": "test",
       "kills": [
-        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
       ]
     },
     {
@@ -22985,11 +22985,11 @@
       "req": "P2.c",
       "why": "half off 这类数量写法登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['price', 'phrase', 'alnum', 'word'])",
-      "replace": "new Set(['price', 'alnum', 'word'])",
+      "find": "new Set(['date', 'time', 'digits'])",
+      "replace": "new Set(['date', 'time', 'digits', 'phrase'])",
       "by": "test",
       "kills": [
-        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
       ]
     },
     {
@@ -22997,11 +22997,11 @@
       "req": "P2.c",
       "why": "型号串登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "new Set(['price', 'phrase', 'alnum', 'word'])",
-      "replace": "new Set(['price', 'phrase', 'word'])",
+      "find": "new Set(['date', 'time', 'digits'])",
+      "replace": "new Set(['date', 'time', 'digits', 'alnum'])",
       "by": "test",
       "kills": [
-        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
       ]
     },
     {
@@ -23013,7 +23013,7 @@
       "replace": "const seenKey = `${'any'}:",
       "by": "test",
       "kills": [
-        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
       ]
     },
     {
@@ -23025,7 +23025,7 @@
       "replace": "${posts}",
       "by": "test",
       "kills": [
-        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
       ]
     },
     {
@@ -23037,7 +23037,7 @@
       "replace": "undefined",
       "by": "test",
       "kills": [
-        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列",
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列",
         "P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移"
       ]
     },
@@ -23046,11 +23046,110 @@
       "req": "P2.c",
       "why": "认证、批准这类说法的那一整句登记成发件人自己的话也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
-      "find": "  if (claim.folded !== undefined) return true   // 认证类那一整句\n",
+      "find": "new Set(['date', 'time', 'digits'])",
+      "replace": "new Set(['date', 'time', 'digits', 'endorsed'])",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own13",
+      "req": "P2.c",
+      "why": "登记成发件人自己的话的电话这类连着的一串数字不移，约时间、联系方式照样挤在「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "new Set(['date', 'time', 'digits'])",
+      "replace": "new Set(['date', 'time'])",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列",
+        "P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移"
+      ]
+    },
+    {
+      "id": "M-P2-c-own14",
+      "req": "P2.c",
+      "why": "登记成发件人自己的话的日期不移，约时间照样挤在「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "new Set(['date', 'time', 'digits'])",
+      "replace": "new Set(['time', 'digits'])",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own15",
+      "req": "P2.c",
+      "why": "「只在发件人自己的话里」这一行不转义，草稿里的尖括号会变成网页标签",
+      "file": "scripts/lib/report.ts",
+      "find": "只在发件人自己的话里：${esc(lines.senderOnly)}",
+      "replace": "只在发件人自己的话里：${lines.senderOnly}",
+      "by": "test",
+      "kills": [
+        "P2.c 「只在发件人自己的话里」一行在输出处转义"
+      ]
+    },
+    {
+      "id": "M-P2-c-own16",
+      "req": "P2.c",
+      "why": "登记成发件人自己的话的钟点不再移走，约时间照列在「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "new Set(['date', 'time', 'digits'])",
+      "replace": "new Set(['date', 'digits'])",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列",
+        "P2.c 登记成发件人自己的话也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点"
+      ]
+    },
+    {
+      "id": "M-P2-c-own17",
+      "req": "P2.c",
+      "why": "没有分钟的整点（3pm）不算钟点，登记成自己的话的约时间照列在「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "|\\\\d{1,2}[ \\\\t]?(?:am|pm|a\\\\.m\\\\.|p\\\\.m\\\\.))(?:[ \\\\t]?(?:${TIME_ZONES})",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+        "P2.c 登记成发件人自己的话也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点"
+      ]
+    },
+    {
+      "id": "M-P2-s64",
+      "req": "P2.f",
+      "why": "同一句前一处被登记盖住后就记账，后一处没盖住的被去重吃掉不列",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    if (!s || seen.has(s)) continue\n",
+      "replace": "    if (!s || seen.has(s)) continue\n    seen.add(s)\n",
+      "by": "test",
+      "kills": [
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s65",
+      "req": "P2.f",
+      "why": "「要看」那一段空着时不写「要看：无」，运营要从下一段开头去推断",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "return (look.length ? line : ['要看：无', ...line]).join('　｜　')",
+      "replace": "return line.join('　｜　')",
+      "by": "test",
+      "kills": [
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后",
+        "P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上"
+      ]
+    },
+    {
+      "id": "M-P2-s66",
+      "req": "P2.f",
+      "why": "产品事实拼成一整段再找，两条事实各一半的原文也算对得上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "fields = (given.facts ?? []).filter(fact => typeof fact === 'string')",
+      "replace": "fields = [(given.facts ?? []).filter(fact => typeof fact === 'string').join(' ')]",
+      "by": "test",
+      "kills": [
+        "P2.f 产品事实：原文要整段落在同一条事实里，跨两条拼起来的对不上"
       ]
     },
     {

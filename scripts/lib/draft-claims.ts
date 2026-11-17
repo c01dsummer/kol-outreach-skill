@@ -256,9 +256,10 @@ const LINKS: readonly RegExp[] = [
   // 不带协议的网址：网址名里要有字母，后缀要小写（「$29.99.Shop now」「40 hours.Me and」是句号后漏了空格，不是网址）。
   /(?<![\w-])(?=[\w-]*[a-zA-Z])[\w-]+\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
 ]
-/** 钟点整串一条：10:30、9:00-17:00、10:30 and 11:30、10:30 am PST、1:10 to 1:20（比例也是这个形状，照样列出）。 */
-const CLOCK = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|and|until|till)[ \\t]?\\d{1,2}:\\d{2})?` +
-  `(?:[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))?(?:[ \\t]?(?:${TIME_ZONES})\\b)?(?![\\w:])`, 'gi')
+/** 钟点整串一条：10:30、9:00-17:00、10:30 and 11:30、10:30 am PST、1:10 to 1:20（比例也是这个形状，照样列出）；
+ *  没有分钟的整点要带 am、pm 才算钟点（3pm、3 p.m. EST），光一个数不算。 */
+const CLOCK = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(?:\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|and|until|till)[ \\t]?\\d{1,2}:\\d{2})?` +
+  `(?:[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))?|\\d{1,2}[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))(?:[ \\t]?(?:${TIME_ZONES})\\b)?(?![\\w:])`, 'gi')
 /** 一行里用空格、点、连字符、括号隔开的几组数字，合起来至少九位：多半是电话（415 555 0199、07700 900123、+44 (0)20 7946 0958），整串一条。 */
 const DIGIT_GROUPS = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\+?\\(?\\d{1,5}\\)?(?:(?:[ \\t]{1,2}|[.-]|(?<=\\)))\\(?\\d{1,6}\\)?){1,}(?![\\w%]|[.,]\\d)`, 'g')
 const groupKey = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ')
@@ -485,15 +486,15 @@ const shown = (f: Flagged): string => f.context === f.text ? f.text : `${f.text}
 export interface DraftClaims { unsourced: Flagged[]; postsOnly: Flagged[]; senderOnly: Flagged[]; unmatchedBraces: boolean }
 
 /**
- * 登记成发件人自己的话也不放过的几类：价钱、百分比、承诺词、认证那一整句、half off 这类数量写法、型号串。
- * 这几类是编造产品信息最常见、代价最大的，一句登记不能让它们离开「出处对不上」（ADR-215 第三节）。
- * 能移走的只剩日期、钟点、电话这类连着的一串数字、普通数字（带不带单位都算）和兜底整串。
+ * 登记成发件人自己的话时能从「出处对不上」挪走的只有约时间、联系方式这三类：日期、钟点、
+ * 电话这类连着的一串数字（需求所有者 2026-11-16 定的「约时间、电话」）。按「能挪的」列：
+ * 普通数字（带单位的规格 `40-hour`、`12 blades`、倍数 `2x`、没带币符的价钱）、价钱、百分比、承诺词、
+ * 认证那一整句、数量写法、型号串、兜底整串，以及以后新加的任何种类，默认都留在「出处对不上」——
+ * 一句登记不能让产品说法离开那一行（ADR-215 第三节）。
  */
-const PRODUCT_SHAPED = new Set(['price', 'phrase', 'alnum', 'word'])
-function productShaped(claim: Claim): boolean {
-  if (claim.folded !== undefined) return true   // 认证类那一整句
-  const [kind, , unit] = claim.key.split(':')
-  return PRODUCT_SHAPED.has(kind) || (kind === 'num' && unit === '%')
+const SENDER_MOVABLE = new Set(['date', 'time', 'digits'])
+function senderMovable(claim: Claim): boolean {
+  return SENDER_MOVABLE.has(claim.key.split(':')[0])
 }
 
 /**
@@ -510,7 +511,7 @@ export function draftClaims(draft: string, facts: readonly string[], posts: read
   const unsourced: Flagged[] = [], postsOnly: Flagged[] = [], senderOnly: Flagged[] = []
   for (const claim of claimsIn(draft)) {
     if (sourced(claim, fromFacts)) continue
-    const list = !productShaped(claim) && senderOwn(claim.at, claim.text.length) ? senderOnly
+    const list = senderMovable(claim) && senderOwn(claim.at, claim.text.length) ? senderOnly
       : sourced(claim, fromPosts) ? postsOnly : unsourced
     // 去重按「列到哪一行」分开记：同一写法先出现在发件人自己的话里，信里别处没登记的那一处照样进「出处对不上」。
     const seenKey = `${list === senderOnly ? 'sender' : 'other'}:${claim.text.toLowerCase()}`

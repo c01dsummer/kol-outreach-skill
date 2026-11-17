@@ -220,13 +220,13 @@ export function draftSourceItems(
     const s = normalizeText(sentence)
     const found = normalizedDraft.indexOf(s, cursor)
     if (found >= 0) cursor = found + s.length
+    // 同一句只列一次：只在真的列出来时记账 —— 前一处被登记盖住、后一处没盖住的，后一处照列。
     if (!s || seen.has(s)) continue
-    seen.add(s)
     // 在信里找不到这句（归一前后切法有出入的极少数情形）时当一个字都没被盖住，照列，不放过。
     const at = found >= 0 ? found : normalizedDraft.length
     const { touched, rest } = found >= 0 ? uncovered(normalizedDraft, covered, found, s.length) : { touched: false, rest: s }
-    if (touched && rest) placed.push({ at, item: { status: 'partial', draft: sentence, rest } })
-    else if (!touched && /[^\s\p{P}]/u.test(s)) placed.push({ at, item: { status: 'unregistered', draft: sentence } })
+    if (touched && rest) { seen.add(s); placed.push({ at, item: { status: 'partial', draft: sentence, rest } }) }
+    else if (!touched && /[^\s\p{P}]/u.test(s)) { seen.add(s); placed.push({ at, item: { status: 'unregistered', draft: sentence } }) }
   }
   placed.sort((a, b) => a.at - b.at)
   return [...placed.map(p => p.item), ...missing]
@@ -262,7 +262,9 @@ export function draftSourceLine(
   const self = items.filter(item => item.status === 'self')
   const parts = [['要看', look], ['对得上', ok], ['发件人自己的话（确认没有借它给博主安新说法，也没有夹带产品说法）', self]] as const
   const line = parts.filter(([, list]) => list.length).map(([label, list]) => `${label}：${list.map(draftSourceText).join('；')}`)
-  return line.length ? line.join('　｜　') : '无'
+  if (line.length === 0) return '无'
+  // 「要看」那一段空着时明写一句，运营不用从下一段的开头去推断没问题。
+  return (look.length ? line : ['要看：无', ...line]).join('　｜　')
 }
 
 /**

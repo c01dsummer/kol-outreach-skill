@@ -1762,6 +1762,8 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   const lineOf = (page: string, handle: string) => rowOf(page, handle, 'data-draft-sources="sentences"')
   const HEAD = '逐句出处：', TAIL = '（改写得准不准请对照原文自己看）', BAR = '　｜　'
   const SELF = '发件人自己的话（确认没有借它给博主安新说法，也没有夹带产品说法）：'
+  // 「要看」那一段空着时这一行以「要看：无」开头（ADR-215），运营不用从下一段推断。
+  const lead = (want: string) => want.startsWith('要看：') ? want : `要看：无${BAR}${want}`
   const review = renderHtml(people, meta, { mode: 'review', filters: 'dual', facts: FACTS })
   eq('P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记',
     lineOf(review, 'meicooks'), HEAD + '要看：' + [
@@ -1786,10 +1788,15 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     draft_sources: [{ draft: 'We make a blender.', from: 'product', quote: 'blender' }], profile_url: 'https://example.com/prod' })], meta, { mode: 'review', facts }), 'prod')
   eq('P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上',
     [product(['A blender.']), product(['Cup', 'Our blender is quiet']), product([]), product(undefined), product(['A mixer.'])], [
-      `${HEAD}对得上：「We make a blender.」← 产品事实原文「blender」${TAIL}`,
-      `${HEAD}对得上：「We make a blender.」← 产品事实原文「blender」${TAIL}`,
+      `${HEAD}要看：无${BAR}对得上：「We make a blender.」← 产品事实原文「blender」${TAIL}`,
+      `${HEAD}要看：无${BAR}对得上：「We make a blender.」← 产品事实原文「blender」${TAIL}`,
       ...[0, 1, 2].map(() => `${HEAD}要看：「We make a blender.」← 产品事实原文「blender」（原文对不上：任务里已证实的产品事实没有这段）${TAIL}`),
     ])
+  // 产品事实的原文要整段落在同一条事实里：两条事实各有一半、拼起来才有的那段对不上。
+  const spliced = lineOf(renderHtml([mk('tiktok', 'prod', { tier: 'A', outreach_draft: 'A blender. Quiet motor.',
+    draft_sources: [{ draft: 'A blender. Quiet motor.', from: 'product', quote: 'blender. quiet' }], profile_url: 'https://example.com/prod' })], meta, { mode: 'review', facts: ['A blender.', 'Quiet motor.'] }), 'prod')
+  eq('P2.f 产品事实：原文要整段落在同一条事实里，跨两条拼起来的对不上', spliced,
+    `${HEAD}要看：「A blender. Quiet motor.」← 产品事实原文「blender. quiet」（原文对不上：任务里已证实的产品事实没有这段）${TAIL}`)
   // 登记半句盖不住整句：句子里没登记的部分照印出来，不管 Agent 登记的是一小段、一个词还是一个标点。
   const one = (draft: string, sources: NonNullable<Creator['draft_sources']>, over: Partial<Creator> = {}) =>
     lineOf(renderHtml([mk('tiktok', 'one', { nickname: 'Mei Lin', bio: '3-ingredient recipes', tier: 'A', outreach_draft: draft, draft_sources: sources, profile_url: 'https://example.com/one', ...over })], meta, { mode: 'review' }), 'one')
@@ -1817,12 +1824,15 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     ['要看的按在信里的先后，不按登记的先后', 'You won awards. Your 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
       '要看：「You won awards.」（没登记出处）；「Your 3-ingredient secret.」← 简介原文「secret」（原文对不上：他的简介里没有这段）'],
     ['同一句只列一次', 'You rock.\n\nYou rock.', [], '要看：「You rock.」（没登记出处）'],
+    // 同一句在信里出现两处，前一处登记了、后一处没盖住：后一处照列，不被前一处去重吃掉。
+    ['同一句前一处登记了，后一处没盖住照列', 'Want to try it? No pressure.\n\nNo pressure.', [{ draft: 'Want to try it? No pressure.', from: 'self' }],
+      `要看：「No pressure.」（没登记出处）${BAR}${SELF}「Want to try it? No pressure.」`],
     ['登记跨过两句的一整段也算盖住', 'You cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
     ['只剩标点的一段不列', 'We make a blender.\n\n— …', [{ draft: 'We make a blender.', from: 'self' }], `${SELF}「We make a blender.」`],
     ['占位符也是字，要登记', '{他的某条具体内容}', [], '要看：「{他的某条具体内容}」（没登记出处）'],
   ]
   eq('P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后',
-    halfCases.map(([name, draft, sources]) => [name, one(draft, sources)]), halfCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
+    halfCases.map(([name, draft, sources]) => [name, one(draft, sources)]), halfCases.map(([name, , , want]) => [name, HEAD + lead(want) + TAIL]))
   // 登记停在切句点上或跨过切句点：覆盖按整封信的字算，被压到一部分的那句照样列出没登记的部分。
   const POST = { recent_posts: [{ desc: 'Yes, I show the cleanup every time! Day 12. Still showing the cleanup!' }] as unknown as Creator['recent_posts'] }
   const crossCases: Array<[string, string, NonNullable<Creator['draft_sources']>, string, Partial<Creator>]> = [
@@ -1850,7 +1860,7 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     ['分开写的附加符号与合写的算同一个字', 'Café chats are fun.', [{ draft: 'Café chats are fun.', from: 'self' }], `${SELF}「Café chats are fun.」`, {}],
   ]
   eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一',
-    crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
+    crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + lead(want) + TAIL]))
   // 名单被手改坏（昵称不是字符串、作品文案是 null、简介是数字）时这一行照出，不让 render 失败（P2.g）。
   let crashed = ''
   try {
@@ -1890,14 +1900,16 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   const NOTE = '（只查数字和承诺词，其余说法仍要自己看）', SENDER_NOTE = '（确认是约时间、联系方式这类，不是产品说法）'
   const PRODUCTISH = ['$40（I can do $40 off and free）', 'free shipping（$40 off and free shipping, 20% too, even）', '20%（and free shipping, 20% too, even half）',
     'half off（20% too, even half off on the IPX7）', 'IPX7（off on the IPX7 one. It is）', 'It is FDA approved']
-  const TIMEISH = ['11/20/2026（quick call on 11/20/2026 at 3:30pm? Text）', '3:30pm（on 11/20/2026 at 3:30pm? Text me at）', '415 555 0199（Text me at 415 555 0199 for a 15-minute）', '15-minute（0199 for a 15-minute chat. I can）']
-  eq('P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列',
+  const TIMEISH = ['11/20/2026（quick call on 11/20/2026 at 3:30pm? Text）', '3:30pm（on 11/20/2026 at 3:30pm? Text me at）', '415 555 0199（Text me at 415 555 0199 for a 15-minute）']
+  // 「15-minute」是带单位的数量写法：登记成自己的话也留在「出处对不上」，跟产品规格（5000mAh、40-hour）同一类，不移走。
+  const MINUTES = '15-minute（0199 for a 15-minute chat. I can）'
+  eq('P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列',
     claimsOf(LETTER, [{ draft: CALL, from: 'self' }]), [
-      `出处对不上：${[...PRODUCTISH, '415 555 0199（Or call 415 555 0199 any time.）'].join('；')}${NOTE}`,
+      `出处对不上：${[MINUTES, ...PRODUCTISH, '415 555 0199（Or call 415 555 0199 any time.）'].join('；')}${NOTE}`,
       `只在发件人自己的话里：${TIMEISH.join('；')}${SENDER_NOTE}`,
     ])
   eq('P2.c 没登记成发件人自己的话时约时间、电话照列在「出处对不上」，不出另一行',
-    claimsOf(LETTER, undefined), [`出处对不上：${[TIMEISH[0], TIMEISH[1], TIMEISH[2], TIMEISH[3], ...PRODUCTISH].join('；')}${NOTE}`, undefined])
+    claimsOf(LETTER, undefined), [`出处对不上：${[...TIMEISH, MINUTES, ...PRODUCTISH].join('；')}${NOTE}`, undefined])
   // 登记只盖住半个日期（停在 11/20 上）时那个日期不算落在发件人自己的话里；登记成博主资料或产品事实的也不算。
   eq('P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移',
     [claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self' }])[1],
@@ -1905,6 +1917,14 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
      claimsOf('Free on  11/20/2026\nat noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'self' }])[1],
      claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at 415 555 0199.', from: 'self' }])[1]],
     [undefined, undefined, `只在发件人自己的话里：11/20/2026（Free on 11/20/2026）${SENDER_NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`])
+  const escaped = renderHtml([mk('tiktok', 'esc', { tier: 'A', outreach_draft: 'Text me at 415 555 0199 <b>now</b> & then.', draft_sources: [{ draft: 'Text me at 415 555 0199 <b>now</b> & then.', from: 'self' }], profile_url: 'https://example.com/esc' })], meta, { mode: 'review', facts: ['x'] })
+  ok('P2.c 「只在发件人自己的话里」一行在输出处转义', rowOf(escaped, 'esc', 'data-draft-claims="sender-only"') === `只在发件人自己的话里：415 555 0199（Text me at 415 555 0199 &lt;b&gt;now&lt;/b&gt; & then.）${SENDER_NOTE}`)
+  // 产品规格（带单位的数量、倍数）登记成发件人自己的话也照列在「出处对不上」：只有日期、钟点、电话移走（ADR-215）。
+  const SPEC = 'It runs 40-hour with 5000mAh, 12 blades, 2x faster. Free at 3pm EST?'
+  eq('P2.c 登记成发件人自己的话也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点', claimsOf(SPEC, [{ draft: SPEC, from: 'self' }]), [
+    `出处对不上：${['40-hour（It runs 40-hour with 5000mAh, 12）', '5000mAh（runs 40-hour with 5000mAh, 12 blades, 2x）', '12 blades（40-hour with 5000mAh, 12 blades, 2x faster. Free）', '2x（5000mAh, 12 blades, 2x faster. Free at）'].join('；')}${NOTE}`,
+    `只在发件人自己的话里：3pm EST（faster. Free at 3pm EST?）${SENDER_NOTE}`,
+  ])
   criterion('P2.c')
 }
 {
