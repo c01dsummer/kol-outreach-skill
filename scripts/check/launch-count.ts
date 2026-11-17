@@ -38,7 +38,7 @@ const isGit = (api: string, file: string, shell: boolean): boolean => {
 }
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v)
 
-/** 预加载的日志 → 一种配置一次正常基线的计数；认不得就是 undefined（规矩逐条在 ADR-145 第十三节第 3 小节） */
+/** 预加载的日志 → 一种配置一次正常基线的计数；认不得就是 undefined（规矩逐条在 ADR-145 历史文件第十三节第 3 小节） */
 export function parseLaunchLog(text: string): BaselineLaunches | undefined {
   const lines = text.split('\n')
   if (lines[lines.length - 1] === '') lines.pop()

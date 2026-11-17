@@ -277,7 +277,7 @@ export function idleGroupsLine(file: unknown, source: string | undefined,
     + (unknown > 0 ? `；整族没有变异落到、没拿到计数的 ${unknown} 族不在其内` : '')
 }
 
-/** 第三十一节第 4 小节「认文件」：认得交回那几族，认不得是 undefined */
+/** ADR-145 历史文件第三十一节第 4 小节「认文件」：认得交回那几族，认不得是 undefined */
 function familyCounts(file: unknown): { groups: readonly string[]; launches: number | null }[] | undefined {
   if (!isObject(file) || file.schema !== SELFCHECK_LAUNCHES_SCHEMA || typeof file.source !== 'string'
     || !Array.isArray(file.families)) return undefined
@@ -405,7 +405,7 @@ function tallyFault(tally: readonly unknown[]): boolean {
 
 /**
  * 第 2 小节「压成一行」：对象的键按 JS `<` 排（不靠 JSON.stringify 的键序：整数样的键它会提到前面），不加空白。
- * 不递归：待写的值与原样照抄的那几段放在一个栈里，嵌套多深都照样写出，不抛栈溢出（第三十八节「实现定了的」第 5 条，第三片定）。
+ * 不递归：待写的值与原样照抄的那几段放在一个栈里，嵌套多深都照样写出，不抛栈溢出（ADR-145 第四十一节「压成一行不递归」）。
  * 栈后进先出，所以一个数组或对象的各项反着压，先出栈的是第一项
  */
 function compact(v: unknown): string {
