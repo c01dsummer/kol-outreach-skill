@@ -7,29 +7,38 @@
  * 基线上没有的文件（新文件、改了名的文件）必须一个都没有。基线与体量闸门是同一个起点
  * （`size-rule.ts` 的 `resolveBaseline`）：分支上是与主干的共同祖先，主干上是上一版。
  *
- * 认得出的两种写法在 `TICKET_PATTERN`：工单号（`KOL-` 接数字），与 linear.app 上指向一张卡的链接
- * （路径里带 `/issue/` 的那种）。指向项目页的链接不算 —— `AGENTS.md` 的接手入口就是一条。
- * **认不出的**：不带号、只说「卡片」的话；把号拆开写的（字母与数字之间隔了别的字）；别的工具的号；
+ * 认得出的两种写法在 `TICKET_PATTERN`：工单号（`KOL-` 接数字，不分大小写 —— 引一个小写的、带号的分支名
+ * 也算），与 linear.app 上指向一张卡的链接（路径里带 `/issue/` 的那种）。
+ * 指向项目页的链接不算 —— `AGENTS.md` 的接手入口就是一条。
+ * **认不出的**（ADR-205 第三节列全了）：不带号、只说「卡片」的话；把号拆开写的（字母与数字之间隔了别的字，
+ * 或换成下划线、空格、全角横线）；别的工具的号；一个号换成另一个号（个数没变）；`git` 当成二进制的文件；
  * 没 `git add` 的新文件（`git grep` 只看受控文件）。这几样仍靠人读。
+ *
+ * 决策记录拆成主文件与 `docs/adr/历史/` 下的同名历史文件时（ADR-211），旧正文原样搬进历史文件，
+ * 号跟着搬过去、一个字也不能改。所以一条记录的主文件与历史文件**合在一起数**（`ledgerOf`），
+ * 搬家不算多，搬完再往哪一份里添号才算。
  *
  * 怎么数也是判定（`docs/CONVENTIONS.md` 第 10 条），所以 `git grep` 的参数（`refsArgs`）、
  * 它的退出码怎么读（`grepOutput`）、输出怎么切（`parseRefs`）都在这里；入口只起 git、打印、退出。
  */
+import { HISTORY_DIR } from './adr-rule.js'
 
 /**
- * `git grep -E` 用的扩展正则：工单号，或指向一张卡的链接。链接一直吃到空白为止，
- * 所以链接末尾带着的那个号随链接算一处，不另算一处。
+ * `git grep -E -i` 用的扩展正则：工单号，或指向一张卡的链接。链接只吃网址里会出现的那几种字符
+ * （字母、数字与 `_./#?=&%-`），所以链接末尾带着的那个号随链接算一处、不另算一处；
+ * 链接后面紧跟着的中文标点和别的号不被吞进去，照样各算一处。
  */
-export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\.app/[^/[:space:]]+/issue/[^[:space:]]*'
+export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\.app/[^/[:space:]]+/issue/[A-Za-z0-9_./#?=&%-]*'
 
 /**
  * 数号的那条 `git grep`。`-o` 每处一行（同一行两个号算两个），`-z` 让路径后面跟 NUL 不跟冒号
- * （路径里有冒号、空格、中文都不被拆开或包上引号），`-I` 跳过二进制文件。
+ * （路径里有冒号、空格、中文都不被拆开或包上引号），`-I` 跳过二进制文件，`-i` 不分大小写，
+ * `--no-color` 让本机配了 `color.ui=always` 时路径也不被颜色码包住（包住了两边对不上，个个文件都像新的）。
  * 给了 `tree` 就数那个提交里的树；不给就数工作区里的受控文件 —— 本地没提交的改动也算。
  * 路径一律从仓库根写起（`--full-name`、`:(top)`），在哪个目录起都一样。
  */
 export function refsArgs(tree?: string): string[] {
-  return ['grep', '-o', '-z', '-I', '--full-name', '-E', TICKET_PATTERN, ...(tree ? [tree] : []), '--', ':(top)']
+  return ['grep', '--no-color', '-o', '-z', '-I', '-i', '--full-name', '-E', TICKET_PATTERN, ...(tree ? [tree] : []), '--', ':(top)']
 }
 
 /**
@@ -69,8 +78,26 @@ export interface RefsReport {
   now: number
 }
 
-/** 两边逐个文件比。 */
-export function judgeRefs(before: Map<string, number>, now: Map<string, number>): RefsReport {
+/**
+ * 一个文件的号记在哪本账上：`docs/adr/历史/` 下的历史文件记在同名主文件那本上（ADR-211），其余各记各的。
+ * 拆记录时旧正文原样搬进历史文件，号不能删；合在一本账上，搬家才不算多。
+ */
+export function ledgerOf(path: string): string {
+  const prefix = `docs/adr/${HISTORY_DIR}/`
+  return path.startsWith(prefix) && /^ADR-\d+-[^/]*$/.test(path.slice(prefix.length))
+    ? `docs/adr/${path.slice(prefix.length)}` : path
+}
+
+/** 按账合起来：同一本账上的几个文件个数相加。 */
+function byLedger(counts: Map<string, number>): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const [path, n] of counts) out.set(ledgerOf(path), (out.get(ledgerOf(path)) ?? 0) + n)
+  return out
+}
+
+/** 两边逐本账比（主文件与它的历史文件合一本，`ledgerOf`）。 */
+export function judgeRefs(rawBefore: Map<string, number>, rawNow: Map<string, number>): RefsReport {
+  const before = byLedger(rawBefore), now = byLedger(rawNow)
   const grown: RefChange[] = [], shrunk: RefChange[] = []
   for (const path of [...new Set([...before.keys(), ...now.keys()])].sort()) {
     const b = before.get(path) ?? 0, n = now.get(path) ?? 0
@@ -100,6 +127,6 @@ export function refsLines(report: RefsReport, onTrunk: boolean, scope: string): 
   const err = [`✗ 外部工单号：${report.grown.length} 个文件比基线多`, ...lines,
     '  仓库里的文字不写外部任务工具的卡号，也不放指向一张卡的链接；卡那边可以写决策记录编号（ADR-205）。',
     '  要说的是哪件事，写那件事本身（描述性的名字、决策记录编号、需求编号、PR 号）。',
-    '  新文件、改了名的文件按零个算：改名时一并把号撤掉。']
+    '  新文件、改了名的文件按零个算：改名时一并把号撤掉。决策记录的主文件与 docs/adr/历史/ 下的同名文件合在一起数。']
   return { ok: false, out, err }
 }

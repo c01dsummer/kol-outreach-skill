@@ -41,7 +41,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, iouName, iouNameFaults, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
-import { TICKET_PATTERN, grepOutput, judgeRefs, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
+import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -22258,9 +22258,18 @@ await group('h-ticket-refs', () => {
     onTrunk.ok && onTrunk.err.length === 0 && onTrunk.out.some(l => l.includes('old.md  3 → 4')) && onTrunk.out.some(l => l.includes('只报数不判定')))
   const clean = refsLines(judgeRefs(before, new Map([['old.md', 3]])), false, 'origin/main')
   ok('分支上只少不多：不红，少了的文件照样列出', clean.ok && clean.out.some(l => l.includes('gone.md  1 → 0')) && clean.out.some(l => l.includes('same.md  2 → 0')))
+  const split = judgeRefs(new Map([['docs/adr/ADR-7-甲.md', 5]]),
+    new Map([['docs/adr/ADR-7-甲.md', 1], ['docs/adr/历史/ADR-7-甲.md', 4]]))
+  const splitMore = judgeRefs(new Map([['docs/adr/ADR-7-甲.md', 5]]),
+    new Map([['docs/adr/ADR-7-甲.md', 1], ['docs/adr/历史/ADR-7-甲.md', 5]]))
+  eq('决策记录拆成主文件与历史文件时两份合一本账：号原样搬过去不算多，搬完往历史文件里再添一个才算多',
+    [split.grown, split.shrunk, splitMore.grown], [[], [], [{ path: 'docs/adr/ADR-7-甲.md', before: 5, now: 6 }]])
+  eq('只有 docs/adr/历史/ 下一层、名字是「ADR-编号-标题」的文件记在主文件那本账上，别的照旧各记各的',
+    ['docs/adr/历史/ADR-7-甲.md', 'docs/adr/历史/sub/ADR-7-甲.md', 'docs/历史/ADR-7-甲.md', 'docs/adr/历史/说明.md', 'docs/adr/ADR-7-甲.md'].map(ledgerOf),
+    ['docs/adr/ADR-7-甲.md', 'docs/adr/历史/sub/ADR-7-甲.md', 'docs/历史/ADR-7-甲.md', 'docs/adr/历史/说明.md', 'docs/adr/ADR-7-甲.md'])
   const args = refsArgs('abc123')
   ok('数的时候每一处单出一行、路径后跟 NUL、跳过二进制文件；给了树就数那棵树，没给就数工作区',
-    ['-o', '-z', '-I', '-E', TICKET_PATTERN].every(a => args.includes(a)) && args.indexOf('abc123') > args.indexOf(TICKET_PATTERN)
+    ['--no-color', '-o', '-z', '-I', '-i', '--full-name', '-E', TICKET_PATTERN, ':(top)'].every(a => args.includes(a)) && args.indexOf('abc123') > args.indexOf(TICKET_PATTERN)
       && args.indexOf('abc123') < args.indexOf('--') && !refsArgs().includes('abc123') && refsArgs().length === args.length - 1)
 })
 
@@ -22270,18 +22279,37 @@ await group('h-ticket-refs-entry', () => {
   const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-ticket-refs-'))
   try {
     const entry = cxJoin(process.cwd(), 'scripts/check/ticket-refs.ts')
-    const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
-    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete gitEnv[k]
+    // 往上找仓库停在夹具根的上一层：不是仓库那一例才不会摸到外面的仓库
+    const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+      'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
     const run = (cwd: string) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: gitEnv })
     const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
     cxMkdirSync(cxJoin(root, 'docs'))
-    // 基线：一份旧记录里有两个号、一条卡片链接（链接连同末尾的号算一处，共三处）；另一份只有项目页链接与一个不带数字的词
+    // 基线：一份旧记录里有两个号、一条卡片链接（链接连同末尾的号算一处，共三处）；另一份只有项目页链接与一个不带数字的词；
+    // 根上还有一份带一个号的，在子目录里跑时它也得数到
     cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}\n`)
+    cxWriteFileSync(cxJoin(root, 'top.md'), `根上 ${TK(9)}\n`)
     cxWriteFileSync(cxJoin(root, 'docs/entry.md'), `项目入口 ${TK_PROJECT}\nKOL-ABC 不是号\n`)
     g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base')
+    // 主干上只有一个提交：没有上一版可比
+    const first = run(root)
+    eq('入口：主干上只有一个提交时说不适用，以 0 结束', [first.status, first.stdout.includes('不适用')], [0, true])
     g('commit', '-q', '--allow-empty', '-m', 'second')
     // 分支上得有自己的提交，不然它与主干的共同祖先就是 HEAD 自己，入口会当成在主干上
     g('checkout', '-q', '-b', 'work'); g('commit', '-q', '--allow-empty', '-m', 'work')
+    // 本机把颜色开成总是开着：输出里的路径会被颜色码包住，两边对不上就个个文件都像新的
+    g('config', 'color.ui', 'always')
+    const colored = run(root)
+    eq('入口：本机把颜色开成总是开着时，没改动的仓库照样以 0 退出、一个文件都不列',
+      [colored.status, colored.stdout.includes('4 处 → 4 处'), colored.stdout.includes('→ 0'), colored.stderr], [0, true, false, ''])
+    const inDocs = run(cxJoin(root, 'docs'))
+    eq('入口：在子目录里跑也从仓库根数，总数与在根上跑一样', [inDocs.status, inDocs.stdout.includes('4 处 → 4 处')], [0, true])
+    // 链接后面紧跟中文标点再写一个号：那个号不被吞进链接，单算一处
+    cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}）、${TK(7)}\n`)
+    const glued = run(root)
+    eq('入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出',
+      [glued.status, glued.stderr.includes('docs/old.md  3 → 4')], [1, true])
     // 同一行再加一个号：多一个就红，路径与前后个数在红的那几行里；没提交的改动也算
     cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)} 又 ${TK(5)}\n见 ${TK_LINK(3)}\n`)
     const grew = run(root)
@@ -22295,6 +22323,10 @@ await group('h-ticket-refs-entry', () => {
     cxWriteFileSync(cxJoin(root, 'docs/new.md'), `还是项目入口 ${TK_PROJECT}\nKOL-ABC\n`)
     g('add', 'docs/new.md')
     const projectOnly = run(root)
+    // 引一个小写的分支名，里面带着号：不分大小写，照样算
+    cxWriteFileSync(cxJoin(root, 'docs/new.md'), `分支 claude/${TK(8).toLowerCase()}-docs\n`)
+    const lower = run(root)
+    eq('入口：新文件里引一个小写的、带号的分支名也算一处，以 1 退出', [lower.status, lower.stderr.includes('docs/new.md  0 → 1')], [1, true])
     // 链接末尾用别的团队前缀，不带工单号：认得出全靠认链接本身
     cxWriteFileSync(cxJoin(root, 'docs/new.md'), `一张卡 ${'https://linear' + '.app/ws/issue/OPS-9/some-title'}\n`)
     const cardLink = run(root)

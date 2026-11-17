@@ -26182,8 +26182,8 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs-rule.ts",
       "why": "按行数而不是按处数 —— 往已经有号的那一行里再添一个号看不出多",
-      "find": "  return ['grep', '-o', '-z',",
-      "replace": "  return ['grep', '-z',",
+      "find": "  return ['grep', '--no-color', '-o', '-z',",
+      "replace": "  return ['grep', '--no-color', '-z',",
       "by": "test",
       "kills": [
         "数的时候每一处单出一行、路径后跟 NUL、跳过二进制文件；给了树就数那棵树，没给就数工作区",
@@ -26195,7 +26195,7 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs-rule.ts",
       "why": "只认工单号、不认指向一张卡的链接 —— 换成贴链接就绕过去了",
-      "find": "export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\\\.app/[^/[:space:]]+/issue/[^[:space:]]*'",
+      "find": "export const TICKET_PATTERN = 'KOL-[0-9]+|linear\\\\.app/[^/[:space:]]+/issue/[A-Za-z0-9_./#?=&%-]*'",
       "replace": "export const TICKET_PATTERN = 'KOL-[0-9]+'",
       "by": "test",
       "kills": [
@@ -26207,7 +26207,7 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs-rule.ts",
       "why": "卡片链接末尾带着的号另算一处 —— 同一条链接数成两处，数和人读的对不上",
-      "find": "/issue/[^[:space:]]*'",
+      "find": "/issue/[A-Za-z0-9_./#?=&%-]*'",
       "replace": "/issue/'",
       "by": "test",
       "kills": [
@@ -26219,8 +26219,8 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs.ts",
       "why": "多了号的分支仍以 0 退出 —— 检查链照样往下走，CI 一片绿",
-      "find": "process.exit(ok ? 0 : 1)",
-      "replace": "process.exit(0)",
+      "find": "  return ok ? 0 : 1\n}",
+      "replace": "  return 0\n}",
       "by": "test",
       "kills": [
         "入口：旧文件同一行里多写一个号（还没提交）以 1 退出，点出那个文件从 3 到 4"
@@ -26231,8 +26231,8 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs.ts",
       "why": "无从判断时以 0 退出 —— 不是仓库、git 出错都当成通过",
-      "find": "  console.error(`✗ 外部工单号：无从判断 —— ${why}`)\n  process.exit(1)",
-      "replace": "  console.error(`✗ 外部工单号：无从判断 —— ${why}`)\n  process.exit(0)",
+      "find": "  console.error(`✗ 外部工单号：无从判断 —— ${why}`)\n  return 1",
+      "replace": "  console.error(`✗ 外部工单号：无从判断 —— ${why}`)\n  return 0",
       "by": "test",
       "kills": [
         "入口：不是 git 仓库时说无从判断，以 1 退出"
@@ -26260,6 +26260,90 @@
       "by": "test",
       "kills": [
         "入口：旧文件里撤掉一个号以 0 退出，列出那个文件从 3 到 2"
+      ]
+    },
+    {
+      "id": "M-H205-p",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "数号时不关颜色 —— 本机配了 color.ui=always 时路径被颜色码包住，基线那边的路径切不掉提交号，没改一个字也个个文件都像新的、整条红",
+      "find": "  return ['grep', '--no-color', '-o',",
+      "replace": "  return ['grep', '-o',",
+      "by": "test",
+      "kills": [
+        "入口：本机把颜色开成总是开着时，没改动的仓库照样以 0 退出、一个文件都不列"
+      ]
+    },
+    {
+      "id": "M-H205-q",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "数号时分大小写 —— 引一个小写的分支名（带着卡号）写进新文件，闸门认不出",
+      "find": "'-I', '-i', '--full-name'",
+      "replace": "'-I', '--full-name'",
+      "by": "test",
+      "kills": [
+        "入口：新文件里引一个小写的、带号的分支名也算一处，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H205-r",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "卡片链接一直吃到空白为止 —— 中文里链接后面紧跟「）、」再写一个号，那个号被吞进链接，往旧记录里添号悄悄放过",
+      "find": "/issue/[A-Za-z0-9_./#?=&%-]*'",
+      "replace": "/issue/[^[:space:]]*'",
+      "by": "test",
+      "kills": [
+        "入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H205-s",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "历史文件不记在主文件那本账上 —— 拆记录时旧正文原样搬进 docs/adr/历史/，号跟着搬过去就算新文件多了号，拆分那条 PR 必红",
+      "find": "    ? `docs/adr/${path.slice(prefix.length)}` : path",
+      "replace": "    ? path : path",
+      "by": "test",
+      "kills": [
+        "决策记录拆成主文件与历史文件时两份合一本账：号原样搬过去不算多，搬完往历史文件里再添一个才算多"
+      ]
+    },
+    {
+      "id": "M-H205-t",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "不在 docs/adr/历史/ 下、只是名字像的文件也并进主文件的账 —— 别处一份新文件里写的号，被记到同名决策记录头上抵掉",
+      "find": "  return path.startsWith(prefix) && /^ADR-\\d+-[^/]*$/.test(path.slice(prefix.length))",
+      "replace": "  return /^ADR-\\d+-[^/]*$/.test(path.split('/').pop()!)",
+      "by": "test",
+      "kills": [
+        "只有 docs/adr/历史/ 下一层、名字是「ADR-编号-标题」的文件记在主文件那本账上，别的照旧各记各的"
+      ]
+    },
+    {
+      "id": "M-H205-u",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs-rule.ts",
+      "why": "数号时不从仓库根数 —— 在子目录里跑，只数到那个子目录，别处多了号看不见",
+      "find": "TICKET_PATTERN, ...(tree ? [tree] : []), '--', ':(top)']",
+      "replace": "TICKET_PATTERN, ...(tree ? [tree] : []), '--']",
+      "by": "test",
+      "kills": [
+        "入口：在子目录里跑也从仓库根数，总数与在根上跑一样"
+      ]
+    },
+    {
+      "id": "M-H205-v",
+      "req": "harness",
+      "file": "scripts/check/ticket-refs.ts",
+      "why": "主干上只有一个提交、没有上一版时以 1 结束 —— 新开的仓库头一跑就红，而那时没有可比的东西",
+      "find": "    console.log(`✓ 外部工单号：不适用 —— HEAD 就是 ${baseline.trunk} 且没有父提交`)\n    return 0",
+      "replace": "    console.log(`✓ 外部工单号：不适用 —— HEAD 就是 ${baseline.trunk} 且没有父提交`)\n    return 1",
+      "by": "test",
+      "kills": [
+        "入口：主干上只有一个提交时说不适用，以 0 结束"
       ]
     }
   ],

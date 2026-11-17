@@ -2,9 +2,9 @@
 /**
  * 外部工单号闸门的入口（`npm run ticket-refs`，检查链里排在体量闸门与变异负载闸门之后）。
  *
- * 只起 git、打印、退出；数什么、怎么数、怎么比、什么时候红都在 `ticket-refs-rule.ts`（ADR-205）。
- * 起点与体量闸门同一个判定（`size-rule.ts` 的 `resolveBaseline`）。无从判断时说出来、以 1 退出，
- * 不退化成「零个，通过」。
+ * 只起 git、打印、交回退出码；数什么、怎么数、怎么比、什么时候红都在 `ticket-refs-rule.ts`（ADR-205）。
+ * 起点与体量闸门同一个判定（`size-rule.ts` 的 `resolveBaseline`）。无从判断时说出来、以 1 结束，
+ * 不退化成「零个，通过」。退出码只设在进程上、不当场退出：多了的文件一长串时，接在管道上的输出才不会被截掉。
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
@@ -22,22 +22,26 @@ function count(tree?: string): Map<string, number> | null {
   return out === null ? null : parseRefs(out, tree)
 }
 
-function cannotAnswer(why: string): never {
+function cannotAnswer(why: string): number {
   console.error(`✗ 外部工单号：无从判断 —— ${why}`)
-  process.exit(1)
+  return 1
 }
 
-const baseline = resolveBaseline(tryGit)
-if (baseline.kind === 'cannot-answer') cannotAnswer(`${baseline.why}（${baseline.how}）`)
-if (baseline.kind === 'not-applicable') {
-  console.log(`✓ 外部工单号：不适用 —— HEAD 就是 ${baseline.trunk} 且没有父提交`)
-  process.exit(0)
+function main(): number {
+  const baseline = resolveBaseline(tryGit)
+  if (baseline.kind === 'cannot-answer') return cannotAnswer(`${baseline.why}（${baseline.how}）`)
+  if (baseline.kind === 'not-applicable') {
+    console.log(`✓ 外部工单号：不适用 —— HEAD 就是 ${baseline.trunk} 且没有父提交`)
+    return 0
+  }
+  const before = count(baseline.base)
+  const now = count()
+  if (before === null || now === null) return cannotAnswer('`git grep` 出错了')
+  const scope = `${baseline.onTrunk ? `${baseline.trunk} 的上一版` : baseline.trunk}（${baseline.base.slice(0, 7)}）`
+  const { ok, out, err } = refsLines(judgeRefs(before, now), baseline.onTrunk, scope)
+  for (const line of out) console.log(line)
+  for (const line of err) console.error(line)
+  return ok ? 0 : 1
 }
-const before = count(baseline.base)
-const now = count()
-if (before === null || now === null) cannotAnswer('`git grep` 出错了')
-const scope = `${baseline.onTrunk ? `${baseline.trunk} 的上一版` : baseline.trunk}（${baseline.base.slice(0, 7)}）`
-const { ok, out, err } = refsLines(judgeRefs(before, now), baseline.onTrunk, scope)
-for (const line of out) console.log(line)
-for (const line of err) console.error(line)
-process.exit(ok ? 0 : 1)
+
+process.exitCode = main()
