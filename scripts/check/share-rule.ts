@@ -29,8 +29,8 @@
  * 子进程交回、父进程合并的那几样（`MERGED`）各进程各写一份、由合并收回，写不算共享；
  * 组里**读**它们另判（`merged`）：拆进程后一组只看得见本进程那一份。
  *
- * ⚠️ 看不见的（这些仍只有真跑才证得了，ADR-99 第二节）：拿 `tmp` 当当前目录起的子进程按相对路径
- * 读写的文件（`memory/creators.json` 那一类）；拼出来的路径（模板串、变量，`join(tmp, 非字面量)`
+ * ⚠️ 看不见的（这些仍只有真跑才证得了，ADR-99 第二节）：拿 `tmp` 下的目录当当前目录起的子进程按相对路径
+ * 读写的文件（`memory/creators.json` 那一类）—— 这一种由完整自检收尾时补核，见文件末尾 `judgeCwds`（ADR-212）；拼出来的路径（模板串、变量，`join(tmp, 非字面量)`
  * 静默放过，不进 `problems`）；经由实参或返回值交出去之后再被改的对象（`Object.assign(S, …)`、
  * `S.get(k)!.add(…)` 都记成读）；对象方法、条件表达式里的函数体；`process.env`、`globalThis`、
  * import 进来的模块的状态；顶层收尾段读组写下的东西。**扫描绿只说明扫得见的共享都在 `needs` 里。**
@@ -42,13 +42,14 @@
  */
 import type * as Ts from 'typescript'
 import { createRequire } from 'node:module'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { type Group, type ShardReport, families, wanted } from './group-rule.js'
 
 /**
  * 子进程交回、父进程合并的那几样。类型钉在 `ShardReport` 的字段上：想把别的名字塞进来让这道
  * 检查闭嘴，得先让子进程把它交回、让父进程合并它。
  */
-export const MERGED: readonly Exclude<keyof ShardReport, 'groups'>[] = ['failed', 'claimed', 'covered']
+export const MERGED: readonly Exclude<keyof ShardReport, 'groups'>[] = ['failed', 'claimed', 'covered', 'cwds']
 
 /** 会改调用对象自己的方法 —— 调了算写 */
 const MUTATORS = new Set(['add', 'set', 'delete', 'clear', 'push', 'pop', 'shift', 'unshift',
@@ -248,6 +249,8 @@ export function scanShares(source: string, root = 'tmp', merged: readonly string
 export function judgeShares(groups: readonly Group[], effects: ReadonlyMap<string, Effect>,
   root = 'tmp', merged: readonly string[] = MERGED): ShareJudgement {
   const PATH = `${root}/`
+  // `tmp` 本身也是一处路径：子进程拿它当当前目录时（`judgeCwds`），碰到的是整个 `tmp`
+  const isPath = (s: string): boolean => s === root || s.startsWith(PATH)
   const familyOf = new Map<string, number>()
   families(groups).forEach((f, i) => { for (const id of f) familyOf.set(id, i) })
   const registered = new Map(groups.map((g, i) => [g.id, i]))
@@ -259,16 +262,16 @@ export function judgeShares(groups: readonly Group[], effects: ReadonlyMap<strin
     for (const r of groups) {
       if (r.id === w.id) continue
       const e = effects.get(r.id)!
-      const hit = state.startsWith(PATH)
-        ? [...e.writes].find(x => x.startsWith(PATH) && overlap(x, state))
+      const hit = isPath(state)
+        ? [...e.writes].find(x => isPath(x) && overlap(x, state))
         : e.reads.has(state) || e.writes.has(state) ? state : undefined
       if (hit === undefined) continue
       const pair = { state, writer: w.id, reader: r.id }
       pairs.push(pair)
       if (familyOf.get(w.id) !== familyOf.get(r.id)) faults.push({ ...pair, kind: 'family' })
-      else if (!state.startsWith(PATH) && !e.writes.has(state)
+      else if (!isPath(state) && !e.writes.has(state)
                && !wanted(groups, [r.id])!.has(w.id)) faults.push({ ...pair, kind: 'closure' })
-      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !state.startsWith(PATH)
+      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !isPath(state)
           && registered.get(w.id)! > registered.get(r.id)!) faults.push({ ...pair, kind: 'order' })
     }
   }
@@ -276,4 +279,52 @@ export function judgeShares(groups: readonly Group[], effects: ReadonlyMap<strin
     if (merged.includes(state)) faults.push({ state, writer: '各进程', reader: g.id, kind: 'merged' })
   }
   return { pairs, faults }
+}
+
+/**
+ * 一个子进程的当前目录落在 `tmp` 底下的哪一处：交回相对 `tmp` 的路径（`tmp` 本身是空串），
+ * 不在 `tmp` 底下（仓库根、系统临时目录里另建的目录）交回 `undefined`。
+ * `tmp` 与当前目录都按真实路径比：macOS 的 `/tmp` 是 `/private/tmp` 的软链，有的组拿 `realpathSync`
+ * 过的目录起子进程；`tmp` 里的软链也按它指向的那一处记。取不到真实路径（目录不在）时按原样比。
+ */
+export function cwdUnder(tmp: string, cwd: string, real: (p: string) => string = p => p): string | undefined {
+  // 两边都取真实路径再比：`tmp` 在软链底下（macOS 的 /tmp）、或子进程经 `tmp` 里的软链起，
+  // 记下的都是它真正落在的那一处 —— 同一个目录不会因为叫法不同记成两处、躲过对照
+  const base = safe(real, resolve(tmp))
+  const here = safe(real, resolve(cwd))
+  const rel = relative(base, here)
+  if (rel === '') return ''
+  // 只认 `..` 这一整段：`tmp` 底下一个叫 `..foo` 的目录仍在底下
+  if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) return rel.split(sep).join('/')
+  return undefined
+}
+const safe = (real: (p: string) => string, p: string): string => { try { return real(p) } catch { return p } }
+
+/**
+ * 补上扫描看不见的那一条通道：**拿 `tmp` 下的目录当当前目录起的子进程，按相对路径读写的文件**
+ * （ADR-134 第二节第一条，ADR-212）。源码里看不出子进程读写了什么，但看得出、也记得下它在哪个目录里起 ——
+ * 完整自检跑的时候，每组起的每个子进程的当前目录都记一笔（`cwds`：组 → 相对 `tmp` 的路径，空串是 `tmp` 本身）。
+ *
+ * 判法与 `tmp` 下的固定路径同一套（`judgeShares`）：当前目录算这一组又读又写了那一处 ——
+ * 子进程在那里按相对路径能碰到它底下的任何东西；与别族的组碰到的路径（固定路径或当前目录）
+ * 一处是另一处的上级目录、或相同，就报 `family`。`tmp` 本身当当前目录，碰到的是整个 `tmp`。
+ *
+ * 交回的是合进当前目录之后**整份**判下来的结论，扫描本来就报的也在里面（真源码上那一份今天是空的，
+ * 由需求测试 `h-group-share-real` 守着）。`effects` 不改：合进去的是一份副本。
+ *
+ * 报出来之后的回应与第二节一样：给那一组一个只归它用的目录当当前目录，**不补假依赖**。
+ */
+export function judgeCwds(groups: readonly Group[], effects: ReadonlyMap<string, Effect>,
+  cwds: ReadonlyMap<string, readonly string[]>, root = 'tmp', merged: readonly string[] = MERGED): ShareJudgement {
+  const known = new Set(groups.map(g => g.id))
+  const stray = [...cwds.keys()].filter(id => !known.has(id))
+  if (stray.length) throw new Error(`记下了当前目录、却不在组表里的组：${stray.join('、')}`)
+  const joined = new Map<string, Effect>()
+  for (const g of groups) {
+    const e = effects.get(g.id)
+    if (e === undefined) throw new Error(`组 ${g.id} 没有扫出读写`)
+    const here = (cwds.get(g.id) ?? []).map(rel => rel === '' ? root : `${root}/${rel}`)
+    joined.set(g.id, { reads: new Set([...e.reads, ...here]), writes: new Set([...e.writes, ...here]) })
+  }
+  return judgeShares(groups, joined, root, merged)
 }
