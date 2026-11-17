@@ -701,7 +701,7 @@
     {"id": "M-P2-c3", "req": "P2.c", "why": "品牌偏好也被当成出处 —— 品牌想给的保修、想说的卖点没在商品页证实，却不再被标出", "file": "scripts/lib/draft-claims.ts", "find": "filter(s => s.kind === 'verified_product_fact')", "replace": "filter(s => s.kind !== undefined)", "by": "test", "kills": ["P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样"]},
     {"id": "M-P2-c4", "req": "P2.c", "why": "只在博主作品里有的那一行不出 —— 运营看不到信里引用了作品里的哪些数和词，分不清是引用还是编的", "file": "scripts/lib/report.ts", "find": "    const posts = lines.postsOnly === undefined ? '' : `", "replace": "    const posts = lines.postsOnly !== null ? '' : `", "by": "test", "kills": ["P2.c 只在博主作品文字里找得到的另列一行「只在博主作品里有」，不放过也不混进对不上的那一组"]},
     {"id": "M-P2-c5", "req": "P2.c", "why": "博主作品文字又能让说法过关 —— 作品里到处是 day 5、30 day、vegan，整封编造的信显示「无」", "file": "scripts/lib/draft-claims.ts", "find": "  const fromFacts = sourceOf(facts)", "replace": "  const fromFacts = sourceOf([...facts, ...posts])", "by": "test", "kills": ["P2.c 只在博主作品文字里找得到的另列一行「只在博主作品里有」，不放过也不混进对不上的那一组", "P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
-    {"id": "M-P2-c6", "req": "P2.c", "why": "对不上产品资料的不再查作品文字 —— 引用博主作品的 3-ingredient 混进对不上的那一组，那一行变吵", "file": "scripts/lib/draft-claims.ts", "find": "    ;(sourced(claim, fromPosts) ? postsOnly : unsourced)", "replace": "    ;(false ? postsOnly : unsourced)", "by": "test", "kills": ["P2.c 只在博主作品文字里找得到的另列一行「只在博主作品里有」，不放过也不混进对不上的那一组", "P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
+    {"id": "M-P2-c6", "req": "P2.c", "why": "对不上产品资料的不再查作品文字 —— 引用博主作品的 3-ingredient 混进对不上的那一组，那一行变吵", "file": "scripts/lib/draft-claims.ts", "find": "      : sourced(claim, fromPosts) ? postsOnly : unsourced", "replace": "      : false ? postsOnly : unsourced", "by": "test", "kills": ["P2.c 只在博主作品文字里找得到的另列一行「只在博主作品里有」，不放过也不混进对不上的那一组", "P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c7", "req": "P2.c", "why": "带单位的数只比数不比单位 —— 40 dB 被资料里的 40 hours 对上", "file": "scripts/lib/draft-claims.ts", "find": "  if (kind !== 'num' || unit !== '') return false", "replace": "  if (kind !== 'num') return false", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c8", "req": "P2.c", "why": "不在别名表里的单位当成没写单位 —— 400 RPM 被资料里的 400ml 对上", "file": "scripts/lib/draft-claims.ts", "find": "        : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? foldUnit(spaced) : ''", "replace": "        : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? (UNIT_ALIASES[spaced.toLowerCase()] ?? '') : ''", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c9", "req": "P2.c", "why": "单复数不归一 —— 资料写 3 color options、信里写 3 colors 被误标", "file": "scripts/lib/draft-claims.ts", "find": "  let f = w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w", "replace": "  let f = w", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
@@ -724,7 +724,7 @@
     {"id": "M-P2-c26", "req": "P2.c", "why": "任务里没有已证实的产品事实时不写明 —— 运营把「全都对不上」读成比对过的结果", "file": "scripts/lib/draft-claims.ts", "find": "  const prefix = !facts?.length ? `${NO_FACTS}：` :", "replace": "  const prefix = !facts?.length ? '' :", "by": "test", "kills": ["P2.c 任务里没有已证实的产品事实时，说法全列出来、前面写明没有可对的；只在作品里有的照样另列", "P2.c 那一行的写法：前后各三个词、不跨行；没有前后词时只写原写法；没事实、资料不是英文、括号没配对各加一句"]},
     {"id": "M-P2-c27", "req": "P2.c", "why": "产品资料不是英文时不提示 —— 中文资料对英文信，承诺词全列出来，运营以为是编的", "file": "scripts/lib/draft-claims.ts", "find": "facts.some(f => CJK.test(f))", "replace": "facts.some(f => CJK.test(f) && false)", "by": "test", "kills": ["P2.c 那一行的写法：前后各三个词、不跨行；没有前后词时只写原写法；没事实、资料不是英文、括号没配对各加一句"]},
     {"id": "M-P2-c28", "req": "P2.c", "why": "扫完没有对不上的写成空 —— 和没有草稿分不开，运营不知道这封查过没有", "file": "scripts/lib/draft-claims.ts", "find": "  const list = found.unsourced.length === 0 ? NONE_FLAGGED :", "replace": "  const list = found.unsourced.length === 0 ? '' :", "by": "test", "kills": ["P2.c 有草稿、扫完没有对不上的写「无」，没有只在作品里的不出那一行；没草稿或草稿全是空白的卡片两行都不出", "P2.c 那一行的写法：前后各三个词、不跨行；没有前后词时只写原写法；没事实、资料不是英文、括号没配对各加一句"]},
-    {"id": "M-P2-c29", "req": "P2.c", "why": "同一写法分大小写重复列 —— 那一行被重复项撑长", "file": "scripts/lib/draft-claims.ts", "find": "    if (seen.has(claim.text.toLowerCase())) continue", "replace": "    if (seen.has(claim.text)) continue", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
+    {"id": "M-P2-c29", "req": "P2.c", "why": "同一写法分大小写重复列 —— 那一行被重复项撑长", "file": "scripts/lib/draft-claims.ts", "find": "${claim.text.toLowerCase()}`", "replace": "${claim.text}`", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c30", "req": "P2.c", "why": "千分位不按三位一组认 —— 数后面跟的逗号吃进说法，1,000 与 1000 对不上", "file": "scripts/lib/draft-claims.ts", "find": "const DIGITS = '(?:(?:\\\\d{1,3}(?:,\\\\d{3})+|\\\\d+)(?:\\\\.\\\\d+)?|\\\\.\\\\d+)'", "replace": "const DIGITS = '(?:(?:\\\\d[\\\\d,]*|\\\\d+)(?:\\\\.\\\\d+)?|\\\\.\\\\d+)'", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c31", "req": "P2.c", "why": "负号不算数的一部分 —— 信里写 -20、资料写 20，编反了的数对上了", "file": "scripts/lib/draft-claims.ts", "find": "(?<![\\\\w.${CURRENCY_SIGNS}])(-?${DIGITS})", "replace": "(?<![\\\\w.${CURRENCY_SIGNS}])-?(${DIGITS})", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c32", "req": "P2.c", "why": "型号串不去连字符 —— IPX-7 与 IPX7 对不上，有出处的型号被误标", "file": "scripts/lib/draft-claims.ts", "find": "key: `alnum:${m[0].toLowerCase().replace(/-/g, '')}`", "replace": "key: `alnum:${m[0].toLowerCase()}`", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
@@ -826,7 +826,7 @@
     {"id": "M-P2-c128", "req": "P2.c", "why": "超长句按码元截 —— 表情切成半个，那一行出现乱码", "file": "scripts/lib/draft-claims.ts", "find": "const chars = Array.from(claim.text)", "replace": "const chars = claim.text.split('')", "by": "test", "kills": ["P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处"]},
     {"id": "M-P2-c129", "req": "P2.c", "why": "草稿只在分号后有空白时才分句 —— 资料原样写的 NSF certified;FDA registered 对不上，整句被列", "file": "scripts/lib/draft-claims.ts", "find": "[.;!?]+(?=\\\\s|$)|;|\\\\n`, 'giu')", "replace": "[.;!?]+(?=\\\\s|$)|\\\\n`, 'giu')", "by": "test", "kills": ["P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处"]},
     {"id": "M-P2-c130", "req": "P2.c", "why": "拼写数后面单个字母的单位不扫 —— 信里 five L、资料 1 L 对不上被放过", "file": "scripts/lib/draft-claims.ts", "find": "filter(u => u !== '%'))", "replace": "filter(u => u !== '%' && u.length > 1))", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
-    {"id": "M-P2-c131", "req": "P2.c", "why": "作品记录缺文案字段时原样传下去 —— 评审页生成时抛错", "file": "scripts/lib/report.ts", "find": "map(p => typeof p.desc === 'string' ? p.desc : ''))", "replace": "map(p => p.desc as string))", "by": "test", "kills": ["P2.c 作品记录缺文案字段时评审页照常出两行"]},
+    {"id": "M-P2-c131", "req": "P2.c", "why": "作品记录缺文案字段时原样传下去 —— 评审页生成时抛错", "file": "scripts/lib/report.ts", "find": "map(p => typeof p.desc === 'string' ? p.desc : ''),", "replace": "map(p => p.desc as string),", "by": "test", "kills": ["P2.c 作品记录缺文案字段时评审页照常出两行"]},
     {"id": "M-P2-c132", "req": "P2.c", "why": "草稿分句时缩写分大小写 —— 信里 Tested by DR. Jones 只核到 DR，被资料 Tested by Dr. Smith 的开头作保", "file": "scripts/lib/draft-claims.ts", "find": "|;|\\\\n`, 'giu')", "replace": "|;|\\\\n`, 'gu')", "by": "test", "kills": ["P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处"]},
     {"id": "M-P2-c133", "req": "P2.c", "why": "资料分句时缩写分大小写 —— 资料 Approved by DR. Smith 被切成两半，照抄的那句对不上", "file": "scripts/lib/draft-claims.ts", "find": "|[;!?\\\\n]`, 'iu')", "replace": "|[;!?\\\\n]`, 'u')", "by": "test", "kills": ["P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处"]},
     {"id": "M-P2-c134", "req": "P2.c", "why": "a 开头的拼写数读到 hundred 就停 —— 信里 a hundred and five hours 被拆成两条，资料 105 hours 对不上", "file": "scripts/lib/draft-claims.ts", "find": "(?:(?:(?:a|an)[\\\\s-]+(?:dozen|hundred|thousand|million)|(?:${NUM_WORDS}))(?:", "replace": "(?:(?:a|an)[\\\\s-]+(?:dozen|hundred|thousand|million)|(?:(?:${NUM_WORDS}))(?:", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
@@ -22340,9 +22340,9 @@
     {
       "id": "M-P2-s1",
       "req": "P2.e",
-      "why": "正本里 creator_sources 写坏了（不是数组、项不是对象、键不认得、缺原文）也照收，不指出问题",
+      "why": "正本里 draft_sources 写坏了（不是数组、项不是对象、键不认得、缺原文）也照收，不指出问题",
       "file": "scripts/lib/review.ts",
-      "find": "    if (review.creator_sources !== undefined) problems.push(...creatorSourceProblems(review.creator_sources, `${at}.creator_sources`))\n",
+      "find": "    if (review.draft_sources !== undefined) problems.push(...draftSourceProblems(review.draft_sources, `${at}.draft_sources`))\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -22353,7 +22353,7 @@
       "id": "M-P2-s2",
       "req": "P2.e",
       "why": "登记里多出不认得的键照收",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "      if (!['draft', 'from', 'quote'].includes(key)) problems.push",
       "replace": "      if (false) problems.push",
       "by": "test",
@@ -22365,7 +22365,7 @@
       "id": "M-P2-s3",
       "req": "P2.e",
       "why": "发件人自己的话（self）写了原文也照收",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "      if (record.quote !== undefined) problems.push",
       "replace": "      if (false) problems.push",
       "by": "test",
@@ -22413,60 +22413,60 @@
       "id": "M-P2-s7",
       "req": "P2.f",
       "why": "比对前不统一大小写，大小写不同的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    .toLowerCase().replace(/\\s+/g, ' ').trim()",
-      "replace": "    .replace(/\\s+/g, ' ').trim()",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    .toLowerCase()\n}",
+      "replace": "\n}",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s8",
       "req": "P2.f",
       "why": "比对前不合并空白，多一个空格的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    .toLowerCase().replace(/\\s+/g, ' ').trim()",
-      "replace": "    .toLowerCase().trim()",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "      if (/\\s/u.test(ch)) { if (space < 0) space = start; continue }",
+      "replace": "      if (false) { if (space < 0) space = start; continue }",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s9",
       "req": "P2.f",
       "why": "弯双引号不归一成直引号，引号写法不同的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": ".replace(/[“”]/g, '\"')",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s10",
       "req": "P2.f",
       "why": "作品文案只对第一条，后面几条里的原文都说对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "fields = creator.posts.flatMap(",
-      "replace": "fields = creator.posts.slice(0, 1).flatMap(",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "fields = given.posts.flatMap(",
+      "replace": "fields = given.posts.slice(0, 1).flatMap(",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s11",
       "req": "P2.f",
       "why": "不核对原文，登记了什么都算对得上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "status: quoteVerdict(source, creator),",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "status: quoteVerdict({ ...source, from: source.from }, given),",
       "replace": "status: 'matched' as const,",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算",
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记",
         "P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对"
       ]
     },
@@ -22474,104 +22474,67 @@
       "id": "M-P2-s12",
       "req": "P2.f",
       "why": "作品文案查过了也不拿来对，一律对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "fields = creator.posts.flatMap(post => { const desc = text(post); return desc === undefined ? [] : [desc] })",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "fields = given.posts.flatMap(post => { const desc = text(post); return desc === undefined ? [] : [desc] })",
       "replace": "fields = []",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
-      ]
-    },
-    {
-      "id": "M-P2-s13",
-      "req": "P2.f",
-      "why": "信里用 you、your 跟博主说话却没登记出处的句子不列出来",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  return YOU.test(normalized) || names.some(name => name.test(sentence))",
-      "replace": "  return names.some(name => name.test(sentence))",
-      "by": "test",
-      "kills": [
-        "P2.f 这一行在输出处转义"
-      ]
-    },
-    {
-      "id": "M-P2-s14",
-      "req": "P2.f",
-      "why": "信里提到博主的名字或账号却没登记出处的句子不列出来",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  return YOU.test(normalized) || names.some(name => name.test(sentence))",
-      "replace": "  return YOU.test(normalized)",
-      "by": "test",
-      "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算",
-        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
-      ]
-    },
-    {
-      "id": "M-P2-s15",
-      "req": "P2.f",
-      "why": "问候行（Hi Mei,）也当成提到博主的句子列出来，报告里全是噪音",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (greetingSlot && isGreeting(line, salutation)) continue",
-      "replace": "      if (false) continue",
-      "by": "test",
-      "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s16",
       "req": "P2.f",
       "why": "登记的那句在信里已经找不到时不说，悄悄丢掉",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    if (at < 0) { missing.push({ status: 'not_in_draft', draft: source.draft }); continue }",
       "replace": "    if (at < 0) continue",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s17",
       "req": "P2.f",
       "why": "登记成发件人自己的话的句子混进「要看」里，不单列",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  const look = items.filter(item => item.status !== 'matched' && item.status !== 'self')",
       "replace": "  const look = items.filter(item => item.status !== 'matched')",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s18",
       "req": "P2.f",
       "why": "有草稿、什么都没有时这一行是空的，看不出是查过没问题",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  return line.length ? line.join('　｜　') : '无'",
       "replace": "  return line.join('　｜　')",
       "by": "test",
       "kills": [
-        "P2.f 有草稿、没提到博主也没登记的写「无」"
+        "P2.f 有草稿、没有一个字要登记（只有标点）时写「无」"
       ]
     },
     {
       "id": "M-P2-s19",
       "req": "P2.f",
       "why": "不按在信里出现的先后排，按登记的先后排",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  placed.sort((a, b) => a.at - b.at)\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s20",
       "req": "P2.g",
       "why": "草稿只有空白的卡片也出这一行",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  if (draft === undefined || draft.trim() === '') return undefined",
       "replace": "  if (draft === undefined) return undefined",
       "by": "test",
@@ -22584,8 +22547,8 @@
       "req": "P2.g",
       "why": "默认模式（给发信人看的那版）也出这一行",
       "file": "scripts/lib/report.ts",
-      "find": "    const line = options.mode === 'review'\n      ? creatorSourceLine(",
-      "replace": "    const line = true\n      ? creatorSourceLine(",
+      "find": "    const line = options.mode === 'review'\n      ? draftSourceLine(",
+      "replace": "    const line = true\n      ? draftSourceLine(",
       "by": "test",
       "kills": [
         "P2.g 默认模式 HTML 不出这一行（U9.a）"
@@ -22596,8 +22559,8 @@
       "req": "P2.f",
       "why": "这一行不转义，草稿里的尖括号会变成网页标签",
       "file": "scripts/lib/report.ts",
-      "find": "写博主的话出处：${esc(line)}",
-      "replace": "写博主的话出处：${line}",
+      "find": "逐句出处：${esc(line)}",
+      "replace": "逐句出处：${line}",
       "by": "test",
       "kills": [
         "P2.f 这一行在输出处转义"
@@ -22607,9 +22570,9 @@
       "id": "M-P2-s23",
       "req": "P2.f",
       "why": "简介没查过也说成「他的简介里没有这段」，把没查过说成没有",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "if (creator.bio === undefined) return 'not_queried'",
-      "replace": "if (creator.bio === undefined) return 'quote_missing'",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "if (given.bio === undefined) return 'not_queried'",
+      "replace": "if (given.bio === undefined) return 'quote_missing'",
       "by": "test",
       "kills": [
         "P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对"
@@ -22619,9 +22582,9 @@
       "id": "M-P2-s24",
       "req": "P2.f",
       "why": "作品是空数组（没查过）时说成「他的作品文案里没有这段」",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "if (creator.posts === undefined || creator.posts.length === 0) return 'not_queried'",
-      "replace": "if (creator.posts === undefined) return 'not_queried'",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "if (given.posts === undefined || given.posts.length === 0) return 'not_queried'",
+      "replace": "if (given.posts === undefined) return 'not_queried'",
       "by": "test",
       "kills": [
         "P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对"
@@ -22631,7 +22594,7 @@
       "id": "M-P2-s25",
       "req": "P2.f",
       "why": "正文里任何一行以 Subject: 开头都被当成主题行单独切出，和拆主题列的规则不一致",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "      const subject = first && SUBJECT.test(line)",
       "replace": "      const subject = SUBJECT.test(line)",
       "by": "test",
@@ -22643,140 +22606,104 @@
       "id": "M-P2-s26",
       "req": "P2.f",
       "why": "一句里只登记了一小段，整句就算有出处了，没登记的半句不印出来",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    if (touched && rest) placed.push(",
       "replace": "    if (false) placed.push(",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s27",
       "req": "P2.f",
       "why": "一句里有字被登记盖住也不算碰过，只登记了一部分的句子不列剩下的话",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    if (covered[i]) { touched = true; if (piece)",
       "replace": "    if (covered[i]) { if (piece)",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后",
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后",
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s28",
       "req": "P2.f",
       "why": "列表行不各自成句，和上一行接在一起，一个登记盖住两行",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "      if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line)); continue }\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s29",
       "req": "P2.f",
       "why": "在 Dr.、U.S. 这类缩写处切句，一句话被切成几段",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "      if (before !== undefined && (before.length === 1 || ABBREVIATIONS.has(before))) continue\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s30",
       "req": "P2.f",
       "why": "句号后没空格（series.You）不切句，后半句跟着前半句的登记算盖住",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    if (next !== '' && !/^\\s/.test(next) && !/^\\p{Lu}/u.test(next)) continue",
       "replace": "    if (next !== '' && !/^\\s/.test(next)) continue",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s31",
       "req": "P2.f",
       "why": "句号后跟收尾引号时不切句",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  const re = /[.!?…]+[\"'”’)\\]]*/g",
       "replace": "  const re = /[.!?…]+/g",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s32",
       "req": "P2.f",
       "why": "弯单引号不归一成直引号，资料里写直撇号、登记写弯撇号就对不上",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": ".replace(/[‘’ʼ]/g, \"'\")",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
-      ]
-    },
-    {
-      "id": "M-P2-s33",
-      "req": "P2.f",
-      "why": "名字不按整词认，Meiko 也当成提到了 Mei",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "new RegExp(`(?<![\\\\p{L}\\\\p{N}_.])${escapeRegExp(word)}(?![\\\\p{L}\\\\p{N}_])`, 'iu')",
-      "replace": "new RegExp(escapeRegExp(word), 'iu')",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s34",
       "req": "P2.f",
       "why": "同一句在信里出现两次就列两次",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    if (!s || seen.has(s)) continue",
       "replace": "    if (!s) continue",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
-      ]
-    },
-    {
-      "id": "M-P2-s35",
-      "req": "P2.f",
-      "why": "驼峰昵称（TechWithSarah）不拆开，认不出 Sarah",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "const split = source.normalize('NFKC').replace(/(\\p{Ll})(\\p{Lu})/gu, '$1 $2')",
-      "replace": "const split = source.normalize('NFKC')",
-      "by": "test",
-      "kills": [
-        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
-      ]
-    },
-    {
-      "id": "M-P2-s36",
-      "req": "P2.f",
-      "why": "昵称里的 the、with、official 这类普通词也当名字，带这些词的句子全被列出来",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (!NAME_STOPWORDS.has(lower)) words.add(lower)",
-      "replace": "      words.add(lower)",
-      "by": "test",
-      "kills": [
-        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s37",
       "req": "P2.g",
       "why": "名单里昵称、简介、作品文案不是字符串时照当字符串用，render 抛错",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "const text = (value: unknown): string | undefined => typeof value === 'string' ? value : undefined",
       "replace": "const text = (value: unknown): string | undefined => value as string | undefined",
       "by": "test",
@@ -22788,229 +22715,342 @@
       "id": "M-P2-s38",
       "req": "P2.f",
       "why": "登记了出处、信里已没有的句子排在最前，盖过要先看的问题",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  return [...placed.map(p => p.item), ...missing]",
       "replace": "  return [...missing, ...placed.map(p => p.item)]",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s39",
       "req": "P2.f",
       "why": "长短破折号不归一成连字符，资料与登记里破折号写法不同就对不上",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    .replace(/[–—]/g, '-')\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s40",
       "req": "P2.f",
       "why": "句末标点后空白再接小写也切句，引号里的感叹号、a.m. 把一句切开，后半句编的话漏列",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    if (/^\\s+[\\p{Ll}—–(（]/u.test(next)) continue\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s41",
-      "req": "P2.f",
-      "why": "整个账号名、整个昵称不当名字认，sarah_bakes、mei123 这种写出来认不出",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    if (lower !== undefined && lower.length >= 3 && !NAME_STOPWORDS.has(lower)) words.add(lower)\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s42",
       "req": "P2.f",
       "why": "主题行整行不核，主题里写博主的话没人看",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "if (rest) out.push(rest); continue }",
       "replace": "continue }",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s43",
       "req": "P2.f",
       "why": "比对前不做 NFKC，全角字母的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  return text.normalize('NFKC')\n",
-      "replace": "  return text\n",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "  return piece.normalize('NFKC')\n",
+      "replace": "  return piece\n",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s44",
       "req": "P2.f",
       "why": "只把短破折号归一成连字符，长破折号的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": ".replace(/[–—]/g, '-')",
       "replace": ".replace(/[–]/g, '-')",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s45",
-      "req": "P2.f",
-      "why": "称呼不限于博主的名字，「Hey Mei your marathons rock!」这种整行当问候跳过",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  return words.every(word => word !== '' && (salutation.has(word) || GENERIC_SALUTATIONS.has(word)))",
-      "replace": "  return true",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后",
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s46",
-      "req": "P2.f",
-      "why": "问候收尾的逗号、感叹号不认，每封的 Dear Mei, 都被当正文列出",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "const GREETING = /^(?:hi|hello|hey|dear)\\b\\s*(.*?)\\s*[,!.\\-–—]?$/i",
-      "replace": "const GREETING = /^(?:hi|hello|hey|dear)\\b\\s*(.*?)\\s*$/i",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
-      ]
-    },
-    {
-      "id": "M-P2-s47",
-      "req": "P2.f",
-      "why": "每一段的问候样式行都跳过，信后面另起一段的「Hey Mei …」没人看",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (greetingSlot && isGreeting(line, salutation)) continue",
-      "replace": "      if (isGreeting(line, salutation)) continue",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s48",
-      "req": "P2.f",
-      "why": "问候不限词数，长长一行称呼也跳过",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  if (m === null || line.split(/\\s+/).length > 5) return false",
-      "replace": "  if (m === null) return false",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s49",
-      "req": "P2.f",
-      "why": "there、team 这类泛称不认，Hello team Mei! 被当正文列出",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "(salutation.has(word) || GENERIC_SALUTATIONS.has(word))",
-      "replace": "salutation.has(word)",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s50",
       "req": "P2.f",
       "why": "没登记的部分只剩表情时当没有，Your smoothie series 🔥🔥 只登记前半也算盖住",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "filter(p => /[^\\s\\p{P}]/u.test(p))",
       "replace": "filter(p => /[\\p{L}\\p{N}]/u.test(p))",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s51",
-      "req": "P2.f",
-      "why": "整个昵称不当名字认，mei_lin 这种写出来认不出",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "[text(creator.handle)?.replace(/^@/, ''), text(creator.nickname)]",
-      "replace": "[text(creator.handle)?.replace(/^@/, '')]",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s52",
       "req": "P2.f",
       "why": "登记只标在信里第一次出现的地方，同一段话第二次出现后面接的编造不列",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = normalizedDraft.indexOf(key, at + 1)) {",
       "replace": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = -1) {",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s53",
-      "req": "P2.f",
-      "why": "正文开头的称呼不是纯问候时，不带名字就不列，「Hey sourdough queen!」这种编的称号没人看",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "else if (!touched && (addressed.has(sentence) || mentionsCreator(sentence, names)))",
-      "replace": "else if (!touched && mentionsCreator(sentence, names))",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s54",
-      "req": "P2.f",
-      "why": "Hi there, 不当问候，每封都被列",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "const GENERIC_SALUTATIONS = new Set(['there', ",
-      "replace": "const GENERIC_SALUTATIONS = new Set([",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s55",
-      "req": "P2.f",
-      "why": "只有 Hi, 没有称呼时不当问候，后面整封当在说他",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  if (m[1] === '') return true\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s56",
       "req": "P2.f",
-      "why": "引文后空白再接破折号或括号时切句，「— 评价」那半截不带 you 就不列",
-      "file": "scripts/lib/creator-sources.ts",
+      "why": "引文后空白再接破折号或括号时切句，「— 评价」那半截和前面的引文被拆成两句，看不出评价接在引文后面",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "if (/^\\s+[\\p{Ll}—–(（]/u.test(next)) continue",
       "replace": "if (/^\\s+\\p{Ll}/u.test(next)) continue",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s57",
+      "req": "P2.f",
+      "why": "登记成产品事实的原文不拿任务里已证实的产品事实来对，一律说对不上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "fields = (given.facts ?? []).filter(fact => typeof fact === 'string')",
+      "replace": "fields = []",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记",
+        "P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上"
+      ]
+    },
+    {
+      "id": "M-P2-s58",
+      "req": "P2.f",
+      "why": "产品事实只对第一条，后面几条里的原文都说对不上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "(given.facts ?? []).filter(",
+      "replace": "(given.facts ?? []).slice(0, 1).filter(",
+      "by": "test",
+      "kills": [
+        "P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上"
+      ]
+    },
+    {
+      "id": "M-P2-s59",
+      "req": "P2.f",
+      "why": "一个字都没登记的句子不列出来，没登记的话没人看",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    else if (!touched && /[^\\s\\p{P}]/u.test(s)) placed.push",
+      "replace": "    else if (false) placed.push",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记",
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s60",
+      "req": "P2.f",
+      "why": "只有标点、破折号的一段也当没登记的话列出来，报告里全是噪音",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    else if (!touched && /[^\\s\\p{P}]/u.test(s)) placed.push",
+      "replace": "    else if (!touched) placed.push",
+      "by": "test",
+      "kills": [
+        "P2.f 有草稿、没有一个字要登记（只有标点）时写「无」",
+        "P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s61",
+      "req": "P2.f",
+      "why": "产品事实对不上时说成「他的产品事实里没有」，把任务里的产品资料说成博主的",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "case 'quote_missing': return item.from === 'product'",
+      "replace": "case 'quote_missing': return false",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记",
+        "P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上"
+      ]
+    },
+    {
+      "id": "M-P2-s62",
+      "req": "P2.e",
+      "why": "登记里写 product（产品事实）当成不认得的来处拒收",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "['bio', 'post', 'nickname', 'product', 'self'] as const",
+      "replace": "['bio', 'post', 'nickname', 'self'] as const",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节",
+        "P2.e 合规的 draft_sources 读写往返不丢"
+      ]
+    },
+    {
+      "id": "M-P2-s63",
+      "req": "P2.e",
+      "why": "旧名单当种子时出处登记不清掉，上一轮的登记带进新一轮的采集原件",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "'outreach_draft', 'draft_sources', 'eligibility'",
+      "replace": "'outreach_draft', 'eligibility'",
+      "by": "test",
+      "kills": [
+        "P2.e 旧名单当种子时出处登记跟草稿一起清掉"
+      ]
+    },
+    {
+      "id": "M-P2-c-own1",
+      "req": "P2.c",
+      "why": "登记成博主资料、产品事实的句子里的数字也移出「出处对不上」，不只是发件人自己的话",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "(sources ?? []).filter(source => source.from === 'self')",
+      "replace": "(sources ?? []).filter(() => true)",
+      "by": "test",
+      "kills": [
+        "P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移"
+      ]
+    },
+    {
+      "id": "M-P2-c-own2",
+      "req": "P2.c",
+      "why": "一条说法只要有一部分落在发件人自己的话里就移走，登记半个日期也能让整个日期离开「出处对不上」",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "      if (!raw[i]) return false\n",
+      "replace": "      if (!raw[i]) continue\n",
+      "by": "test",
+      "kills": [
+        "P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移"
+      ]
+    },
+    {
+      "id": "M-P2-c-own3",
+      "req": "P2.c",
+      "why": "登记成发件人自己的话时，说法里分隔用的空白不认，两个空格隔开的电话移不走",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "      if (/\\s/u.test(draft[i])) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移"
+      ]
+    },
+    {
+      "id": "M-P2-c-own4",
+      "req": "P2.c",
+      "why": "价钱登记成发件人自己的话也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "new Set(['price', 'phrase', 'alnum', 'word'])",
+      "replace": "new Set(['phrase', 'alnum', 'word'])",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own5",
+      "req": "P2.c",
+      "why": "承诺词登记成发件人自己的话也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "new Set(['price', 'phrase', 'alnum', 'word'])",
+      "replace": "new Set(['price', 'phrase', 'alnum'])",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own6",
+      "req": "P2.c",
+      "why": "百分比登记成发件人自己的话也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "PRODUCT_SHAPED.has(kind) || (kind === 'num' && unit === '%')",
+      "replace": "PRODUCT_SHAPED.has(kind)",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own7",
+      "req": "P2.c",
+      "why": "half off 这类数量写法登记成发件人自己的话也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "new Set(['price', 'phrase', 'alnum', 'word'])",
+      "replace": "new Set(['price', 'alnum', 'word'])",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own8",
+      "req": "P2.c",
+      "why": "型号串登记成发件人自己的话也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "new Set(['price', 'phrase', 'alnum', 'word'])",
+      "replace": "new Set(['price', 'phrase', 'word'])",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own9",
+      "req": "P2.c",
+      "why": "同一写法先出现在发件人自己的话里，信里别处没登记的那一处就不列了",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "const seenKey = `${list === senderOnly ? 'sender' : 'other'}:",
+      "replace": "const seenKey = `${'any'}:",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own10",
+      "req": "P2.c",
+      "why": "移出来的数字不另列一行，人看不到",
+      "file": "scripts/lib/report.ts",
+      "find": "${posts}${sender}",
+      "replace": "${posts}",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own11",
+      "req": "P2.c",
+      "why": "报告不把发件人自己的话交给数字扫描，登记了约时间也照列在「出处对不上」",
+      "file": "scripts/lib/report.ts",
+      "find": "c.outreach_draft === undefined ? undefined : senderOwnSpans(c.outreach_draft, c.draft_sources)",
+      "replace": "undefined",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列",
+        "P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移"
+      ]
+    },
+    {
+      "id": "M-P2-c-own12",
+      "req": "P2.c",
+      "why": "认证、批准这类说法的那一整句登记成发件人自己的话也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "  if (claim.folded !== undefined) return true   // 认证类那一整句\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列"
       ]
     },
     {
@@ -27506,7 +27546,7 @@
       "req": "S1.b",
       "scope": "整条（经用户自己的邮箱工具只存草稿、不发送）",
       "why": "调不调、调哪个工具由 Agent 照 Skill 文字在宿主里决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）。",
-      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看（连同报告里那封信的「出处对不上」一行，ADR-199；以及「写博主的话出处」一行里「要看」那一段，ADR-210），并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
+      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看（连同报告里那封信的「出处对不上」一行，ADR-199；以及「逐句出处」一行里「要看」那一段，ADR-210、ADR-215），并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
     },
     {
       "req": "P2.a",
@@ -27516,9 +27556,9 @@
     },
     {
       "req": "P2.d",
-      "scope": "写博主的话里机器判断不了的那几样：改写得准不准、一句话是不是真的在描述博主、发件人的感受有没有借机给博主安新说法",
-      "why": "这几样要读懂句子意思、拿去和博主原文比意思，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。登记的原文在不在、提到博主却没登记的句子由 P2.e、P2.f、P2.g 管，有自己的认领与负片。",
-      "mitigation": "skill/references/outreach-draft.md 写明写博主的话只能引用或准确改写他的简介、作品文案、昵称，每句登记出处；报告里「写博主的话出处」一行把信里这句与资料原文并排放，交付或存邮箱前要人对照。见 ADR-210。"
+      "scope": "逐句登记里机器判断不了的那几样：改写得准不准、来处填得对不对（比如把产品说法登记成发件人自己的话）、发件人自己的话有没有借机给博主安新说法或夹带产品说法",
+      "why": "这几样要读懂句子意思、拿去和博主原文比意思，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。登记的原文在不在、没登记的句子由 P2.e、P2.f、P2.g 管，有自己的认领与负片。",
+      "mitigation": "skill/references/outreach-draft.md 写明写博主的话只能引用或准确改写他的简介、作品文案、昵称，整封信每句登记出处；报告里「逐句出处」一行把信里这句与资料原文并排放，交付或存邮箱前要人对照。见 ADR-210、ADR-215。"
     },
     {
       "req": "P1.b",

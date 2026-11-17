@@ -481,25 +481,44 @@ function withContext(draft: string, claim: Claim): Flagged {
 /** 一条的显示写法：「12-blade（a 12-blade motor）」；前后没有别的词时只写原写法。 */
 const shown = (f: Flagged): string => f.context === f.text ? f.text : `${f.text}（${f.context}）`
 
-/** 扫完一封草稿的结果：对不上产品资料的、只在博主作品里有的，各按出现先后、同一写法只列一次。 */
-export interface DraftClaims { unsourced: Flagged[]; postsOnly: Flagged[]; unmatchedBraces: boolean }
+/** 扫完一封草稿的结果：对不上产品资料的、只在博主作品里有的、落在发件人自己的话里的，各按出现先后、同一写法只列一次。 */
+export interface DraftClaims { unsourced: Flagged[]; postsOnly: Flagged[]; senderOnly: Flagged[]; unmatchedBraces: boolean }
+
+/**
+ * 登记成发件人自己的话也不放过的几类：价钱、百分比、承诺词、认证那一整句、half off 这类数量写法、型号串。
+ * 这几类是编造产品信息最常见、代价最大的，一句登记不能让它们离开「出处对不上」（ADR-215 第三节）。
+ * 能移走的只剩日期、钟点、电话这类连着的一串数字、普通数字（带不带单位都算）和兜底整串。
+ */
+const PRODUCT_SHAPED = new Set(['price', 'phrase', 'alnum', 'word'])
+function productShaped(claim: Claim): boolean {
+  if (claim.folded !== undefined) return true   // 认证类那一整句
+  const [kind, , unit] = claim.key.split(':')
+  return PRODUCT_SHAPED.has(kind) || (kind === 'num' && unit === '%')
+}
 
 /**
  * `facts` 是任务里已证实的产品事实原文（`kind=verified_product_fact` 的 detail）；
  * `posts` 是这位博主作品的文字。都可以是空的。只有 `facts` 能让一条说法过关。
+ * `senderOwn` 回答草稿原文里某一段是不是整段落在登记成发件人自己的话的字里（见 draft-sources.ts）；
+ * 落在里面、又不是产品形状的那几类，从「出处对不上」移到 `senderOnly`，不是放过，人照样看得到。
  */
-export function draftClaims(draft: string, facts: readonly string[], posts: readonly string[]): DraftClaims {
+export function draftClaims(draft: string, facts: readonly string[], posts: readonly string[],
+  senderOwn: (at: number, length: number) => boolean = () => false): DraftClaims {
   const fromFacts = sourceOf(facts)
   const fromPosts = sourceOf(posts)
   const seen = new Set<string>()
-  const unsourced: Flagged[] = [], postsOnly: Flagged[] = []
+  const unsourced: Flagged[] = [], postsOnly: Flagged[] = [], senderOnly: Flagged[] = []
   for (const claim of claimsIn(draft)) {
     if (sourced(claim, fromFacts)) continue
-    if (seen.has(claim.text.toLowerCase())) continue
-    seen.add(claim.text.toLowerCase())
-    ;(sourced(claim, fromPosts) ? postsOnly : unsourced).push(withContext(draft, claim))
+    const list = !productShaped(claim) && senderOwn(claim.at, claim.text.length) ? senderOnly
+      : sourced(claim, fromPosts) ? postsOnly : unsourced
+    // 去重按「列到哪一行」分开记：同一写法先出现在发件人自己的话里，信里别处没登记的那一处照样进「出处对不上」。
+    const seenKey = `${list === senderOnly ? 'sender' : 'other'}:${claim.text.toLowerCase()}`
+    if (seen.has(seenKey)) continue
+    seen.add(seenKey)
+    list.push(withContext(draft, claim))
   }
-  return { unsourced, postsOnly, unmatchedBraces: placeholders(draft).unmatched }
+  return { unsourced, postsOnly, senderOnly, unmatchedBraces: placeholders(draft).unmatched }
 }
 
 /** 任务里一条已证实的产品事实都没有时的说明：草稿里的说法全都对不上，不是比对过的结果。 */
@@ -513,22 +532,26 @@ export const NONE_FLAGGED = '无'
 
 const CJK = /[぀-ヿ㐀-鿿가-힯]/
 
-/** 评审 HTML 草稿块里那两行的文字。`postsOnly` 一行没有可列的就缺席。 */
-export interface ClaimsLines { unsourced: string; postsOnly?: string }
+/** 评审 HTML 草稿块里那几行的文字。`postsOnly`、`senderOnly` 没有可列的就缺席。 */
+export interface ClaimsLines { unsourced: string; postsOnly?: string; senderOnly?: string }
 
 /**
- * 没有草稿或草稿全是空白 → undefined（不出这两行）。
+ * 没有草稿或草稿全是空白 → undefined（不出这几行）。
  * 「出处对不上」一行：没有就写「无」，有就用「；」连起来；任务里没有已证实的产品事实、或产品资料不是英文时前面加一句说明；
- * 草稿里有没配对的花括号时后面加一句。「只在博主作品里有」一行：有才出。
+ * 草稿里有没配对的花括号时后面加一句。「只在博主作品里有」「只在发件人自己的话里」两行：有才出。
  */
 export function claimsLines(draft: string | undefined, facts: readonly string[] | undefined,
-  posts: readonly string[]): ClaimsLines | undefined {
+  posts: readonly string[], senderOwn?: (at: number, length: number) => boolean): ClaimsLines | undefined {
   if (draft === undefined || draft.trim() === '') return undefined
-  const found = draftClaims(draft, facts ?? [], posts)
+  const found = draftClaims(draft, facts ?? [], posts, senderOwn)
   const list = found.unsourced.length === 0 ? NONE_FLAGGED : found.unsourced.map(shown).join('；')
   const prefix = !facts?.length ? `${NO_FACTS}：` : facts.some(f => CJK.test(f)) ? `${NOT_ENGLISH}：` : ''
   const suffix = found.unmatchedBraces ? `；${UNMATCHED_BRACES}` : ''
-  return { unsourced: `${prefix}${list}${suffix}`, ...(found.postsOnly.length === 0 ? {} : { postsOnly: found.postsOnly.map(shown).join('；') }) }
+  return {
+    unsourced: `${prefix}${list}${suffix}`,
+    ...(found.postsOnly.length === 0 ? {} : { postsOnly: found.postsOnly.map(shown).join('；') }),
+    ...(found.senderOnly.length === 0 ? {} : { senderOnly: found.senderOnly.map(shown).join('；') }),
+  }
 }
 
 /** 任务里已证实的产品事实原文。校准缺席或一条都没有时是空数组。 */

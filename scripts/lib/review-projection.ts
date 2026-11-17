@@ -8,7 +8,7 @@ const newJudgmentFields = [
   'natural_integration', 'mismatch_risk', 'brand_calibration_version',
 ] as const
 /** P2：随草稿一起投影的出处登记；不算新评审判断，只是草稿的附注。 */
-const draftNoteFields = ['creator_sources'] as const
+const draftNoteFields = ['draft_sources'] as const
 const projectedFields = [
   ...legacyFields, ...newJudgmentFields, ...draftNoteFields, 'review_status', 'linked_agent_review',
 ] as const

@@ -3,7 +3,7 @@ import type {
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
 import { claimsLines } from './draft-claims.js'
-import { creatorSourceLine } from './creator-sources.js'
+import { draftSourceLine, senderOwnSpans } from './draft-sources.js'
 import { formatDiscoverySources } from './discovery.js'
 import { draftSubject, sampleScopeText, sortForReviewOutput, type ReviewOutputOptions } from './rows.js'
 import { normalizedAccountKey } from './review.js'
@@ -266,15 +266,15 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
   const def: 'A' | 'B' | 'C' =
     (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'
 
-  // P2：信里写博主的话逐句对他资料原文，并排给人看；提到他却没标出处的也列出来。
-  // 只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-210）。
-  const creatorLine = (c: Creator) => {
+  // P2：信里每一句对它登记的出处（博主资料、已证实的产品事实、发件人自己的话），并排给人看；没登记的也列出来。
+  // 只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-210、ADR-215）。
+  const sourcesLine = (c: Creator) => {
     const line = options.mode === 'review'
-      ? creatorSourceLine(c.outreach_draft, c.creator_sources, {
-        bio: c.bio, posts: c.recent_posts?.map(p => p.desc), nickname: c.nickname, handle: c.handle,
+      ? draftSourceLine(c.outreach_draft, c.draft_sources, {
+        bio: c.bio, posts: c.recent_posts?.map(p => p.desc), nickname: c.nickname, facts: options.facts,
       }) : undefined
     return line === undefined ? '' : `
-    <div class="bio" data-draft-creator="sources">写博主的话出处：${esc(line)}（改写得准不准请对照原文自己看）</div>`
+    <div class="bio" data-draft-sources="sentences">逐句出处：${esc(line)}（改写得准不准请对照原文自己看）</div>`
   }
   // U13.c：只在评审模式、草稿拆得出三态里「有草稿」那两档时出这一行；默认模式一个字节都不加（U9.a）。
   const subjectLine = (c: Creator) => {
@@ -286,12 +286,16 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
   // 只在这位博主作品文字里找得到的另列一行。只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-199、ADR-209）。
   const claimsLine = (c: Creator) => {
     const lines = options.mode === 'review'
-      ? claimsLines(c.outreach_draft, options.facts, (c.recent_posts ?? []).map(p => typeof p.desc === 'string' ? p.desc : '')) : undefined
+      ? claimsLines(c.outreach_draft, options.facts, (c.recent_posts ?? []).map(p => typeof p.desc === 'string' ? p.desc : ''),
+        c.outreach_draft === undefined ? undefined : senderOwnSpans(c.outreach_draft, c.draft_sources)) : undefined
     if (lines === undefined) return ''
     const posts = lines.postsOnly === undefined ? '' : `
     <div class="bio" data-draft-claims="posts-only">只在博主作品里有：${esc(lines.postsOnly)}（确认是在引用博主，不是在说产品）</div>`
+    // ADR-215：登记成发件人自己的话的约时间、电话这类数字移到这一行；价钱、承诺词这类不移（draft-claims.ts 的 productShaped）。
+    const sender = lines.senderOnly === undefined ? '' : `
+    <div class="bio" data-draft-claims="sender-only">只在发件人自己的话里：${esc(lines.senderOnly)}（确认是约时间、联系方式这类，不是产品说法）</div>`
     return `
-    <div class="bio" data-draft-claims="unsourced">出处对不上：${esc(lines.unsourced)}（只查数字和承诺词，其余说法仍要自己看）</div>${posts}`
+    <div class="bio" data-draft-claims="unsourced">出处对不上：${esc(lines.unsourced)}（只查数字和承诺词，其余说法仍要自己看）</div>${posts}${sender}`
   }
   const card = (c: Creator) => `
 ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.effective_priority === undefined ? '' : ` data-priority="${esc(c.effective_priority)}"`}>`
@@ -319,7 +323,7 @@ ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.e
   ${c.linked_handle ? renderAssessment(c.linked_account_assessment,
     c.linked_handle.startsWith('tiktok:') ? 'TikTok（关联）' : 'Instagram（关联）') : ''}
   ${c.previously_recommended ? `<div class="prev">曾推荐：${esc(c.previously_recommended)}</div>` : ''}
-  ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>${subjectLine(c)}${claimsLine(c)}${creatorLine(c)}
+  ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>${subjectLine(c)}${claimsLine(c)}${sourcesLine(c)}
     <pre>${esc(c.outreach_draft)}</pre>
     <button onclick="cp(this)">复制</button></details>` : ''}
 </div>`

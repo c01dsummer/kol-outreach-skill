@@ -163,7 +163,7 @@ import { claimsLines, draftClaims, NO_FACTS, NOT_ENGLISH, UNMATCHED_BRACES } fro
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
-  keywordRows, mergePage, needsProfile, pagesFetched, pendingKeywords, rankCreators,
+  keywordRows, mergePage, needsProfile, pagesFetched, pendingKeywords, rankCreators, rawSeedFromLegacy,
   taskPlatforms, taskQueryStatus, tierCounts, resumeCostLine, underPageCap,
 } from './lib/pipeline.js'
 import {
@@ -199,7 +199,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p2-draft-claims', needs: [] },
   { id: 'p2-endorsement-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
-  { id: 'p2-creator-sources', needs: [] },
+  { id: 'p2-draft-sources', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
   { id: 'd4s-independent-claim', needs: [] },
@@ -1721,149 +1721,154 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
 }
 
 })
-await group('p2-creator-sources', () => {
-suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在评审 HTML 里，不拦')
+await group('p2-draft-sources', () => {
+suite('P2', '开发信每一句对它登记的出处（博主资料、已证实的产品事实、发件人自己的话），并排列在评审 HTML 里，不拦')
 {
-  // P2.f（ADR-210）：期望只取自判据原文与下面写进夹具的字面值。
-  // 资料：简介、两条作品文案、昵称「Mei Lin」、账号 meicooks。草稿里各种情形各一句；登记都是整句。
+  // P2.f（ADR-210、ADR-215）：期望只取自判据原文与下面写进夹具的字面值。
+  // 资料：简介、两条作品文案、昵称「Mei Lin」，任务里两条已证实的产品事实。草稿里各种情形各一句。
   const BIO = "Mei's 3-ingredient recipes for  busy mornings"
   const POSTS = [{ desc: 'Leg day vlog' }, { desc: 'Yes, I show the “cleanup” every time – always' }] as unknown as Creator['recent_posts']
+  const FACTS = ['Portable 400ml blender, rinses clean in ten seconds.', 'Ships with a 1-year warranty.']
   const DRAFT = 'Subject: Your 3-ingredient smoothie series\n\nHi Mei,\n\n' +
     'Your series shows the cleanup every time —\nthat part stuck with me. You run marathons every week.\n\n' +
-    "Meicooks is my favourite channel. Mei Lin's kitchen looks great. We make a 400ml blender.\n\n" +
-    'Happy to send one over if it fits your kitchen.\n\nBest,\n{name}'
+    'We make a portable 400ml blender. It comes with a lifetime warranty.\n\n' +
+    'Meicooks is my favourite channel.\n\nHappy to send one over if it fits your kitchen.\n\nBest,\n{name}'
   const SOURCES = [
     { draft: 'YOUR 3-ingredient   smoothie series', from: 'bio', quote: 'MEI’S 3-INGREDIENT recipes for busy mornings' },
+    { draft: 'Hi Mei,', from: 'self' },
     { draft: 'Your series shows the cleanup every time —', from: 'post', quote: 'I show the "cleanup" every time - always' },
     { draft: 'that part stuck with me.', from: 'self' },
     { draft: 'You run marathons every week.', from: 'post', quote: 'I run marathons' },
+    { draft: 'We make a portable 400ml blender.', from: 'product', quote: 'portable 400ML blender' },
+    { draft: 'It comes with a lifetime warranty.', from: 'product', quote: 'lifetime warranty' },
     { draft: 'Happy to send one over if it fits your kitchen.', from: 'self' },
+    { draft: 'Best, {name}', from: 'self' },
     { draft: 'Your old sentence that was edited away', from: 'nickname', quote: 'Mei' },
-  ] as NonNullable<Creator['creator_sources']>
+  ] as NonNullable<Creator['draft_sources']>
   const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 4,
     tiers: { A: 4, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false }
   const people = [
-    mk('tiktok', 'meicooks', { nickname: 'Mei Lin', bio: BIO, recent_posts: POSTS, tier: 'A', score: 4, outreach_draft: DRAFT, creator_sources: SOURCES, profile_url: 'https://example.com/meicooks' }),
-    mk('tiktok', 'plain', { nickname: 'Ana', tier: 'A', score: 3, outreach_draft: 'Subject: Quick one\n\nHi Ana,\n\nWe make a blender.\n\nBest,\n{name}', profile_url: 'https://example.com/plain' }),
-    mk('tiktok', 'blank', { tier: 'A', score: 2, outreach_draft: ' \n ', creator_sources: SOURCES, profile_url: 'https://example.com/blank' }),
-    mk('tiktok', 'nodraft', { tier: 'A', score: 1, creator_sources: SOURCES, profile_url: 'https://example.com/nodraft' }),
+    mk('tiktok', 'meicooks', { nickname: 'Mei Lin', bio: BIO, recent_posts: POSTS, tier: 'A', score: 4, outreach_draft: DRAFT, draft_sources: SOURCES, profile_url: 'https://example.com/meicooks' }),
+    mk('tiktok', 'plain', { nickname: 'Ana', tier: 'A', score: 3, outreach_draft: '— …', profile_url: 'https://example.com/plain' }),
+    mk('tiktok', 'blank', { tier: 'A', score: 2, outreach_draft: ' \n ', draft_sources: SOURCES, profile_url: 'https://example.com/blank' }),
+    mk('tiktok', 'nodraft', { tier: 'A', score: 1, draft_sources: SOURCES, profile_url: 'https://example.com/nodraft' }),
   ]
   const before = structuredClone(people)
-  const lineOf = (page: string, handle: string): string | undefined => {
+  const rowOf = (page: string, handle: string, attr: string): string | undefined => {
     const card = page.split('<div class="card ').find(chunk => chunk.includes(`href="https://example.com/${handle}"`))
-    const m = card === undefined ? null : /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(card)
+    const m = card === undefined ? null : new RegExp(`<div class="bio" ${attr}>([^<]*)</div>`).exec(card)
     return m === null ? undefined : m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&')
   }
-  const HEAD = '写博主的话出处：', TAIL = '（改写得准不准请对照原文自己看）', BAR = '　｜　'
-  const SELF = '发件人自己的话（确认没有借它给博主安新说法）：'
-  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual' })
-  eq('P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算',
+  const lineOf = (page: string, handle: string) => rowOf(page, handle, 'data-draft-sources="sentences"')
+  const HEAD = '逐句出处：', TAIL = '（改写得准不准请对照原文自己看）', BAR = '　｜　'
+  const SELF = '发件人自己的话（确认没有借它给博主安新说法，也没有夹带产品说法）：'
+  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual', facts: FACTS })
+  eq('P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记',
     lineOf(review, 'meicooks'), HEAD + '要看：' + [
       '「You run marathons every week.」← 作品文案原文「I run marathons」（原文对不上：他的作品文案里没有这段）',
-      '「Meicooks is my favourite channel.」（提到了博主，没标出处）',
-      "「Mei Lin's kitchen looks great.」（提到了博主，没标出处）",
+      '「It comes with a lifetime warranty.」← 产品事实原文「lifetime warranty」（原文对不上：任务里已证实的产品事实没有这段）',
+      '「Meicooks is my favourite channel.」（没登记出处）',
       '「Your old sentence that was edited away」（登记了出处，但信里已经没有这句）',
     ].join('；') + BAR + '对得上：' + [
       '「YOUR 3-ingredient   smoothie series」← 简介原文「MEI’S 3-INGREDIENT recipes for busy mornings」',
       '「Your series shows the cleanup every time —」← 作品文案原文「I show the "cleanup" every time - always」',
-    ].join('；') + BAR + SELF + ['「that part stuck with me.」', '「Happy to send one over if it fits your kitchen.」'].join('；') + TAIL)
-  eq('P2.f 有草稿、没提到博主也没登记的写「无」', lineOf(review, 'plain'), `${HEAD}无${TAIL}`)
+      '「We make a portable 400ml blender.」← 产品事实原文「portable 400ML blender」',
+    ].join('；') + BAR + SELF + ['「Hi Mei,」', '「that part stuck with me.」', '「Happy to send one over if it fits your kitchen.」', '「Best, {name}」'].join('；') + TAIL)
+  eq('P2.f 有草稿、没有一个字要登记（只有标点）时写「无」', lineOf(review, 'plain'), `${HEAD}无${TAIL}`)
   eq('P2.g 没草稿或草稿只有空白的卡片不出这一行', ['blank', 'nodraft'].map(h => lineOf(review, h)), [undefined, undefined])
   ok('P2.g 只标不改：草稿原文逐字在 HTML 里，输入名单不变',
     review.includes(DRAFT.replace(/&/g, '&amp;').replace(/'/g, '&#39;')) && isDeepStrictEqual(people, before))
-  ok('P2.g 默认模式 HTML 不出这一行（U9.a）', !renderHtml(people, meta).includes('data-draft-creator'))
-  const injected = renderHtml([mk('tiktok', 'inj', { tier: 'A', outreach_draft: 'You <b>rock</b>.', profile_url: 'https://example.com/inj' })], meta, { mode: 'review' })
-  ok('P2.f 这一行在输出处转义', !injected.includes('<b>rock</b>') && injected.includes('「You &lt;b&gt;rock&lt;/b&gt;.」（提到了博主，没标出处）'))
+  ok('P2.g 默认模式 HTML 不出这一行（U9.a）', !renderHtml(people, meta, { facts: FACTS }).includes('data-draft-sources'))
+  const injected = renderHtml([mk('tiktok', 'inj', { tier: 'A', outreach_draft: 'We <b>rock</b>.', profile_url: 'https://example.com/inj' })], meta, { mode: 'review' })
+  ok('P2.f 这一行在输出处转义', !injected.includes('<b>rock</b>') && injected.includes('「We &lt;b&gt;rock&lt;/b&gt;.」（没登记出处）'))
+  // 产品事实：任务里一条都没有时，登记成产品事实的原文一律对不上；品牌偏好不算出处（render 只把已证实的那几条交进来）。
+  const product = (facts: readonly string[] | undefined) => lineOf(renderHtml([mk('tiktok', 'prod', { tier: 'A', outreach_draft: 'We make a blender.',
+    draft_sources: [{ draft: 'We make a blender.', from: 'product', quote: 'blender' }], profile_url: 'https://example.com/prod' })], meta, { mode: 'review', facts }), 'prod')
+  eq('P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上',
+    [product(['A blender.']), product(['Cup', 'Our blender is quiet']), product([]), product(undefined), product(['A mixer.'])], [
+      `${HEAD}对得上：「We make a blender.」← 产品事实原文「blender」${TAIL}`,
+      `${HEAD}对得上：「We make a blender.」← 产品事实原文「blender」${TAIL}`,
+      ...[0, 1, 2].map(() => `${HEAD}要看：「We make a blender.」← 产品事实原文「blender」（原文对不上：任务里已证实的产品事实没有这段）${TAIL}`),
+    ])
   // 登记半句盖不住整句：句子里没登记的部分照印出来，不管 Agent 登记的是一小段、一个词还是一个标点。
-  const one = (draft: string, sources: NonNullable<Creator['creator_sources']>, over: Partial<Creator> = {}) =>
-    lineOf(renderHtml([mk('tiktok', 'one', { nickname: 'Mei Lin', bio: '3-ingredient recipes', tier: 'A', outreach_draft: draft, creator_sources: sources, profile_url: 'https://example.com/one', ...over })], meta, { mode: 'review' }), 'one')
+  const one = (draft: string, sources: NonNullable<Creator['draft_sources']>, over: Partial<Creator> = {}) =>
+    lineOf(renderHtml([mk('tiktok', 'one', { nickname: 'Mei Lin', bio: '3-ingredient recipes', tier: 'A', outreach_draft: draft, draft_sources: sources, profile_url: 'https://example.com/one', ...over })], meta, { mode: 'review' }), 'one')
   const HALF = { draft: 'Your 3-ingredient series', from: 'bio', quote: '3-ingredient recipes' } as const
   const MATCH = '对得上：「Your 3-ingredient series」← 简介原文「3-ingredient recipes」'
-  const halfCases: Array<[string, string, NonNullable<Creator['creator_sources']>, string]> = [
-    ['登记半句，后半句编的', 'Hi Mei,\n\nYour 3-ingredient series proves you are the top chef.', [HALF],
+  const halfCases: Array<[string, string, NonNullable<Creator['draft_sources']>, string]> = [
+    ['登记半句，后半句编的', 'Your 3-ingredient series proves you are the top chef.', [HALF],
       `要看：「Your 3-ingredient series proves you are the top chef.」（只登记了其中一段，没登记的：「proves you are the top chef.」）${BAR}${MATCH}`],
-    ['登记一个词当发件人的话', 'Hi Mei,\n\nYou won awards.', [{ draft: 'you', from: 'self' }],
+    ['登记一个词当发件人的话', 'You won awards.', [{ draft: 'you', from: 'self' }],
       `要看：「You won awards.」（只登记了其中一段，没登记的：「won awards.」）${BAR}${SELF}「you」`],
-    ['句号后没空格也切句', 'Hi Mei,\n\nYour 3-ingredient series.You won awards.', [HALF],
-      `要看：「You won awards.」（提到了博主，没标出处）${BAR}${MATCH}`],
-    ['引号收尾的句子也切', 'Hi Mei,\n\nYour 3-ingredient series." You won awards.', [HALF],
-      `要看：「You won awards.」（提到了博主，没标出处）${BAR}${MATCH}`],
-    ['列表行各自成句', 'Hi Mei,\n\n- Your 3-ingredient series\n- You won awards', [HALF],
-      `要看：「- You won awards」（提到了博主，没标出处）${BAR}${MATCH}`],
-    ['缩写后的句点不切句', 'Hi Mei,\n\nYou studied under Dr. Oz in the U.S. for years.', [],
-      '要看：「You studied under Dr. Oz in the U.S. for years.」（提到了博主，没标出处）'],
-    ['问候行里带 you 一类词不算问候', 'Hey Mei your marathons rock!', [],
-      '要看：「Hey Mei your marathons rock!」（提到了博主，没标出处）'],
-    ['Dear 开头只跟名字是问候', 'Dear Mei,\n\nWe make a blender.', [], '无'],
-    ['Hello 开头只跟泛称和名字是问候', 'Hello team Mei!\n\nWe make a blender.', [], '无'],
-    ['弯撇号也认 you 一类词', 'Hi Mei,\n\nYou’re a pro.', [], '要看：「You’re a pro.」（提到了博主，没标出处）'],
-    ['名字整词才算：Meiko 不是 Mei', 'Hi Mei,\n\nMeiko helped us.', [], '无'],
-    ['要看的按在信里的先后，不按登记的先后', 'Hi Mei,\n\nYou won awards. Your 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
-      '要看：「You won awards.」（提到了博主，没标出处）；「Your 3-ingredient secret.」← 简介原文「secret」（原文对不上：他的简介里没有这段）'],
-    ['同一句只列一次', 'Hi Mei,\n\nYou rock.\n\nYou rock.', [], '要看：「You rock.」（提到了博主，没标出处）'],
-    ['登记跨过两句的一整段也算盖住', 'Hi Mei,\n\nYou cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
+    ['句号后没空格也切句', 'Your 3-ingredient series.You won awards.', [HALF],
+      `要看：「You won awards.」（没登记出处）${BAR}${MATCH}`],
+    ['引号收尾的句子也切', 'Your 3-ingredient series." You won awards.', [HALF],
+      `要看：「You won awards.」（没登记出处）${BAR}${MATCH}`],
+    ['列表行各自成句', '- Your 3-ingredient series\n- You won awards', [HALF],
+      `要看：「- You won awards」（没登记出处）${BAR}${MATCH}`],
+    ['缩写后的句点不切句', 'We met Dr. Oz in the U.S. for years.', [],
+      '要看：「We met Dr. Oz in the U.S. for years.」（没登记出处）'],
+    ['不提博主的句子没登记也列', 'We make a blender.', [], '要看：「We make a blender.」（没登记出处）'],
+    ['问候没登记也列', 'Hi Mei,\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
+      `要看：「Hi Mei,」（没登记出处）${BAR}${SELF}「We make a blender.」`],
+    ['落款没登记也列，折行接成一句', 'We make a blender.\n\nBest,\nYu', [{ draft: 'We make a blender.', from: 'self' }],
+      `要看：「Best, Yu」（没登记出处）${BAR}${SELF}「We make a blender.」`],
+    ['弯撇号与直撇号算同一个', 'You’re a pro.', [{ draft: "You're a pro.", from: 'self' }], `${SELF}「You're a pro.」`],
+    ['要看的按在信里的先后，不按登记的先后', 'You won awards. Your 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
+      '要看：「You won awards.」（没登记出处）；「Your 3-ingredient secret.」← 简介原文「secret」（原文对不上：他的简介里没有这段）'],
+    ['同一句只列一次', 'You rock.\n\nYou rock.', [], '要看：「You rock.」（没登记出处）'],
+    ['登记跨过两句的一整段也算盖住', 'You cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
+    ['只剩标点的一段不列', 'We make a blender.\n\n— …', [{ draft: 'We make a blender.', from: 'self' }], `${SELF}「We make a blender.」`],
+    ['占位符也是字，要登记', '{他的某条具体内容}', [], '要看：「{他的某条具体内容}」（没登记出处）'],
   ]
-  eq('P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后',
+  eq('P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后',
     halfCases.map(([name, draft, sources]) => [name, one(draft, sources)]), halfCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
-  // 登记停在切句点上或跨过切句点：覆盖按整封信的字算，被压到一部分的那句照样列出没登记的部分（独立复核第二轮的阻塞）。
+  // 登记停在切句点上或跨过切句点：覆盖按整封信的字算，被压到一部分的那句照样列出没登记的部分。
   const POST = { recent_posts: [{ desc: 'Yes, I show the cleanup every time! Day 12. Still showing the cleanup!' }] as unknown as Creator['recent_posts'] }
-  const crossCases: Array<[string, string, NonNullable<Creator['creator_sources']>, string, Partial<Creator>]> = [
-    ['引号里的感叹号后接小写不切句', 'Hi Mei,\n\nYour post "Yes, I show the cleanup every time!" proves nobody works harder.',
+  const crossCases: Array<[string, string, NonNullable<Creator['draft_sources']>, string, Partial<Creator>]> = [
+    ['引号里的感叹号后接小写不切句', 'Your post "Yes, I show the cleanup every time!" proves nobody works harder.',
       [{ draft: 'Your post "Yes, I show the cleanup every time!"', from: 'post', quote: 'Yes, I show the cleanup every time!' }],
       '要看：「Your post "Yes, I show the cleanup every time!" proves nobody works harder.」（只登记了其中一段，没登记的：「proves nobody works harder.」）' + BAR +
       '对得上：「Your post "Yes, I show the cleanup every time!"」← 作品文案原文「Yes, I show the cleanup every time!」', POST],
-    ['登记跨过切句点，压到下一句一部分', 'Hi Mei,\n\nYour caption "Day 12. Still showing the cleanup!" is the most honest thing online.',
+    ['登记跨过切句点，压到下一句一部分', 'Your caption "Day 12. Still showing the cleanup!" is the most honest thing online.',
       [{ draft: 'Your caption "Day 12. Still showing the cleanup!"', from: 'post', quote: 'Day 12. Still showing the cleanup!' }],
       '要看：「Still showing the cleanup!" is the most honest thing online.」（只登记了其中一段，没登记的：「is the most honest thing online.」）' + BAR +
       '对得上：「Your caption "Day 12. Still showing the cleanup!"」← 作品文案原文「Day 12. Still showing the cleanup!」', POST],
-    ['引文后接破折号评价不切句', 'Hi Mei,\n\nYour post "Clean kitchen!" — a masterclass in sustainability.',
+    ['引文后接破折号评价不切句', 'Your post "Clean kitchen!" — a masterclass in sustainability.',
       [{ draft: 'Your post "Clean kitchen!"', from: 'self' }],
       `要看：「Your post "Clean kitchen!" — a masterclass in sustainability.」（只登记了其中一段，没登记的：「- a masterclass in sustainability.」）${BAR}${SELF}「Your post "Clean kitchen!"」`, {}],
-    ['表外缩写后接小写不切句', 'Hi Mei,\n\nYour 5 a.m. smoothie routine is the most disciplined thing around.',
+    ['表外缩写后接小写不切句', 'Your 5 a.m. smoothie routine is the most disciplined thing around.',
       [{ draft: 'Your 5 a.m.', from: 'self' }],
       `要看：「Your 5 a.m. smoothie routine is the most disciplined thing around.」（只登记了其中一段，没登记的：「smoothie routine is the most disciplined thing around.」）${BAR}${SELF}「Your 5 a.m.」`, {}],
-    ['账号名带下划线整个写出来也认', 'Hi,\n\n@sarah_bakes is the best baker online.', [], '要看：「@sarah_bakes is the best baker online.」（提到了博主，没标出处）', { nickname: 'SB', handle: 'sarah_bakes' }],
-    ['账号名带数字整个写出来也认', 'Hi,\n\nmei123 is the best baker online.', [], '要看：「mei123 is the best baker online.」（提到了博主，没标出处）', { nickname: '🍰', handle: 'mei123' }],
-    ['问候后面接了评价就不是问候', 'Hey Mei, sourdough queen!\n\nWe make a blender.', [], '要看：「Hey Mei, sourdough queen!」（提到了博主，没标出处）', {}],
-    ['开头的称呼不带名字也算在说他', 'Hey sourdough queen!\n\nWe make a blender.', [], '要看：「Hey sourdough queen!」（提到了博主，没标出处）', {}],
-    ['there 这类泛称是问候', 'Hi there,\n\nWe make a blender.', [], '无', {}],
-    ['称呼和评价之间没标点也不是问候', 'Hi Mei the smoothie genius,\n\nWe make a blender.', [], '要看：「Hi Mei the smoothie genius,」（提到了博主，没标出处）', {}],
-    ['只有正文第一行可能是问候，后面的段照正文核', 'Hi Mei,\n\nWe make a blender.\n\nHey Mei', [], '要看：「Hey Mei」（提到了博主，没标出处）', {}],
-    ['没登记的只剩表情也列出', 'Hi Mei,\n\nYour smoothie series 🔥🔥', [{ draft: 'Your smoothie series', from: 'self' }], `要看：「Your smoothie series 🔥🔥」（只登记了其中一段，没登记的：「🔥🔥」）${BAR}${SELF}「Your smoothie series」`, {}],
-    ['登记在信里出现几处，每处都算盖住', 'Hi Mei,\n\nYour cleanup clip. Your cleanup clip is the best.', [{ draft: 'Your cleanup clip', from: 'self' }],
+    ['没登记的只剩表情也列出', 'Your smoothie series 🔥🔥', [{ draft: 'Your smoothie series', from: 'self' }], `要看：「Your smoothie series 🔥🔥」（只登记了其中一段，没登记的：「🔥🔥」）${BAR}${SELF}「Your smoothie series」`, {}],
+    ['登记在信里出现几处，每处都算盖住', 'Your cleanup clip. Your cleanup clip is the best.', [{ draft: 'Your cleanup clip', from: 'self' }],
       `要看：「Your cleanup clip is the best.」（只登记了其中一段，没登记的：「is the best.」）${BAR}${SELF}「Your cleanup clip」`, {}],
-    ['整个昵称也当名字认', 'Hi,\n\nmei_lin is the best baker online.', [], '要看：「mei_lin is the best baker online.」（提到了博主，没标出处）', { nickname: 'mei_lin', handle: 'x9' }],
-    ['问候只认段首行，折行后以 Hi 开头的行照正文接', 'Hello Mei,\n\nWe loved it.\nHi Mei\nyou ran far.', [], '要看：「Hi Mei you ran far.」（提到了博主，没标出处）', {}],
-    ['问候超过五个词不算问候', 'Hello Mei Lin Mei Lin Mei,\n\nWe make a blender.', [], '要看：「Hello Mei Lin Mei Lin Mei,」（提到了博主，没标出处）', {}],
-    ['主题行写到博主也要登记', 'Subject: Mei, your blender\n\nHi Mei,\n\nWe make a blender.', [], '要看：「Mei, your blender」（提到了博主，没标出处）', {}],
-    ['全角字与长破折号归一后对得上', 'Hi Mei,\n\nYour ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
+    ['主题行写什么都要登记', 'Subject: Mei, your blender\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
+      `要看：「Mei, your blender」（没登记出处）${BAR}${SELF}「We make a blender.」`, {}],
+    ['全角字与长破折号归一后对得上', 'Your ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
       '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
+    ['分开写的附加符号与合写的算同一个字', 'Café chats are fun.', [{ draft: 'Café chats are fun.', from: 'self' }], `${SELF}「Café chats are fun.」`, {}],
   ]
-  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一',
+  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一',
     crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
-  // 昵称：驼峰拆开认名字，the、with 这类普通词不算名字；两个字母的词不算。
-  eq('P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算',
-    [one('Hi,\n\nSarah won awards. We cook with care. Jo is here.', [], { nickname: 'TechWithSarah', handle: 'x1' }),
-     one('Hi,\n\nWe make the blender with care.', [], { nickname: 'Cooking With Sarah | The Official', handle: 'x2' })],
-    [`${HEAD}要看：「Sarah won awards.」（提到了博主，没标出处）${TAIL}`, `${HEAD}无${TAIL}`])
   // 名单被手改坏（昵称不是字符串、作品文案是 null、简介是数字）时这一行照出，不让 render 失败（P2.g）。
   let crashed = ''
   try {
     renderHtml([mk('tiktok', 'bad', { nickname: 7 as unknown as string, bio: 5 as unknown as string, recent_posts: [{ desc: null }] as unknown as Creator['recent_posts'], tier: 'A',
-      outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post.', creator_sources: [{ draft: 'Your bio.', from: 'bio', quote: 'x' }, { draft: 'Your post.', from: 'post', quote: 'x' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
+      outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post. Your name.', draft_sources: [{ draft: 'Your bio.', from: 'bio', quote: 'x' }, { draft: 'Your post.', from: 'post', quote: 'x' }, { draft: 'Your name.', from: 'nickname', quote: 'x' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
   } catch (error) { crashed = String(error) }
   eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', crashed, '')
   // 资料三态（P1）：简介查过没写（null）是「对不上」；简介没查过（缺席）、作品没查过（缺席或空数组）是「对不了，没查过」，不说成「没有」。
-  const SRC3 = [{ draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['creator_sources']>
+  const SRC3 = [{ draft: 'Hey Sam,', from: 'self' }, { draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['draft_sources']>
   const DRAFT3 = 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.'
   // 手改坏的资料防护失效时这里会抛错：包一层，让断言报红而不是整组死在半路。
   const safeRender = (...args: Parameters<typeof renderHtml>): string => { try { return renderHtml(...args) } catch (error) { return String(error) } }
   const bare = safeRender([
-    mk('tiktok', 'bare', { nickname: 'Sam Rivera', bio: null, recent_posts: [], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/bare' }),
-    mk('tiktok', 'unq', { nickname: 'Sam Rivera', bio: undefined, recent_posts: undefined, tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/unq' }),
-    mk('tiktok', 'had', { nickname: 'Sam Rivera', bio: 'Sam here', recent_posts: [{ desc: 'leg day' }] as unknown as Creator['recent_posts'], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/had' }),
+    mk('tiktok', 'bare', { nickname: 'Sam Rivera', bio: null, recent_posts: [], tier: 'A', outreach_draft: DRAFT3, draft_sources: SRC3, profile_url: 'https://example.com/bare' }),
+    mk('tiktok', 'unq', { nickname: 'Sam Rivera', bio: undefined, recent_posts: undefined, tier: 'A', outreach_draft: DRAFT3, draft_sources: SRC3, profile_url: 'https://example.com/unq' }),
+    mk('tiktok', 'had', { nickname: 'Sam Rivera', bio: 'Sam here', recent_posts: [{ desc: 'leg day' }] as unknown as Creator['recent_posts'], tier: 'A', outreach_draft: DRAFT3, draft_sources: SRC3, profile_url: 'https://example.com/had' }),
   ], meta, { mode: 'review' })
-  const NICK = `${BAR}对得上：「Sam Rivera here.」← 昵称原文「sam rivera」`
+  const NICK = `${BAR}对得上：「Sam Rivera here.」← 昵称原文「sam rivera」${BAR}${SELF}「Hey Sam,」`
   eq('P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对',
     ['bare', 'unq', 'had'].map(h => lineOf(bare, h)), [
       HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
@@ -1871,34 +1876,63 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
       HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（原文对不上：他的作品文案里没有这段）'].join('；') + NICK + TAIL,
     ])
   // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，和下一行接成一句。
-  const subj = renderHtml([mk('tiktok', 'subj', { nickname: 'Ana', tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
-  eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文切句', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen is lovely.」（提到了博主，没标出处）${TAIL}`)
+  const subj = renderHtml([mk('tiktok', 'subj', { nickname: 'Ana', tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', draft_sources: [{ draft: 'Hi Ana,', from: 'self' }], profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
+  eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文切句', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen is lovely.」（没登记出处）${BAR}${SELF}「Hi Ana,」${TAIL}`)
   criterion('P2.f', 'P2.g')
+  // P2.c 与 ADR-215：登记成发件人自己的话的约时间、电话这类数字，不进「出处对不上」，另列一行；
+  // 价钱、百分比、承诺词这几类登记成自己的话也照列；没登记的那一处照列。
+  const CALL = 'Free for a quick call on 11/20/2026 at 3:30pm? Text me at 415 555 0199 for a 15-minute chat. I can do $40 off and free shipping, 20% too, even half off on the IPX7 one. It is FDA approved.'
+  const LETTER = `Hi Ana,\n\nWe make a 400ml blender.\n\n${CALL}\n\nOr call 415 555 0199 any time.`
+  const claimsOf = (draft: string, sources: NonNullable<Creator['draft_sources']> | undefined) => {
+    const page = renderHtml([mk('tiktok', 'call', { tier: 'A', outreach_draft: draft, draft_sources: sources, profile_url: 'https://example.com/call' })], meta, { mode: 'review', facts: ['Portable 400ml blender.'] })
+    return [rowOf(page, 'call', 'data-draft-claims="unsourced"'), rowOf(page, 'call', 'data-draft-claims="sender-only"')]
+  }
+  const NOTE = '（只查数字和承诺词，其余说法仍要自己看）', SENDER_NOTE = '（确认是约时间、联系方式这类，不是产品说法）'
+  const PRODUCTISH = ['$40（I can do $40 off and free）', 'free shipping（$40 off and free shipping, 20% too, even）', '20%（and free shipping, 20% too, even half）',
+    'half off（20% too, even half off on the IPX7）', 'IPX7（off on the IPX7 one. It is）', 'It is FDA approved']
+  const TIMEISH = ['11/20/2026（quick call on 11/20/2026 at 3:30pm? Text）', '3:30pm（on 11/20/2026 at 3:30pm? Text me at）', '415 555 0199（Text me at 415 555 0199 for a 15-minute）', '15-minute（0199 for a 15-minute chat. I can）']
+  eq('P2.c 登记成发件人自己的话的日期、钟点、电话、普通数字移到「只在发件人自己的话里」一行，价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列',
+    claimsOf(LETTER, [{ draft: CALL, from: 'self' }]), [
+      `出处对不上：${[...PRODUCTISH, '415 555 0199（Or call 415 555 0199 any time.）'].join('；')}${NOTE}`,
+      `只在发件人自己的话里：${TIMEISH.join('；')}${SENDER_NOTE}`,
+    ])
+  eq('P2.c 没登记成发件人自己的话时约时间、电话照列在「出处对不上」，不出另一行',
+    claimsOf(LETTER, undefined), [`出处对不上：${[TIMEISH[0], TIMEISH[1], TIMEISH[2], TIMEISH[3], ...PRODUCTISH].join('；')}${NOTE}`, undefined])
+  // 登记只盖住半个日期（停在 11/20 上）时那个日期不算落在发件人自己的话里；登记成博主资料或产品事实的也不算。
+  eq('P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移',
+    [claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self' }])[1],
+     claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'product', quote: 'noon' }])[1],
+     claimsOf('Free on  11/20/2026\nat noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'self' }])[1],
+     claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at 415 555 0199.', from: 'self' }])[1]],
+    [undefined, undefined, `只在发件人自己的话里：11/20/2026（Free on 11/20/2026）${SENDER_NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`])
+  criterion('P2.c')
 }
 {
   // P2.e：正本校验、读写往返、投影。
   const root = mkdtempSync(join(tmpdir(), 'kol-p2src-review-'))
   try {
     const key = 'tiktok:meicooks'
-    const SOURCES = [{ draft: 'Your series', from: 'post', quote: 'my series' }, { draft: 'that stuck with me', from: 'self' }]
+    const SOURCES = [{ draft: 'Your series', from: 'post', quote: 'my series' }, { draft: 'that stuck with me', from: 'self' }, { draft: 'We make blenders', from: 'product', quote: 'blender' }]
     const doc = (sources: unknown): AgentReviewDocument => ({ version: 1, updated_at: '2026-11-15T00:00:00Z', rounds: [],
-      reviews: { [key]: { account_keys: [key], outreach_draft: 'Your series. that stuck with me', creator_sources: sources } as unknown as AgentReview } })
-    writeAgentReviewDocument(root, doc(SOURCES))
+      reviews: { [key]: { account_keys: [key], outreach_draft: 'Your series. that stuck with me', draft_sources: sources } as unknown as AgentReview } })
+    // 写不进去时不在这里抛错（整组会死在半路），交给下面「读写往返不丢」那条报红。
+    try { writeAgentReviewDocument(root, doc(SOURCES)) } catch { writeAgentReviewDocument(root, doc([])) }
     const file = join(root, 'agent-review.json'), bytes = rf(file, 'utf8')
     const read = readAgentReviewDocument(root)
-    eq('P2.e 合规的 creator_sources 读写往返不丢', read.document.reviews[key].creator_sources, SOURCES)
+    eq('P2.e 合规的 draft_sources 读写往返不丢', read.document.reviews[key].draft_sources, SOURCES)
     const bad: Array<[string, unknown, string]> = [
-      ['不是数组', { draft: 'x' }, 'creator_sources 必须是数组'],
-      ['项不是对象', ['x'], 'creator_sources[0] 必须是对象'],
-      ['不认得的键', [{ draft: 'x', from: 'self', note: 'y' }], 'creator_sources[0].note 不认得'],
-      ['draft 空白', [{ draft: ' ', from: 'self' }], 'creator_sources[0].draft 必须是非空字符串'],
-      ['draft 缺', [{ from: 'self' }], 'creator_sources[0].draft 必须是非空字符串'],
-      ['from 不认得', [{ draft: 'x', from: 'observed_content', quote: 'y' }], 'creator_sources[0].from 必须是'],
-      ['self 写了原文', [{ draft: 'x', from: 'self', quote: 'y' }], 'creator_sources[0].quote 发件人自己的话不写原文'],
-      ['bio 没写原文', [{ draft: 'x', from: 'bio' }], 'creator_sources[0].quote 必须是非空字符串'],
-      ['post 原文空白', [{ draft: 'x', from: 'post', quote: '  ' }], 'creator_sources[0].quote 必须是非空字符串'],
-      ['nickname 原文不是字符串', [{ draft: 'x', from: 'nickname', quote: 3 }], 'creator_sources[0].quote 必须是非空字符串'],
-      ['第二项坏也指出第几项', [SOURCES[0], { draft: 'x', from: 'bio' }], 'creator_sources[1].quote 必须是非空字符串'],
+      ['不是数组', { draft: 'x' }, 'draft_sources 必须是数组'],
+      ['项不是对象', ['x'], 'draft_sources[0] 必须是对象'],
+      ['不认得的键', [{ draft: 'x', from: 'self', note: 'y' }], 'draft_sources[0].note 不认得'],
+      ['draft 空白', [{ draft: ' ', from: 'self' }], 'draft_sources[0].draft 必须是非空字符串'],
+      ['draft 缺', [{ from: 'self' }], 'draft_sources[0].draft 必须是非空字符串'],
+      ['from 不认得', [{ draft: 'x', from: 'observed_content', quote: 'y' }], 'draft_sources[0].from 必须是'],
+      ['self 写了原文', [{ draft: 'x', from: 'self', quote: 'y' }], 'draft_sources[0].quote 发件人自己的话不写原文'],
+      ['bio 没写原文', [{ draft: 'x', from: 'bio' }], 'draft_sources[0].quote 必须是非空字符串'],
+      ['post 原文空白', [{ draft: 'x', from: 'post', quote: '  ' }], 'draft_sources[0].quote 必须是非空字符串'],
+      ['nickname 原文不是字符串', [{ draft: 'x', from: 'nickname', quote: 3 }], 'draft_sources[0].quote 必须是非空字符串'],
+      ['product 没写原文', [{ draft: 'x', from: 'product' }], 'draft_sources[0].quote 必须是非空字符串'],
+      ['第二项坏也指出第几项', [SOURCES[0], { draft: 'x', from: 'bio' }], 'draft_sources[1].quote 必须是非空字符串'],
     ]
     eq('P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节', bad.map(([name, value, want]) => {
       try { writeAgentReviewDocument(root, doc(value)); return [name, 'accepted'] }
@@ -1909,12 +1943,14 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     }), bad.map(([name]) => [name, true, true]))
     const creators = [mk('tiktok', 'meicooks')]
     const projected = projectAgentReviews(read.document, creators)
-    eq('P2.e 投影到名单原样带上', projected[0].creator_sources, SOURCES)
+    eq('P2.e 投影到名单原样带上', projected[0].draft_sources, SOURCES)
     // 投影没带上时不在这里抛错，交给上一条断言报红。
-    if (projected[0].creator_sources !== undefined) projected[0].creator_sources[0].draft = 'changed'
-    eq('P2.e 改投影不反向改正本', read.document.reviews[key].creator_sources![0].draft, 'Your series')
-    const removed = structuredClone(read.document); delete removed.reviews[key].creator_sources
-    ok('P2.e 正本删掉它后，带着旧投影的名单重投影时也消失', !('creator_sources' in projectAgentReviews(removed, projected)[0]))
+    if (projected[0].draft_sources !== undefined) projected[0].draft_sources[0].draft = 'changed'
+    eq('P2.e 改投影不反向改正本', read.document.reviews[key].draft_sources![0].draft, 'Your series')
+    const removed = structuredClone(read.document); delete removed.reviews[key].draft_sources
+    ok('P2.e 正本删掉它后，带着旧投影的名单重投影时也消失', !('draft_sources' in projectAgentReviews(removed, projected)[0]))
+    // 旧名单当种子时（采集原件缺席）出处登记和草稿一样是评审判断，要清掉，不带进新一轮的原件里。
+    ok('P2.e 旧名单当种子时出处登记跟草稿一起清掉', !('draft_sources' in rawSeedFromLegacy(projected)[0]) && !('outreach_draft' in rawSeedFromLegacy(projected)[0]))
     criterion('P2.e')
   } finally { rmSync(root, { recursive: true, force: true }) }
 }
@@ -1932,19 +1968,19 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify([creator]))
     writeFileSync(join(dir, 'agent-review.json'), JSON.stringify({ version: 1, updated_at: now, rounds: [], reviews: { 'tiktok:u14_render': {
       account_keys: ['tiktok:u14_render'], fit: '✅', fit_reason: '夹具', outreach_draft: DRAFT,
-      creator_sources: [{ draft: 'Your sourdough series is lovely.', from: 'bio', quote: 'sourdough series' }] } } }))
+      draft_sources: [{ draft: 'Your sourdough series is lovely.', from: 'bio', quote: 'sourdough series' }] } } }))
     writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
     const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
     const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
     const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
-    const line = /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
+    const line = /<div class="bio" data-draft-sources="sentences">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
     const csv = read('kol.csv')
     let xlsxText = ''
     try { xlsxText = xlsxPart(join(dir, 'kol.xlsx'), 'xl/worksheets/sheet1.xml') } catch { xlsxText = 'unreadable' }
     try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), 'xl/sharedStrings.xml') } catch { /* 没有共享字符串表时只看工作表 */ }
     eq('P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
-      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('creator_sources'), xlsxText !== 'unreadable' && xlsxText.includes('outreach_draft'), xlsxText.includes('creator_sources')],
-      [0, '写博主的话出处：要看：「You also climb.」（提到了博主，没标出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true, false])
+      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('draft_sources'), xlsxText !== 'unreadable' && xlsxText.includes('outreach_draft'), xlsxText.includes('draft_sources')],
+      [0, '逐句出处：要看：「Quick one」（没登记出处）；「Hi Ana,」（没登记出处）；「You also climb.」（没登记出处）；「Best, {name}」（没登记出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true, false])
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
   } finally { rmSync(root, { recursive: true, force: true }) }
   }
