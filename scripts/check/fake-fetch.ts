@@ -150,7 +150,7 @@ const instagramUserPosts = {
 }
 
 /**
- * KOL-105：profile 补全阶段的供应商拒收。关键词里带 `profile-halt` 时，TikTok 视频搜索与 IG Reels 搜索
+ * profile 补全阶段的供应商拒收（D6.ab）。关键词里带 `profile-halt` 时，TikTok 视频搜索与 IG Reels 搜索
  * 各回同样三个人，粉丝都在闸门之内、都没带简介（搜索那一侧给不出简介，三人都待补 profile，D6.p）；
  * 这三个人的 profile（TikTok、IG V3、IG V2）照请求里的账号名回一份写了简介与外链的资料。
  * 关键词带 `profile-halt-more` 时 TikTok 搜索声明还有下一页 —— 第一页就够目标人数时，达标那条收尾只有这样才走得到。
@@ -291,7 +291,7 @@ const fakeFetch = async (input: RequestInfo | URL) => {
     record(402, url)
     return new Response('payment required', { status: 402 })
   }
-  // KOL-105 那三个人（见 `HALT_PEOPLE` 上面那段）：搜索按关键词认，profile 按账号名认
+  // profile 阶段拒收的那三个人（见 `HALT_PEOPLE` 上面那段）：搜索按关键词认，profile 按账号名认
   const haltFound = url.includes('profile-halt') ? haltSearch(url) : undefined
   if (haltFound !== undefined) {
     record(200, url)

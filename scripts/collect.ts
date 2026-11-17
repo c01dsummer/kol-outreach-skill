@@ -17,7 +17,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
-import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/budget.js'
+import { Budget, BudgetInputError, budgetStopLines, shellArg, startBudget, type PersistCost } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
@@ -433,7 +433,7 @@ async function enrichProfiles() {
   console.error(`\n补全 profile：${list.length} 人`)
   let done = 0
   // 「N 人补全失败」那一行放在 finally 里：循环因 402、费用错误或预算参数错误提前抛出时也照打，
-  // 与汇总里的 `profile_failed` 对得上（KOL-108 第 1 件，ADR-193）
+  // 与汇总里的 `profile_failed` 对得上（ADR-193；ADR-183 末尾「收口」一节第 1 项）
   try {
   for (const c of list) {
     try {
@@ -452,7 +452,7 @@ async function enrichProfiles() {
       // 402（余额不足）例外：那不是这一个人的失败，换下一个人照样 402，而
       // skill/references/providers/tikhub.md「错误处理」402 那一行说的是「**停止**，
       // 告诉用户去充值，不要重试」。所以原样抛出，与搜索阶段的 402 同一种收尾，
-      // 之后一个请求也不再发；这个人不计进 profileFailed，与没轮到的人一样仍算待补（D6.ab，KOL-105）。
+      // 之后一个请求也不再发；这个人不计进 profileFailed，与没轮到的人一样仍算待补（D6.ab）。
       if (e instanceof CostError || e instanceof BudgetInputError) throw e
       if (e instanceof TikHubError && e.status === 402) throw e
       profileFailed++
@@ -508,7 +508,7 @@ async function main() {
     // 无条件说「续跑不会重复花费」，是把「已抓到的不重抓」说成了「续跑免费」，
     // 而剩下的关键词照样要花钱（ADR-22）。
     if (stopped === 'error') console.error(`\n   ⚠️ 本轮采集也没跑完：${errorMsg}`)
-    if (stopped === 'budget') console.error(`\n   ⚠️ 本轮余额不足以支付下一请求，续跑可用 --budget 指定新总额度`)
+    if (stopped === 'budget') console.error(`\n   ⚠️ 本轮剩下的钱也不够付下一次请求了，续跑时要用 --budget 给新的总上限`)
     // 「续跑要不要花钱」有**两种**没干完的活，只数关键词会漏掉后一种：
     // 关键词全跑完了，但只要还有人没补 profile，续跑第一件事就是去补，
     // 那是付费端点（ADR-25）。
@@ -522,8 +522,8 @@ async function main() {
 
     // 预算用尽时光 --resume 会立刻再退 3，所以命令里得把 --budget 一起给出来。
     // 写成 npm run 的形式：tsx 只在 npm script 里才在 PATH 上，而且 .env 也只有那条路会读
-    console.error(`\n   修好它再跑: npm run collect -- --resume ${dir}` +
-                  (stopped === 'budget' ? ' --budget <新额度>' : ''))
+    console.error(`\n   修好它再跑: npm run collect -- --resume ${shellArg(dir)}` +
+                  (stopped === 'budget' ? ' --budget <新总上限>' : ''))
     // 逃生口要打出来，但只打出来 —— 走不走它是用户的取舍，不是这里替他选（ADR-15）
     console.error(`   或明知重复打扰的风险仍要出名单: 上面那条命令加 --ignore-memory`)
     process.exit(EXIT.memory)
@@ -576,16 +576,18 @@ async function main() {
   console.error(`\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)
 
   if (stopped === 'budget') {
-    console.error(`\n⛔ 余额不足以支付下一请求 ${budget.summary()} —— 断点已保存。`)
-    console.error(`   指定新总预算续跑: npm run collect -- --resume ${dir} --budget <新额度>`)
-    process.exit(EXIT.budget)    // 预算用尽，可续跑
+    // 走到这里，上面的每次保存都成功了（失败的那一路以 6 退出），所以第二行「进度已存好」说得起（P3.d）
+    // 「已经拿到的」只说搜索结果和已补完资料的人：资料没补完的（needsProfile：没有简介或外链为空）续跑还会再查 profile、再花钱，上面那句续跑要不要花钱数的就是他们
+    console.error('\n' + budgetStopLines(budget.view(), `已找到 ${fin.kept.length} 位达人，已经拿到的搜索结果和已补完资料的达人下次不会再花钱重抓`,
+      `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\n'))
   }
-  if (stopped === 'error') process.exit(errorExit)
-  // 达标用 exitCode 自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（budget、error 两支见 ADR-193 第六节那张欠条）
+  // 三种收尾都设 exitCode、自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（ADR-193、ADR-213）
+  if (stopped === 'budget') process.exitCode = EXIT.budget    // 钱不够付下一次请求，可续跑
+  if (stopped === 'error') process.exitCode = errorExit
   if (stopped === 'target') process.exitCode = EXIT.target
 }
 
-// 走到这里的都没有汇总 JSON：收尾时评审文件有问题 2、保存失败 6、其余 1（ADR-193；KOL-108 第 2 件）
+// 走到这里的都没有汇总 JSON：收尾时评审文件有问题 2、保存失败 6、其余 1（ADR-193；ADR-183 末尾「收口」一节第 2 项）
 main().catch(e => {
   console.error(e instanceof Error ? e.message : String(e))
   process.exit(e instanceof ReviewInputError ? EXIT.input

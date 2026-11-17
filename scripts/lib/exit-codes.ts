@@ -1,5 +1,5 @@
 /**
- * 入口共用的退出码（ADR-193，KOL-106 方案乙）。
+ * 入口共用的退出码（ADR-193，「按该做的事分号」那一案）。
  *
  * 每个数对着 Agent 接下来该做的**一件事**，同一个数在 collect、enrich、probe、render 里意思一样。
  * 原先只有 0–3 四个数，「关键词跑完」与「达标」同为 0，「供应商余额不足」与「其他运行错误」同为 1，
@@ -16,7 +16,7 @@ export const EXIT = {
   runtime: 1,
   /** 输入问题（开跑前查出、或跑到一半才查出的缺 key／费用账问题、收尾时的评审文件问题）：把具体哪里不对报给用户 */
   input: 2,
-  /** 预算不足以支付下一请求：collect／enrich 断点已保存；probe 已出部分结果 */
+  /** 剩下的钱不够付下一次请求：collect／enrich 进度已存好（stderr 最后三行，见 budget.ts 的 budgetStopLines）；probe 已出部分结果 */
   budget: 3,
   /** collect 达标停下 */
   target: 4,

@@ -170,8 +170,13 @@ export function shardOrder(fams: readonly (readonly string[])[], solo: readonly 
   return { parallel, serial }
 }
 
-/** 子进程跑完交回给父进程的那一份：它跑了哪几组、红了几处、认领了什么、执行过哪些脚本 */
-export interface ShardReport { groups: string[]; failed: number; claimed: string[]; covered: string[] }
+/**
+ * 子进程跑完交回给父进程的那一份：它跑了哪几组、红了几处、认领了什么、执行过哪些脚本，
+ * 以及每组起的子进程在 `tmp` 底下哪几处当前目录里起（`cwds`，相对本进程的 `tmp`，空串是 `tmp` 本身；ADR-212）
+ */
+export interface ShardReport {
+  groups: string[]; failed: number; claimed: string[]; covered: string[]; cwds: Record<string, string[]>
+}
 /**
  * 父进程手上的一条派工记录。`report` 缺席 = 子进程没交回结果（崩了、被杀、写不出来）；
  * `error` = 子进程**根本没起来**，带的是 Node 交回的原因（命令不在、资源不够）
@@ -179,7 +184,9 @@ export interface ShardReport { groups: string[]; failed: number; claimed: string
 export interface ShardRun {
   family: readonly string[]; status: number | null; signal: string | null; error?: string; report?: ShardReport
 }
-export interface ShardMerge { failed: number; claimed: string[]; covered: string[]; problems: string[] }
+export interface ShardMerge {
+  failed: number; claimed: string[]; covered: string[]; cwds: Map<string, string[]>; problems: string[]
+}
 
 /**
  * 把各子进程交回的结果合成一次完整跑的结论。**合并之后才算数** —— 父进程据此打汇总、
@@ -195,6 +202,7 @@ export function mergeShards(runs: readonly ShardRun[], all: readonly string[]): 
   const problems: string[] = []
   let failed = 0
   const claimed = new Set<string>(), covered = new Set<string>()
+  const cwds = new Map<string, string[]>()
   const planned = new Map<string, number>()
   for (const run of runs) for (const id of run.family) planned.set(id, (planned.get(id) ?? 0) + 1)
   for (const id of all) {
@@ -222,8 +230,10 @@ export function mergeShards(runs: readonly ShardRun[], all: readonly string[]): 
     }
     for (const c of r.claimed) claimed.add(c)
     for (const c of r.covered) covered.add(c)
+    // 只收派给这个子进程的组：多跑的那几组上面已经报过，它们的当前目录不算进来
+    for (const [id, dirs] of Object.entries(r.cwds)) if (run.family.includes(id)) cwds.set(id, [...dirs])
   }
-  return { failed: failed + problems.length, claimed: [...claimed].sort(), covered: [...covered].sort(), problems }
+  return { failed: failed + problems.length, claimed: [...claimed].sort(), covered: [...covered].sort(), cwds, problems }
 }
 
 /**
@@ -238,5 +248,7 @@ export function readShardReport(text: string): ShardReport | undefined {
   const strings = (x: unknown): x is string[] => Array.isArray(x) && x.every(s => typeof s === 'string')
   if (!strings(r.groups) || !strings(r.claimed) || !strings(r.covered)) return undefined
   if (typeof r.failed !== 'number' || !Number.isInteger(r.failed) || r.failed < 0) return undefined
-  return { groups: r.groups, failed: r.failed, claimed: r.claimed, covered: r.covered }
+  const c = r.cwds
+  if (typeof c !== 'object' || c === null || Array.isArray(c) || !Object.values(c).every(strings)) return undefined
+  return { groups: r.groups, failed: r.failed, claimed: r.claimed, covered: r.covered, cwds: c as Record<string, string[]> }
 }

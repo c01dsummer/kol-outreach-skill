@@ -1110,7 +1110,7 @@ export function routeDelta(base: RouteSnapshot, head: RouteSnapshot): {
 type RouteChange = ReturnType<typeof routeDelta>['changes'][number]
 
 /**
- * 维护报告的呈现分组（ADR-120 第 74 行，KOL-32）：按「基线目录里有没有这条、现在的路由里有没有这条」分新增、删除、
+ * 维护报告的呈现分组（ADR-120「入口夹具的 Git 环境隔离」一节末尾那张欠条：维护报告缺便于评审辨认重点的呈现）：按「基线目录里有没有这条、现在的路由里有没有这条」分新增、删除、
  * 改配置三类 —— 与 `routeDelta` 判新增、判删除用的是同一对来源。`routeDelta` 的 kind 与判定一字不动：同一条变化
  * 照旧带着它的 kind，只是换个地方列。三类合起来就是原清单；每类里先列路由/全跑正文变化、再列执行配置变化，
  * 各自照原清单的先后，评审先看到要解释的那几条。

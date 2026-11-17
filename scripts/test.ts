@@ -39,7 +39,8 @@ import {
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
-import { adrDocs, entries, iouName, iouNameFaults, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
+import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
+import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
@@ -56,7 +57,7 @@ import {
   anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, notARepo, stagedResidue,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
-import { judgeShares, scanShares } from './check/share-rule.js'
+import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -90,7 +91,7 @@ import {
   resolveBaseline, scanMessage, tally,
 } from './check/size-rule.js'
 import {
-  FILE_RE, checkAll, encodeTarget, escapeCell, fileNameOf, historyFaults, markerFault,
+  FILE_RE, PINS_FILE, adrSync, checkAll, encodeTarget, escapeCell, fileNameOf, historyFaults, markerFault, parsePins, pinFaults, pinOf,
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
@@ -147,7 +148,7 @@ import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { request as templateHttpsRequest } from 'node:https'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
-import { Budget, BudgetInputError, startBudget, costView, type CostView } from './lib/budget.js'
+import { Budget, BudgetInputError, budgetStopLines, shellArg, startBudget, costView, type CostView } from './lib/budget.js'
 import { readCostDocument, readCostLimit, setCostLimitField, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson, type CostState, type KeyDuplicate } from './lib/cost-json.js'
 import {
   CostError, CostLedgerUnavailable, createCostBudget, formatUsd, inspectExistingCostLedger,
@@ -197,6 +198,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p2-draft-claims', needs: [] },
   { id: 'p2-endorsement-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
+  { id: 'p2-creator-sources', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
   { id: 'd4s-independent-claim', needs: [] },
@@ -257,6 +259,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
+  { id: 'h-group-cwd', needs: [] },
   { id: 'h-mutation-fixture-git-env', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-selfcheck-shard-entry', needs: [] },
@@ -327,6 +330,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-records', needs: [] },
   { id: 'h-blackbox-many-task-files', needs: [] },
   { id: 'h-iou-file-reminder', needs: [] },
+  { id: 'h-revisit-entry', needs: [] },
   { id: 'h-iou-file-reminder-entry', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
@@ -1713,6 +1717,234 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
 }
 
 })
+await group('p2-creator-sources', () => {
+suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在评审 HTML 里，不拦')
+{
+  // P2.f（ADR-210）：期望只取自判据原文与下面写进夹具的字面值。
+  // 资料：简介、两条作品文案、昵称「Mei Lin」、账号 meicooks。草稿里各种情形各一句；登记都是整句。
+  const BIO = "Mei's 3-ingredient recipes for  busy mornings"
+  const POSTS = [{ desc: 'Leg day vlog' }, { desc: 'Yes, I show the “cleanup” every time – always' }] as unknown as Creator['recent_posts']
+  const DRAFT = 'Subject: Your 3-ingredient smoothie series\n\nHi Mei,\n\n' +
+    'Your series shows the cleanup every time —\nthat part stuck with me. You run marathons every week.\n\n' +
+    "Meicooks is my favourite channel. Mei Lin's kitchen looks great. We make a 400ml blender.\n\n" +
+    'Happy to send one over if it fits your kitchen.\n\nBest,\n{name}'
+  const SOURCES = [
+    { draft: 'YOUR 3-ingredient   smoothie series', from: 'bio', quote: 'MEI’S 3-INGREDIENT recipes for busy mornings' },
+    { draft: 'Your series shows the cleanup every time —', from: 'post', quote: 'I show the "cleanup" every time - always' },
+    { draft: 'that part stuck with me.', from: 'self' },
+    { draft: 'You run marathons every week.', from: 'post', quote: 'I run marathons' },
+    { draft: 'Happy to send one over if it fits your kitchen.', from: 'self' },
+    { draft: 'Your old sentence that was edited away', from: 'nickname', quote: 'Mei' },
+  ] as NonNullable<Creator['creator_sources']>
+  const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 4,
+    tiers: { A: 4, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false }
+  const people = [
+    mk('tiktok', 'meicooks', { nickname: 'Mei Lin', bio: BIO, recent_posts: POSTS, tier: 'A', score: 4, outreach_draft: DRAFT, creator_sources: SOURCES, profile_url: 'https://example.com/meicooks' }),
+    mk('tiktok', 'plain', { nickname: 'Ana', tier: 'A', score: 3, outreach_draft: 'Subject: Quick one\n\nHi Ana,\n\nWe make a blender.\n\nBest,\n{name}', profile_url: 'https://example.com/plain' }),
+    mk('tiktok', 'blank', { tier: 'A', score: 2, outreach_draft: ' \n ', creator_sources: SOURCES, profile_url: 'https://example.com/blank' }),
+    mk('tiktok', 'nodraft', { tier: 'A', score: 1, creator_sources: SOURCES, profile_url: 'https://example.com/nodraft' }),
+  ]
+  const before = structuredClone(people)
+  const lineOf = (page: string, handle: string): string | undefined => {
+    const card = page.split('<div class="card ').find(chunk => chunk.includes(`href="https://example.com/${handle}"`))
+    const m = card === undefined ? null : /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(card)
+    return m === null ? undefined : m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+  }
+  const HEAD = '写博主的话出处：', TAIL = '（改写得准不准请对照原文自己看）', BAR = '　｜　'
+  const SELF = '发件人自己的话（确认没有借它给博主安新说法）：'
+  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual' })
+  eq('P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算',
+    lineOf(review, 'meicooks'), HEAD + '要看：' + [
+      '「You run marathons every week.」← 作品文案原文「I run marathons」（原文对不上：他的作品文案里没有这段）',
+      '「Meicooks is my favourite channel.」（提到了博主，没标出处）',
+      "「Mei Lin's kitchen looks great.」（提到了博主，没标出处）",
+      '「Your old sentence that was edited away」（登记了出处，但信里已经没有这句）',
+    ].join('；') + BAR + '对得上：' + [
+      '「YOUR 3-ingredient   smoothie series」← 简介原文「MEI’S 3-INGREDIENT recipes for busy mornings」',
+      '「Your series shows the cleanup every time —」← 作品文案原文「I show the "cleanup" every time - always」',
+    ].join('；') + BAR + SELF + ['「that part stuck with me.」', '「Happy to send one over if it fits your kitchen.」'].join('；') + TAIL)
+  eq('P2.f 有草稿、没提到博主也没登记的写「无」', lineOf(review, 'plain'), `${HEAD}无${TAIL}`)
+  eq('P2.g 没草稿或草稿只有空白的卡片不出这一行', ['blank', 'nodraft'].map(h => lineOf(review, h)), [undefined, undefined])
+  ok('P2.g 只标不改：草稿原文逐字在 HTML 里，输入名单不变',
+    review.includes(DRAFT.replace(/&/g, '&amp;').replace(/'/g, '&#39;')) && isDeepStrictEqual(people, before))
+  ok('P2.g 默认模式 HTML 不出这一行（U9.a）', !renderHtml(people, meta).includes('data-draft-creator'))
+  const injected = renderHtml([mk('tiktok', 'inj', { tier: 'A', outreach_draft: 'You <b>rock</b>.', profile_url: 'https://example.com/inj' })], meta, { mode: 'review' })
+  ok('P2.f 这一行在输出处转义', !injected.includes('<b>rock</b>') && injected.includes('「You &lt;b&gt;rock&lt;/b&gt;.」（提到了博主，没标出处）'))
+  // 登记半句盖不住整句：句子里没登记的部分照印出来，不管 Agent 登记的是一小段、一个词还是一个标点。
+  const one = (draft: string, sources: NonNullable<Creator['creator_sources']>, over: Partial<Creator> = {}) =>
+    lineOf(renderHtml([mk('tiktok', 'one', { nickname: 'Mei Lin', bio: '3-ingredient recipes', tier: 'A', outreach_draft: draft, creator_sources: sources, profile_url: 'https://example.com/one', ...over })], meta, { mode: 'review' }), 'one')
+  const HALF = { draft: 'Your 3-ingredient series', from: 'bio', quote: '3-ingredient recipes' } as const
+  const MATCH = '对得上：「Your 3-ingredient series」← 简介原文「3-ingredient recipes」'
+  const halfCases: Array<[string, string, NonNullable<Creator['creator_sources']>, string]> = [
+    ['登记半句，后半句编的', 'Hi Mei,\n\nYour 3-ingredient series proves you are the top chef.', [HALF],
+      `要看：「Your 3-ingredient series proves you are the top chef.」（只登记了其中一段，没登记的：「proves you are the top chef.」）${BAR}${MATCH}`],
+    ['登记一个词当发件人的话', 'Hi Mei,\n\nYou won awards.', [{ draft: 'you', from: 'self' }],
+      `要看：「You won awards.」（只登记了其中一段，没登记的：「won awards.」）${BAR}${SELF}「you」`],
+    ['句号后没空格也切句', 'Hi Mei,\n\nYour 3-ingredient series.You won awards.', [HALF],
+      `要看：「You won awards.」（提到了博主，没标出处）${BAR}${MATCH}`],
+    ['引号收尾的句子也切', 'Hi Mei,\n\nYour 3-ingredient series." You won awards.', [HALF],
+      `要看：「You won awards.」（提到了博主，没标出处）${BAR}${MATCH}`],
+    ['列表行各自成句', 'Hi Mei,\n\n- Your 3-ingredient series\n- You won awards', [HALF],
+      `要看：「- You won awards」（提到了博主，没标出处）${BAR}${MATCH}`],
+    ['缩写后的句点不切句', 'Hi Mei,\n\nYou studied under Dr. Oz in the U.S. for years.', [],
+      '要看：「You studied under Dr. Oz in the U.S. for years.」（提到了博主，没标出处）'],
+    ['问候行里带 you 一类词不算问候', 'Hey Mei your marathons rock!', [],
+      '要看：「Hey Mei your marathons rock!」（提到了博主，没标出处）'],
+    ['Dear 开头只跟名字是问候', 'Dear Mei,\n\nWe make a blender.', [], '无'],
+    ['Hello 开头只跟泛称和名字是问候', 'Hello team Mei!\n\nWe make a blender.', [], '无'],
+    ['弯撇号也认 you 一类词', 'Hi Mei,\n\nYou’re a pro.', [], '要看：「You’re a pro.」（提到了博主，没标出处）'],
+    ['名字整词才算：Meiko 不是 Mei', 'Hi Mei,\n\nMeiko helped us.', [], '无'],
+    ['要看的按在信里的先后，不按登记的先后', 'Hi Mei,\n\nYou won awards. Your 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
+      '要看：「You won awards.」（提到了博主，没标出处）；「Your 3-ingredient secret.」← 简介原文「secret」（原文对不上：他的简介里没有这段）'],
+    ['同一句只列一次', 'Hi Mei,\n\nYou rock.\n\nYou rock.', [], '要看：「You rock.」（提到了博主，没标出处）'],
+    ['登记跨过两句的一整段也算盖住', 'Hi Mei,\n\nYou cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
+  ]
+  eq('P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后',
+    halfCases.map(([name, draft, sources]) => [name, one(draft, sources)]), halfCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
+  // 登记停在切句点上或跨过切句点：覆盖按整封信的字算，被压到一部分的那句照样列出没登记的部分（独立复核第二轮的阻塞）。
+  const POST = { recent_posts: [{ desc: 'Yes, I show the cleanup every time! Day 12. Still showing the cleanup!' }] as unknown as Creator['recent_posts'] }
+  const crossCases: Array<[string, string, NonNullable<Creator['creator_sources']>, string, Partial<Creator>]> = [
+    ['引号里的感叹号后接小写不切句', 'Hi Mei,\n\nYour post "Yes, I show the cleanup every time!" proves nobody works harder.',
+      [{ draft: 'Your post "Yes, I show the cleanup every time!"', from: 'post', quote: 'Yes, I show the cleanup every time!' }],
+      '要看：「Your post "Yes, I show the cleanup every time!" proves nobody works harder.」（只登记了其中一段，没登记的：「proves nobody works harder.」）' + BAR +
+      '对得上：「Your post "Yes, I show the cleanup every time!"」← 作品文案原文「Yes, I show the cleanup every time!」', POST],
+    ['登记跨过切句点，压到下一句一部分', 'Hi Mei,\n\nYour caption "Day 12. Still showing the cleanup!" is the most honest thing online.',
+      [{ draft: 'Your caption "Day 12. Still showing the cleanup!"', from: 'post', quote: 'Day 12. Still showing the cleanup!' }],
+      '要看：「Still showing the cleanup!" is the most honest thing online.」（只登记了其中一段，没登记的：「is the most honest thing online.」）' + BAR +
+      '对得上：「Your caption "Day 12. Still showing the cleanup!"」← 作品文案原文「Day 12. Still showing the cleanup!」', POST],
+    ['引文后接破折号评价不切句', 'Hi Mei,\n\nYour post "Clean kitchen!" — a masterclass in sustainability.',
+      [{ draft: 'Your post "Clean kitchen!"', from: 'self' }],
+      `要看：「Your post "Clean kitchen!" — a masterclass in sustainability.」（只登记了其中一段，没登记的：「- a masterclass in sustainability.」）${BAR}${SELF}「Your post "Clean kitchen!"」`, {}],
+    ['表外缩写后接小写不切句', 'Hi Mei,\n\nYour 5 a.m. smoothie routine is the most disciplined thing around.',
+      [{ draft: 'Your 5 a.m.', from: 'self' }],
+      `要看：「Your 5 a.m. smoothie routine is the most disciplined thing around.」（只登记了其中一段，没登记的：「smoothie routine is the most disciplined thing around.」）${BAR}${SELF}「Your 5 a.m.」`, {}],
+    ['账号名带下划线整个写出来也认', 'Hi,\n\n@sarah_bakes is the best baker online.', [], '要看：「@sarah_bakes is the best baker online.」（提到了博主，没标出处）', { nickname: 'SB', handle: 'sarah_bakes' }],
+    ['账号名带数字整个写出来也认', 'Hi,\n\nmei123 is the best baker online.', [], '要看：「mei123 is the best baker online.」（提到了博主，没标出处）', { nickname: '🍰', handle: 'mei123' }],
+    ['问候后面接了评价就不是问候', 'Hey Mei, sourdough queen!\n\nWe make a blender.', [], '要看：「Hey Mei, sourdough queen!」（提到了博主，没标出处）', {}],
+    ['开头的称呼不带名字也算在说他', 'Hey sourdough queen!\n\nWe make a blender.', [], '要看：「Hey sourdough queen!」（提到了博主，没标出处）', {}],
+    ['there 这类泛称是问候', 'Hi there,\n\nWe make a blender.', [], '无', {}],
+    ['称呼和评价之间没标点也不是问候', 'Hi Mei the smoothie genius,\n\nWe make a blender.', [], '要看：「Hi Mei the smoothie genius,」（提到了博主，没标出处）', {}],
+    ['只有正文第一行可能是问候，后面的段照正文核', 'Hi Mei,\n\nWe make a blender.\n\nHey Mei', [], '要看：「Hey Mei」（提到了博主，没标出处）', {}],
+    ['没登记的只剩表情也列出', 'Hi Mei,\n\nYour smoothie series 🔥🔥', [{ draft: 'Your smoothie series', from: 'self' }], `要看：「Your smoothie series 🔥🔥」（只登记了其中一段，没登记的：「🔥🔥」）${BAR}${SELF}「Your smoothie series」`, {}],
+    ['登记在信里出现几处，每处都算盖住', 'Hi Mei,\n\nYour cleanup clip. Your cleanup clip is the best.', [{ draft: 'Your cleanup clip', from: 'self' }],
+      `要看：「Your cleanup clip is the best.」（只登记了其中一段，没登记的：「is the best.」）${BAR}${SELF}「Your cleanup clip」`, {}],
+    ['整个昵称也当名字认', 'Hi,\n\nmei_lin is the best baker online.', [], '要看：「mei_lin is the best baker online.」（提到了博主，没标出处）', { nickname: 'mei_lin', handle: 'x9' }],
+    ['问候只认段首行，折行后以 Hi 开头的行照正文接', 'Hello Mei,\n\nWe loved it.\nHi Mei\nyou ran far.', [], '要看：「Hi Mei you ran far.」（提到了博主，没标出处）', {}],
+    ['问候超过五个词不算问候', 'Hello Mei Lin Mei Lin Mei,\n\nWe make a blender.', [], '要看：「Hello Mei Lin Mei Lin Mei,」（提到了博主，没标出处）', {}],
+    ['主题行写到博主也要登记', 'Subject: Mei, your blender\n\nHi Mei,\n\nWe make a blender.', [], '要看：「Mei, your blender」（提到了博主，没标出处）', {}],
+    ['全角字与长破折号归一后对得上', 'Hi Mei,\n\nYour ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
+      '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
+  ]
+  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一',
+    crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
+  // 昵称：驼峰拆开认名字，the、with 这类普通词不算名字；两个字母的词不算。
+  eq('P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算',
+    [one('Hi,\n\nSarah won awards. We cook with care. Jo is here.', [], { nickname: 'TechWithSarah', handle: 'x1' }),
+     one('Hi,\n\nWe make the blender with care.', [], { nickname: 'Cooking With Sarah | The Official', handle: 'x2' })],
+    [`${HEAD}要看：「Sarah won awards.」（提到了博主，没标出处）${TAIL}`, `${HEAD}无${TAIL}`])
+  // 名单被手改坏（昵称不是字符串、作品文案是 null、简介是数字）时这一行照出，不让 render 失败（P2.g）。
+  let crashed = ''
+  try {
+    renderHtml([mk('tiktok', 'bad', { nickname: 7 as unknown as string, bio: 5 as unknown as string, recent_posts: [{ desc: null }] as unknown as Creator['recent_posts'], tier: 'A',
+      outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post.', creator_sources: [{ draft: 'Your bio.', from: 'bio', quote: 'x' }, { draft: 'Your post.', from: 'post', quote: 'x' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
+  } catch (error) { crashed = String(error) }
+  eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', crashed, '')
+  // 资料三态（P1）：简介查过没写（null）是「对不上」；简介没查过（缺席）、作品没查过（缺席或空数组）是「对不了，没查过」，不说成「没有」。
+  const SRC3 = [{ draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['creator_sources']>
+  const DRAFT3 = 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.'
+  // 手改坏的资料防护失效时这里会抛错：包一层，让断言报红而不是整组死在半路。
+  const safeRender = (...args: Parameters<typeof renderHtml>): string => { try { return renderHtml(...args) } catch (error) { return String(error) } }
+  const bare = safeRender([
+    mk('tiktok', 'bare', { nickname: 'Sam Rivera', bio: null, recent_posts: [], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/bare' }),
+    mk('tiktok', 'unq', { nickname: 'Sam Rivera', bio: undefined, recent_posts: undefined, tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/unq' }),
+    mk('tiktok', 'had', { nickname: 'Sam Rivera', bio: 'Sam here', recent_posts: [{ desc: 'leg day' }] as unknown as Creator['recent_posts'], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/had' }),
+  ], meta, { mode: 'review' })
+  const NICK = `${BAR}对得上：「Sam Rivera here.」← 昵称原文「sam rivera」`
+  eq('P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对',
+    ['bare', 'unq', 'had'].map(h => lineOf(bare, h)), [
+      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
+      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（对不了：他的简介没查过）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
+      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（原文对不上：他的作品文案里没有这段）'].join('；') + NICK + TAIL,
+    ])
+  // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，和下一行接成一句。
+  const subj = renderHtml([mk('tiktok', 'subj', { nickname: 'Ana', tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
+  eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文切句', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen is lovely.」（提到了博主，没标出处）${TAIL}`)
+  criterion('P2.f', 'P2.g')
+}
+{
+  // P2.e：正本校验、读写往返、投影。
+  const root = mkdtempSync(join(tmpdir(), 'kol-p2src-review-'))
+  try {
+    const key = 'tiktok:meicooks'
+    const SOURCES = [{ draft: 'Your series', from: 'post', quote: 'my series' }, { draft: 'that stuck with me', from: 'self' }]
+    const doc = (sources: unknown): AgentReviewDocument => ({ version: 1, updated_at: '2026-11-15T00:00:00Z', rounds: [],
+      reviews: { [key]: { account_keys: [key], outreach_draft: 'Your series. that stuck with me', creator_sources: sources } as unknown as AgentReview } })
+    writeAgentReviewDocument(root, doc(SOURCES))
+    const file = join(root, 'agent-review.json'), bytes = rf(file, 'utf8')
+    const read = readAgentReviewDocument(root)
+    eq('P2.e 合规的 creator_sources 读写往返不丢', read.document.reviews[key].creator_sources, SOURCES)
+    const bad: Array<[string, unknown, string]> = [
+      ['不是数组', { draft: 'x' }, 'creator_sources 必须是数组'],
+      ['项不是对象', ['x'], 'creator_sources[0] 必须是对象'],
+      ['不认得的键', [{ draft: 'x', from: 'self', note: 'y' }], 'creator_sources[0].note 不认得'],
+      ['draft 空白', [{ draft: ' ', from: 'self' }], 'creator_sources[0].draft 必须是非空字符串'],
+      ['draft 缺', [{ from: 'self' }], 'creator_sources[0].draft 必须是非空字符串'],
+      ['from 不认得', [{ draft: 'x', from: 'observed_content', quote: 'y' }], 'creator_sources[0].from 必须是'],
+      ['self 写了原文', [{ draft: 'x', from: 'self', quote: 'y' }], 'creator_sources[0].quote 发件人自己的话不写原文'],
+      ['bio 没写原文', [{ draft: 'x', from: 'bio' }], 'creator_sources[0].quote 必须是非空字符串'],
+      ['post 原文空白', [{ draft: 'x', from: 'post', quote: '  ' }], 'creator_sources[0].quote 必须是非空字符串'],
+      ['nickname 原文不是字符串', [{ draft: 'x', from: 'nickname', quote: 3 }], 'creator_sources[0].quote 必须是非空字符串'],
+      ['第二项坏也指出第几项', [SOURCES[0], { draft: 'x', from: 'bio' }], 'creator_sources[1].quote 必须是非空字符串'],
+    ]
+    eq('P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节', bad.map(([name, value, want]) => {
+      try { writeAgentReviewDocument(root, doc(value)); return [name, 'accepted'] }
+      catch (error) {
+        const text = error instanceof ReviewInputError ? error.message + JSON.stringify((error as unknown as { problems?: string[] }).problems ?? []) : String(error)
+        return [name, error instanceof ReviewInputError && text.includes(want) && text.includes(key), rf(file, 'utf8') === bytes]
+      }
+    }), bad.map(([name]) => [name, true, true]))
+    const creators = [mk('tiktok', 'meicooks')]
+    const projected = projectAgentReviews(read.document, creators)
+    eq('P2.e 投影到名单原样带上', projected[0].creator_sources, SOURCES)
+    // 投影没带上时不在这里抛错，交给上一条断言报红。
+    if (projected[0].creator_sources !== undefined) projected[0].creator_sources[0].draft = 'changed'
+    eq('P2.e 改投影不反向改正本', read.document.reviews[key].creator_sources![0].draft, 'Your series')
+    const removed = structuredClone(read.document); delete removed.reviews[key].creator_sources
+    ok('P2.e 正本删掉它后，带着旧投影的名单重投影时也消失', !('creator_sources' in projectAgentReviews(removed, projected)[0]))
+    criterion('P2.e')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+{
+  // 真起 render：正本里一条评审带草稿和登记，render 以 0 结束，报告里那一行对得上，kol.csv 里草稿原样、没有新列。
+  const root = mkdtempSync(join(tmpdir(), 'kol-p2src-render-'))
+  try {
+    const dir = join(root, 'task'), cwd = join(root, 'cwd'), now = '2026-10-01T00:00:00Z'
+    mkdirSync(dir); mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const DRAFT = 'Subject: Quick one\n\nHi Ana,\n\nYour sourdough series is lovely. You also climb.\n\nBest,\n{name}'
+    const creator = { platform: 'tiktok', handle: 'u14_render', nickname: 'Ana', followers: 80000, bio: 'Baking sourdough series daily', bio_links: [], verified: false,
+      profile_url: 'https://www.tiktok.com/@u14_render', source_keyword: 'portable', source_dimension: 'category', source_tasks: [0], email: 'u14@example.test' }
+    writeFileSync(join(dir, 'task.json'), JSON.stringify({ product: 'u14', market: 'US', target_count: 1,
+      tasks: [{ keyword: 'portable', dimension: 'category', platform: 'tiktok' }], done: [0], created_at: now, updated_at: now }))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify([creator]))
+    writeFileSync(join(dir, 'agent-review.json'), JSON.stringify({ version: 1, updated_at: now, rounds: [], reviews: { 'tiktok:u14_render': {
+      account_keys: ['tiktok:u14_render'], fit: '✅', fit_reason: '夹具', outreach_draft: DRAFT,
+      creator_sources: [{ draft: 'Your sourdough series is lovely.', from: 'bio', quote: 'sourdough series' }] } } }))
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
+    const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
+    const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
+    const line = /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
+    const csv = read('kol.csv')
+    let xlsxText = ''
+    try { xlsxText = xlsxPart(join(dir, 'kol.xlsx'), 'xl/worksheets/sheet1.xml') } catch { xlsxText = 'unreadable' }
+    try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), 'xl/sharedStrings.xml') } catch { /* 没有共享字符串表时只看工作表 */ }
+    eq('P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
+      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('creator_sources'), xlsxText !== 'unreadable' && xlsxText.includes('outreach_draft'), xlsxText.includes('creator_sources')],
+      [0, '写博主的话出处：要看：「You also climb.」（提到了博主，没标出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true, false])
+    if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+  }
+})
 await group('d4-memory', () => {
 suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')
 // 事前预期：独立 oracle 2026-09-26、公开提案 atomic 部分；D4.k / ADR-44。
@@ -2973,7 +3205,7 @@ suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不
   }
 }
 })
-// KOL-21 D4a：D4.s 的独立认领（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
+// 独立黑盒测试包里 D4.s 的独立认领（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
 // 读不出而中止、没给 --ignore-memory），经接线（`scripts/independent-blackbox-tests-wiring.ts`，登了 GAP-24c）跑一遍；冻结用例自己按字节比
 // 运行前后的 memory/creators.json，这里只读回结论，不改断言、不改冻结字节。
 // 认领看字节比那一项，D4.s 说的就是它：它判 pass，而且这一例没有一项判红、设施故障或夹具失格。同一例里待语义复核、资格待定的项
@@ -3010,7 +3242,7 @@ await group('d4s-independent-claim', () => {
   } finally { scRmSync(root, { recursive: true, force: true }) }
   criterion('D4.s')
 })
-// KOL-21 D4b：D4.t 的独立认领（还 ADR-185 第 212 行；记录在 ADR-185 末尾）。冻结单 F 节是不读实现的作者照需求所有者的选择补的两例，
+// 独立黑盒测试包里 D4.t 的独立认领（还 ADR-185「D4.s 认领」一节新登的那张「D4.t 没有认领」的欠条；记录在 ADR-185 末尾）。冻结单 F 节是不读实现的作者照需求所有者的选择补的两例，
 // 需求所有者逐字确认后嵌回：G3-19（空名单）与 G3-19N（F-G6 的两人），都是 render 加 --ignore-memory、记忆文件放一份结构不对的。
 // 经接线跑一遍，只读回冻结用例自己的结论，不改断言、不改冻结字节。
 // 两例各要三项判过：退出码（照 D4.f 出了名单、没中止）、MEM-READ（入口确实读过那份文件，字节比才不是空的）、字节比（D4.t 原文）；
@@ -9131,7 +9363,7 @@ ok('维护-GROUPS与调用顺序不一致不得放行', maintenanceThrows(() => 
 }
 
 {
-  // KOL-32 / ADR-120 第 74 行：维护报告按新增、删除、改配置分组，摘要在前、完整清单在后。
+  // ADR-120「入口夹具的 Git 环境隔离」一节末尾那张欠条：维护报告按新增、删除、改配置分组，摘要在前、完整清单在后。
   // 对照夹具含三类变化、四种变化种类各至少一条（各种类条数互不相同）、一条完全没变的，外加一份验证者布局变化；
   // 另一份是全无变化。期望全部手写，不调报告去算期望。
   type ReportRoute = { id: string; by: string; only?: readonly string[]; executes: readonly string[] };
@@ -12123,8 +12355,8 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
-  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；KOL-21 加了零请求观察器的认证入口（自检组 observer-cert-entry 起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾 KOL-21 观察器一节）＋ anchors.ts（ADR-70 末尾「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
+  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；零请求观察器那一片加了认证入口（自检组 observer-cert-entry 起它）。
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾零请求观察器那一节）＋ anchors.ts（ADR-70 末尾「变异残留」第三片，自检组 anchor-residue-entry 起它）＋ admission.ts（ADR-202 第二片，自检组 admission-entry 起它），
   // 按字符串排（admission < adr（第三个字符 m < r） < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/admission.ts', 'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
@@ -13716,7 +13948,7 @@ eq('准入读物入口那一份：检查链、名字以源目录名开头的别�
   'export {};', ''].join('\n')))
 })
 await group('h-admission-exit-code', () => {
-harness('准入读物包的入口只设退出码、不当场退出（ADR-202 第十六、十七节，KOL-45 关单标准第 4 条）')
+harness('准入读物包的入口只设退出码、不当场退出（ADR-202 第十六、十七节）')
 // 拒收时入口先往 stderr 打出逐处一行的夹带（几百行），再以非零结束。当场退出的话，接到管道上时排着没写出去的那一截会被截掉
 // （Node 22 文档：管道在 POSIX 上是异步写的；复核在本机裸 node 下实测 6 万行只收到约 1100 行，清点 301 行 40 次里截 14 次）。
 // 行为上的那一半由自检组 admission-entry 的「夹带 300 处、一行不少」证，可它经 tsx 起入口，把入口改回当场退出 300 到 6 万行都照样收全
@@ -13895,8 +14127,8 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
 
   const all = ['a', 'b', 'c', '独立']
   const fam = [['a', 'b', 'c'], ['独立']]
-  const rep = (groups: string[], failed: number, claimed: string[] = [], covered: string[] = []) =>
-    ({ groups, failed, claimed, covered })
+  const rep = (groups: string[], failed: number, claimed: string[] = [], covered: string[] = [],
+    cwds: Record<string, string[]> = {}) => ({ groups, failed, claimed, covered, cwds })
   const green = mergeShards([
     { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0, ['X1.b', 'X1.a'], ['scripts/x.ts']) },
     { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0, ['X1.a'], ['scripts/y.ts', 'scripts/x.ts']) },
@@ -13904,6 +14136,13 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   eq('子进程全绿：零失败、没有问题', [green.failed, green.problems], [0, []])
   eq('认领取各子进程的并集，去重排序', green.claimed, ['X1.a', 'X1.b'])
   eq('出处取各子进程的并集，去重排序', green.covered, ['scripts/x.ts', 'scripts/y.ts'])
+  // 当前目录（ADR-212）：各子进程交回的按组收拢；多跑的那一组已经报成进程问题，它的当前目录不收
+  const dirs = mergeShards([
+    { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0, [], [], { a: ['', 'x/y'], c: [] }) },
+    { family: fam[1], status: 0, signal: null, report: rep(['独立', 'a'], 0, [], [], { 独立: ['独'], a: ['偷跑'] }) },
+  ], all)
+  eq('当前目录按组收拢：派给哪个子进程就收哪个子进程交回的那一份',
+    [...dirs.cwds].sort(), [['a', ['', 'x/y']], ['c', []], ['独立', ['独']]])
   const red = mergeShards([
     { family: fam[0], status: 1, signal: null, report: rep(['a', 'b', 'c'], 2) },
     { family: fam[1], status: 1, signal: null, report: rep(['独立'], 1) },
@@ -13963,14 +14202,20 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   ok('同一组派给了两个子进程：点出那组',
     twice.failed === 1 && twice.problems.length === 1 && twice.problems[0].includes('c'))
   // 子进程写回的那份读不出来，就是没交回结果 —— 不能半截读进去、更不能当成零失败
-  const text = JSON.stringify({ groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'] })
+  const text = JSON.stringify({ groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'], cwds: { a: ['', 'p'] } })
   eq('读得出的回报原样交回', readShardReport(text),
-    { groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'] })
+    { groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'], cwds: { a: ['', 'p'] } })
+  // 上面四条反例都带着合法的 cwds 一栏：不带的话每条都因为缺这一栏读不出，原本要验的那一处坏了也照样绿
+  eq('没有当前目录那一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [] })), undefined)
+  eq('当前目录那一栏是 null 读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: null })), undefined)
+  eq('当前目录那一栏是数组读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: [] })), undefined)
+  eq('某组的当前目录不是字符串数组读不出',
+    readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], covered: [], cwds: { a: [1] } })), undefined)
   eq('写了一半的回报读不出', readShardReport(text.slice(0, -3)), undefined)
-  eq('失败数不是非负整数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: -1, claimed: [], covered: [] })), undefined)
-  eq('失败数是小数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0.5, claimed: [], covered: [] })), undefined)
-  eq('缺一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [] })), undefined)
-  eq('组名不是字符串读不出', readShardReport(JSON.stringify({ groups: [1], failed: 0, claimed: [], covered: [] })), undefined)
+  eq('失败数不是非负整数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: -1, claimed: [], covered: [], cwds: {} })), undefined)
+  eq('失败数是小数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0.5, claimed: [], covered: [], cwds: {} })), undefined)
+  eq('缺一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [], cwds: {} })), undefined)
+  eq('组名不是字符串读不出', readShardReport(JSON.stringify({ groups: [1], failed: 0, claimed: [], covered: [], cwds: {} })), undefined)
   eq('根不是对象读不出', readShardReport('[]'), undefined)
 }
 
@@ -14136,9 +14381,13 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
     const groups = scanned.groups.map(g => g.id === id ? { ...g, needs: [] } : g)
     return said(judgeShares(groups, scanned.effects)).filter(f => !before.has(f))
   }
+  // 这一族共用的当前目录 `pipeCwd`（顶层写死的 tmp/pipeline，ADR-212）也算一处路径：五组都提到它，
+  // memory 自成一族之后，它与另外四组之间两个方向各报一条
   eq('真 selfcheck.ts 拿掉 memory 的 needs：它读 collect 写的 dir、render 写的 rendered，自成一族',
     dropped('memory'),
-    ['family dir: collect → memory', 'family rendered: render → memory'])
+    ['family dir: collect → memory', 'family rendered: render → memory',
+      ...['collect', 'enrich', 'render', 'resume-after-render-keeps-creators'].flatMap(g =>
+        [`family tmp/pipeline: ${g} → memory`, `family tmp/pipeline: memory → ${g}`])].sort())
   eq('真 selfcheck.ts 拿掉 enrich 的 needs：render 仍把它连在族里，只在选跑时读不到 dir',
     dropped('enrich'), ['closure dir: collect → enrich'])
   // 阳性对照（登记先后）：ADR-131 发现二复核者在副本里做过的那一挪 —— positive 挪到 reject 之后。
@@ -14154,6 +14403,50 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
   eq('真 selfcheck.ts 把 review-cli-entry-positive 挪到 reject 之后：报 reject 先读了初始值',
     moved('review-cli-entry-positive', 'review-cli-entry-reject'),
     ['order reviewCliEntryPositive: review-cli-entry-positive → review-cli-entry-reject'])
+}
+})
+await group('h-group-cwd', () => {
+harness('自检组子进程的当前目录：与别族碰到的 tmp 路径重叠就报（ADR-212）')
+{
+  // 期望按 share-rule.ts 里 judgeCwds 头注与 judgeShares 的判据手推：当前目录算这一组又读又写了那一处；
+  // 与别族碰到的路径相同、或一处是另一处的上级目录，两个方向各报一条 family；空串是 tmp 本身
+  const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
+    s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
+  const fx = (paths: string[] = []) => ({ reads: new Set(paths), writes: new Set(paths) })
+  const two: Group[] = [{ id: 'a', needs: [] }, { id: 'b', needs: [] }]
+  const judge = (cwds: Record<string, string[]>, effects: Record<string, string[]> = {}, groups = two) =>
+    said(judgeCwds(groups, new Map(groups.map(g => [g.id, fx(effects[g.id])])), new Map(Object.entries(cwds))))
+  eq('拿 tmp 本身当当前目录：与别族在 tmp 下写死的路径重叠，两个方向都报',
+    judge({ a: [''] }, { b: ['tmp/x'] }), ['family tmp/x: b → a', 'family tmp: a → b'])
+  eq('两族都拿 tmp 本身当当前目录：两个方向都报', judge({ a: [''], b: [''] }), ['family tmp: a → b', 'family tmp: b → a'])
+  eq('各用各的目录：不报', judge({ a: ['a'], b: ['b'] }), [])
+  eq('一组的当前目录在另一组的底下：两个方向都报', judge({ a: ['a'], b: ['a/sub'] }),
+    ['family tmp/a/sub: b → a', 'family tmp/a: a → b'])
+  eq('名字只是前缀相同、不是上级目录：不报', judge({ a: ['a'], b: ['ab'] }), [])
+  eq('当前目录与别族写死的路径相同：报', judge({ a: ['x'] }, { b: ['tmp/x/f.json'] }),
+    ['family tmp/x/f.json: b → a', 'family tmp/x: a → b'])
+  const same: Group[] = [{ id: 'a', needs: [] }, { id: 'b', needs: ['a'] }]
+  eq('同一族共用当前目录：不报（同一个进程里按登记顺序跑）', judge({ a: [''], b: [''] }, {}, same), [])
+  eq('没起过子进程的组只按扫描判', judge({}, { a: ['tmp/x'], b: ['tmp/y'] }), [])
+  const effects = new Map(two.map(g => [g.id, fx()]))
+  judgeCwds(two, effects, new Map([['a', ['']]]))
+  eq('合当前目录用的是副本：扫描交回的读写不被改', [[...effects.get('a')!.reads], [...effects.get('a')!.writes]], [[], []])
+  let stray = ''
+  try { judgeCwds(two, effects, new Map([['c', ['']]])) } catch (e) { stray = (e as Error).message }
+  ok('记下了当前目录的组不在组表里：当场抛并点名', stray.includes('c'))
+
+  // 当前目录落在 tmp 底下哪一处
+  eq('就是 tmp 本身：空串', cwdUnder('/t/k', '/t/k'), '')
+  eq('tmp 底下：相对路径，用正斜杠', cwdUnder('/t/k', '/t/k/x/y'), 'x/y')
+  eq('名字只是前缀相同：不在底下', cwdUnder('/t/k', '/t/kx'), undefined)
+  eq('tmp 底下名字以两个点开头的目录：仍在底下', cwdUnder('/t/k', '/t/k/..foo'), '..foo')
+  eq('tmp 的上一级：不在底下', cwdUnder('/t/k', '/t'), undefined)
+  eq('仓库根：不在底下', cwdUnder('/t/k', '/repo'), undefined)
+  const real = (p: string) => p.replace(/^\/tmp\//, '/private/tmp/')
+  eq('tmp 是软链、当前目录取的是真实路径：照样认得', cwdUnder('/tmp/k', '/private/tmp/k/z', real), 'z')
+  eq('tmp 取的是真实路径、当前目录经软链给：照样认得', cwdUnder('/private/tmp/k', '/tmp/k/z', real), 'z')
+  const link = (p: string) => p.replace(/^\/t\/k\/link(?=\/|$)/, '/t/k/a')
+  eq('经 tmp 里的软链起：记成它指向的那一处', cwdUnder('/t/k', '/t/k/link/z', link), 'a/z')
 }
 })
 await group('h-mutation-fixture-git-env', () => {
@@ -14659,6 +14952,83 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   ok('历史文件第一行编号与文件名不同：报一条', wrongHead.length === 1 && wrongHead[0].includes('第一行'))
   eq('历史文件第一行不是记录标题：报一条', historyFaults(['ADR-70-甲.md'], [{ file: 'ADR-70-甲.md', first: '过程' }]).length, 1)
   eq('历史目录里文件名不合格式：报一条', historyFaults([], [{ file: 'notes.md', first: '# ADR-1 x' }]).length, 1)
+
+  // 历史文件只加不删（ADR-211）：钉住的那段字节不许变，只能接在末尾加
+  const B = (t: string) => Buffer.from(t, 'utf8')
+  const pinned = { 'ADR-70-甲.md': pinOf(B('# ADR-70 甲\n旧\n')) }
+  eq('钉住之后原样没动：无错、不用再钉', pinFaults(pinned, [{ file: 'ADR-70-甲.md', data: B('# ADR-70 甲\n旧\n') }]), { errors: [], unpinned: [] })
+  eq('钉住之后末尾接着加：不算错，只报还没钉住', pinFaults(pinned, [{ file: 'ADR-70-甲.md', data: B('# ADR-70 甲\n旧\n新\n') }]), { errors: [], unpinned: ['ADR-70-甲.md'] })
+  const edited = pinFaults(pinned, [{ file: 'ADR-70-甲.md', data: B('# ADR-70 甲\n改\n新\n') }])
+  ok('钉住的旧字节被改了：报一条、点出文件，不当成「还没钉」', edited.errors.length === 1 && edited.errors[0].includes('ADR-70-甲.md') && edited.errors[0].includes('被改了') && edited.unpinned.length === 0)
+  const shrunk = pinFaults(pinned, [{ file: 'ADR-70-甲.md', data: B('# ADR-70 甲\n') }])
+  ok('比钉住时短了：报一条', shrunk.errors.length === 1 && shrunk.errors[0].includes('短了'))
+  const gone = pinFaults(pinned, [])
+  ok('钉着的历史文件不见了：报一条', gone.errors.length === 1 && gone.errors[0].includes('ADR-70-甲.md') && gone.errors[0].includes('没有这一份'))
+  eq('新的历史文件还没钉：不算错，只报还没钉住', pinFaults({}, [{ file: 'ADR-71-乙.md', data: B('# ADR-71 乙\n') }]), { errors: [], unpinned: ['ADR-71-乙.md'] })
+  eq('指纹表形状对：原样读出', parsePins(JSON.stringify(pinned)), { pins: pinned, errors: [] })
+  eq('指纹表不是 JSON：报一条', parsePins('{').errors.length, 1)
+  eq('指纹表里一项缺 sha256：报一条、不收这一项', parsePins('{"ADR-70-甲.md":{"bytes":3}}'), { pins: {}, errors: [`${PINS_FILE} 里 ADR-70-甲.md 那一项应为 { bytes: 非负整数, sha256: 64 位十六进制 }`] })
+
+  // `npm run adr` 整条在玩具仓库上跑：读目录、跳过历史目录、核历史文件、钉指纹 —— 入口只剩打印与退出码
+  const adrToy = (files: Record<string, string>): string => {
+    const root = mkdtempSync(join(tmpdir(), 'kol-adr-sync-'))
+    mkdirSync(join(root, 'docs', 'adr', '历史'), { recursive: true })
+    writeFileSync(join(root, 'docs', 'adr', 'README.md'), '# 索引\n\n<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->\n<!-- END:GENERATED -->\n')
+    for (const [f, t] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, 'docs', 'adr', f)), { recursive: true })
+      writeFileSync(join(root, 'docs', 'adr', f), t)
+    }
+    return root
+  }
+  const goodToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n现行\n', '历史/ADR-01-甲.md': '# ADR-01 甲\n过程\n' })
+  const firstWrite = adrSync(goodToy, true)
+  // 指纹表没写出来时读成空串，让下面那条断言红，不让整个进程崩掉（崩了不算被抓到）
+  const pinsPath = join(goodToy, 'docs', 'adr', PINS_FILE)
+  const pinsAfter = existsSync(pinsPath) ? rf(pinsPath, 'utf8') : ''
+  ok('玩具仓库：有一份配得上的历史文件时 --write 成功，指纹表钉住它、历史目录不进索引',
+    firstWrite.ok && pinsAfter.includes('"ADR-01-甲.md"') && pinsAfter.includes(`"bytes": ${Buffer.byteLength('# ADR-01 甲\n过程\n')}`)
+      && !rf(join(goodToy, 'docs', 'adr', 'README.md'), 'utf8').includes('历史'))
+  const cleanRun = adrSync(goodToy, false)
+  ok('玩具仓库：钉完再检查是绿的，说历史文件 1 份只加未改', cleanRun.ok && cleanRun.out.join('').includes('历史文件 1 份只加未改'))
+  writeFileSync(join(goodToy, 'docs', 'adr', '历史', 'ADR-01-甲.md'), '# ADR-01 甲\n过程\n后来又加的\n')
+  const appended = adrSync(goodToy, false)
+  ok('玩具仓库：历史文件末尾新加了一段、还没钉住，检查报红并让人跑 --write',
+    !appended.ok && appended.err.join('\n').includes('还没钉住') && appended.err.join('\n').includes('--write'))
+  writeFileSync(join(goodToy, 'docs', 'adr', '历史', 'ADR-01-甲.md'), '# ADR-01 甲\n改过\n')
+  const tampered = adrSync(goodToy, true)
+  ok('玩具仓库：历史文件里钉住的旧文字被改了，--write 也拒绝、不把改过的钉上去',
+    !tampered.ok && tampered.err.join('\n').includes('被改了') && pinsAfter !== '' && rf(pinsPath, 'utf8') === pinsAfter)
+  writeFileSync(pinsPath, '{}\n')
+  const unpinnedAgain = adrSync(goodToy, false)
+  ok('玩具仓库：钉过的那份被从指纹表删掉，检查说它整份还没钉过，不说成末尾新加',
+    !unpinnedAgain.ok && unpinnedAgain.err.join('\n').includes('整份还没钉过') && !unpinnedAgain.err.join('\n').includes('末尾有还没钉住'))
+  rmSync(goodToy, { recursive: true, force: true })
+  const orphanToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', '历史/ADR-02-乙.md': '# ADR-02 乙\n', '历史/子目录/x.md': 'x\n' })
+  const orphanRun = adrSync(orphanToy, false)
+  ok('玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名',
+    !orphanRun.ok && orphanRun.err.some(e => e.includes('ADR-02-乙.md') && e.includes('没有同名的主文件'))
+      && orphanRun.err.some(e => e.includes('子目录') && e.includes('不是文件'))
+      && !orphanRun.err.some(e => e.includes('历史 文件名不合格式')))
+  rmSync(orphanToy, { recursive: true, force: true })
+  const fileToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
+  rmSync(join(fileToy, 'docs', 'adr', '历史'), { recursive: true, force: true })
+  writeFileSync(join(fileToy, 'docs', 'adr', '历史'), 'x\n')
+  let fileRun: ReturnType<typeof adrSync> | string
+  try { fileRun = adrSync(fileToy, false) } catch (e) { fileRun = String(e) }
+  ok('玩具仓库：「历史」是个普通文件时报文件名不合格式，不抛错',
+    typeof fileRun !== 'string' && !fileRun.ok && fileRun.err.some(e => e.includes('历史 文件名不合格式')))
+  rmSync(fileToy, { recursive: true, force: true })
+  const badPinsToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n', [PINS_FILE]: '{' })
+  const badPins = adrSync(badPinsToy, true)
+  ok('玩具仓库：指纹表读不出来时报一条、--write 也拒绝，不当成什么都没钉过',
+    !badPins.ok && badPins.err.some(e => e.includes('不是合法的 JSON')) && rf(join(badPinsToy, 'docs', 'adr', PINS_FILE), 'utf8') === '{')
+  rmSync(badPinsToy, { recursive: true, force: true })
+  const legacyToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n' })
+  writeFileSync(join(legacyToy, 'DECISIONS.md'), '# 转发页\n\n```\n## ADR-02 示例\n```\n\n## ADR-03 又写回来了\n')
+  const legacy = adrSync(legacyToy, false)
+  ok('玩具仓库：转发页里引文之外又出现记录标题，报一条；引文里的示例不算',
+    !legacy.ok && legacy.err.filter(e => e.includes('DECISIONS.md')).length === 1)
+  rmSync(legacyToy, { recursive: true, force: true })
 
   // 编号有空号是正常的：号不复用，包括还活在别的分支上的
   const idx = renderIndex([
@@ -15244,7 +15614,34 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   ])
   eq('孤儿和短名字有错都有：stderr 那一句两样都说', withDupe.err, '\n✗ 欠条台账：1 张欠条没写重启条件；1 张欠条的短名字有错（重名或取不出）')
   eq('只有短名字有错：照样交回那一句', ledgerReport([debt], [], [dupe]).err, '\n✗ 欠条台账：1 张欠条的短名字有错（重名或取不出）')
+  // 审计第 6 节：孤儿与短名字有错一张一行，审计每行计一次硬失败（ADR-211 的欠条「两处入口接线没有测试」）
+  const hardLines = ledgerGaps([lone], [dupe])
+  ok('审计硬失败：孤儿与短名字有错各一行，短名字那行点出文件与行号、说短名字有错',
+    hardLines.length === 2 && hardLines[0].startsWith('docs/adr/Y.md:5 写了欠条却没写重启条件')
+      && hardLines[1].startsWith('docs/adr/Z.md:7 欠条的短名字有错（和同一条记录里的另一张重名'))
   eq('真仓库里没有短名字有错的欠条', iouNameFaults(adrDocs()).map(d => `${d.file}:${d.line}`), [])
+  // 拆过的记录主文件已经重写，「ADR-N 第 M 行」只在决策记录之间还按历史文件认（ADR-211 第三节）；
+  // 决策记录以外的文件（脚本注释、说明书、流程）要指它，只许写短名字或节 —— 行号指过去会落到重写后无关的一行
+  const splitNums = new Set(readdirSync('docs/adr/历史').map(f => Number(/^ADR-(\d+)-/.exec(f)?.[1])).filter(n => n > 0))
+  const lineRefs: string[] = []
+  // 自己走目录，不问 git：变异与分片跑在不带 .git 的副本里。带 .git 条目的子目录是另一份检出（嵌套工作树、
+  // .claude/worktrees 下的那些），与 git 自己认嵌套仓库的规矩一样整个跳过，不把别人的检出当成本仓库的文件（评审指出）
+  const walkRefs = (d: string): void => {
+    for (const e of readdirSync(d)) {
+      const p = d === '.' ? e : `${d}/${e}`
+      if (['node_modules', '.git', '.check-cache', 'docs/adr', 'dist', 'out', 'output'].includes(p)) continue
+      // 软链不跟（lstat）：指回本仓库或上层目录的软链会让它一直绕下去（评审指出）。仓库里受控的软链只有技能目录那两个，指向的正文在别处照样扫到
+      const st = lstatSync(p)
+      if (st.isSymbolicLink()) continue
+      if (st.isDirectory()) { if (!existsSync(`${p}/.git`)) walkRefs(p); continue }
+      if (!/\.(ts|md|ya?ml|json|sh)$/.test(e)) continue
+      rf(p, 'utf8').split('\n').forEach((l, i) => {
+        for (const m of l.matchAll(/ADR-0*(\d+) ?第 ?\d+(?:[–-]\d+)? ?行/g)) if (splitNums.has(Number(m[1]))) lineRefs.push(`${p}:${i + 1} ${m[0]}`)
+      })
+    }
+  }
+  walkRefs('.')
+  eq('决策记录以外的文件没有按行号指拆过的记录', lineRefs, [])
 
   // 读哪些文件也是判定：两个入口各走各的目录的话，一边多收或少收一份，两份台账就对不上
   const adrTmp = mkdtempSync(join(tmpdir(), 'kol-adr-docs-'))
@@ -15263,7 +15660,7 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
 {
   // ADR-151 第二节第 2 条问的就是「数得对不对」：按文件去重、排自引、过引文遮罩、欠条块里的单列。
   // 期望一条条手推，一棵玩具树只钉一件事。与提案 §7 第 1 条那几个数的对照（哪几个对上、哪个因为口径不同对不上）
-  // 记在 ADR-151 第七节；这里不起 git
+  // 记在 ADR-151 历史文件的第七节；这里不起 git
   const tree = (files: Record<string, string>) =>
     new Map(Object.entries(files).map(([f, text]) => [`docs/adr/${f}`, text] as const))
   const cited = (files: Record<string, string>, no: number) => {
@@ -15294,6 +15691,13 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
   eq('索引不算引用方', cited({ ...ONE, 'README.md': '- ADR-1\n' }, 1), [0, 0])
   eq('表里只有记录文件：索引不进表，引到的空号也不进',
     citeTable(tree({ ...ONE, 'README.md': '- ADR-9\n', 'ADR-2-乙.md': '见 ADR-9。\n' })).map(r => r.no), [1, 2])
+
+  // 拆过的记录（ADR-211）：主文件与 `历史/` 下的同名文件是同一条记录，不能各占一行、各算一票
+  const SPLIT = { 'ADR-1-甲.md': '# ADR-1 甲\n', 'ADR-2-乙.md': '# ADR-2 乙\n见 ADR-1。\n', '历史/ADR-2-乙.md': '# ADR-2 乙\n照 ADR-1 做。\n' }
+  eq('拆过的记录：主文件与历史文件都引同一条，只算一条', cited(SPLIT, 1), [1, 0])
+  eq('拆过的记录：表里只给主文件一行', citeTable(tree(SPLIT)).map(r => r.file).sort(), ['docs/adr/ADR-1-甲.md', 'docs/adr/ADR-2-乙.md'])
+  eq('拆过的记录：教训栏写在历史文件里也算这条有',
+    citeTable(tree({ 'ADR-1-甲.md': '# ADR-1 甲\n', '历史/ADR-1-甲.md': '# ADR-1 甲\n## 教训\n' }))[0].lesson, true)
 
   // 教训栏照提案 §1 表后那条 grep 的口径：节标题或一栏的开头，不是正文里出现这两个字
   const lesson = (text: string) => citeTable(tree({ 'ADR-1-甲.md': text }))[0].lesson
@@ -15331,6 +15735,91 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
 
   eq('真仓库：每个记录文件一行，索引不在表里', citeTable(adrDocs()).map(r => r.file).sort(),
     readdirSync('docs/adr').filter(f => FILE_RE.test(f)).map(f => `docs/adr/${f}`).sort())
+}
+
+harness('周回访定期清点：欠条哪天登记、按什么名字认、列过没有（拆过的记录取拆之前那一行）')
+{
+  // 一张欠条三种处境各钉一次：没拆过、拆过且条件没再改、拆过以后条件又改了。日期按提交时间钉死，北京时间不跨日
+  const day = (d: string) => `${d}T04:00:00+00:00`
+  const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-'))
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
+  const g = (date: string | null, ...a: string[]) => spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
+    { encoding: 'utf8', env: date ? { ...env, GIT_AUTHOR_DATE: day(date), GIT_COMMITTER_DATE: day(date) } : env })
+  const put = (rel: string, body: string) => { mkdirSync(join(repo, dirname(rel)), { recursive: true }); writeFileSync(join(repo, rel), body, 'utf8') }
+  const commit = (date: string) => { g(null, 'add', '-A'); g(date, 'commit', '-q', '-m', date) }
+  const sha = () => g(null, 'rev-parse', 'HEAD').stdout.trim()
+  g(null, 'init', '-q', '-b', 'main')
+  const main = 'docs/adr/ADR-9-玩具.md', hist = 'docs/adr/历史/ADR-9-玩具.md', other = 'docs/adr/ADR-8-没拆.md'
+  // ADR-7：原文里那张本来就有名字（名字里带「、」），条件那一行比块头晚一天改；拆时主文件换新名字，状态行按旧名字写
+  const main7 = 'docs/adr/ADR-7-有名.md', hist7 = 'docs/adr/历史/ADR-7-有名.md'
+  const original7 = (cond: string) => `# ADR-7\n\n正文\n\n> ⚠️ 欠条「旧、名」：说明\n>\n> 重启条件：${cond}\n`
+  put(main7, original7('别的'))
+  commit('2026-01-03')
+  put(main7, original7('定期清点'))
+  commit('2026-01-04')
+  // 原文：第 3、5 行两张没名字的欠条，都按定期清点重启
+  const original = '# ADR-9\n\n> ⚠️ 欠条：甲 重启条件：定期清点\n\n> ⚠️ 欠条：乙 重启条件：定期清点\n'
+  put(main, original)
+  put(other, '# ADR-8\n\n> ⚠️ 欠条「丙(丁).*」：说明\n>\n> 重启条件：定期清点\n')
+  commit('2026-01-05')
+  // 拆：原文整份挪进历史文件，后面接两行重挂到同一个名字；主文件重写成一张有名字的，块头与条件之间隔一行只有 `>` 的
+  put(hist, original + '\n## 拆\n\n> ⚠️ 已重挂：ADR-9 第 3 行 · 现行的是 ADR-9「甲乙」\n\n> ⚠️ 已重挂：ADR-9 第 5 行 · 现行的是 ADR-9「甲乙」\n')
+  put(main, '# ADR-9\n\n> ⚠️ 欠条「甲乙」：说明\n>\n> 重启条件：定期清点\n')
+  put(hist7, original7('定期清点') + '\n## 拆\n\n> ⚠️ 已重挂：ADR-7「旧、名」 · 现行的是 ADR-7「新名」\n')
+  // 条件那一行拆时也重写了字：一字不差的话 blame 顺着同一份文件认回原文那一行，走不到按旧名字回溯这一步
+  put(main7, '# ADR-7\n\n> ⚠️ 欠条「新名」：说明\n>\n> 重启条件：定期清点，拆时重写\n')
+  commit('2026-03-10')
+  const split = sha()
+  const git = cliGit(repo, env)
+  const at = (file: string, line: number) => dueRow(git, 'HEAD', file, line, rf(join(repo, file), 'utf8'))
+
+  eq('块头与条件隔着只有 > 的一行，仍按块头取名字（与孤儿闸门同一份定界）', iouNameAt('> ⚠️ 欠条「甲」：x\n>\n> 重启条件：y\n', 3), '甲')
+  eq('隔着空行的下一块不借上一块的名字', iouNameAt('> ⚠️ 欠条「甲」：x\n\n> 重启条件：y\n', 3), '')
+  eq('没拆过的记录：登记日就是条件那一行进主干那天，按名字记，没有旧行号', at(other, 5),
+    { date: '2026-01-05', key: 'ADR-8「丙(丁).*」', aliases: [] })
+  eq('拆过、条件没再改：登记日取原文里被它接走的第一张，旧行号两张都给', at(main, 5),
+    { date: '2026-01-05', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] })
+  eq('拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名', at(main7, 5),
+    { date: '2026-01-04', key: 'ADR-7「新名」', aliases: ['ADR-7「旧、名」'] })
+  eq('已重挂两种写法都认、按出现先后', rehungLines('> ⚠️ 已重挂：ADR-7 第 3 行 · 现行的是 ADR-7「新」\n> ⚠️ 已重挂：ADR-7「旧」 · 收尾，现行的是 ADR-7「新」\n> ⚠️ 已重挂：ADR-7「别」 · 现行的是 ADR-7「另」\n', 'ADR-7', '新'),
+    [{ line: 3 }, { name: '旧' }])
+  eq('原文里找不到那张同名欠条：给 undefined', conditionLineOf(original7('定期清点'), '没有这张'), undefined)
+  eq('历史文件里拆前那一段：取原文同一行的登记日', at(hist, 3).date, '2026-01-05')
+  eq('历史文件里拆时才补的那几行：照常取它自己那一行（拆的那天）', at(hist, 9).date, '2026-03-10')
+  // 拆以后改条件：登记日跟着改的那天走，旧行号照给（「列过」按名字认，旧行号同一个口径）
+  put(main, '# ADR-9\n\n> ⚠️ 欠条「甲乙」：说明\n>\n> 重启条件：定期清点，改过\n')
+  commit('2026-04-20')
+  eq('拆以后条件又改过：登记日取改的那天，旧行号照给', at(main, 5),
+    { date: '2026-04-20', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] })
+  eq('拆的那次提交是历史文件第一次加进来的那次', git.firstAdded('HEAD', hist), split)
+  const rd = (file: string) => rf(join(repo, file), 'utf8')
+  eq('两道门「过」的几张按登记日排，取不到登记日的（行号越界）排最后，不当成最老的先起草',
+    bornReport(git, 'HEAD', [{ file: main, line: 5, text: rd(main) }, { file: other, line: 99, text: rd(other) }, { file: other, line: 5, text: rd(other) }]),
+    ['2026-01-05 ADR-8 第 5 行', '2026-04-20 ADR-9 第 5 行', ' ADR-8 第 99 行'])
+  rmSync(repo, { recursive: true, force: true })
+
+  eq('北京时间：UTC 16:00 已是第二天', beijingDate(Date.UTC(2026, 0, 1, 16) / 1000), '2026-01-02')
+  eq('同一天按编号的数比：ADR-80 排在 ADR-120 前面', [{ date: '2026-01-01', key: 'ADR-120 第 1 行' }, { date: '2026-01-01', key: 'ADR-80 第 9 行' }].sort(rowCompare).map(r => r.key),
+    ['ADR-80 第 9 行', 'ADR-120 第 1 行'])
+  eq('先按日期，取不到日期的排最后', [{ key: 'ADR-1 第 1 行' }, { date: '2026-02-01', key: 'ADR-1 第 2 行' }, { date: '2026-01-01', key: 'ADR-9 第 1 行' }].sort(rowCompare).map(r => r.key),
+    ['ADR-9 第 1 行', 'ADR-1 第 2 行', 'ADR-1 第 1 行'])
+  const listed = listedItems('| 2026-01-01 | ADR-8「丙(丁).*」、ADR-6「甲、乙」 | 句 |\n- 读过、没进候选：ADR-9 第 5 行、ADR-7「旧、名」、ADR-7 第 1 行\n')
+  eq('列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样', [...listed].sort(),
+    ['ADR-6「甲、乙」', 'ADR-7 第 1 行', 'ADR-7「旧、名」', 'ADR-8「丙(丁).*」', 'ADR-9 第 5 行'].sort())
+  const rows = [
+    { date: '2026-01-05', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] },
+    { date: '2026-01-05', key: 'ADR-8「丙(丁).*」', aliases: [] },
+    { date: '2026-01-04', key: 'ADR-7「新名」', aliases: ['ADR-7「旧、名」'] },
+    { date: '2026-01-06', key: 'ADR-80 第 2 行', aliases: [] },
+    { date: '2026-02-01', key: 'ADR-1 第 1 行', aliases: [] },
+    { key: 'ADR-2 第 2 行', aliases: [] },
+  ]
+  eq('三个数与前几行：取不到登记日 1、满四周 4、没列过 1（名字列过、第二个旧行号列过、旧名字列过的都算列过）',
+    dueReport(rows, '2026-01-31', listed), ['1', '4', '1', '2026-01-06 ADR-80 第 2 行'])
+  eq('台账里只取「重启条件」写着定期清点的行，取文件与行号',
+    periodicEntries('docs/adr/A.md:3  [重启条件]  定期清点\ndocs/adr/B.md:4  [死亡条件]  定期清点\ndocs/adr/C.md:5  [重启条件]  别的\nscripts/D.md:6  [重启条件]  定期清点\nx\n'),
+    [{ file: 'docs/adr/A.md', line: 3 }])
 }
 
 })
@@ -15885,6 +16374,27 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
 
 })
 await group('p3-budget-token', () => {
+suite('D13', '钱不够付下一次请求、停下时的收尾三行：花了多少、存好了什么、怎么继续')
+{
+  // D13.x 的措辞由需求方 2026-11-15 选定（ADR-213）。两个入口真跑出来的三行由自检 cost-resume 组看着；
+  // 这里只看拼法：已花与上限各取各的数，费用无从确认时不编出金额。
+  const known = { cost_status: 'known', cost_estimate_usd: '1.998', budget_usd: '2', cost_problems: [] } as unknown as CostView
+  eq('收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去',
+    budgetStopLines(known, '已找到 7 位达人，已经拿到的下次不会再花钱重抓', 'npm run collect -- --resume output/x --budget <新总上限>'), [
+      '⛔ 剩下的钱不够付下一次请求了（最多已花 $1.998 / 上限 $2），已停下。',
+      '✅ 进度已存好：已找到 7 位达人，已经拿到的下次不会再花钱重抓。',
+      '👉 想继续：把命令里的 <新总上限> 换成新的总上限（美元数字）再跑：npm run collect -- --resume output/x --budget <新总上限>',
+    ])
+  const unknown = { cost_status: 'invalid-ledger', cost_estimate_usd: null, budget_usd: null,
+    cost_problems: [{ path: 'budget_usd', reason: '根预算与 cost_ledger 上限冲突' }] } as unknown as CostView
+  eq('费用无从确认时第一行说出原因，不写 $null',
+    budgetStopLines(unknown, 's', 'c')[0], '⛔ 剩下的钱不够付下一次请求了（花了多少无从确认：budget_usd: 根预算与 cost_ledger 上限冲突），已停下。')
+  // 续跑命令里的目录：普通目录原样，带空格或单引号的包成 shell 的一个参数（#498 上 CodeRabbit 第一轮）
+  eq('续跑命令里的目录：普通目录原样，带空格、单引号的包成一个参数',
+    [shellArg('output/anker-powerbank-202611161521'), shellArg('output/my shop-202611161521'), shellArg("output/bob's-1")],
+    ['output/anker-powerbank-202611161521', "'output/my shop-202611161521'", "'output/bob'\\''s-1'"])
+}
+
 suite('P3', '未经确认的预算输入不得取得付费额度')
 {
   let code: string | undefined
@@ -18328,7 +18838,7 @@ await group('u9-review-output', () => {
 
 })
 
-// KOL-21 R 片：U9 × P1 交点的独立认领（ADR-183 第 96 行；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
+// 独立黑盒测试包 R 片：U9 × P1 交点的独立认领（ADR-183「独立测试包的四片」一节第 4 片；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
 // 这一组只用独立测试包里冻结了的粉丝三档用例 —— 排序函数层 G5-01…03、名单层 G6-01…03（真实 render 入口）—— 经接线
 // （`scripts/independent-blackbox-tests-wiring.ts`）跑一遍，冻结用例自己判，这里只读回结论，不改断言、不改冻结字节。
 // 判过的意思是那一例的结论是 pass、而且每一项都是 pass：附条件、待复核、不判、失格的都认不下。
@@ -21645,7 +22155,7 @@ await group('h-worker-output-reclaim', async () => {
   }
 })
 
-// ---- 零请求观察器（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）：判定、预加载、运行器各一组 ----
+// ---- 零请求观察器（ADR-70 末尾讲零请求观察器与外层断网的那一节）：判定、预加载、运行器各一组 ----
 // 期望值照那一节「对作者公开的协议」与下面手写的事实推，没有拿观察器跑出来的东西回填
 await group('h-observer-rule', () => {
   harness('零请求观察器的判定：响应脚本、事件读回、一次观察归哪一档、零请求四档、断网认证、白名单环境与沙箱参数')
@@ -22145,6 +22655,33 @@ await group('h-iou-file-reminder', () => {
 })
 
 // 入口单列一组：它每跑起 6 次入口，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
+await group('h-revisit-entry', () => {
+  harness('周回访定期清点的入口：在玩具仓库里真起 --due 与 --born')
+  // 真起单独成组：判定在 h-check-rules 里直接调；入口每起一次，都会乘上那一组的全部变异（启动数闸门，ADR-145）
+  const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-entry-'))
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
+  const g = (date: string | null, ...a: string[]) => spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
+    { encoding: 'utf8', env: date ? { ...env, GIT_AUTHOR_DATE: `${date}T04:00:00+00:00`, GIT_COMMITTER_DATE: `${date}T04:00:00+00:00` } : env })
+  const put = (rel: string, body: string) => { mkdirSync(join(repo, dirname(rel)), { recursive: true }); writeFileSync(join(repo, rel), body, 'utf8') }
+  g(null, 'init', '-q', '-b', 'main')
+  const a8 = 'docs/adr/ADR-8-甲.md', a9 = 'docs/adr/ADR-9-乙.md'
+  put(a8, '# ADR-8\n\n> ⚠️ 欠条「丙(丁).*」：说明\n>\n> 重启条件：定期清点\n')
+  put('docs/adr/ADR-152-候选.md', '- 读过、没进候选：ADR-9 第 3 行\n')
+  g(null, 'add', '-A'); g('2026-01-05', 'commit', '-q', '-m', 'a')
+  put(a9, '# ADR-9\n\n> ⚠️ 欠条：乙 重启条件：定期清点\n')
+  g(null, 'add', '-A'); g('2026-01-02', 'commit', '-q', '-m', 'b')
+  const entry = (args: string[], input: string) => spawnSync(...tsxCommand([join(process.cwd(), 'scripts/check/revisit-due.ts'), ...args]),
+    { cwd: repo, env, input, encoding: 'utf8', timeout: 30_000 })
+  // 台账里列着、工作区没有的文件不让整份断掉：记一条取不到登记日，别的照常
+  const due = entry(['--due', '2026-03-31', '--run', 'HEAD'],
+    `${a8}:5  [重启条件]  > 重启条件：定期清点\n${a9}:3  [重启条件]  > ⚠️ 欠条：乙 重启条件：定期清点\ndocs/adr/ADR-7-不在.md:3  [重启条件]  定期清点\n`)
+  eq('入口 --due：取不到 1（文件不在）、满四周 2、没列过 1（ADR-152 里读的那一行列过 ADR-9 第 3 行），打出那一行',
+    [due.status, due.stdout], [0, '1\n2\n1\n2026-01-05 ADR-8「丙(丁).*」\n'])
+  const born = entry(['--born', '--run', 'HEAD'], `${a8}|5|N|S|过|\n${a9}|3|N|S|过|\n`)
+  eq('入口 --born：按「|」切出文件与行号，按登记日排', [born.status, born.stdout], [0, '2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8 第 5 行\n'])
+  rmSync(repo, { recursive: true, force: true })
+})
 await group('h-iou-file-reminder-entry', () => {
   harness('欠条点名提醒的入口：在玩具仓库里真起，改名、CI 输出、无从比较各情形都以 0 退出')
   // 入口：在玩具仓库里真起一次 —— 改被点名的文件列出那条、改别的不列，两次都以 0 退出；不是仓库时说无从比较，也以 0 退出

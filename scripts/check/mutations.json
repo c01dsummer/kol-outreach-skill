@@ -7813,8 +7813,8 @@
       "req": "harness",
       "file": "scripts/check/cite-rule.ts",
       "why": "按行去重、不按文件 —— 一条记录在十行里提到另一条，就被算成十条记录引了它，被引数量的是谁写得啰嗦",
-      "find": "add(inIou[i] ? inside : outside, no, file)",
-      "replace": "add(inIou[i] ? inside : outside, no, `${file}:${i}`)",
+      "find": "add(inIou[i] ? inside : outside, no, `ADR-${self}`)",
+      "replace": "add(inIou[i] ? inside : outside, no, `ADR-${self}:${i}`)",
       "by": "test",
       "kills": [
         "同一条记录引几次都只算一条"
@@ -7838,8 +7838,8 @@
       "req": "harness",
       "file": "scripts/check/cite-rule.ts",
       "why": "欠条块里的引用也进了主计数 —— 需求所有者选的是排除、单列，一串欠条反复点同一条记录，会把它顶到前列",
-      "find": "add(inIou[i] ? inside : outside, no, file)",
-      "replace": "add(outside, no, file)",
+      "find": "add(inIou[i] ? inside : outside, no, `ADR-${self}`)",
+      "replace": "add(outside, no, `ADR-${self}`)",
       "by": "test",
       "kills": [
         "只在欠条块里引的不进主计数、另成一栏"
@@ -13813,8 +13813,8 @@
       "req": "harness",
       "why": "自己也写那份状态的组（惰性建夹具）也按闭包判，同族里互不依赖的几组被报成缺依赖",
       "file": "scripts/check/share-rule.ts",
-      "find": "!state.startsWith(PATH) && !e.writes.has(state)",
-      "replace": "!state.startsWith(PATH)",
+      "find": "!isPath(state) && !e.writes.has(state)",
+      "replace": "!isPath(state)",
       "by": "test",
       "kills": ["惰性夹具：同族的几组互不在闭包里，不报"]
     },
@@ -14043,8 +14043,8 @@
       "req": "harness",
       "why": "登记先后连自己也写那份状态的组（惰性夹具）也判：谁先跑谁建、看不出谁靠谁的那几组被报成顺序错",
       "file": "scripts/check/share-rule.ts",
-      "find": "&& !e.writes.has(state) && !state.startsWith(PATH)\n",
-      "replace": "&& !state.startsWith(PATH)\n",
+      "find": "&& !e.writes.has(state) && !isPath(state)\n",
+      "replace": "&& !isPath(state)\n",
       "by": "test",
       "kills": ["惰性夹具：总入口登记在最前也不报"]
     },
@@ -14063,7 +14063,7 @@
       "req": "harness",
       "why": "登记先后连 tmp 下的路径也判：路径谁写谁读源码里看不出，提到目录的那组被报成先读了写文件那组的东西",
       "file": "scripts/check/share-rule.ts",
-      "find": " && !state.startsWith(PATH)\n          && registered",
+      "find": " && !isPath(state)\n          && registered",
       "replace": "\n          && registered",
       "by": "test",
       "kills": ["同族碰 tmp 下重叠的路径、登记在前的那组提到目录：不报"]
@@ -14083,8 +14083,8 @@
       "req": "harness",
       "why": "登记先后不再限于同一族：跨族的两组本来在不同进程里跑、谈不上谁先谁后，读方登记在前时除了跨族那一条又多报一条顺序错",
       "file": "scripts/check/share-rule.ts",
-      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !state.startsWith(PATH)",
-      "replace": "      if (!e.writes.has(state) && !state.startsWith(PATH)",
+      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !isPath(state)",
+      "replace": "      if (!e.writes.has(state) && !isPath(state)",
       "by": "test",
       "kills": ["跨族、读方登记在写方之前：只报 family，不报 order"]
     },
@@ -22374,6 +22374,682 @@
       ]
     },
     {
+      "id": "M-P2-s1",
+      "req": "P2.e",
+      "why": "正本里 creator_sources 写坏了（不是数组、项不是对象、键不认得、缺原文）也照收，不指出问题",
+      "file": "scripts/lib/review.ts",
+      "find": "    if (review.creator_sources !== undefined) problems.push(...creatorSourceProblems(review.creator_sources, `${at}.creator_sources`))\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节"
+      ]
+    },
+    {
+      "id": "M-P2-s2",
+      "req": "P2.e",
+      "why": "登记里多出不认得的键照收",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (!['draft', 'from', 'quote'].includes(key)) problems.push",
+      "replace": "      if (false) problems.push",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节"
+      ]
+    },
+    {
+      "id": "M-P2-s3",
+      "req": "P2.e",
+      "why": "发件人自己的话（self）写了原文也照收",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (record.quote !== undefined) problems.push",
+      "replace": "      if (false) problems.push",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节"
+      ]
+    },
+    {
+      "id": "M-P2-s4",
+      "req": "P2.e",
+      "why": "登记的出处不投影到名单上，报告看不到",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "      for (const field of draftNoteFields) {",
+      "replace": "      for (const field of [] as typeof draftNoteFields) {",
+      "by": "test",
+      "kills": [
+        "P2.e 投影到名单原样带上"
+      ]
+    },
+    {
+      "id": "M-P2-s5",
+      "req": "P2.e",
+      "why": "投影出去的登记和正本共用同一份，改名单上的会反过来改了正本",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "creator[field] = structuredClone(review[field])",
+      "replace": "creator[field] = review[field]",
+      "by": "test",
+      "kills": [
+        "P2.e 改投影不反向改正本"
+      ]
+    },
+    {
+      "id": "M-P2-s6",
+      "req": "P2.e",
+      "why": "正本删掉登记后，名单上旧的那份还留着",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "  ...legacyFields, ...newJudgmentFields, ...draftNoteFields, 'review_status', 'linked_agent_review',",
+      "replace": "  ...legacyFields, ...newJudgmentFields, 'review_status', 'linked_agent_review',",
+      "by": "test",
+      "kills": [
+        "P2.e 正本删掉它后，带着旧投影的名单重投影时也消失"
+      ]
+    },
+    {
+      "id": "M-P2-s7",
+      "req": "P2.f",
+      "why": "比对前不统一大小写，大小写不同的原文就对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    .toLowerCase().replace(/\\s+/g, ' ').trim()",
+      "replace": "    .replace(/\\s+/g, ' ').trim()",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s8",
+      "req": "P2.f",
+      "why": "比对前不合并空白，多一个空格的原文就对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    .toLowerCase().replace(/\\s+/g, ' ').trim()",
+      "replace": "    .toLowerCase().trim()",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s9",
+      "req": "P2.f",
+      "why": "弯双引号不归一成直引号，引号写法不同的原文就对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": ".replace(/[“”]/g, '\"')",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s10",
+      "req": "P2.f",
+      "why": "作品文案只对第一条，后面几条里的原文都说对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "fields = creator.posts.flatMap(",
+      "replace": "fields = creator.posts.slice(0, 1).flatMap(",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s11",
+      "req": "P2.f",
+      "why": "不核对原文，登记了什么都算对得上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "status: quoteVerdict(source, creator),",
+      "replace": "status: 'matched' as const,",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算",
+        "P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对"
+      ]
+    },
+    {
+      "id": "M-P2-s12",
+      "req": "P2.f",
+      "why": "作品文案查过了也不拿来对，一律对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "fields = creator.posts.flatMap(post => { const desc = text(post); return desc === undefined ? [] : [desc] })",
+      "replace": "fields = []",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s13",
+      "req": "P2.f",
+      "why": "信里用 you、your 跟博主说话却没登记出处的句子不列出来",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return YOU.test(normalized) || names.some(name => name.test(sentence))",
+      "replace": "  return names.some(name => name.test(sentence))",
+      "by": "test",
+      "kills": [
+        "P2.f 这一行在输出处转义"
+      ]
+    },
+    {
+      "id": "M-P2-s14",
+      "req": "P2.f",
+      "why": "信里提到博主的名字或账号却没登记出处的句子不列出来",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return YOU.test(normalized) || names.some(name => name.test(sentence))",
+      "replace": "  return YOU.test(normalized)",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算",
+        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
+      ]
+    },
+    {
+      "id": "M-P2-s15",
+      "req": "P2.f",
+      "why": "问候行（Hi Mei,）也当成提到博主的句子列出来，报告里全是噪音",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (greetingSlot && isGreeting(line, salutation)) continue",
+      "replace": "      if (false) continue",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s16",
+      "req": "P2.f",
+      "why": "登记的那句在信里已经找不到时不说，悄悄丢掉",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    if (at < 0) { missing.push({ status: 'not_in_draft', draft: source.draft }); continue }",
+      "replace": "    if (at < 0) continue",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s17",
+      "req": "P2.f",
+      "why": "登记成发件人自己的话的句子混进「要看」里，不单列",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  const look = items.filter(item => item.status !== 'matched' && item.status !== 'self')",
+      "replace": "  const look = items.filter(item => item.status !== 'matched')",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s18",
+      "req": "P2.f",
+      "why": "有草稿、什么都没有时这一行是空的，看不出是查过没问题",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return line.length ? line.join('　｜　') : '无'",
+      "replace": "  return line.join('　｜　')",
+      "by": "test",
+      "kills": [
+        "P2.f 有草稿、没提到博主也没登记的写「无」"
+      ]
+    },
+    {
+      "id": "M-P2-s19",
+      "req": "P2.f",
+      "why": "不按在信里出现的先后排，按登记的先后排",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  placed.sort((a, b) => a.at - b.at)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s20",
+      "req": "P2.g",
+      "why": "草稿只有空白的卡片也出这一行",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  if (draft === undefined || draft.trim() === '') return undefined",
+      "replace": "  if (draft === undefined) return undefined",
+      "by": "test",
+      "kills": [
+        "P2.g 没草稿或草稿只有空白的卡片不出这一行"
+      ]
+    },
+    {
+      "id": "M-P2-s21",
+      "req": "P2.g",
+      "why": "默认模式（给发信人看的那版）也出这一行",
+      "file": "scripts/lib/report.ts",
+      "find": "    const line = options.mode === 'review'\n      ? creatorSourceLine(",
+      "replace": "    const line = true\n      ? creatorSourceLine(",
+      "by": "test",
+      "kills": [
+        "P2.g 默认模式 HTML 不出这一行（U9.a）"
+      ]
+    },
+    {
+      "id": "M-P2-s22",
+      "req": "P2.f",
+      "why": "这一行不转义，草稿里的尖括号会变成网页标签",
+      "file": "scripts/lib/report.ts",
+      "find": "写博主的话出处：${esc(line)}",
+      "replace": "写博主的话出处：${line}",
+      "by": "test",
+      "kills": [
+        "P2.f 这一行在输出处转义"
+      ]
+    },
+    {
+      "id": "M-P2-s23",
+      "req": "P2.f",
+      "why": "简介没查过也说成「他的简介里没有这段」，把没查过说成没有",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "if (creator.bio === undefined) return 'not_queried'",
+      "replace": "if (creator.bio === undefined) return 'quote_missing'",
+      "by": "test",
+      "kills": [
+        "P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对"
+      ]
+    },
+    {
+      "id": "M-P2-s24",
+      "req": "P2.f",
+      "why": "作品是空数组（没查过）时说成「他的作品文案里没有这段」",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "if (creator.posts === undefined || creator.posts.length === 0) return 'not_queried'",
+      "replace": "if (creator.posts === undefined) return 'not_queried'",
+      "by": "test",
+      "kills": [
+        "P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对"
+      ]
+    },
+    {
+      "id": "M-P2-s25",
+      "req": "P2.f",
+      "why": "正文里任何一行以 Subject: 开头都被当成主题行单独切出，和拆主题列的规则不一致",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      const subject = first && SUBJECT.test(line)",
+      "replace": "      const subject = SUBJECT.test(line)",
+      "by": "test",
+      "kills": [
+        "P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文切句"
+      ]
+    },
+    {
+      "id": "M-P2-s26",
+      "req": "P2.f",
+      "why": "一句里只登记了一小段，整句就算有出处了，没登记的半句不印出来",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    if (touched && rest) placed.push(",
+      "replace": "    if (false) placed.push(",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s27",
+      "req": "P2.f",
+      "why": "一句里有字被登记盖住也不算碰过，只登记了一部分的句子不列剩下的话",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    if (covered[i]) { touched = true; if (piece)",
+      "replace": "    if (covered[i]) { if (piece)",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后",
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s28",
+      "req": "P2.f",
+      "why": "列表行不各自成句，和上一行接在一起，一个登记盖住两行",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line)); continue }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s29",
+      "req": "P2.f",
+      "why": "在 Dr.、U.S. 这类缩写处切句，一句话被切成几段",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (before !== undefined && (before.length === 1 || ABBREVIATIONS.has(before))) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s30",
+      "req": "P2.f",
+      "why": "句号后没空格（series.You）不切句，后半句跟着前半句的登记算盖住",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    if (next !== '' && !/^\\s/.test(next) && !/^\\p{Lu}/u.test(next)) continue",
+      "replace": "    if (next !== '' && !/^\\s/.test(next)) continue",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s31",
+      "req": "P2.f",
+      "why": "句号后跟收尾引号时不切句",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  const re = /[.!?…]+[\"'”’)\\]]*/g",
+      "replace": "  const re = /[.!?…]+/g",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s32",
+      "req": "P2.f",
+      "why": "弯单引号不归一成直引号，资料里写直撇号、登记写弯撇号就对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": ".replace(/[‘’ʼ]/g, \"'\")",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s33",
+      "req": "P2.f",
+      "why": "名字不按整词认，Meiko 也当成提到了 Mei",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "new RegExp(`(?<![\\\\p{L}\\\\p{N}_.])${escapeRegExp(word)}(?![\\\\p{L}\\\\p{N}_])`, 'iu')",
+      "replace": "new RegExp(escapeRegExp(word), 'iu')",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s34",
+      "req": "P2.f",
+      "why": "同一句在信里出现两次就列两次",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    if (!s || seen.has(s)) continue",
+      "replace": "    if (!s) continue",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s35",
+      "req": "P2.f",
+      "why": "驼峰昵称（TechWithSarah）不拆开，认不出 Sarah",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "const split = source.normalize('NFKC').replace(/(\\p{Ll})(\\p{Lu})/gu, '$1 $2')",
+      "replace": "const split = source.normalize('NFKC')",
+      "by": "test",
+      "kills": [
+        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
+      ]
+    },
+    {
+      "id": "M-P2-s36",
+      "req": "P2.f",
+      "why": "昵称里的 the、with、official 这类普通词也当名字，带这些词的句子全被列出来",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (!NAME_STOPWORDS.has(lower)) words.add(lower)",
+      "replace": "      words.add(lower)",
+      "by": "test",
+      "kills": [
+        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
+      ]
+    },
+    {
+      "id": "M-P2-s37",
+      "req": "P2.g",
+      "why": "名单里昵称、简介、作品文案不是字符串时照当字符串用，render 抛错",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "const text = (value: unknown): string | undefined => typeof value === 'string' ? value : undefined",
+      "replace": "const text = (value: unknown): string | undefined => value as string | undefined",
+      "by": "test",
+      "kills": [
+        "P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错"
+      ]
+    },
+    {
+      "id": "M-P2-s38",
+      "req": "P2.f",
+      "why": "登记了出处、信里已没有的句子排在最前，盖过要先看的问题",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return [...placed.map(p => p.item), ...missing]",
+      "replace": "  return [...missing, ...placed.map(p => p.item)]",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s39",
+      "req": "P2.f",
+      "why": "长短破折号不归一成连字符，资料与登记里破折号写法不同就对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    .replace(/[–—]/g, '-')\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+      ]
+    },
+    {
+      "id": "M-P2-s40",
+      "req": "P2.f",
+      "why": "句末标点后空白再接小写也切句，引号里的感叹号、a.m. 把一句切开，后半句编的话漏列",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    if (/^\\s+[\\p{Ll}—–(（]/u.test(next)) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s41",
+      "req": "P2.f",
+      "why": "整个账号名、整个昵称不当名字认，sarah_bakes、mei123 这种写出来认不出",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    if (lower !== undefined && lower.length >= 3 && !NAME_STOPWORDS.has(lower)) words.add(lower)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s42",
+      "req": "P2.f",
+      "why": "主题行整行不核，主题里写博主的话没人看",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "if (rest) out.push(rest); continue }",
+      "replace": "continue }",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s43",
+      "req": "P2.f",
+      "why": "比对前不做 NFKC，全角字母的原文就对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return text.normalize('NFKC')\n",
+      "replace": "  return text\n",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s44",
+      "req": "P2.f",
+      "why": "只把短破折号归一成连字符，长破折号的原文就对不上",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": ".replace(/[–—]/g, '-')",
+      "replace": ".replace(/[–]/g, '-')",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s45",
+      "req": "P2.f",
+      "why": "称呼不限于博主的名字，「Hey Mei your marathons rock!」这种整行当问候跳过",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  return words.every(word => word !== '' && (salutation.has(word) || GENERIC_SALUTATIONS.has(word)))",
+      "replace": "  return true",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后",
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s46",
+      "req": "P2.f",
+      "why": "问候收尾的逗号、感叹号不认，每封的 Dear Mei, 都被当正文列出",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "const GREETING = /^(?:hi|hello|hey|dear)\\b\\s*(.*?)\\s*[,!.\\-–—]?$/i",
+      "replace": "const GREETING = /^(?:hi|hello|hey|dear)\\b\\s*(.*?)\\s*$/i",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s47",
+      "req": "P2.f",
+      "why": "每一段的问候样式行都跳过，信后面另起一段的「Hey Mei …」没人看",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "      if (greetingSlot && isGreeting(line, salutation)) continue",
+      "replace": "      if (isGreeting(line, salutation)) continue",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s48",
+      "req": "P2.f",
+      "why": "问候不限词数，长长一行称呼也跳过",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  if (m === null || line.split(/\\s+/).length > 5) return false",
+      "replace": "  if (m === null) return false",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s49",
+      "req": "P2.f",
+      "why": "there、team 这类泛称不认，Hello team Mei! 被当正文列出",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "(salutation.has(word) || GENERIC_SALUTATIONS.has(word))",
+      "replace": "salutation.has(word)",
+      "by": "test",
+      "kills": [
+        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s50",
+      "req": "P2.f",
+      "why": "没登记的部分只剩表情时当没有，Your smoothie series 🔥🔥 只登记前半也算盖住",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "filter(p => /[^\\s\\p{P}]/u.test(p))",
+      "replace": "filter(p => /[\\p{L}\\p{N}]/u.test(p))",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s51",
+      "req": "P2.f",
+      "why": "整个昵称不当名字认，mei_lin 这种写出来认不出",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "[text(creator.handle)?.replace(/^@/, ''), text(creator.nickname)]",
+      "replace": "[text(creator.handle)?.replace(/^@/, '')]",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s52",
+      "req": "P2.f",
+      "why": "登记只标在信里第一次出现的地方，同一段话第二次出现后面接的编造不列",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = normalizedDraft.indexOf(key, at + 1)) {",
+      "replace": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = -1) {",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s53",
+      "req": "P2.f",
+      "why": "正文开头的称呼不是纯问候时，不带名字就不列，「Hey sourdough queen!」这种编的称号没人看",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "else if (!touched && (addressed.has(sentence) || mentionsCreator(sentence, names)))",
+      "replace": "else if (!touched && mentionsCreator(sentence, names))",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s54",
+      "req": "P2.f",
+      "why": "Hi there, 不当问候，每封都被列",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "const GENERIC_SALUTATIONS = new Set(['there', ",
+      "replace": "const GENERIC_SALUTATIONS = new Set([",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s55",
+      "req": "P2.f",
+      "why": "只有 Hi, 没有称呼时不当问候，后面整封当在说他",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "  if (m[1] === '') return true\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
+      ]
+    },
+    {
+      "id": "M-P2-s56",
+      "req": "P2.f",
+      "why": "引文后空白再接破折号或括号时切句，「— 评价」那半截不带 you 就不列",
+      "file": "scripts/lib/creator-sources.ts",
+      "find": "if (/^\\s+[\\p{Ll}—–(（]/u.test(next)) continue",
+      "replace": "if (/^\\s+\\p{Ll}/u.test(next)) continue",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+      ]
+    },
+    {
       "id": "M-U12-d",
       "req": "U12.b",
       "why": "账号被转义两次，报告上显示的是字符实体的原文，不是账号本身",
@@ -23838,6 +24514,154 @@
       ]
     },
     {
+      "id": "M-D13-as",
+      "req": "D13.x",
+      "why": "enrich 把没有样本的旧条目也算进「已查好」：续跑照样会查、会花钱，用户以为这些已经拿到了",
+      "file": "scripts/enrich.ts",
+      "find": "`已查好 ${selected.filter(a => a.sample).length} 个达人账号的数据",
+      "replace": "`已查好 ${selected.length} 个达人账号的数据",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它"
+      ]
+    },
+    {
+      "id": "M-D13-at",
+      "req": "D13.x",
+      "why": "collect 续跑命令里的目录不包引号：目录名带空格或单引号时照抄进 shell 被拆成几段，续不上",
+      "file": "scripts/collect.ts",
+      "find": "      `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\\n'))",
+      "replace": "      `npm run collect -- --resume ${dir}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\\n'))",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：续跑命令里带空格、单引号的目录照抄进 shell 还是同一个目录"
+      ]
+    },
+    {
+      "id": "M-D13-au",
+      "req": "D13.x",
+      "why": "目录里的单引号不转义：包了引号也会在单引号处断开，照抄续不上",
+      "file": "scripts/lib/budget.ts",
+      "find": "`'${value.replaceAll(\"'\", `'\\\\''`)}'`",
+      "replace": "`'${value}'`",
+      "by": "test",
+      "kills": [
+        "续跑命令里的目录：普通目录原样，带空格、单引号的包成一个参数"
+      ]
+    },
+    {
+      "id": "M-D13-aj",
+      "req": "D13.x",
+      "why": "钱不够付下一次请求、停下时第二行「进度已存好」没了：用户不知道已经找到的人存住了没有，P3.d 的「声明已保存」也没说",
+      "file": "scripts/lib/budget.ts",
+      "find": "    `✅ 进度已存好：${saved}。`,\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去"]
+    },
+    {
+      "id": "M-D13-ak",
+      "req": "D13.x",
+      "why": "第一行把总上限当成已花：没花满也说花满了，用户以为额度一分不剩（F7.d 不许没占满说成用满）",
+      "file": "scripts/lib/budget.ts",
+      "find": "    ? `最多已花 $${view.cost_estimate_usd} / 上限 $${view.budget_usd}`",
+      "replace": "    ? `最多已花 $${view.budget_usd} / 上限 $${view.budget_usd}`",
+      "by": "test",
+      "kills": [
+        "收尾三行：已花与上限分别取估算占用与总上限，存了什么与续跑命令原样嵌进去"
+      ]
+    },
+    {
+      "id": "M-D13-al",
+      "req": "D13.x",
+      "why": "费用无从确认时照样按已知金额拼，第一行写出 $null",
+      "file": "scripts/lib/budget.ts",
+      "find": "  const spent = view.cost_status === 'known'\n",
+      "replace": "  const spent = view.cost_status !== 'unknown-history'\n",
+      "by": "test",
+      "kills": [
+        "费用无从确认时第一行说出原因，不写 $null"
+      ]
+    },
+    {
+      "id": "M-D13-am",
+      "req": "D13.x",
+      "why": "collect 的续跑命令丢了 --budget：用户照抄会立刻再撞一次退出码 3",
+      "file": "scripts/collect.ts",
+      "find": "      `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''} --budget <新总上限>`).join('\\n'))",
+      "replace": "      `npm run collect -- --resume ${shellArg(dir)}${ignoreMemory ? ' --ignore-memory' : ''}`).join('\\n'))",
+      "by": "selfcheck",
+      "kills": ["钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"]
+    },
+    {
+      "id": "M-D13-an",
+      "req": "D13.x",
+      "why": "enrich 把要查的总数说成已查好的数：没查完也像查完了",
+      "file": "scripts/enrich.ts",
+      "find": "`已查好 ${selected.filter(a => a.sample).length} 个达人账号的数据（共 ${refs.size} 个要查），已经拿到的下次不会再花钱重抓`",
+      "replace": "`已查好 ${refs.size} 个达人账号的数据（共 ${refs.size} 个要查），已经拿到的下次不会再花钱重抓`",
+      "by": "selfcheck",
+      "kills": ["钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"]
+    },
+    {
+      "id": "M-D13-ao",
+      "req": "D13.x",
+      "why": "collect 说存好的人数取了累加器而不是名单：被筛掉的人也算进「已找到」",
+      "file": "scripts/collect.ts",
+      "find": "`已找到 ${fin.kept.length} 位达人，已经拿到的搜索结果和已补完资料的达人下次不会再花钱重抓`",
+      "replace": "`已找到 ${creators.size} 位达人，已经拿到的搜索结果和已补完资料的达人下次不会再花钱重抓`",
+      "by": "selfcheck",
+      "kills": ["钱不够付下一次请求停下：collect 第二行报名单人数（已联系的不算），不是累加器人数"]
+    },
+    {
+      "id": "M-P3-h",
+      "req": "P3.d",
+      "why": "enrich 钱不够付下一次请求、进度也存好了，却以 0 退出：调用方当成跑完了，不会请用户确认新上限",
+      "file": "scripts/enrich.ts",
+      "find": "    process.exitCode = EXIT.budget\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：stderr 末尾三行说花了多少、存好了多少、带 --budget 的续跑命令"
+      ]
+    },
+    {
+      "id": "M-D13-ap",
+      "req": "D13.x",
+      "why": "enrich 把本跑新查的数当成已查好的数：以前查过、存在缓存里的账号不算进去，用户以为还差很多",
+      "file": "scripts/enrich.ts",
+      "find": "`已查好 ${selected.filter(a => a.sample).length} 个达人账号的数据",
+      "replace": "`已查好 ${newlyQueried} 个达人账号的数据",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它"
+      ]
+    },
+    {
+      "id": "M-D13-aq",
+      "req": "D13.x",
+      "why": "enrich 带 --refresh 停下时续跑命令丢了 --refresh：照抄一个请求都不发、以 0 结束，没刷新的账号就停在旧数据上",
+      "file": "scripts/enrich.ts",
+      "find": "`npm run enrich -- --dir ${shellArg(dir)}${refresh ? ' --refresh' : ''} --budget <新总上限>`",
+      "replace": "`npm run enrich -- --dir ${shellArg(dir)} --budget <新总上限>`",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它"
+      ]
+    },
+    {
+      "id": "M-D13-ar",
+      "req": "D13.x",
+      "why": "enrich 带 --refresh 停下时照常说「已查好全部、不会重抓」：旧数据被当成这次刷新过的，用户以为刷完了",
+      "file": "scripts/enrich.ts",
+      "find": "    const saved = refresh\n",
+      "replace": "    const saved = false\n",
+      "by": "selfcheck",
+      "kills": [
+        "钱不够付下一次请求停下：enrich 第二行分清已查好与这次新查，--refresh 时照实说并在命令里带上它"
+      ]
+    },
+    {
       "id": "M-D13-ai",
       "req": "D13.u",
       "why": "collect 以 --config 新建任务时把 --budget 与默认 $2（或配置里的上限）取大 —— 用户给的比默认小的总预算被无视，照默认花钱",
@@ -24523,8 +25347,8 @@
       "req": "harness",
       "why": "enrich 先读命令行参数、再写就绪记录：参数不对就退出的那一跑没有 ready 记录",
       "file": "scripts/enrich.ts",
-      "find": "obsReady('enrich')\n\nconst argv = process.argv\nconst arg = (name: string) => {\n  const i = argv.indexOf(name)\n  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : undefined\n}\n\nconst dir = arg('--dir')\nif (!dir || !existsSync(taskFile(dir))) {\n  console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')\n  process.exit(2)\n}\n",
-      "replace": "const argv = process.argv\nconst arg = (name: string) => {\n  const i = argv.indexOf(name)\n  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : undefined\n}\n\nconst dir = arg('--dir')\nif (!dir || !existsSync(taskFile(dir))) {\n  console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')\n  process.exit(2)\n}\nobsReady('enrich')\n",
+      "find": "obsReady('enrich')\n\nconst argv = process.argv\nconst arg = (name: string) => {\n  const i = argv.indexOf(name)\n  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : undefined\n}\n\nconst dir: string = arg('--dir') ?? ''   // 缺席记成空串，下一行照样以 2 拒收；续跑命令拼它时才有确定的类型\nif (!dir || !existsSync(taskFile(dir))) {\n  console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')\n  process.exit(2)\n}\n",
+      "replace": "const argv = process.argv\nconst arg = (name: string) => {\n  const i = argv.indexOf(name)\n  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : undefined\n}\n\nconst dir: string = arg('--dir') ?? ''   // 缺席记成空串，下一行照样以 2 拒收；续跑命令拼它时才有确定的类型\nif (!dir || !existsSync(taskFile(dir))) {\n  console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')\n  process.exit(2)\n}\nobsReady('enrich')\n",
       "by": "selfcheck",
       "kills": [
         "enrich 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 enrich"
@@ -25316,7 +26140,7 @@
     {
       "id": "M-D6-bs",
       "req": "D6.ab",
-      "why": "KOL-108 第 1 条退回去：补 profile 的循环被 402 或费用错误打断时不打「N 人补全失败」那一行，汇总的 profile_failed 有数、stderr 却一句不提",
+      "why": "退回 402 收尾修复的第 1 项：补 profile 的循环被 402 或费用错误打断时不打「N 人补全失败」那一行，汇总的 profile_failed 有数、stderr 却一句不提",
       "file": "scripts/collect.ts",
       "find": "  } finally {\n    if (profileFailed) console.error(",
       "replace": "  } finally {\n    if (profileFailed && false) console.error(",
@@ -25339,7 +26163,7 @@
     {
       "id": "M-D6-bt",
       "req": "D6.aa",
-      "why": "KOL-108 第 2 条退回去：收尾那次保存评审正本失败时不算保存失败，按其余运行错误退 1，调用方读不出「没存上」",
+      "why": "退回 402 收尾修复的第 2 项：收尾那次保存评审正本失败时不算保存失败，按其余运行错误退 1，调用方读不出「没存上」",
       "file": "scripts/collect.ts",
       "find": "  saving(() => reviews.save(new Date().toISOString()))\n  saving(() => persistListAndStatus(",
       "replace": "  reviews.save(new Date().toISOString())\n  saving(() => persistListAndStatus(",
@@ -25351,7 +26175,7 @@
     {
       "id": "M-D6-bu",
       "req": "D6.aa",
-      "why": "KOL-108 第 2 条退回去：收尾写名单失败时不算保存失败，按其余运行错误退 1，调用方读不出名单没写上",
+      "why": "退回 402 收尾修复的第 2 项：收尾写名单失败时不算保存失败，按其余运行错误退 1，调用方读不出名单没写上",
       "file": "scripts/collect.ts",
       "find": "  saving(() => persistListAndStatus(dir, state, fin.kept, fin.memory_status))\n",
       "replace": "  persistListAndStatus(dir, state, fin.kept, fin.memory_status)\n",
@@ -25787,6 +26611,127 @@
       ]
     },
     {
+      "id": "M-H212-a",
+      "req": "harness",
+      "why": "tmp 本身不算一处路径：拿它当当前目录的组与别族碰到的路径不再比，整条通道又看不见了",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const isPath = (s: string): boolean => s === root || s.startsWith(PATH)",
+      "replace": "const isPath = (s: string): boolean => s.startsWith(PATH)",
+      "by": "test",
+      "kills": [
+        "拿 tmp 本身当当前目录：与别族在 tmp 下写死的路径重叠，两个方向都报"
+      ]
+    },
+    {
+      "id": "M-H212-b",
+      "req": "harness",
+      "why": "空串当成 tmp 底下一个没名字的子目录：拿 tmp 本身当当前目录不再与它底下的路径重叠",
+      "file": "scripts/check/share-rule.ts",
+      "find": "rel => rel === '' ? root : `${root}/${rel}`",
+      "replace": "rel => `${root}/${rel}`",
+      "by": "test",
+      "kills": [
+        "两族都拿 tmp 本身当当前目录：两个方向都报"
+      ]
+    },
+    {
+      "id": "M-H212-c",
+      "req": "harness",
+      "why": "当前目录只算读、不算写：判定只拿写方去比，当前目录这一笔从此不报",
+      "file": "scripts/check/share-rule.ts",
+      "find": "writes: new Set([...e.writes, ...here])",
+      "replace": "writes: new Set(e.writes)",
+      "by": "test",
+      "kills": [
+        "一组的当前目录在另一组的底下：两个方向都报"
+      ]
+    },
+    {
+      "id": "M-H212-d",
+      "req": "harness",
+      "why": "记下了当前目录、却不在组表里的组静默丢掉：组改了名、记账却按旧名记，那几笔当前目录没人比",
+      "file": "scripts/check/share-rule.ts",
+      "find": "  if (stray.length) throw new Error(`记下了当前目录、却不在组表里的组：${stray.join('、')}`)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "记下了当前目录的组不在组表里：当场抛并点名"
+      ]
+    },
+    {
+      "id": "M-H212-e",
+      "req": "harness",
+      "why": "不在 tmp 底下的当前目录也交回相对路径：仓库根被记成 tmp 底下的一处",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))",
+      "replace": "if (!isAbsolute(rel))",
+      "by": "test",
+      "kills": [
+        "仓库根：不在底下"
+      ]
+    },
+    {
+      "id": "M-H212-f",
+      "req": "harness",
+      "why": "当前目录只按原样比、不按真实路径比：macOS 上 tmp 取的是真实路径、子进程的当前目录经软链给时，记不下来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const here = safe(real, resolve(cwd))",
+      "replace": "const here = resolve(cwd)",
+      "by": "test",
+      "kills": [
+        "tmp 取的是真实路径、当前目录经软链给：照样认得",
+        "经 tmp 里的软链起：记成它指向的那一处"
+      ]
+    },
+    {
+      "id": "M-H212-g",
+      "req": "harness",
+      "why": "子进程回报里当前目录那一栏不核：缺了这一栏也读得进去，父进程合并时当成那几组一个子进程都没起",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (typeof c !== 'object' || c === null || Array.isArray(c) || !Object.values(c).every(strings)) return undefined\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "没有当前目录那一栏读不出"
+      ]
+    },
+    {
+      "id": "M-H212-h",
+      "req": "harness",
+      "why": "合并当前目录时不看派工：子进程多跑的组也把当前目录交上来",
+      "file": "scripts/check/group-rule.ts",
+      "find": "if (run.family.includes(id)) cwds.set(id, [...dirs])",
+      "replace": "cwds.set(id, [...dirs])",
+      "by": "test",
+      "kills": [
+        "当前目录按组收拢：派给哪个子进程就收哪个子进程交回的那一份"
+      ]
+    },
+    {
+      "id": "M-H212-i",
+      "req": "harness",
+      "why": "tmp 只按原样比、不按真实路径比：macOS 上 tmp 在软链底下，取了真实路径的当前目录记不下来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const base = safe(real, resolve(tmp))",
+      "replace": "const base = resolve(tmp)",
+      "by": "test",
+      "kills": [
+        "tmp 是软链、当前目录取的是真实路径：照样认得"
+      ]
+    },
+    {
+      "id": "M-H212-j",
+      "req": "harness",
+      "why": "凡以两个点开头的相对路径都当成不在 tmp 底下：tmp 里一个名字以两个点开头的目录当当前目录时记不下来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)",
+      "replace": "!rel.startsWith('..') && !isAbsolute(rel)",
+      "by": "test",
+      "kills": [
+        "tmp 底下名字以两个点开头的目录：仍在底下"
+      ]
+    },
+    {
       "id": "M-H211-a",
       "req": "harness",
       "file": "scripts/check/adr-rule.ts",
@@ -25960,6 +26905,336 @@
       ]
     },
     {
+      "id": "M-H211-r",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "历史文件在被引表里另占一行 —— 拆过的记录变成两条，历史那行一律被引 0 次、无教训栏，前十与各档条数都被它带偏",
+      "find": "if (no === undefined || isHistory(file)) continue",
+      "replace": "if (no === undefined) continue",
+      "by": "test",
+      "kills": ["拆过的记录：表里只给主文件一行"]
+    },
+    {
+      "id": "M-H211-s",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "引用方按文件去重、不按记录 —— 拆过的记录主文件与历史文件各引一次，被引的那条就白多一票",
+      "find": "add(inIou[i] ? inside : outside, no, `ADR-${self}`)",
+      "replace": "add(inIou[i] ? inside : outside, no, file)",
+      "by": "test",
+      "kills": ["拆过的记录：主文件与历史文件都引同一条，只算一条"]
+    },
+    {
+      "id": "M-H211-t",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "只认主文件里的教训栏 —— 教训一节随过程挪进历史文件后，这条记录在表里就成了无教训栏",
+      "find": "if (LESSON.test(line)) lessons.add(self)",
+      "replace": "if (LESSON.test(line) && !isHistory(file)) lessons.add(self)",
+      "by": "test",
+      "kills": ["拆过的记录：教训栏写在历史文件里也算这条有"]
+    },
+    {
+      "id": "M-H211-u",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "不再跳过历史目录 —— 它被当成一份文件名不合格式的记录，每次检查都红，或者有人为了变绿把历史目录删掉",
+      "find": "    if (file === HISTORY_DIR && statSync(join(dir, file)).isDirectory()) continue",
+      "replace": "    if (false) continue",
+      "by": "test",
+      "kills": ["玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名", "玩具仓库：有一份配得上的历史文件时 --write 成功，指纹表钉住它、历史目录不进索引"]
+    },
+    {
+      "id": "M-H211-v",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "历史文件那几项判定算了却不计入 —— 孤儿历史文件、第一行编号不对的历史文件都放行",
+      "find": "    errors.push(...historyFaults(adrs.map(a => a.file),",
+      "replace": "    void (historyFaults(adrs.map(a => a.file),",
+      "by": "test",
+      "kills": ["玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名"]
+    },
+    {
+      "id": "M-H211-w",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "历史目录里的子目录不报 —— 里面的东西谁也不核",
+      "find": "for (const f of names.filter(f => !isFile(f))) errors.push(",
+      "replace": "for (const f of names.filter(f => !isFile(f))) [].push(",
+      "by": "test",
+      "kills": ["玩具仓库：历史目录里有孤儿历史文件和一个子目录，各报一条、以失败结束，历史目录本身不当成坏文件名"]
+    },
+    {
+      "id": "M-H211-x",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "指纹比对算了却不计入 —— 历史文件里钉住的旧文字被改了，检查照样绿，--write 还把改过的钉上去",
+      "find": "  errors.push(...pinErrors)",
+      "replace": "  void pinErrors",
+      "by": "test",
+      "kills": ["玩具仓库：历史文件里钉住的旧文字被改了，--write 也拒绝、不把改过的钉上去"]
+    },
+    {
+      "id": "M-H211-y",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "不比钉住那段的指纹 —— 历史文件里的旧文字改了只要长度没变短就放行",
+      "find": "    if (pinOf(h.data.subarray(0, pin.bytes)).sha256 !== pin.sha256) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["钉住的旧字节被改了：报一条、点出文件，不当成「还没钉」"]
+    },
+    {
+      "id": "M-H211-z",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "不查变短 —— 删掉一段旧文字只被说成「改了」，读的人不知道是少了一截",
+      "find": "    if (h.data.length < pin.bytes) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["比钉住时短了：报一条"]
+    },
+    {
+      "id": "M-H211-aa",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "钉着的历史文件整份被删也放行",
+      "find": "    if (!have.has(f)) errors.push(`${PINS_FILE} 钉着",
+      "replace": "    if (false) errors.push(`${PINS_FILE} 钉着",
+      "by": "test",
+      "kills": ["钉着的历史文件不见了：报一条"]
+    },
+    {
+      "id": "M-H211-ab",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "检查不比指纹表是不是最新 —— 历史文件末尾新加的那段永远没钉上，之后被改了也看不出",
+      "find": "  if (wantPins !== pinsText) {\n    // 整份没钉过的",
+      "replace": "  if (false) {\n    // 整份没钉过的",
+      "by": "test",
+      "kills": ["玩具仓库：历史文件末尾新加了一段、还没钉住，检查报红并让人跑 --write"]
+    },
+    {
+      "id": "M-H211-ac",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "--write 不写指纹表 —— 新拆的记录永远钉不上，检查一直红着让人跑一条修不好它的命令",
+      "find": "      if (wantPins) writeFileSync(pinsPath, wantPins, 'utf8'); else rmSync(pinsPath, { force: true })",
+      "replace": "      void 0",
+      "by": "test",
+      "kills": ["玩具仓库：有一份配得上的历史文件时 --write 成功，指纹表钉住它、历史目录不进索引"]
+    },
+    {
+      "id": "M-H211-ad",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "指纹表一项缺了 sha256 也收 —— 拿 undefined 去比，所有历史文件都成了「被改了」，或者被当成钉过",
+      "find": "      || typeof p.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(p.sha256)) {",
+      "replace": "      || false) {",
+      "by": "test",
+      "kills": ["指纹表里一项缺 sha256：报一条、不收这一项"]
+    },
+    {
+      "id": "M-H211-ae",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "指纹表读不出来不计入 —— 当成什么都没钉过，--write 照新内容重钉一遍，改过的旧文字就此洗白",
+      "find": "  errors.push(...parsed.errors)",
+      "replace": "  void parsed.errors",
+      "by": "test",
+      "kills": ["玩具仓库：指纹表读不出来时报一条、--write 也拒绝，不当成什么都没钉过"]
+    },
+    {
+      "id": "M-H211-af",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "转发页里又写回记录标题也放行 —— 整册的冲突面又装回去",
+      "find": "    if (src.split('\\n').some((l, i) => !mask[i] && RECORD_HEADING.test(l))) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["玩具仓库：转发页里引文之外又出现记录标题，报一条；引文里的示例不算"]
+    },
+    {
+      "id": "M-H211-ag",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "审计不把短名字有错计进硬失败 —— 重名的欠条按名字一关就关掉两张，取不出名字的永远关不上，检查链照样绿",
+      "find": "    ...badNames.map(d => `${d.file}:${d.line} 欠条的短名字有错（${d.text}） —— `",
+      "replace": "    ...[].map(d => `${d.file}:${d.line} 欠条的短名字有错（${d.text}） —— `",
+      "by": "test",
+      "kills": ["审计硬失败：孤儿与短名字有错各一行，短名字那行点出文件与行号、说短名字有错"]
+    },
+    {
+      "id": "M-H211-ah",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "「历史」是个普通文件时当目录去读 —— 检查直接崩掉，报不出哪里不对",
+      "find": "  if (existsSync(historyDir) && statSync(historyDir).isDirectory()) {",
+      "replace": "  if (existsSync(historyDir)) {",
+      "by": "test",
+      "kills": ["玩具仓库：「历史」是个普通文件时报文件名不合格式，不抛错"]
+    },
+    {
+      "id": "M-H211-ai",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "钉过又被从指纹表删掉的历史文件说成「末尾新加」—— 评审看不出 --write 要把整份重钉，改过的旧内容就此洗白",
+      "find": "    const fresh = unpinned.filter(f => !(f in parsed.pins)), grown = unpinned.filter(f => f in parsed.pins)",
+      "replace": "    const fresh: string[] = [], grown = unpinned",
+      "by": "test",
+      "kills": ["玩具仓库：钉过的那份被从指纹表删掉，检查说它整份还没钉过，不说成末尾新加"]
+    },
+    {
+      "id": "M-H211-aj",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "拆以后条件又改过，登记日照样取原文那天 —— 改过的条件不满四周也被当成到期，回访把它当老欠条列出来",
+      "find": "    if (olds.length && git.blame(run, file, line)?.commit === split) {",
+      "replace": "    if (olds.length && true) {",
+      "by": "test",
+      "kills": ["拆以后条件又改过：登记日取改的那天，旧行号照给"]
+    },
+    {
+      "id": "M-H211-ak",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "条件拆后改过就丢了旧行号 —— 拆以前按行号列过的那张，回访又列一次",
+      "find": "      at = 'line' in first ? first.line : conditionLineOf(git.show(src, main) ?? '', first.name)\n    }\n  }",
+      "replace": "      at = 'line' in first ? first.line : conditionLineOf(git.show(src, main) ?? '', first.name)\n    } else olds = []\n  }",
+      "by": "test",
+      "kills": ["拆以后条件又改过：登记日取改的那天，旧行号照给"]
+    },
+    {
+      "id": "M-H211-al",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "只按名字认「列过」、不认旧行号 —— 拆以前列过的欠条换了名字又被列一次",
+      "find": "  const open = due.filter(r => ![r.key, ...r.aliases].some(k => listed.has(k))).sort(rowCompare).map(line)",
+      "replace": "  const open = due.filter(r => ![r.key].some(k => listed.has(k))).sort(rowCompare).map(line)",
+      "by": "test",
+      "kills": ["三个数与前几行：取不到登记日 1、满四周 4、没列过 1（名字列过、第二个旧行号列过、旧名字列过的都算列过）"]
+    },
+    {
+      "id": "M-H211-am",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "历史文件里拆时才补的那几行也去原文取日期 —— 原文没有那一行，登记日取不到",
+      "find": "    if (original !== undefined && line <= lineCount(original)) { src = `${split}^`; path = main }",
+      "replace": "    if (original !== undefined && true) { src = `${split}^`; path = main }",
+      "by": "test",
+      "kills": ["历史文件里拆时才补的那几行：照常取它自己那一行（拆的那天）"]
+    },
+    {
+      "id": "M-H211-an",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "条件那一行不在块里也借上一块的名字 —— 隔着空行的另一张欠条被记成同一个名字",
+      "find": "  const block = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i && i < b.end).at(-1)",
+      "replace": "  const block = iouBlocks(lines, quotedMask(text)).filter(b => b.start <= i).at(-1)",
+      "by": "test",
+      "kills": ["隔着空行的下一块不借上一块的名字"]
+    },
+    {
+      "id": "M-H211-ao",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "登记日按 UTC 算 —— 北京时间凌晨进主干的欠条早记一天，满四周差一天",
+      "find": "  return new Date((time + 8 * 3600) * 1000).toISOString().slice(0, 10)",
+      "replace": "  return new Date((time + 0) * 1000).toISOString().slice(0, 10)",
+      "by": "test",
+      "kills": ["北京时间：UTC 16:00 已是第二天"]
+    },
+    {
+      "id": "M-H211-ap",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "「读过、没进候选」那一行不按「、」切 —— 一行里列了几张，一张也认不出列过",
+      "find": "    for (const item of splitItems(cell)) out.add(item.replace(/^ +| +$/g, ''))",
+      "replace": "    for (const item of [cell]) out.add(item.replace(/^ +| +$/g, ''))",
+      "by": "test",
+      "kills": ["列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样"]
+    },
+    {
+      "id": "M-H211-aq",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "编号按字比 —— 同一天 ADR-120 排到 ADR-80 前面，取前 5 张取错",
+      "find": "  if (na !== nb) return na - nb",
+      "replace": "  void 0",
+      "by": "test",
+      "kills": ["同一天按编号的数比：ADR-80 排在 ADR-120 前面"]
+    },
+    {
+      "id": "M-H211-ar",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "取不到登记日的排在最前 —— 「只起草一条」取第一行，就起草了一张日子都不知道的欠条",
+      "find": "  if ((a.date === undefined) !== (b.date === undefined)) return a.date === undefined ? 1 : -1",
+      "replace": "  if ((a.date === undefined) !== (b.date === undefined)) return a.date === undefined ? -1 : 1",
+      "by": "test",
+      "kills": ["先按日期，取不到日期的排最后", "两道门「过」的几张按登记日排，取不到登记日的（行号越界）排最后，不当成最老的先起草"]
+    },
+    {
+      "id": "M-H211-at",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "书名号里的「、」也切 —— 名字里带顿号的那张被切成两半，列过了也认不出，回访又列一次",
+      "find": "    if (ch === '、' && depth === 0) { out.push(cur); cur = ''; continue }",
+      "replace": "    if (ch === '、') { out.push(cur); cur = ''; continue }",
+      "by": "test",
+      "kills": ["列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样"]
+    },
+    {
+      "id": "M-H211-au",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "只认按旧行号的「已重挂」—— 老欠条本来有名字的，拆以后登记日变成拆的那天、按旧名字列过的又被列一次",
+      "find": "    else if (n) out.push({ name: n[1] })",
+      "replace": "    else if (false) out.push({ name: n![1] })",
+      "by": "test",
+      "kills": ["拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名", "已重挂两种写法都认、按出现先后"]
+    },
+    {
+      "id": "M-H211-av",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "按旧名字回溯时取块头那一行 —— 条件后来改过的，登记日早于台账上那一行真正写下的那天",
+      "find": "  if (b) for (let i = b.start; i < b.end; i++) if (!quoted[i] && CONDITION.test(lines[i])) return i + 1",
+      "replace": "  if (b) return b.start + 1",
+      "by": "test",
+      "kills": ["拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名"]
+    },
+    {
+      "id": "M-H211-aw",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "旧名字不当别名 —— ADR-152 里按旧名字列过的那张，拆以后换了新名字又被列一次",
+      "find": "    aliases: [...oldLines.map(n => `${id} 第 ${n} 行`), ...oldNames.map(n => `${id}「${n}」`)],",
+      "replace": "    aliases: [...oldLines.map(n => `${id} 第 ${n} 行`)],",
+      "by": "test",
+      "kills": ["拆时按旧名字重挂的：登记日取原文里那张同名欠条的条件行，旧名字当别名"]
+    },
+    {
+      "id": "M-H211-ax",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "只有 `>` 的一行把引用块截断 —— 块头与条件隔着这样一行的欠条，回访取不到短名字、改按行号记，孤儿闸门也把它当成没写条件",
+      "find": "           (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++",
+      "replace": "           (quotedBlock ? lines[end].trimStart().startsWith('>') && lines[end].trim() !== '>' : lines[end].trim() !== '')) end++",
+      "by": "test",
+      "kills": ["块头与条件隔着只有 > 的一行，仍按块头取名字（与孤儿闸门同一份定界）"]
+    },
+    {
+      "id": "M-H211-as",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "台账里列着、工作区没有的文件让入口当场抛错 —— 三个数一个都打不出来",
+      "find": "const text = (file: string) => existsSync(file) ? readFileSync(file, 'utf8') : ''",
+      "replace": "const text = (file: string) => readFileSync(file, 'utf8')",
+      "by": "test",
+      "kills": ["入口 --due：取不到 1（文件不在）、满四周 2、没列过 1（ADR-152 里读的那一行列过 ADR-9 第 3 行），打出那一行"]
+    },
+    {
       "id": "M-H211-n",
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",
@@ -26007,13 +27282,19 @@
       "req": "S1.b",
       "scope": "整条（经用户自己的邮箱工具只存草稿、不发送）",
       "why": "调不调、调哪个工具由 Agent 照 Skill 文字在宿主里决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）。",
-      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看（连同报告里那封信的「出处对不上」一行，ADR-199），并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
+      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看（连同报告里那封信的「出处对不上」一行，ADR-199；以及「写博主的话出处」一行里「要看」那一段，ADR-210），并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
     },
     {
       "req": "P2.a",
       "scope": "「是否编造」这一半里机器标不出的那几样：不带数字又不在承诺词表里的换说法、数字对得上但意思歪了、已证实的产品事实本身写错",
       "why": "这几样要读懂句子意思、或要回到商品页核对底本，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。带数字的说法和词表里的承诺词由 P2.c 标出，有自己的认领与负片。",
       "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」，并要人看报告里「出处对不上」与「只在博主作品里有」两行；product-intake.md 写明读了商品页就把产品事实原文逐条记成已证实的产品事实。见 ADR-01、ADR-199、ADR-209。"
+    },
+    {
+      "req": "P2.d",
+      "scope": "写博主的话里机器判断不了的那几样：改写得准不准、一句话是不是真的在描述博主、发件人的感受有没有借机给博主安新说法",
+      "why": "这几样要读懂句子意思、拿去和博主原文比意思，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。登记的原文在不在、提到博主却没登记的句子由 P2.e、P2.f、P2.g 管，有自己的认领与负片。",
+      "mitigation": "skill/references/outreach-draft.md 写明写博主的话只能引用或准确改写他的简介、作品文案、昵称，每句登记出处；报告里「写博主的话出处」一行把信里这句与资料原文并排放，交付或存邮箱前要人对照。见 ADR-210。"
     },
     {
       "req": "P1.b",

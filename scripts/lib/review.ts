@@ -5,6 +5,7 @@ import {
   ADOPTION_PRIORITIES, DIMENSIONS, ELIGIBILITIES, PLATFORMS, creatorKey,
   type AdoptionPriority, type Creator, type Dimension, type Eligibility, type Fit, type Platform, type TaskState,
 } from './types.js'
+import { creatorSourceProblems, type CreatorSource } from './creator-sources.js'
 
 /** D21：任务级 Agent 评审正本；采集原件与人工反馈由其他文件拥有。 */
 export interface AgentReview {
@@ -18,6 +19,8 @@ export interface AgentReview {
   fit?: Fit
   fit_reason?: string
   outreach_draft?: string
+  /** P2：草稿里写博主的每一句依据他资料里的哪段原文（ADR-210）；只给评审 HTML 对账用。 */
+  creator_sources?: CreatorSource[]
   brand_calibration_version?: string
   reviewed_at?: string
 }
@@ -311,6 +314,7 @@ function validatedDocument(value: unknown, file: string): AgentReviewDocument {
     ]) {
       if (review[field] !== undefined && typeof review[field] !== 'string') problems.push(`${at}.${field} 必须是字符串`)
     }
+    if (review.creator_sources !== undefined) problems.push(...creatorSourceProblems(review.creator_sources, `${at}.creator_sources`))
     if (review.eligibility === '不合格' && review.fit === '✅') problems.push(`${at}.fit 与 eligibility 自相矛盾`)
     if (review.eligibility === '不合格' && review.adoption_priority === '优先联系') {
       problems.push(`${at}.adoption_priority 与 eligibility 自相矛盾`)
