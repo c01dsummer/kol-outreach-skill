@@ -1061,14 +1061,15 @@
     },
     {
       "id": "M-P5-q",
-      "req": "P5.d",
+      "req": "P5",
       "why": "「本次没做已联系去重」那句不再排在数据边界最前面，被邮箱、受众几句压在上面 —— 那句说的是这份名单可能让你二次打扰联系过甚至拉黑的人，排在「数据可能不全」后面，用户扫一眼就漏过去",
       "file": "scripts/lib/report.ts",
       "find": "  if (missingEmailVerification) {\n    notes.push('邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。')\n  }\n  if (missingAudienceGeo) {\n    notes.push('未配置增强层，无法确认这批人的粉丝是否在目标市场。')\n  }\n",
       "replace": "  if (missingEmailVerification) {\n    notes.unshift('邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。')\n  }\n  if (missingAudienceGeo) {\n    notes.unshift('未配置增强层，无法确认这批人的粉丝是否在目标市场。')\n  }\n",
       "by": "test",
       "kills": [
-        "去重没做那一句排在没写回、邮箱、受众三句前面"
+        "去重没做那一句是数据边界的第一句，排在没写回、邮箱、受众、公开指标几句前面",
+        "去重状态无从确认那一句同样是数据边界的第一句"
       ]
     },
     {
@@ -1111,7 +1112,7 @@
     {
       "id": "M-P5-u",
       "req": "P5.i",
-      "why": "「查了 0 命中」被印成「—」—— 量出来的零和无从确认长得一模一样，运营分不出「这个词真没人」和「这个词的数没测到」，而前者该换词、后者该重跑（渲染口径同 P1.e）",
+      "why": "「查了 0 命中」被印成「—」—— 量出来的零和「没测到」长得一模一样，运营分不出「这个词真没人」和「这个词的数没测到」，而前者该换词、后者该重跑（渲染口径同 P1.e）",
       "file": "scripts/lib/report.ts",
       "find": "    : String(k.found)",
       "replace": "    : k.found === 0 ? '—' : String(k.found)",
@@ -1123,7 +1124,7 @@
     {
       "id": "M-P5-v",
       "req": "P5.i",
-      "why": "一次都没问过的行照样印「入围 0 / 语义通过 0」—— 两个 0 印在真测量值旁边，运营读成「这个词查了、一个人都没有」，据此不再投这个方向；而同一张表里信息更多的「无从确认」那一行反倒印「—」，口径是反的",
+      "why": "一次都没问过的行照样印「入围 0 / 语义通过 0」—— 两个 0 印在真测量值旁边，运营读成「这个词查了、一个人都没有」，据此不再投这个方向；而同一张表里状态无从确认的那一行印的是「无从确认」，口径是反的",
       "file": "scripts/lib/pipeline.ts",
       "find": "    const counted = attributable && status === 'queried'",
       "replace": "    const counted = attributable",

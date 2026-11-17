@@ -3909,20 +3909,27 @@ suite('P5', '交付必须声明数据边界')
     eq(`认不出的状态（${JSON.stringify(bad)}）读作 unknown`, asMemoryStatus(bad), 'unknown')
   }
 
-  // P5.j 原文：「报告副标题与 meta.json 的「平台」都必须从任务列表出发」。meta 那一半由 M-P5-o 守；
-  // 副标题那一半在 renderHtml 里，名单里只有 TikTok 的人、任务里另有 Instagram 时它也得在（ADR-218）。
+  // P5.j 原文：「报告副标题与 meta.json 的「平台」都必须从任务列表出发」。自检起真 render 两半都核（M-P5-o）；
+  // 这里在 renderHtml 上单核副标题那一半，名单里只有 TikTok 的人、任务里另有 Instagram 时它也得在（ADR-218）。
   const tiktokOnly = renderHtml(one, { ...base, platforms: ['tiktok', 'instagram'], memory_status: 'ok', memory_written: true })
   ok('报告副标题的平台照 meta 的任务平台列：没采到人的 Instagram 也在',
     tiktokOnly.includes('目标市场 US · tiktok + instagram'))
   criterion('P5.j')
-  // 去重没做那一句排在数据边界最前面（output-format.md「这句要排在最前面」；它是「可能二次打扰同一个人」，
-  // 其余几句只是「数据可能不全」）。几句同时出时比先后（ADR-218）。
-  const all = renderHtml(one, { ...base, enriched: false, memory_status: 'unreadable_ignored',
-    memory_written: false, memory_write_error: 'EACCES' })
-  const at = (t: string) => all.indexOf(t)
-  ok('去重没做那一句排在没写回、邮箱、受众三句前面',
-    at('未做「已联系 / 已推荐」去重') >= 0 &&
-    ['未记入跨任务记忆', '未做有效性验证', '无法确认这批人的粉丝'].every(t => at(t) > at('未做「已联系 / 已推荐」去重')))
+  // 去重那一句（没做／无从确认）排在数据边界最前面：它说的是「这份名单可能让你二次打扰同一个人」，
+  // 其余几句只是「数据可能不全」。判据 P5.d 只要求声明，没说先后；先后出自 output-format.md
+  // 收尾输出一节「这句要排在最前面」，报告是同一份交付的另一个出口，照同一条排（ADR-218）。
+  // 七句里能同时出的都打开，取数据边界块的第一句比。
+  const firstNote = (h: string) => /<div class="notes"><div>⚠️ ([^<]*)<\/div>/.exec(h)?.[1] ?? ''
+  const everyNote = { ...base, enriched: false, memory_written: false, memory_write_error: 'EACCES',
+    capabilities: {
+      email_verification: { total: 1, measured: 0, unavailable: 0, unqueried: 1 },
+      audience_geo: { total: 1, measured: 0, unavailable: 0, unqueried: 1 },
+      public_post_sample: { total: 3, measured: 1, unavailable: 1, unqueried: 1 },
+    } }
+  ok('去重没做那一句是数据边界的第一句，排在没写回、邮箱、受众、公开指标几句前面',
+    firstNote(renderHtml(one, { ...everyNote, memory_status: 'unreadable_ignored' })).startsWith('本次名单未做「已联系 / 已推荐」去重'))
+  ok('去重状态无从确认那一句同样是数据边界的第一句',
+    firstNote(renderHtml(one, { ...everyNote, memory_status: 'unknown' })).startsWith('本次名单的「已联系 / 已推荐」去重状态无从确认'))
 
   const normal = renderHtml(one, { ...base, memory_status: 'ok', memory_written: true })
   ok('一切正常时不加噪音',

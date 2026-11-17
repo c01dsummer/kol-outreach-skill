@@ -506,7 +506,7 @@ export function keywordRows(
     const status = taskQueryStatus(state, i)
     // **只有真问过的行才谈得上「入围几个」。** 没问过的行印 0 就是把「没看」说成
     // 「看了没有」—— P5.i 逐字禁的那种「看起来像测量值的数」，而同一张表里
-    // 「无从确认」那一行印的是「—」，两边口径必须一致。
+    // 「无从确认」那一行印的也是「无从确认」，两边口径必须一致。
     const counted = attributable && status === 'queried'
     // **按任务下标归人，不按（关键词, 平台）** —— 那个二元组比行粗（行的身份还带
     // dimension 与 as_hashtag），同词同平台的两行会数到同一批人，于是一个从没发过
@@ -525,7 +525,7 @@ export function keywordRows(
       // ⚠️ **条数不全不等于归人不全。** 一度把两者绑在一起，理由是「同源：升级前那段」——
       // 而迁移已经被上一条 PR 整个撤掉，`found[i] = null` 今天只发生在「这一页付了钱、
       // 抛在记条数之前」：那一页一个人都没入库，前几页成功采到的人身上下标一个不少。
-      // 绑着的后果是把一个**确知**的入围数抹成「无从确认」（独立复核实测：真值 3，印「—」）。
+      // 绑着的后果是把一个**确知**的入围数抹成「无从确认」（独立复核实测：真值 3，印成了无从确认）。
       shortlisted: counted ? mine.length : null,
       fit_pass: counted ? mine.filter(c => review === undefined
         ? c.fit === '✅' : platformFit(c, t.platform)).length : null,
