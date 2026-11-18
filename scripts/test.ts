@@ -1917,6 +1917,12 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，标签也要登记，下一行另算一行。
   const subj = renderHtml([mk('tiktok', 'subj', { nickname: 'Ana', tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', draft_sources: [{ draft: 'Hi Ana,', from: 'self' }], profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
   eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文核，标签也要登记', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen」（没登记出处）；「is lovely.」（没登记出处）${BAR}${SELF}「Hi Ana,」${TAIL}`)
+  // 只落在开头「Subject:」字样里的不算在信里：旧主题登记成 Subject，主题改了以后照样报信里已经没有；主题内容里真有的照常对上。
+  const relabel = renderHtml([mk('tiktok', 'relabel', { nickname: 'Ana', tier: 'A', outreach_draft: 'Subject: Quick hello\n\nHi Ana, Subject', draft_sources: [{ draft: 'Subject', from: 'self' }, { draft: 'Quick hello', from: 'self' }, { draft: 'Hi Ana,', from: 'self' }], profile_url: 'https://example.com/relabel' })], meta, { mode: 'review' })
+  eq('P2.f 登记只在开头 Subject: 字样里找得到时算信里已经没有；主题内容与正文里有的照常认',
+    [lineOf(relabel, 'relabel'), lineOf(renderHtml([mk('tiktok', 'relabel', { nickname: 'Ana', tier: 'A', outreach_draft: 'Subject: Quick hello\n\nHi Ana,', draft_sources: [{ draft: 'Subject', from: 'self' }, { draft: 'Quick hello', from: 'self' }, { draft: 'Hi Ana,', from: 'self' }], profile_url: 'https://example.com/relabel' })], meta, { mode: 'review' }), 'relabel')],
+    [`${HEAD}要看：无${BAR}${SELF}「Quick hello」；「Hi Ana,」；「Subject」${TAIL}`,
+     `${HEAD}要看：「Subject」（登记了出处，但信里已经没有这段）${BAR}${SELF}「Quick hello」；「Hi Ana,」${TAIL}`])
   criterion('P2.f', 'P2.g')
   // P2.c 与 ADR-215：Agent 把约时间、联系方式那几个字单独登记成 self 并标上 purpose，里面的日期、钟点、电话不进「出处对不上」，另列一行；
   // 机器不猜哪个数字是约时间：没标 purpose 的 self 登记一个都不挪；标了的，价钱、百分比、承诺词这几类也照列。
@@ -1947,10 +1953,13 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     [claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self', purpose: 'schedule' }]),
      claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'product', quote: 'noon', purpose: 'schedule' }]),
      claimsOf('Free on  11/20/2026\nat noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'self', purpose: 'schedule' }]),
-     claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at', from: 'self' }, { draft: '415 555 0199.', from: 'self', purpose: 'contact' }])],
+     claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at', from: 'self' }, { draft: '415 555 0199.', from: 'self', purpose: 'contact' }]),
+     claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self', purpose: 'schedule' }, { draft: '/2026 at noon.', from: 'self', purpose: 'schedule' }])],
     [...[0, 1].map(() => [`出处对不上：11/20/2026（Free on 11/20/2026 at noon.）${NOTE}`, undefined]),
       [`出处对不上：无${NOTE}`, `只在发件人自己的话里：11/20/2026（Free on 11/20/2026）${SENDER_NOTE}`],
-      [`出处对不上：无${NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`]])
+      [`出处对不上：无${NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`],
+      // 两条标注各盖一截、拼起来才盖住整个日期：不算落在一条登记里，照列。
+      [`出处对不上：11/20/2026（Free on 11/20/2026 at noon.）${NOTE}`, undefined]])
   const escaped = renderHtml([mk('tiktok', 'esc', { tier: 'A', outreach_draft: 'Text me at 415 555 0199 <b>now</b> & then.', draft_sources: [{ draft: 'Text me at 415 555 0199 <b>now</b> & then.', from: 'self', purpose: 'contact' }], profile_url: 'https://example.com/esc' })], meta, { mode: 'review', facts: ['x'] })
   ok('P2.c 「只在发件人自己的话里」一行在输出处转义', rowOf(escaped, 'esc', 'data-draft-claims="sender-only"') === `只在发件人自己的话里：415 555 0199（Text me at 415 555 0199 &lt;b&gt;now&lt;/b&gt; & then.）${SENDER_NOTE}`)
   // 整段标成约时间也只挪日期、钟点、电话三类：产品规格（带单位的数量、倍数）照列。币符后隔一个空白的数归价格（£ 10 pm 是价格，不是钟点）。
@@ -2066,16 +2075,26 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
           let xml: string
           try { xml = xlsxPart(xlsx, `xl/${target.replace(/^\/?(?:xl\/)?/, '')}`) } catch { return { name, head: 'unreadable' } }
           const first = /<row r="1"[^>]*>([\s\S]*?)<\/row>/.exec(xml)?.[1]
-          return { name, head: first === undefined ? 'no header row' : [...first.matchAll(/<c\b[^>]*>([\s\S]*?)<\/c>/g)].map(m => cellText(m[1])) }
+          return { name, target, head: first === undefined ? 'no header row' : [...first.matchAll(/<c\b[^>]*>([\s\S]*?)<\/c>/g)].map(m => cellText(m[1])) }
         })
       } catch { return 'unreadable' }
+    })()
+    // 每张表要各有各的文件：两张指到同一个文件时，读到的表头再对也不算（另一张没写出来）。
+    const sheetFiles = (() => {
+      if (!Array.isArray(sheetHeads)) return sheetHeads
+      const targets = sheetHeads.map(sheet => ('target' in sheet ? sheet.target : undefined))
+      return new Set(targets).size === targets.length ? 'distinct' : 'shared'
+    })()
+    const sheetsShown = (() => {
+      if (!Array.isArray(sheetHeads)) return sheetHeads
+      return sheetHeads.map(({ name, head }) => ({ name, head }))
     })()
     // kol.csv 开头有给 Excel 认编码的 BOM，表头比对前去掉它。
     const csvHead = csv.replace(/^\uFEFF/, '').split(/\r?\n/)[0].split(',')
     eq('P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
-      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csvHead.includes('draft_sources'), csvHead.includes('outreach_draft'), sheetHeads],
+      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csvHead.includes('draft_sources'), csvHead.includes('outreach_draft'), sheetsShown, sheetFiles],
       [0, '逐行出处：要看：「Quick one」（没登记出处）；「Hi Ana,」（没登记出处）；「Your sourdough series is lovely. You also climb.」（只登记了其中一段，没登记的：「You also climb.」）；「Best,」（没登记出处）；「{name}」（没登记出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true,
-        ['A级 直接发信 (1)', 'B级 先互动 (0)', 'C级 观察池 (0)'].map(name => ({ name, head: csvHead }))])
+        ['A级 直接发信 (1)', 'B级 先互动 (0)', 'C级 观察池 (0)'].map(name => ({ name, head: csvHead })), 'distinct'])
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
   } finally { rmSync(root, { recursive: true, force: true }) }
   }

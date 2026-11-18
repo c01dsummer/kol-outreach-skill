@@ -22939,20 +22939,8 @@
       "req": "P2.c",
       "why": "一条说法只要有一部分落在发件人自己的话里就移走，登记半个日期也能让整个日期离开「出处对不上」",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "      if (!raw[i]) return false\n",
-      "replace": "      if (!raw[i]) continue\n",
-      "by": "test",
-      "kills": [
-        "P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算"
-      ]
-    },
-    {
-      "id": "M-P2-c-own3",
-      "req": "P2.c",
-      "why": "标成约时间、联系方式时，说法里分隔用的空白不认，两个空格隔开的电话移不走",
-      "file": "scripts/lib/draft-sources.ts",
-      "find": "      if (/\\s/u.test(draft[i])) continue\n",
-      "replace": "",
+      "find": "=> start <= at && at + length <= end)",
+      "replace": "=> start < at + length && at < end)",
       "by": "test",
       "kills": [
         "P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算"
@@ -23345,6 +23333,42 @@
       ]
     },
     {
+      "id": "M-P2-c-own28",
+      "req": "P2.c",
+      "why": "两条标注各盖住日期的一截，拼起来就算整段落在标注里，日期被挪走",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "spans.some(([start, end]) => start <= at && at + length <= end)",
+      "replace": "spans.some(([start]) => start <= at) && spans.some(([, end]) => at + length <= end)",
+      "by": "test",
+      "kills": [
+        "P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算"
+      ]
+    },
+    {
+      "id": "M-P2-s79",
+      "req": "P2.f",
+      "why": "登记只在开头 Subject: 字样里找得到也算在信里：旧主题改了以后不报信里已经没有",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "at + key.length <= label",
+      "replace": "at + key.length < 0",
+      "by": "test",
+      "kills": [
+        "P2.f 登记只在开头 Subject: 字样里找得到时算信里已经没有；主题内容与正文里有的照常认"
+      ]
+    },
+    {
+      "id": "M-P2-s80",
+      "req": "P2.g",
+      "why": "工作簿里第二张表的关系指到第一张表的文件：两张读到的表头一样，逐张对表头照绿",
+      "file": "scripts/lib/xlsx.ts",
+      "find": "Target=\"worksheets/sheet${i + 1}.xml\"",
+      "replace": "Target=\"worksheets/sheet${i === 1 ? 1 : i + 1}.xml\"",
+      "by": "test",
+      "kills": [
+        "P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列"
+      ]
+    },
+    {
       "id": "M-P2-c-own16",
       "req": "P2.c",
       "why": "标成约时间、联系方式的钟点不再移走，约时间照列在「出处对不上」",
@@ -23374,8 +23398,8 @@
       "req": "P2.f",
       "why": "同一行在信里出现两处只列一处，后一处没登记的被去重吃掉",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "  for (const line of lines(draft)) {\n",
-      "replace": "  const seen = new Set<string>()\n  for (const line of lines(draft)) {\n    if (seen.has(line.text)) continue\n    seen.add(line.text)\n",
+      "find": "  for (const line of bodyLines) {\n",
+      "replace": "  const seen = new Set<string>()\n  for (const line of bodyLines) {\n    if (seen.has(line.text)) continue\n    seen.add(line.text)\n",
       "by": "test",
       "kills": [
         "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后"

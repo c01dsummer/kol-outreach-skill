@@ -203,10 +203,15 @@ export function draftSourceItems(
   const keep = (start: number, end: number) => hasWords(normalizedDraft.slice(start, end))
   const registered = (sources ?? []).map(source => ({ source, key: normalizeText(source.draft) }))
   const covered = coverage(normalizedDraft, registered.map(r => r.key))
+  const bodyLines = lines(draft)
+  // 归一后的字里，排在第一行内容之前的（开头「Subject:」字样）有几个。
+  const label = bodyLines.length === 0 ? normalizedDraft.length : Math.max(0, from.findIndex(f => f >= bodyLines[0].start))
   const placed: Array<{ at: number; item: DraftSourceItem }> = []
   const missing: DraftSourceItem[] = []
   for (const { source, key } of registered) {
-    const at = key ? normalizedDraft.indexOf(key) : -1
+    // 只落在开头「Subject:」字样里的一处不算在信里（那几个字不是信的内容）：登记成 Subject 的旧主题改了之后照样报「信里已经没有这段」。
+    let at = key ? normalizedDraft.indexOf(key) : -1
+    while (at >= 0 && at + key.length <= label) at = normalizedDraft.indexOf(key, at + 1)
     if (at < 0) { missing.push({ status: 'not_in_draft', draft: source.draft }); continue }
     const item: DraftSourceItem = source.from === 'self'
       ? { status: 'self', draft: source.draft, ...(source.purpose === undefined ? {} : { purpose: source.purpose }) }
@@ -215,7 +220,7 @@ export function draftSourceItems(
   }
   // 每一行看它的字有没有被登记盖住：归一后的字按来处（原文下标）分到各行，换行与「Subject:」字样不归任何一行。
   let i = 0
-  for (const line of lines(draft)) {
+  for (const line of bodyLines) {
     while (i < from.length && from[i] < line.start) i++
     const begin = i
     while (i < from.length && from[i] < line.end) i++
@@ -264,25 +269,21 @@ export function draftSourceLine(
 
 /**
  * 草稿里哪些字被 Agent 明着标成约时间、联系方式（`self` 且带 `purpose`），换成原文下标给数字扫描用（P2.c 与 ADR-215 第三节）：
- * 返回的函数回答「草稿原文从 `at` 起、长 `length` 的这一段，除空白外每个字是不是都在这几条登记里」。
+ * 返回的函数回答「草稿原文从 `at` 起、长 `length` 的这一段，是不是整段落在这几条登记的某一处里」（几条拼起来盖住的不算）。
  * 登记在信里出现的每一处都算；没有这类登记时一律答否。没标 `purpose` 的 `self` 登记不算 —— 机器不猜哪个数字是约时间。
  */
 export function senderOwnSpans(draft: string, sources: readonly DraftSource[] | undefined): (at: number, length: number) => boolean {
   const own = (sources ?? []).filter(source => source.from === 'self' && (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose)).map(source => normalizeText(source.draft))
   if (own.length === 0) return () => false
   const { text: normalizedDraft, from, to } = normalized(draft)
-  const covered = coverage(normalizedDraft, own)
-  const raw = new Array<boolean>(draft.length).fill(false)
-  covered.forEach((yes, i) => { if (yes) for (let j = from[i]; j < to[i]; j++) raw[j] = true })
-  return (at, length) => {
-    let any = false
-    for (let i = at; i < at + length; i++) {
-      if (/\s/u.test(draft[i])) continue
-      if (!raw[i]) return false
-      any = true
-    }
-    return any
+  // 每条登记在信里的每一处各是一段（换回原文下标）；一条说法要整个落在其中某一段里才算 ——
+  // 两条登记各盖一截拼起来盖住的不算（P2.c「整段落在一条登记里」）。
+  const spans: Array<[number, number]> = []
+  for (const key of own) {
+    if (!key) continue
+    for (let at = normalizedDraft.indexOf(key); at >= 0; at = normalizedDraft.indexOf(key, at + 1)) spans.push([from[at], to[at + key.length - 1]])
   }
+  return (at, length) => length > 0 && spans.some(([start, end]) => start <= at && at + length <= end)
 }
 
 /** 正本校验用：一条登记的形状问题，没问题返回空数组。`at` 是这条在正本里的位置。 */
