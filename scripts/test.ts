@@ -3669,11 +3669,11 @@ suite('U9', '分层管线返回的名单已按 tier 排好序')
   // 四态在**同一张表**上，逐格钉死。分两次渲染各命中一个词的话，「它们互不相同」测不到。
   eq('「找到」那一列四态俱全，逐格对得上：量出来的 0 印 0，没测量的不印 0',
      cells(kwHtml, 4), ['40', '0', '未查询', '未查询', '未知', '7'])
-  // ⚠️ 没问过的两行印「—」**不是**印 0 —— P5.i 逐字：未查询的行不得带出看起来像测量值的数。
+  // ⚠️ 没问过的两行印「无从确认」**不是**印 0 —— P5.i 逐字：未查询的行不得带出看起来像测量值的数，它的入围与语义通过报「无从确认」（ADR-218）。
   // 而「问过、条数没记下」那一行照样印确知的 0：那一页一个人都没入库，入围是量得出来的。
   eq('「入围」那一列是人数，不是条目数 —— 和「找到」不是同一个数',
-     cells(kwHtml, 5), ['2', '0', '—', '—', '0', '1'])
-  eq('「语义通过」那一列', cells(kwHtml, 6), ['1', '0', '—', '—', '0', '1'])
+     cells(kwHtml, 5), ['2', '0', '无从确认', '无从确认', '0', '1'])
+  eq('「语义通过」那一列', cells(kwHtml, 6), ['1', '0', '无从确认', '无从确认', '0', '1'])
   eq('配置的 hashtag 标记不成为报告中的实际路径声明', cells(kwHtml, 1)[5], 'tag')
   const unknownHtml = renderHtml(out, {
     product: 'p', market: 'US', platforms: taskPlatforms(tstate()),
@@ -3681,9 +3681,9 @@ suite('U9', '分层管线返回的名单已按 tier 排好序')
     cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false,
   } as any)
   ok('无从确认那一态也说得出来', kwTable(unknownHtml).includes('无从确认'))
-  // 无从确认时连归人都无从谈起 —— 入围与语义通过要印「—」，不许印 0（P5.i 逐字）
-  ok('无从确认的行不印 0，印「—」',
-     kwTable(unknownHtml).includes('—') && !/<td>0<\/td>/.test(kwTable(unknownHtml)))
+  // 无从确认时连归人都无从谈起 —— 入围与语义通过报「无从确认」，不许印 0（P5.i 逐字）
+  ok('无从确认的行不印 0，入围与语义通过报「无从确认」',
+     cells(unknownHtml, 5).every(c => c === '无从确认') && cells(unknownHtml, 6).every(c => c === '无从确认') && !/<td>0<\/td>/.test(kwTable(unknownHtml)))
   // 那个 0% 是这条判据逐字点名的东西：命中率那一列本来就是两种单位相除，
   // 本条把它整列撤掉 —— 没查过的行于是不可能再带出一个像测量值的百分比。
   ok('关键词表里不再有命中率那一列', !kwHtml.includes('<th>命中率</th>'))
@@ -3800,7 +3800,7 @@ suite('U8', '搜索任务展示能指回原任务，配置意图不冒充发现�
     row({ task_index: null, status: 'unknown', found: null, shortlisted: null, fit_pass: null }),
   ])
   eq('有任务序号仍可未查询，身份未知仍可测得零，两种未知互不替代', states.map(r => [r[0], ...r.slice(4, 7)]), [
-    ['7', '未查询', '—', '—'], ['无从确认', '0', '0', '0'], ['无从确认', '无从确认', '—', '—'],
+    ['7', '未查询', '无从确认', '无从确认'], ['无从确认', '0', '0', '0'], ['无从确认', '无从确认', '无从确认', '无从确认'],
   ])
   criterion('U8.e')
   tension('U8', 'P5')
@@ -3912,6 +3912,28 @@ suite('P5', '交付必须声明数据边界')
   for (const bad of [null, undefined, 'okk', 'OK', 42, {}]) {
     eq(`认不出的状态（${JSON.stringify(bad)}）读作 unknown`, asMemoryStatus(bad), 'unknown')
   }
+
+  // P5.j 原文：「报告副标题与 meta.json 的「平台」都必须从任务列表出发」。自检起真 render 两半都核（M-P5-o）；
+  // 这里在 renderHtml 上单核副标题那一半，名单里只有 TikTok 的人、任务里另有 Instagram 时它也得在（ADR-218）。
+  const tiktokOnly = renderHtml(one, { ...base, platforms: ['tiktok', 'instagram'], memory_status: 'ok', memory_written: true })
+  ok('报告副标题的平台照 meta 的任务平台列：没采到人的 Instagram 也在',
+    tiktokOnly.includes('目标市场 US · tiktok + instagram'))
+  criterion('P5.j')
+  // 去重那一句（没做／无从确认）排在数据边界最前面：它说的是「这份名单可能让你二次打扰同一个人」，
+  // 其余几句只是「数据可能不全」。判据 P5.d 只要求声明，没说先后；先后出自 output-format.md
+  // 收尾输出一节「这句要排在最前面」，报告是同一份交付的另一个出口，照同一条排（ADR-218）。
+  // 七句里能同时出的都打开，取数据边界块的第一句比。
+  const firstNote = (h: string) => /<div class="notes"><div>⚠️ ([^<]*)<\/div>/.exec(h)?.[1] ?? ''
+  const everyNote = { ...base, enriched: false, memory_written: false, memory_write_error: 'EACCES',
+    capabilities: {
+      email_verification: { total: 1, measured: 0, unavailable: 0, unqueried: 1 },
+      audience_geo: { total: 1, measured: 0, unavailable: 0, unqueried: 1 },
+      public_post_sample: { total: 3, measured: 1, unavailable: 1, unqueried: 1 },
+    } }
+  ok('去重没做那一句是数据边界的第一句，排在没写回、邮箱、受众、公开指标几句前面',
+    firstNote(renderHtml(one, { ...everyNote, memory_status: 'unreadable_ignored' })).startsWith('本次名单未做「已联系 / 已推荐」去重'))
+  ok('去重状态无从确认那一句同样是数据边界的第一句',
+    firstNote(renderHtml(one, { ...everyNote, memory_status: 'unknown' })).startsWith('本次名单的「已联系 / 已推荐」去重状态无从确认'))
 
   const normal = renderHtml(one, { ...base, memory_status: 'ok', memory_written: true })
   ok('一切正常时不加噪音',
