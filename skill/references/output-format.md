@@ -64,7 +64,7 @@ npm run render -- --dir output/{task} --ignore-memory   # 只在用户明确接�
 - `enrichment.json` 可以没有，没有就是公开指标全部未查询。
 - 跨任务记忆 `memory/creators.json` 与 collect 一样，按 render 进程的当前目录找（用 `npm run` 时就是仓库根目录）。文件还不存在时 `memory_status` 是 `absent`，render 会新建它、记下这批推荐。
 
-能导出的最小任务目录长这样：render 以 0 结束，写出 `kol.csv`、`kol.xlsx`、`report.html`、`meta.json`，并存下 `agent-review.json`。照着试的时候换一个空的当前目录再跑，不然这个示例里的人会被记进真的跨任务记忆：
+能导出的最小任务目录长这样：render 以 0 结束，写出 `kol.csv`、`kol.xlsx`、`report.html`、`meta.json`，并存下 `agent-review.json`。照着试的时候，先用 `cp -r` 把整个仓库（连同 `node_modules`）复制一份一次性的副本，把这两个文件放进副本里的 `output/demo/`，在副本根目录跑 `npm run render -- --dir output/demo`。这样 `memory/creators.json` 和 `output/` 都落在副本里，用完整份删掉；直接在仓库根目录跑，这个示例里的人会被记进真的跨任务记忆。`--ignore-memory` 不起隔离作用：它只让读不出的记忆不拦导出，读得出时照常去重、照常写回。
 
 ```
 task.json      {"product":"demo","market":"US","target_count":1,
