@@ -145,7 +145,7 @@ import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import * as reviewRowsApi from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul, renameSync } from 'node:fs'
-import { spawnSync, type ChildProcess } from 'node:child_process'
+import childProcessModule, { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual } from 'node:util'
 import { runInNewContext } from 'node:vm'
@@ -23326,10 +23326,22 @@ await group('h-start-process', async () => {
   eq('认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算',
     ['git', '/usr/bin/git', 'C:\\Git\\cmd\\git.exe', 'gitk', 'git-upload-pack', 'mygit', 'node'].map(isGitProgram),
     [true, true, true, false, false, false, false])
-  const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message.includes('不起 git') ? '抛了' : (e as Error).message } }
+  // 没抛时要是起了异步子进程，接住它的 error 事件并结束它：本机没有那个路径时，没人接的 error 会把整个测试进程带倒
+  const thrown = (f: () => unknown): string => {
+    try { const started = f() as { on?: (e: string, h: () => void) => void, kill?: () => void }; started?.on?.('error', () => {}); started?.kill?.(); return '没抛' }
+    catch (e) { return (e as Error).message.includes('不起 git') ? '抛了' : (e as Error).message }
+  }
   eq('三个函数叫去起 git 都当场抛错（裸名与带路径都算）',
     [thrown(() => startSpawnSync('git', ['--version'])), thrown(() => startSpawn('/usr/bin/git', ['--version'])),
       thrown(() => startExecFileSync('git', ['--version']))], ['抛了', '抛了', '抛了'])
+  // 模块上的函数换掉以后，经通用启动函数起的也走换上的那个：计数、观察器两份预加载就是这样数到、拦到的。换上的不真起进程
+  const original = childProcessModule.spawnSync
+  let seen = ''
+  try {
+    childProcessModule.spawnSync = ((file: string) => { seen = file; return { status: 0 } }) as unknown as typeof original
+    startSpawnSync('换上的那个看见了', [])
+  } finally { childProcessModule.spawnSync = original }
+  eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
 })
 
 // 与上一组分开（ADR-131）：上一组不起进程，这一组起三次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限

@@ -6,7 +6,7 @@
 - 决定人与时间：需求所有者丸子 2026-11-17 18:03Z 在「把 #471 的教训落进两层规矩」线程里选「改成按模块拦，加运行时拒绝」；本条是其中「加运行时拒绝」那一半
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
 - 理由：「禁用接口」的另一半 —— 口外不许直接碰，口里要有个能用的口。真要起进程的那一刻，程序名是确切的值，判它是不是 git 不用猜；经 shell 起时起什么要读懂命令串，所以干脆不让经 shell。写法只认一种、别的当场报错，不替调用方改写：改写就得照 Node 每个函数各自怎么分参数去模仿，前一版这样做，评审连着两轮挑出模仿不全的地方（独立评审一轮、自动评审两轮都挑在同一处），按「同一处反复出问题就改设计」改成了报错
-- 连带改动：`scripts/check/start-process.ts`（新，通用启动函数）· `scripts/check/launch-count.ts` 认 git 那一句拆成导出的 `isGitProgram`，通用启动函数引它 · 10 个文件的导入改指通用启动函数 · `scripts/check/child-process-registry.json`（「登记」加通用启动函数，「待挪」删 10 行）· `scripts/check/child-process-use-rule.ts` 闸门红时的指路话指到通用启动函数 · `scripts/test.ts` 两组新测试（拦 git 的那组不起进程，另一组起三次进程，分开放，免得启动数乘变异数超上限） · `scripts/check/mutations.json` 本条的变异与启动数一条旧变异的锚点 · `scripts/check/launches.json` 重写 · `docs/ARCHITECTURE.md` 两行 · `docs/GLOSSARY.md` 一条 · `docs/SYNC.md` 一行
+- 连带改动：`scripts/check/start-process.ts`（新，通用启动函数）· `scripts/check/launch-count.ts` 认 git 那一句拆成导出的 `isGitProgram`，通用启动函数引它 · 10 个文件的导入改指通用启动函数 · `scripts/check/child-process-registry.json`（「登记」加通用启动函数，「待挪」删 10 行）· `scripts/check/child-process-use-rule.ts` 闸门红时的指路话指到通用启动函数 · `scripts/test.ts` 两组新测试（拦 git 的那组不起进程，另一组起三次真进程（启动数记的是 12 次：程序名不是字符串、被 Node 当场拒掉的调用也记），分开放，免得启动数乘变异数超上限） · `scripts/check/mutations.json` 本条的变异与启动数一条旧变异的锚点 · `scripts/check/launches.json` 重写 · `docs/ARCHITECTURE.md` 两行 · `docs/GLOSSARY.md` 一条 · `docs/SYNC.md` 一行
 
 ## 一、要用到的事实，各找谁要（`process/3-BUILD.md` 第 8 条）
 
@@ -45,7 +45,9 @@
 - 「登记」里的文件直接碰模块，不经通用启动函数（计数与观察器两份预加载、预编译父进程、闸门判定），靠评审读理由。
 - 写在字符串里、运行时落成文件再跑的代码：它自己导入模块起进程，闸门不记（ADR-217 第三节），通用启动函数也拦不到。已挪的 CI 墙钟契约测试里，冻结的运行器每跑一次都这样起 git；这一类在「待挪」清空以后照样存在。
 - 经别的程序转一手：起 `sh`、`env`、`npx`、`bwrap` 再由它起 git。通用启动函数只看本进程直接起的那个程序；列一张「会转手的程序」名单是替代读的手写表，不建。
-- ADR-217 第三节说的软链或改了名的 git、`git-upload-pack` 这类 git 自带程序、大小写不敏感文件系统上写成 `GIT`：只看名字，认不出。
+- ADR-217 第三节说的软链或改了名的 git、`git-upload-pack` 这类 git 自带程序、大小写不敏感文件系统上写成 `GIT`：只看名字，认不出。Windows 上还有几种同类的：`C:git.exe`（盘符后不带斜杠）、`git.EXE`、`git.cmd`、末尾多一个点或空格的 `git.`；本仓库不在 Windows 上跑，不另认。
+- 选项里的 `shell` 写成一个每读一次给不同值的取值函数（或代理对象）：这里读到假值放行，Node 再读时读到真值，就经了 shell。要堵得把选项抄一份再交给 Node，那就不是「原样」了；没有调用方这样写，不堵。
+- 类型照 Node 的签名写：省掉参数数组、选项挪到第二个位置的写法编译时不报，跑到那一句才抛。挪过来的 10 个文件都是那一种写法；以后挪的文件，没跑到的分支要靠评审看写法。
 
 ## 五、它替代什么、什么时候撤
 
