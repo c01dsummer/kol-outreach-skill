@@ -181,6 +181,11 @@ function coverage(normalizedDraft: string, keys: readonly string[]): boolean[] {
   return covered
 }
 
+/**
+ * 一段里有没有要登记的话：纯空白与标点不算；花括号算（写信说明里没填的占位符写成 `{...}`，整段是标点也要登记）。
+ */
+const hasWords = (text: string): boolean => /[^\s\p{P}]|[{}]/u.test(text)
+
 /** 一句（信里从 `at` 起、长 `length` 的一段）有没有被碰到，没被盖住的部分按原顺序用「…」连起来；全盖住时 `rest` 为 ''。 */
 function uncovered(normalizedDraft: string, covered: readonly boolean[], at: number, length: number): { touched: boolean; rest: string } {
   let touched = false
@@ -191,7 +196,7 @@ function uncovered(normalizedDraft: string, covered: readonly boolean[], at: num
   }
   if (piece) pieces.push(piece)
   // 只丢纯空白与标点的剩余段；表情、符号（🔥、=、>>>）也是没登记的话，照列。
-  const rest = pieces.map(p => p.trim()).filter(p => /[^\s\p{P}]/u.test(p))
+  const rest = pieces.map(p => p.trim()).filter(hasWords)
   return { touched, rest: rest.join('…') }
 }
 
@@ -232,7 +237,7 @@ export function draftSourceItems(
     const at = found >= 0 ? found : normalizedDraft.length
     const { touched, rest } = found >= 0 ? uncovered(normalizedDraft, covered, found, s.length) : { touched: false, rest: s }
     if (touched && rest) { seen.add(s); placed.push({ at, item: { status: 'partial', draft: sentence, rest } }) }
-    else if (!touched && /[^\s\p{P}]/u.test(s)) { seen.add(s); placed.push({ at, item: { status: 'unregistered', draft: sentence } }) }
+    else if (!touched && hasWords(s)) { seen.add(s); placed.push({ at, item: { status: 'unregistered', draft: sentence } }) }
   }
   placed.sort((a, b) => a.at - b.at)
   return [...placed.map(p => p.item), ...missing]

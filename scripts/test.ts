@@ -1864,6 +1864,8 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       `要看：「Your cleanup clip is the best.」（只登记了其中一段，没登记的：「is the best.」）${BAR}${SELF}「Your cleanup clip」`, {}],
     ['主题行写什么都要登记', 'Subject: Mei, your blender\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
       `要看：「Mei, your blender」（没登记出处）${BAR}${SELF}「We make a blender.」`, {}],
+    ['没填的占位符整段是标点也要登记', 'Subject: {...}\n\nWe make a {...} blender.', [{ draft: 'We make a', from: 'self' }, { draft: 'blender.', from: 'self' }],
+      `要看：「{...}」（没登记出处）；「We make a {...} blender.」（只登记了其中一段，没登记的：「{...}」）${BAR}${SELF}「We make a」；「blender.」`, {}],
     ['全角字与长破折号归一后对得上', 'Your ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
       '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
     ['分开写的附加符号与合写的算同一个字', 'Café chats are fun.', [{ draft: 'Café chats are fun.', from: 'self' }], `${SELF}「Café chats are fun.」`, {}],
@@ -1871,12 +1873,12 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一',
     crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + lead(want) + TAIL]))
   // 名单被手改坏（昵称不是字符串、作品文案是 null、简介是数字）时这一行照出，不让 render 失败（P2.g）。
-  let crashed = ''
+  let crashed = '', badHtml = ''
   try {
-    renderHtml([mk('tiktok', 'bad', { nickname: 7 as unknown as string, bio: 5 as unknown as string, recent_posts: [{ desc: null }] as unknown as Creator['recent_posts'], tier: 'A',
+    badHtml = renderHtml([mk('tiktok', 'bad', { nickname: 7 as unknown as string, bio: 5 as unknown as string, recent_posts: [{ desc: null }] as unknown as Creator['recent_posts'], tier: 'A',
       outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post. Your name.', draft_sources: [{ draft: 'Your bio.', from: 'bio', quote: 'x' }, { draft: 'Your post.', from: 'post', quote: 'x' }, { draft: 'Your name.', from: 'nickname', quote: 'x' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
   } catch (error) { crashed = String(error) }
-  eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', crashed, '')
+  eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', [crashed, lineOf(badHtml, 'bad') !== undefined], ['', true])
   // 资料三态（P1）：简介查过没写（null）是「对不上」；简介没查过（缺席）、作品没查过（缺席或空数组）是「对不了，没查过」，不说成「没有」。
   const SRC3 = [{ draft: 'Hey Sam,', from: 'self' }, { draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['draft_sources']>
   const DRAFT3 = 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.'

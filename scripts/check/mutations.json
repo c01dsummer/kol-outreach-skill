@@ -22849,8 +22849,8 @@
       "req": "P2.f",
       "why": "没登记的部分只剩表情时当没有，Your smoothie series 🔥🔥 只登记前半也算盖住",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "filter(p => /[^\\s\\p{P}]/u.test(p))",
-      "replace": "filter(p => /[\\p{L}\\p{N}]/u.test(p))",
+      "find": "const hasWords = (text: string): boolean => /[^\\s\\p{P}]|[{}]/u.test(text)",
+      "replace": "const hasWords = (text: string): boolean => /[\\p{L}\\p{N}]|[{}]/u.test(text)",
       "by": "test",
       "kills": [
         "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
@@ -22859,7 +22859,7 @@
     {
       "id": "M-P2-s52",
       "req": "P2.f",
-      "why": "登记只标在信里第一次出现的地方，同一段话第二次出现后面接的编造不列",
+      "why": "登记只标在信里第一次出现的地方：同一段话第二次出现时那一处算没登记，整句当一个字都没登记列出，不再指出后面接的「is the best.」才是没登记的部分",
       "file": "scripts/lib/draft-sources.ts",
       "find": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = normalizedDraft.indexOf(key, at + 1)) {",
       "replace": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = -1) {",
@@ -22910,7 +22910,7 @@
       "req": "P2.f",
       "why": "一个字都没登记的句子不列出来，没登记的话没人看",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "    else if (!touched && /[^\\s\\p{P}]/u.test(s)) { seen.add(s); placed.push",
+      "find": "    else if (!touched && hasWords(s)) { seen.add(s); placed.push",
       "replace": "    else if (false) { seen.add(s); placed.push",
       "by": "test",
       "kills": [
@@ -22923,7 +22923,7 @@
       "req": "P2.f",
       "why": "只有标点、破折号的一段也当没登记的话列出来，报告里全是噪音",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "    else if (!touched && /[^\\s\\p{P}]/u.test(s)) { seen.add(s); placed.push",
+      "find": "    else if (!touched && hasWords(s)) { seen.add(s); placed.push",
       "replace": "    else if (!touched) { seen.add(s); placed.push",
       "by": "test",
       "kills": [
@@ -23164,6 +23164,18 @@
       ]
     },
     {
+      "id": "M-P2-s68",
+      "req": "P2.f",
+      "why": "没填的占位符 {...} 整段是标点，当没有要登记的话放过，报告说「要看：无」",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "/[^\\s\\p{P}]|[{}]/u.test(text)",
+      "replace": "/[^\\s\\p{P}]/u.test(text)",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
       "id": "M-P2-c-own18",
       "req": "P2.c",
       "why": "日期、钟点写法后面紧跟单位（10/20/30 oz、1:30 hours）登记成自己的话也挪走，规格躲过「出处对不上」",
@@ -23194,7 +23206,7 @@
       "why": "没有分钟的整点（3pm）不算钟点，登记成自己的话的约时间照列在「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
       "find": "|\\\\d{1,2}[ \\\\t]?(?:am|pm|a\\\\.m\\\\.|p\\\\.m\\\\.))(?:[ \\\\t]?(?:${TIME_ZONES})",
-      "replace": "",
+      "replace": ")(?:[ \\\\t]?(?:${TIME_ZONES})",
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点"
