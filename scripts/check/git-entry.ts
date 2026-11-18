@@ -2,7 +2,7 @@
  * git 入口（ADR-220）：已挪过来的检查脚本调 git 都经这里（还没挪的见登记表），不直接碰 `node:child_process`（ADR-217 的闸门管着），
  * 通用启动函数也不替它们起 git（ADR-219）。
  *
- * 只答下面 `QUESTIONS` 里列出的那几问。一问是一串参数的形状：写死的字面量逐个比，`<修订>`、`<值>` 这两种空位
+ * 只答下面 `QUESTIONS` 里列出的那几问（每一行由评审看过：只读，输出能给机器读）。一问是一串参数的形状：写死的字面量逐个比，`<修订>`、`<值>` 这两种空位
  * 填调用方的值、但不许以 `-` 开头（填不成开关），`<路径…>` 只许放在 `--` 后面、填一个或几个。不在表里的一律当场抛错、
  * 不起 git：问法换了，就得来这张表里加一行，由评审看这一问是不是只读、输出是不是给机器读的那种（`-z`、`--porcelain`）。
  *
@@ -62,11 +62,9 @@ const fits = (shape: readonly string[], args: readonly string[]): boolean => {
 }
 
 /** 这一串参数是不是表里的一问。不是就抛错：说出原样的参数，指到这张表 */
-export function questionOf(args: readonly string[]): readonly string[] {
+export function questionOf(args: readonly string[]): void {
   if (!Array.isArray(args) || args.some(a => typeof a !== 'string')) throw new Error('git 入口的参数要是一组字符串（ADR-220）')
-  const shape = QUESTIONS.find(s => fits(s, args))
-  if (shape === undefined) throw new Error(`git 入口没有这一问：git ${JSON.stringify(args)}。要问新的，先在 git-entry.ts 的 QUESTIONS 里加一行（ADR-220）`)
-  return shape
+  if (!QUESTIONS.some(s => fits(s, args))) throw new Error(`git 入口没有这一问：git ${JSON.stringify(args)}。要问新的，先在 git-entry.ts 的 QUESTIONS 里加一行（ADR-220）`)
 }
 
 export interface GitOptions {

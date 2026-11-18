@@ -45,7 +45,7 @@ import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, na
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
 import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
-import { QUESTIONS as gitQuestions, gitOrThrow, gitText, questionOf, runGit } from './check/git-entry.js'
+import { QUESTIONS as gitQuestions, askGit, gitOrThrow, gitText, questionOf, runGit } from './check/git-entry.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -58,7 +58,7 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, unmarkedDiagnostics, wiringFault,
-  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, notARepo, stagedResidue,
+  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, batchBlobs, notARepo, stagedResidue,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
@@ -8741,6 +8741,14 @@ harness('变异锚点那一步：暂存区里躺着的变异')
   const cut = { id: 'M-乙', file: 'u.ts', find: 'del()\n', replace: '' }
   const head = tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' })
   // 变异 git add 过、工作树那一处后来按回去了：工作树对得上，暂存区里是施加之后的样子
+  // 拆 cat-file --batch 的回话：拿手写的回话直接测（ADR-220 第三节还 ADR-70「anchors.ts 拆 cat-file 回话那几行留在入口」）
+  const sha = 'a'.repeat(40)
+  const reply = (...parts: string[]) => Buffer.from(parts.join(''), 'utf8')
+  eq('cat-file 回话：按顺序交回每一样的正文，正文里的换行、中文照字节数切', batchBlobs(reply(`${sha} blob 7\n中\nb\n`, `${sha} blob 0\n\n`), 2), ['中\nb', ''])
+  eq('cat-file 回话：问不到的只回一行、没有正文，交 undefined，后面那一样照常读', batchBlobs(reply(':./x missing\n', `${sha} blob 1\nz\n`), 2), [undefined, 'z'])
+  eq('cat-file 回话：不是 blob 的交 undefined，跳过它的正文', batchBlobs(reply(`${sha} tree 3\nabc\n`, `${sha} blob 1\nz\n`), 2), [undefined, 'z'])
+  eq('cat-file 回话：半截断了（缺头一行的换行、正文不够字节数），这一样和后面的都交 undefined，不当成读到了',
+    [batchBlobs(reply(`${sha} blob 1\nz\n`, `${sha} blob 5`), 3), batchBlobs(reply(`${sha} blob 9\nab`), 2)], [['z', undefined, undefined], [undefined, undefined]])
   eq('暂存区里没还原、工作树已按回去：报没还原', stagedResidue([back],
     tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return y\n' }), head), [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
   // 删一段的：暂存区里那段没了、工作树里还在 —— 分不开，照样报
@@ -23520,6 +23528,11 @@ await group('h-git-entry-run', async () => {
     const head = gitText(['rev-parse', 'HEAD'], at)?.trim() ?? ''
     eq('标准输入照传：cat-file --batch 读得到交进去的那一行', /^[0-9a-f]{40} blob \d+\n第 0 行/.test(runGit(['cat-file', '--batch'], { ...at, input: 'HEAD:挪了.md\n' }).stdout.toString('utf8')), true)
     eq('cwd 照用：在夹具仓库里问 HEAD，答的是夹具仓库的提交', head === g('rev-parse', 'HEAD').stdout.trim() && /^[0-9a-f]{40}$/.test(head), true)
+    // askGit 不收 cwd、env（决策记录同步、体量闸门的起点判法都吃它）：暂把当前目录换到夹具仓库里问。答得上来的去掉末尾换行，答不上来的交 null
+    const here = process.cwd()
+    let asked: unknown
+    try { process.chdir(repo); asked = [askGit('rev-parse', 'HEAD'), askGit('rev-parse', '--verify', '没有这个^{commit}')] } finally { process.chdir(here) }
+    eq('askGit：答得上来的去掉首尾空白，答不上来的交 null', asked, [head, null])
     eq('答不上来的（没有这个修订）：gitText 交回 null', gitText(['rev-parse', '--verify', '没有这个^{commit}'], at), null)
     let said = ''
     try { gitOrThrow(['show', 'HEAD:没有这个文件'], at) } catch (e) { said = (e as Error).message }

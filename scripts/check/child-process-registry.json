@@ -2,7 +2,7 @@
   "说明": "起子进程的那个内建模块（child_process）只许这里列出的文件碰（ADR-217）。「登记」：可以一直碰的文件与理由，新加一行由评审判理由对不对。「待挪」：现在碰着、等起进程的通用启动函数与 git 入口（调 git 只许经过的那一个模块）有了以后挪过去的文件，只许减不许加；挪走了就删掉那一行。",
   "登记": {
     "scripts/check/child-process-use-rule.ts": "这道闸门的判定：要认的模块名写在常量里，本身不起进程，也不加载那个模块",
-    "scripts/check/git-entry.ts": "git 入口：调 git 只许经这里，只答它表里列出的那几问（只读、给机器读的输出），每次都带同一组固定配置（ADR-220）",
+    "scripts/check/git-entry.ts": "git 入口：调 git 只许经这里，只答它表里列出的那几问（每一行由评审看过：只读，输出能给机器读；status 会刷新索引缓存，见 ADR-220 第四节），每次都带同一组固定配置（ADR-220）",
     "scripts/check/launch-preload.ts": "计数预加载：要包住起进程的那几个函数数次数，只能直接拿到那个模块（ADR-145）",
     "scripts/check/observer-preload.ts": "零请求观察器：要把起进程的那几个函数与 process.execve 换成「一起就叫停」，只能直接拿到它们",
     "scripts/check/prebuilt-parent.ts": "缓存入口的父进程：唯一的活就是起那一个子进程、转发信号（ADR-158）；只引 node: 内建模块，与起进程的通用函数分开也不减风险",

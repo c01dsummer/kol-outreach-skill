@@ -29222,6 +29222,67 @@
         "入口：HEAD 就在主干上时，待挪多了照样列出、只报不判，以 0 退出"
       ]
     }
+,
+    {
+      "id": "M-H220-r",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "答一行的那种不去掉末尾换行：拿它当提交号去比，永远对不上",
+      "find": "export const askGit = (...args: string[]): string | null => gitText(args)?.trim() ?? null",
+      "replace": "export const askGit = (...args: string[]): string | null => gitText(args) ?? null",
+      "by": "test",
+      "kills": [
+        "askGit：答得上来的去掉首尾空白，答不上来的交 null"
+      ]
+    },
+    {
+      "id": "M-H220-s",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "回话少了换行时从头再读：后面那几样读成前面的正文",
+      "find": "    if (eol < 0) break\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "cat-file 回话：半截断了（缺头一行的换行、正文不够字节数），这一样和后面的都交 undefined，不当成读到了"
+      ]
+    },
+    {
+      "id": "M-H220-t",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "正文不够字节数也照收：读了半截的文件被当成读全了",
+      "find": "    if (at + size > out.length) break\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "cat-file 回话：半截断了（缺头一行的换行、正文不够字节数），这一样和后面的都交 undefined，不当成读到了"
+      ]
+    },
+    {
+      "id": "M-H220-u",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "不是 blob 的也收：一个目录的列表被当成文件正文",
+      "find": "    blobs.push(head[1] === 'blob' ? out.toString('utf8', at, at + size) : undefined)",
+      "replace": "    blobs.push(out.toString('utf8', at, at + size))",
+      "by": "test",
+      "kills": [
+        "cat-file 回话：不是 blob 的交 undefined，跳过它的正文"
+      ]
+    },
+    {
+      "id": "M-H220-v",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "问不到的那一样不跳过：后面每一样都错位一格",
+      "find": "    if (head === null) { blobs.push(undefined); continue }",
+      "replace": "    if (head === null) continue",
+      "by": "test",
+      "kills": [
+        "cat-file 回话：问不到的只回一行、没有正文，交 undefined，后面那一样照常读"
+      ]
+    }
   ],
   "exemptions": [
     {

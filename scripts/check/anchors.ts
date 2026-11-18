@@ -27,7 +27,7 @@
  * 截掉（`mutate-rule.ts` 的 `exitRace` 记着的那个坑）。
  */
 import { readFileSync } from 'node:fs'
-import { type AnchorFault, type StagedFault, anchorCatalog, anchorVerdict, notARepo, stagedResidue } from './mutate-rule.js'
+import { type AnchorFault, type StagedFault, anchorCatalog, anchorVerdict, batchBlobs, notARepo, stagedResidue } from './mutate-rule.js'
 import { runGit } from './git-entry.js'
 
 const CATALOG = 'scripts/check/mutations.json'
@@ -51,18 +51,7 @@ const catBatch = (specs: readonly string[]): Batch => {
   // git 不读 stdin 就退了时另报一个 EPIPE，原话还在 stderr 里，先认原话
   const said = r.stderr
   if (r.error !== undefined || r.status !== 0) return { ok: false, stderr: said.trim() !== '' ? said : String(r.error) }
-  const out = r.stdout, blobs: (string | undefined)[] = []
-  let at = 0
-  for (let n = 0; n < specs.length; n++) {
-    const eol = out.indexOf(0x0a, at)
-    const head = out.toString('utf8', at, eol).match(/^[0-9a-f]+ (\S+) (\d+)$/)
-    at = eol + 1
-    if (head === null) { blobs.push(undefined); continue }
-    const size = Number(head[2])
-    blobs.push(head[1] === 'blob' ? out.toString('utf8', at, at + size) : undefined)
-    at += size + 1
-  }
-  return { ok: true, blobs }
+  return { ok: true, blobs: batchBlobs(r.stdout, specs.length) }
 }
 
 const STAGED: Record<StagedFault['kind'], string> = {
