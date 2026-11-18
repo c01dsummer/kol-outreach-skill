@@ -28998,11 +28998,21 @@
       "id": "M-H219-t",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "自己认 git 而不用共用的判断：只认裸名和正斜杠路径，Windows 的 git.exe 与反斜杠路径漏过去",
+      "why": "自己认 git 而不用共用的判断：裸名 git 与 git.exe 都认，路径却只按正斜杠切，反斜杠路径漏过去",
       "find": "  if (isGitProgram(file)) throw",
-      "replace": "  if (file === 'git' || file.endsWith('/git')) throw",
+      "replace": "  if (['git', 'git.exe'].includes(file.split('/').pop() ?? '')) throw",
       "by": "test",
       "kills": ["三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-u",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项的 stdio 是继承来的时，去改提供它的那个原型：选项对象还是原来那个，Node 读到的 stdio 却变了",
+      "find": "  return rest\n}",
+      "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio') && Object.getPrototypeOf(options) !== Object.prototype) Object.getPrototypeOf(options).stdio = 'ignore'\n  return rest\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
     }
   ],
   "exemptions": [

@@ -23356,7 +23356,7 @@ await group('h-start-process', async () => {
   } finally { childProcessModule.spawnSync = original }
   eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
   // 过了检查的就原样交给 Node，Node 还什么就还什么、抛什么就抛什么。三个函数各换一次替身，替身一次正常还、一次抛。
-  // 不去一样样列「改了哪里」：交出去的全冻住，程序名、参数数组、选项对象（自己的键里套一层对象，stdio 从原型上继承来）、替身还的东西都改不动，
+  // 不去一样样列「改了哪里」：交出去的全冻住（连给选项提供 stdio 的原型也冻住），程序名、参数数组、选项对象（自己的键里套一层对象，stdio 从原型上继承来）、替身还的东西都改不动，
   // 包装就地改哪一处都当场抛错；另外再看替身只被叫一次、收到的就是原来那几个、个数不变，还回来的、抛出来的就是替身的那一个。
   // 程序名故意带「..」和尾空格，参数里有带空白的、空串，选项里有个为假的 shell：规整、裁剪、删键这类改法在这些值上都看得出来。
   // 替身没接上（比如函数在载入时就抄下来了）而真去起这个不存在的程序时，抛的错与异步的 error 事件都接住，替身没被叫，断言照样红
@@ -23365,7 +23365,7 @@ await group('h-start-process', async () => {
     const module = childProcessModule as unknown as Record<string, unknown>
     const kept = module[name]
     const args = Object.freeze(['  -e ', '1', '']), env = Object.freeze({ A: ' 1 ' })
-    const options = Object.freeze(Object.assign(Object.create({ stdio: 'pipe' }), { env, shell: false }))
+    const options = Object.freeze(Object.assign(Object.create(Object.freeze({ stdio: 'pipe' })), { env, shell: false }))
     const fromStub = Object.freeze({ 替身的: Object.freeze([name, mode]) })
     const dispatched: unknown[] = []
     let outcome: unknown
