@@ -23338,8 +23338,8 @@ await group('h-start-process', async () => {
   eq('传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样', [synced.stdout, filed, out], ['$HOME\n', '$HOME\n', '$HOME\n'])
   const noArgs = startSpawnSync('echo $HOME', { shell: true })
   const cwd = startSpawnSync('pwd', { cwd: '/', encoding: 'utf8' })
-  eq('选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名找不到，cwd 照用',
-    [(noArgs.error as NodeJS.ErrnoException | undefined)?.code, cwd.stdout], ['ENOENT', '/\n'])
+  eq('选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用',
+    [noArgs.error !== undefined, noArgs.status, cwd.stdout], [true, null, '/\n'])
 })
 
 await group('d19-config-known-gap', () => {

@@ -28872,7 +28872,7 @@
       "find": "[[], { ...(first as object | undefined), shell: false }]",
       "replace": "[[], { ...(first as object | undefined) }]",
       "by": "test",
-      "kills": ["选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名找不到，cwd 照用"]
+      "kills": ["选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用"]
     }
   ],
   "exemptions": [
