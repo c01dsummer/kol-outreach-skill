@@ -1923,24 +1923,25 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     claimsOf(LETTER, undefined), [`出处对不上：${[...TIMEISH, MINUTES, ...PRODUCTISH].join('；')}${NOTE}`, undefined])
   // 登记只盖住半个日期（停在 11/20 上）时那个日期不算落在发件人自己的话里；登记成博主资料或产品事实的也不算。
   eq('P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移',
-    [claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self' }])[1],
-     claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'product', quote: 'noon' }])[1],
+    [claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self' }]),
+     claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'product', quote: 'noon' }]),
      claimsOf('Free on  11/20/2026\nat noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'self' }])[1],
      claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at 415 555 0199.', from: 'self' }])[1]],
-    [undefined, undefined, `只在发件人自己的话里：11/20/2026（Free on 11/20/2026）${SENDER_NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`])
+    [...[0, 1].map(() => [`出处对不上：11/20/2026（Free on 11/20/2026 at noon.）${NOTE}`, undefined]), `只在发件人自己的话里：11/20/2026（Free on 11/20/2026）${SENDER_NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`])
   const escaped = renderHtml([mk('tiktok', 'esc', { tier: 'A', outreach_draft: 'Text me at 415 555 0199 <b>now</b> & then.', draft_sources: [{ draft: 'Text me at 415 555 0199 <b>now</b> & then.', from: 'self' }], profile_url: 'https://example.com/esc' })], meta, { mode: 'review', facts: ['x'] })
   ok('P2.c 「只在发件人自己的话里」一行在输出处转义', rowOf(escaped, 'esc', 'data-draft-claims="sender-only"') === `只在发件人自己的话里：415 555 0199（Text me at 415 555 0199 &lt;b&gt;now&lt;/b&gt; & then.）${SENDER_NOTE}`)
   // 产品规格（带单位的数量、倍数）登记成发件人自己的话也照列在「出处对不上」：只有日期、钟点、电话移走（ADR-215）。
-  const SPEC = 'It runs 40-hour with 5000mAh, 12 blades, 2x faster. Free at 3pm EST?'
+  // 币符后隔一个空白的数归价格（£ 10 pm 是价格，不是钟点）。
+  const SPEC = 'It runs 40-hour with 5000mAh, 12 blades, 2x faster. Free at 3pm EST? Plans start at £ 10 pm.'
   eq('P2.c 登记成发件人自己的话也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点', claimsOf(SPEC, [{ draft: SPEC, from: 'self' }]), [
-    `出处对不上：${['40-hour（It runs 40-hour with 5000mAh, 12）', '5000mAh（runs 40-hour with 5000mAh, 12 blades, 2x）', '12 blades（40-hour with 5000mAh, 12 blades, 2x faster. Free）', '2x（5000mAh, 12 blades, 2x faster. Free at）'].join('；')}${NOTE}`,
-    `只在发件人自己的话里：3pm EST（faster. Free at 3pm EST?）${SENDER_NOTE}`,
+    `出处对不上：${['40-hour（It runs 40-hour with 5000mAh, 12）', '5000mAh（runs 40-hour with 5000mAh, 12 blades, 2x）', '12 blades（40-hour with 5000mAh, 12 blades, 2x faster. Free）', '2x（5000mAh, 12 blades, 2x faster. Free at）', '£ 10（Plans start at £ 10 pm.）'].join('；')}${NOTE}`,
+    `只在发件人自己的话里：3pm EST（faster. Free at 3pm EST? Plans start at）${SENDER_NOTE}`,
   ])
   // 日期、钟点、电话后面紧跟单位的是规格或时长（10/20/30 oz、1:30 hours），登记成自己的话也照列。
-  const UNITS = 'Cups come in 10/20/30 oz. It blends for 1:30 hours. Call 415 555 0199.'
+  const UNITS = 'Cups come in 10/20/30 oz. It blends for 1:30 hours. Capacity: 123-456-789 grams. Call 415 555 0199.'
   eq('P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列', claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]), [
-    `出处对不上：10/20/30（Cups come in 10/20/30 oz. It blends）；1:30（It blends for 1:30 hours. Call 415）${NOTE}`,
-    `只在发件人自己的话里：415 555 0199（1:30 hours. Call 415 555 0199.）${SENDER_NOTE}`,
+    `出处对不上：10/20/30（Cups come in 10/20/30 oz. It blends）；1:30（It blends for 1:30 hours. Capacity: 123-456-789）；123-456-789（1:30 hours. Capacity: 123-456-789 grams. Call 415）${NOTE}`,
+    `只在发件人自己的话里：415 555 0199（123-456-789 grams. Call 415 555 0199.）${SENDER_NOTE}`,
   ])
   criterion('P2.c')
 }
@@ -2013,8 +2014,12 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
     const line = /<div class="bio" data-draft-sources="sentences">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
     const csv = read('kol.csv')
+    // 每一张工作表都看（分层导出时一层一张，空层也有表），再加共享字符串表；第一张读不出算读不出。
     let xlsxText = ''
     try { xlsxText = xlsxPart(join(dir, 'kol.xlsx'), 'xl/worksheets/sheet1.xml') } catch { xlsxText = 'unreadable' }
+    for (let i = 2; xlsxText !== 'unreadable'; i++) {
+      try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), `xl/worksheets/sheet${i}.xml`) } catch { break }
+    }
     try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), 'xl/sharedStrings.xml') } catch { /* 没有共享字符串表时只看工作表 */ }
     eq('P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
       [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('draft_sources'), xlsxText !== 'unreadable' && xlsxText.includes('outreach_draft'), xlsxText.includes('draft_sources')],

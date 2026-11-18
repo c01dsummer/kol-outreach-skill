@@ -257,9 +257,10 @@ const LINKS: readonly RegExp[] = [
   /(?<![\w-])(?=[\w-]*[a-zA-Z])[\w-]+\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
 ]
 /** 钟点整串一条：10:30、9:00-17:00、10:30 and 11:30、10:30 am PST、1:10 to 1:20（比例也是这个形状，照样列出）；
- *  没有分钟的整点要带 am、pm 才算钟点（3pm、3 p.m. EST），光一个数不算。 */
+ *  没有分钟的整点要带 am、pm 才算钟点（3pm、3 p.m. EST），光一个数不算；前面隔一个空白是币符或币种的（£ 10 pm、USD 10 pm）
+ *  按价格那条的口径归价格（PRICE_BEFORE 认币符、币种后隔一个空白的数），不当钟点。 */
 const CLOCK = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(?:\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|and|until|till)[ \\t]?\\d{1,2}:\\d{2})?` +
-  `(?:[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))?|\\d{1,2}[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))(?:[ \\t]?(?:${TIME_ZONES})\\b)?(?![\\w:])`, 'gi')
+  `(?:[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))?|(?<![${CURRENCY_SIGNS}][ \\t]|\\b(?:usd|eur|gbp|cad|aud|inr)\\s)\\d{1,2}[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))(?:[ \\t]?(?:${TIME_ZONES})\\b)?(?![\\w:])`, 'gi')
 /** 一行里用空格、点、连字符、括号隔开的几组数字，合起来至少九位：多半是电话（415 555 0199、07700 900123、+44 (0)20 7946 0958），整串一条。 */
 const DIGIT_GROUPS = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\+?\\(?\\d{1,5}\\)?(?:(?:[ \\t]{1,2}|[.-]|(?<=\\)))\\(?\\d{1,6}\\)?){1,}(?![\\w%]|[.,]\\d)`, 'g')
 const groupKey = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ')
