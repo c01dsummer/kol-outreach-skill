@@ -23462,7 +23462,8 @@ await group('h-start-process-shell', async () => {
 
 await group('h-git-entry', async () => {
   harness('git 入口：只答表里那几问，不在表里的当场抛错、不起 git')
-  // 已挪过来的检查脚本真问的那几串，照它们的写法逐个列（体量闸门、外部工单号的参数直接取规则模块里的常量）
+  // 已挪过来的检查脚本真问的那几串，照它们的写法逐个列（体量闸门、外部工单号的参数直接取规则模块里的常量）。
+  // 这份是手抄的：调用方以后换了问法、这里没跟上，这条不红，兜底是运行时那一问当场抛错
   const asked: string[][] = [
     ['rev-parse', 'HEAD'], ['rev-parse', '--is-shallow-repository'], ['rev-parse', '--show-toplevel'], ['rev-parse', '--verify', 'origin/main^{commit}'],
     ['rev-parse', 'abc^1'], ['merge-base', 'origin/main', 'HEAD'], ['rev-list', 'a..b'], ['ls-tree', '--name-only', 'abc', '--', 'docs/adr/x.json'],
@@ -23486,6 +23487,8 @@ await group('h-git-entry', async () => {
   // 表里每一问都只读：子命令只许这几个（status 会顺手刷新索引里的时间戳缓存，不改内容，见 ADR-220 第四节）
   const readOnly = ['rev-parse', 'merge-base', 'rev-list', 'ls-tree', 'show', 'log', 'cat-file', 'diff', 'ls-files', 'status', 'grep', 'blame']
   eq('表里每一问的子命令都是只读的那几个', gitQuestions.map(q => q[0]).filter(c => !readOnly.includes(c)), [])
+  // 路径空位什么都认（含开关），只有放在末尾、紧跟在 -- 后面才不会被当成开关
+  eq('表里的路径空位只在末尾，前一个是 --', gitQuestions.filter(q => q.some((t, i) => t === '<路径…>' && (i !== q.length - 1 || q[i - 1] !== '--'))), [])
   // 不在表里的不起 git：模块上起进程的函数换成只记次数的替身
   const [thrown, calls] = withStubs(() => runGit(['commit', '-m', 'x']))
   eq('不在表里的当场抛错，一次也没交给 Node', [thrown instanceof Error && thrown.message.includes('没有这一问'), calls], [true, 0])
@@ -23501,8 +23504,8 @@ await group('h-git-entry', async () => {
     runGit(['cat-file', '--batch'], { cwd: '/某处', env: { A: '1' }, input: 'x\n' })
     runGit(['rev-parse', 'HEAD'])
   } finally { module.spawnSync = kept }
-  eq('表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接', seen,
-    [['git', [...GIT_CONFIG, 'cat-file', '--batch'], '/某处', '1', 'x\n', 'pipe'], ['git', [...GIT_CONFIG, 'rev-parse', 'HEAD'], undefined, undefined, undefined, 'ignore']])
+  eq('表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接', seen,
+    [['git', ['--no-optional-locks', ...GIT_CONFIG, 'cat-file', '--batch'], '/某处', '1', 'x\n', 'pipe'], ['git', ['--no-optional-locks', ...GIT_CONFIG, 'rev-parse', 'HEAD'], undefined, undefined, undefined, 'ignore']])
 })
 
 await group('h-git-entry-run', async () => {
@@ -23534,6 +23537,19 @@ await group('h-git-entry-run', async () => {
     try { process.chdir(repo); asked = [askGit('rev-parse', 'HEAD'), askGit('rev-parse', '--verify', '没有这个^{commit}')] } finally { process.chdir(here) }
     eq('askGit：答得上来的去掉首尾空白，答不上来的交 null', asked, [head, null])
     eq('答不上来的（没有这个修订）：gitText 交回 null', gitText(['rev-parse', '--verify', '没有这个^{commit}'], at), null)
+    eq('gitOrThrow 不去首尾空白（-z 输出首尾的路径可能以空白开头或结尾）', gitOrThrow(['rev-parse', 'HEAD'], at), `${head}\n`)
+    // 工作区文件的时间戳变了，问 status 不回写索引（对工作区的 diff 照样会刷新索引里的时间戳缓存，带了开关也一样，见 ADR-220 第四节）
+    const indexBytes = () => rf(join(repo, '.git', 'index')).toString('hex')
+    g('status', '--porcelain')
+    const before = indexBytes()
+    const later = new Date(Date.now() + 60_000)
+    utimesSync(join(repo, '挪了.md'), later, later)
+    gitText(['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', '挪了.md'], at)
+    eq('问 status 不回写索引（文件时间戳变了也一样）', indexBytes() === before, true)
+    // 输出超过 Node 缺省的 1 MB 照样读全
+    const big = 'x'.repeat(3 * 1024 * 1024)
+    writeFileSync(join(repo, '大.txt'), big); g('add', '大.txt'); g('commit', '-qm', '三')
+    eq('输出超过 1 MB 照样读全', gitText(['cat-file', 'blob', 'HEAD:大.txt'], at)?.length, big.length)
     let said = ''
     try { gitOrThrow(['show', 'HEAD:没有这个文件'], at) } catch (e) { said = (e as Error).message }
     // git 的原话（标准错误）另问一遍拿来比：错里光有参数里那个文件名不算带了原话

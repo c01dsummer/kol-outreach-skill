@@ -11,7 +11,7 @@
  *
  * 阈值按本仓库已合并 PR 校准,见 `scripts/check/size-rule.ts`。
  */
-import { gitOrThrow, gitText } from './git-entry.js'
+import { askGit, gitOrThrow } from './git-entry.js'
 import {
   BUDGET, CATEGORIES, NUMSTAT, NUMSTAT_IGNORING_SPACE, type Waiver,
   discount, judge, merge, parseNumstat, resolveBaseline, scanMessage, tally,
@@ -32,9 +32,7 @@ import {
 function git(...args: string[]): string {
   return gitOrThrow(args).trim()
 }
-function tryGit(...args: string[]): string | null {
-  return gitText(args)?.trim() ?? null
-}
+const tryGit = askGit
 
 /** 无从判断时说「无从判断」并失败,不退化成「0 行,通过」。 */
 function cannotAnswer(why: string, how: string): never {

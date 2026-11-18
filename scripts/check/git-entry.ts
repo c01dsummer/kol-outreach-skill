@@ -2,11 +2,12 @@
  * git 入口（ADR-220）：已挪过来的检查脚本调 git 都经这里（还没挪的见登记表），不直接碰 `node:child_process`（ADR-217 的闸门管着），
  * 通用启动函数也不替它们起 git（ADR-219）。
  *
- * 只答下面 `QUESTIONS` 里列出的那几问（每一行由评审看过：只读，输出能给机器读）。一问是一串参数的形状：写死的字面量逐个比，`<修订>`、`<值>` 这两种空位
+ * 只答下面 `QUESTIONS` 里列出的那几问（每一行由评审看过是只读的、输出能给机器读）。一问是一串参数的形状：写死的字面量逐个比，`<修订>`、`<值>` 这两种空位
  * 填调用方的值、但不许以 `-` 开头（填不成开关），`<路径…>` 只许放在 `--` 后面、填一个或几个。不在表里的一律当场抛错、
  * 不起 git：问法换了，就得来这张表里加一行，由评审看这一问是不是只读、输出是不是给机器读的那种（`-z`、`--porcelain`）。
  *
- * 每一次都带上 `GIT_CONFIG` 里钉死的几项（中文路径不转义、改名检测开着），调用方不用、也不许各带一份。
+ * 每一次都带上 `GIT_CONFIG` 里钉死的几项（中文路径不转义、改名检测开着），调用方不用、也不许各带一份；再带 `--no-optional-locks`：
+ * `status` 本来会顺手刷新索引里的时间戳缓存，带了就不写（对工作区的 `diff` 带了也照样刷新，见 ADR-220 第四节）。
  * 起 git 用的函数在调用时从模块上取，计数预加载与观察器预加载换掉模块上的函数后照样数得到、拦得住。
  */
 import cp from 'node:child_process'
@@ -77,13 +78,13 @@ export interface GitOptions {
 }
 
 /** git 真跑一遍的结果：退出码、标准输出的原始字节、标准错误、起不来时的错误 */
-export interface GitRun { status: number | null; stdout: Buffer; stderr: string; error?: Error }
+export interface GitAnswer { status: number | null; stdout: Buffer; stderr: string; error?: Error }
 
 /** 问一次，原样交回 git 怎么答的。参数不是表里的一问就抛错、不起 git */
-export function runGit(args: readonly string[], options: GitOptions = {}): GitRun {
+export function runGit(args: readonly string[], options: GitOptions = {}): GitAnswer {
   questionOf(args)
   const { cwd, env, input } = options
-  const r = cp.spawnSync('git', [...GIT_CONFIG, ...args], {
+  const r = cp.spawnSync('git', ['--no-optional-locks', ...GIT_CONFIG, ...args], {
     cwd, env, input, maxBuffer: 1 << 30, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
   })
   return { status: r.status, stdout: r.stdout ?? Buffer.alloc(0), stderr: r.stderr?.toString('utf8') ?? '', error: r.error }

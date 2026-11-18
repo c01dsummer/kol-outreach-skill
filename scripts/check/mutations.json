@@ -29103,11 +29103,11 @@
       "req": "harness",
       "file": "scripts/check/git-entry.ts",
       "why": "起 git 不带固定配置：中文路径被转义、改名检测随机器配置变",
-      "find": "cp.spawnSync('git', [...GIT_CONFIG, ...args], {",
-      "replace": "cp.spawnSync('git', [...args], {",
+      "find": "cp.spawnSync('git', ['--no-optional-locks', ...GIT_CONFIG, ...args], {",
+      "replace": "cp.spawnSync('git', ['--no-optional-locks', ...args], {",
       "by": "test",
       "kills": [
-        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
         "不走 -z 的一问：中文路径原样出来（仓库里打开了转义，固定配置压住了它）",
         "改名检测开着（仓库里关掉了，固定配置压住了它）：挪个位置是改名，不是删 20 行加 20 行"
       ]
@@ -29121,7 +29121,7 @@
       "replace": "import childProcess from 'node:child_process'\nconst cp = { ...childProcess }\n",
       "by": "test",
       "kills": [
-        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接"
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接"
       ]
     },
     {
@@ -29133,7 +29133,7 @@
       "replace": "    env, input, maxBuffer",
       "by": "test",
       "kills": [
-        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
         "cwd 照用：在夹具仓库里问 HEAD，答的是夹具仓库的提交"
       ]
     },
@@ -29146,7 +29146,7 @@
       "replace": "    cwd, input, maxBuffer",
       "by": "test",
       "kills": [
-        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接"
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接"
       ]
     },
     {
@@ -29158,7 +29158,7 @@
       "replace": "    cwd, env, maxBuffer",
       "by": "test",
       "kills": [
-        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
         "标准输入照传：cat-file --batch 读得到交进去的那一行"
       ]
     },
@@ -29171,7 +29171,7 @@
       "replace": "stdio: ['pipe', 'pipe', 'pipe']",
       "by": "test",
       "kills": [
-        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接"
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接"
       ]
     },
     {
@@ -29281,6 +29281,68 @@
       "by": "test",
       "kills": [
         "cat-file 回话：问不到的只回一行、没有正文，交 undefined，后面那一样照常读"
+      ]
+    }
+,
+    {
+      "id": "M-H220-w",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "起 git 不带不写索引的开关：问 status 会顺手改写索引",
+      "find": "['--no-optional-locks', ...GIT_CONFIG, ...args]",
+      "replace": "[...GIT_CONFIG, ...args]",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "问 status 不回写索引（文件时间戳变了也一样）"
+      ]
+    },
+    {
+      "id": "M-H220-x",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "表里少了一问：已挪过来的脚本问到它时当场抛错",
+      "find": "  ['ls-files', '-s', '-z', '--', PATHS],\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "已挪过来的检查脚本真问的那几串，表里都有"
+      ]
+    },
+    {
+      "id": "M-H220-y",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "路径空位挪到中间：那一位什么都认，开关也塞得进去",
+      "find": "  ['ls-files', '-s', '-z', '--', PATHS],\n",
+      "replace": "  ['ls-files', '-s', '-z', '--', PATHS],\n  ['log', PATHS, '--', REV],\n",
+      "by": "test",
+      "kills": [
+        "表里的路径空位只在末尾，前一个是 --"
+      ]
+    },
+    {
+      "id": "M-H220-z",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "抛错那一种也去首尾空白：-z 输出首尾以空白开头或结尾的路径被削掉",
+      "find": "  if (r.error === undefined && r.status === 0) return r.stdout.toString('utf8')\n",
+      "replace": "  if (r.error === undefined && r.status === 0) return r.stdout.toString('utf8').trim()\n",
+      "by": "test",
+      "kills": [
+        "gitOrThrow 不去首尾空白（-z 输出首尾的路径可能以空白开头或结尾）"
+      ]
+    },
+    {
+      "id": "M-H220-aa",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "输出上限用 Node 缺省的 1 MB：大文件、大改动读到一半就当成出错",
+      "find": "cwd, env, input, maxBuffer: 1 << 30,",
+      "replace": "cwd, env, input,",
+      "by": "test",
+      "kills": [
+        "输出超过 1 MB 照样读全"
       ]
     }
   ],
