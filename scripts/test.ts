@@ -23392,7 +23392,7 @@ await group('h-start-process-shell', async () => {
     [[], [{ cwd: '/' }], [undefined, { cwd: '/' }], [null, { cwd: '/' }], [['-e', '1'], 'x'], [['-e', '1'], null], [['-e', '1'], []],
       [['-e', '1'], {}, {}]].map(all),
     Array.from({ length: 8 }, () => Array.from({ length: 3 }, () => ['写法不对', 0])))
-  // 程序名不是字符串的要真交给 Node，由它报错（不用替身）；Node 先验哪个参数由它定，这几条都只给了错的程序名
+  // 程序名不是字符串的要真交给 Node，由它报错（不用替身）。有一条的第二个参数也不对（不是数组）：哪个先报由 Node 定，下面只认 Node 报的类型错，不认是哪个参数的错
   // 模块上的函数暂换成一个记下收到什么、再转给原函数的探子：既看 Node 收到的参数一个没改，也看报的是 Node 自己的错
   const notString = (file: unknown, ...args: unknown[]): [string, boolean][] => startNames.map(name => {
     const module = childProcessModule as unknown as Record<string, (...a: unknown[]) => unknown>
