@@ -23549,17 +23549,19 @@ await group('h-git-entry-run', async () => {
     const head = gitText(['rev-parse', 'HEAD'], at)?.trim() ?? ''
     eq('标准输入照传：cat-file --batch 读得到交进去的那一行', /^[0-9a-f]{40} blob \d+\n第 0 行/.test(runGit(['cat-file', '--batch'], { ...at, input: 'HEAD:挪了.md\n' }).stdout.toString('utf8')), true)
     eq('cwd 照用：在夹具仓库里问 HEAD，答的是夹具仓库的提交', head === g('rev-parse', 'HEAD').stdout.trim() && /^[0-9a-f]{40}$/.test(head), true)
-    // askGit 不收 cwd、env（决策记录同步、体量闸门的起点判法都吃它）：暂把当前目录换到夹具仓库里问。答得上来的去掉末尾换行，答不上来的交 null
-    const here = process.cwd(); let asked: unknown
-    try { process.chdir(repo); asked = [askGit('rev-parse', 'HEAD'), askGit('rev-parse', '--verify', '没有这个^{commit}')] } finally { process.chdir(here) }
-    eq('askGit：答得上来的去掉首尾空白，答不上来的交 null', asked, [head, null])
     eq('答不上来的（没有这个修订）：gitText 交回 null', gitText(['rev-parse', '--verify', '没有这个^{commit}'], at), null)
+    // askGit 不收 cwd、env（决策记录同步、体量闸门的起点判法都吃它），不在夹具仓库里真问：模块上的 spawnSync 换成替身，看它只去首尾空白、答不上来交 null
+    const module = childProcessModule as unknown as Record<string, unknown>, kept = module.spawnSync
+    const replies = [{ status: 0, stdout: Buffer.from(' abc\n'), stderr: Buffer.from('') }, { status: 128, stdout: Buffer.from('半句'), stderr: Buffer.from('x') }]
+    let trimmed: unknown
+    try { module.spawnSync = () => replies.shift(); trimmed = [askGit('rev-parse', 'HEAD'), askGit('rev-parse', 'HEAD')] } finally { module.spawnSync = kept }
+    eq('askGit：答得上来的去掉首尾空白，答不上来的交 null', trimmed, ['abc', null])
     eq('gitOrThrow 不去首尾空白（-z 输出首尾的路径可能以空白开头或结尾）', gitOrThrow(['rev-parse', 'HEAD'], at), `${head}\n`)
     // 工作区文件的时间戳变了，问 status 不回写索引（对工作区的 diff 照样会刷新索引里的时间戳缓存，带了开关也一样，见 ADR-220 第四节）
     const indexBytes = () => rf(join(repo, '.git', 'index')).toString('hex'); g('status', '--porcelain'); const before = indexBytes()
     const later = new Date(Date.now() + 60_000); utimesSync(join(repo, '挪了.md'), later, later)
-    gitText(['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', '挪了.md'], at)
-    eq('问 status 不回写索引（文件时间戳变了也一样）', indexBytes() === before, true)
+    const status = gitText(['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', '挪了.md'], at)
+    eq('问 status 不回写索引（文件时间戳变了也一样）', [status !== null, indexBytes() === before], [true, true])
     // 输出超过 Node 缺省的 1 MB 照样读全
     const big = 'x'.repeat(3 * 1024 * 1024)
     writeFileSync(join(repo, '大.txt'), big); g('add', '大.txt'); g('commit', '-qm', '三')
