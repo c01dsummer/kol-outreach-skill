@@ -28902,7 +28902,7 @@
       "find": "  if (typeof file !== 'string') return rest\n",
       "replace": "",
       "by": "test",
-      "kills": ["程序名不是字符串的原样交给 Node，由它报参数类型错，不先报写法不对"]
+      "kills": ["程序名不是字符串的三个函数都原样交给 Node，由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）"]
     }
   ],
   "exemptions": [

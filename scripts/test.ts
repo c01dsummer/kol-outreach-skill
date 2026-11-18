@@ -23354,9 +23354,11 @@ await group('h-start-process-shell', async () => {
     [[], [{ cwd: '/' }], [undefined, { cwd: '/' }], [null, { cwd: '/' }], [['-e', '1'], 'x'], [['-e', '1'], null], [['-e', '1'], []],
       [['-e', '1'], {}, {}]].map(all),
     Array.from({ length: 8 }, () => ['写法不对', '写法不对', '写法不对']))
-  eq('程序名不是字符串的原样交给 Node，由它报参数类型错，不先报写法不对',
-    [outcome(() => startSpawnSync(undefined as unknown as string, 'x' as never)), outcome(() => startExecFileSync(1 as unknown as string))],
-    ['ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_TYPE'])
+  const notString = (file: unknown, ...args: unknown[]): string[] => [startSpawnSync, startSpawn, startExecFileSync]
+    .map(start => outcome(() => (start as (...a: unknown[]) => unknown)(file, ...args)))
+  eq('程序名不是字符串的三个函数都原样交给 Node，由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）',
+    [notString(undefined, ['-e', '1']), notString(undefined, 'x'), notString(1)],
+    Array.from({ length: 3 }, () => ['ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_TYPE']))
   // 写法对的照常起：cwd 照用、shell: false 也认；异步那个不接标准输入，参数丢了也不会卡着等输入
   const printCwd = ['-e', 'process.stdout.write(process.cwd())']
   const attempt = <T>(f: () => T): T | string => { try { return f() } catch (e) { return `抛了：${(e as Error).message}` } }
