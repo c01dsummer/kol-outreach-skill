@@ -26,10 +26,9 @@
  * 空的、哪一条缺了那四样字符串）时也以 1 退出：没得核不是核过了。设退出码、不硬退出：报的行可能有几十条，接管道时硬退出会把还没写出去的
  * 截掉（`mutate-rule.ts` 的 `exitRace` 记着的那个坑）。
  */
-import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { type AnchorFault, type StagedFault, anchorCatalog, anchorVerdict, notARepo, stagedResidue } from './mutate-rule.js'
-import { GIT_CONFIG } from './size-rule.js'
+import { runGit } from './git-entry.js'
 
 const CATALOG = 'scripts/check/mutations.json'
 type Mut = { id: string; file: string; find: string; replace: string }
@@ -48,10 +47,9 @@ type Batch = { ok: true; blobs: (string | undefined)[] } | { ok: false; stderr: 
 const catBatch = (specs: readonly string[]): Batch => {
   const odd = specs.find(s => s.includes('\n'))
   if (odd !== undefined) return { ok: false, stderr: `目标文件名里带换行，git cat-file --batch 一行写不下：${JSON.stringify(odd)}` }
-  const r = spawnSync('git', [...GIT_CONFIG, 'cat-file', '--batch'], { input: specs.join('\n') + '\n', maxBuffer: 1 << 30,
-    env: { ...process.env, LC_ALL: 'C' } })
-  // git 不读 stdin 就退了时 spawnSync 另报一个 EPIPE，原话还在 stderr 里，先认原话
-  const said = r.stderr?.toString('utf8') ?? ''
+  const r = runGit(['cat-file', '--batch'], { input: specs.join('\n') + '\n', env: { ...process.env, LC_ALL: 'C' } })
+  // git 不读 stdin 就退了时另报一个 EPIPE，原话还在 stderr 里，先认原话
+  const said = r.stderr
   if (r.error !== undefined || r.status !== 0) return { ok: false, stderr: said.trim() !== '' ? said : String(r.error) }
   const out = r.stdout, blobs: (string | undefined)[] = []
   let at = 0

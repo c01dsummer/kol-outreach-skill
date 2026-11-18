@@ -11,21 +11,14 @@
  * 没 `git add` 的新文件不算。判定在 `debt-touch-rule.ts` —— 连同「改到的文件」用哪条 git 命令取、
  * 怎么切（`changedFiles`），这里只起 git、打印。
  */
-import { execFileSync } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 import { adrDocs } from './debt-rule.js'
 import { changedFiles, touchLines, touchReport, touchSummary, trackedFiles } from './debt-touch-rule.js'
-import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
+import { askGit, gitOrThrow } from './git-entry.js'
+import { resolveBaseline } from './size-rule.js'
 
 /** 原样交回、不 trim：`-z` 的输出里首尾那个路径若以空白开头或结尾，trim 会把它削掉。 */
-function git(...args: string[]): string {
-  return execFileSync('git', [...GIT_CONFIG, ...args],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
-}
-/** 给 `resolveBaseline` 用：它问的都是一个提交号或引用名，去掉末尾换行。 */
-function tryGit(...args: string[]): string | null {
-  try { return git(...args).trim() } catch { return null }
-}
+const git = (...args: string[]): string => gitOrThrow(args)
 
 /** 在 GitHub Actions 里：汇总一句进通知，全文进 Summary。通知里只有固定文案与数字。 */
 function toGithub(summary: string, lines: string[]): void {
@@ -41,7 +34,7 @@ function toGithub(summary: string, lines: string[]): void {
 }
 
 function main(): void {
-  const baseline = resolveBaseline(tryGit)
+  const baseline = resolveBaseline(askGit)
   if (baseline.kind !== 'measure') {
     const why = baseline.kind === 'cannot-answer' ? baseline.why : `HEAD 就是 ${baseline.trunk} 且没有父提交`
     const line = `欠条点名提醒：无从比较（${why}）`

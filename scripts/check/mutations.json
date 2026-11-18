@@ -28429,8 +28429,8 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs.ts",
       "why": "入口不把 git grep 的 stderr 交给判定 —— 有文件读不了时照样当成数全了，少数的那几处悄悄放过",
-      "find": "  const out = grepOutput(r.status, r.stdout ?? '', r.stderr ?? '')",
-      "replace": "  const out = grepOutput(r.status, r.stdout ?? '', '')",
+      "find": "  const out = grepOutput(r.status, r.stdout.toString('utf8'), r.stderr)",
+      "replace": "  const out = grepOutput(r.status, r.stdout.toString('utf8'), '')",
       "by": "test",
       "kills": ["入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出"]
     },
@@ -29013,6 +29013,214 @@
       "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio') && Object.getPrototypeOf(options) !== Object.prototype) Object.getPrototypeOf(options).stdio = 'ignore'\n  return rest\n}",
       "by": "test",
       "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H220-a",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "问 git 不先查表：不在表里的问法照样起 git，要写的子命令也照起",
+      "find": "  questionOf(args)\n  const { cwd, env, input } = options",
+      "replace": "  const { cwd, env, input } = options",
+      "by": "test",
+      "kills": [
+        "不在表里的当场抛错，一次也没交给 Node"
+      ]
+    },
+    {
+      "id": "M-H220-b",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "空位里能填开关：以 - 开头的修订、值照样认，调用方借空位塞进别的开关",
+      "find": "    if (want === REV || want === VALUE) return !arg.startsWith('-')",
+      "replace": "    if (want === REV || want === VALUE) return true",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-c",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "末尾的路径一个不给也认：问的范围悄悄变成整个仓库",
+      "find": "  if (tail ? args.length < shape.length : args.length !== shape.length) return false",
+      "replace": "  if (tail ? args.length < shape.length - 1 : args.length !== shape.length) return false",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-d",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "写死的字面量不比：同样长的任何一串都认",
+      "find": "    return arg === want\n",
+      "replace": "    return true\n",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-e",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "所有形状末尾都能多带几个：表里每一问都能再加开关",
+      "find": "  if (tail ? args.length < shape.length : args.length !== shape.length) return false",
+      "replace": "  if (args.length < shape.length) return false",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-f",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "不检查是不是一组字符串：数字、整串命令交进来时报的是别的错，说不清哪里不对",
+      "find": "  if (!Array.isArray(args) || args.some(a => typeof a !== 'string')) throw new Error('git 入口的参数要是一组字符串（ADR-220）')\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-g",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "表里混进一问要写的：往仓库里提交",
+      "find": "  ['rev-parse', 'HEAD'],\n",
+      "replace": "  ['rev-parse', 'HEAD'],\n  ['commit', '-m', VALUE],\n",
+      "by": "test",
+      "kills": [
+        "表里每一问的子命令都是只读的那几个"
+      ]
+    },
+    {
+      "id": "M-H220-h",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "起 git 不带固定配置：中文路径被转义、改名检测随机器配置变",
+      "find": "cp.spawnSync('git', [...GIT_CONFIG, ...args], {",
+      "replace": "cp.spawnSync('git', [...args], {",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "不走 -z 的一问：中文路径原样出来（仓库里打开了转义，固定配置压住了它）",
+        "改名检测开着（仓库里关掉了，固定配置压住了它）：挪个位置是改名，不是删 20 行加 20 行"
+      ]
+    },
+    {
+      "id": "M-H220-i",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "起 git 的函数在载入时就抄下来：计数预加载、观察器预加载换掉模块上的函数后，经 git 入口起的数不到、拦不到",
+      "find": "import cp from 'node:child_process'\n",
+      "replace": "import childProcess from 'node:child_process'\nconst cp = { ...childProcess }\n",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H220-j",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "不传仓库目录：问的是当前目录那个仓库",
+      "find": "    cwd, env, input, maxBuffer",
+      "replace": "    env, input, maxBuffer",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "cwd 照用：在夹具仓库里问 HEAD，答的是夹具仓库的提交"
+      ]
+    },
+    {
+      "id": "M-H220-k",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "不传环境：调用方挡掉的全局配置、仓库指向变量又回来了",
+      "find": "    cwd, env, input, maxBuffer",
+      "replace": "    cwd, input, maxBuffer",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H220-l",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "不传标准输入：cat-file --batch 读不到要读的那几样",
+      "find": "    cwd, env, input, maxBuffer",
+      "replace": "    cwd, env, maxBuffer",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "标准输入照传：cat-file --batch 读得到交进去的那一行"
+      ]
+    },
+    {
+      "id": "M-H220-m",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "没给标准输入时也接着：等标准输入的 git 一直等下去",
+      "find": "stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']",
+      "replace": "stdio: ['pipe', 'pipe', 'pipe']",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H220-n",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "答不上来的也交回输出：非 0 退出被当成答了个空",
+      "find": "  return r.error === undefined && r.status === 0 ? r.stdout.toString('utf8') : null",
+      "replace": "  return r.error === undefined ? r.stdout.toString('utf8') : null",
+      "by": "test",
+      "kills": [
+        "答不上来的（没有这个修订）：gitText 交回 null"
+      ]
+    },
+    {
+      "id": "M-H220-o",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "答不上来时抛的错不带 git 的原话：读的人不知道 git 为什么答不上来",
+      "find": "${r.stderr.trim() === '' ? '' : `：${r.stderr.trim()}`}",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "答不上来的：gitOrThrow 抛错，错里带退出码与 git 的原话"
+      ]
+    },
+    {
+      "id": "M-H220-p",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "列文件那一问答不上来时以 0 退出：git 出错被当成通过",
+      "find": "  if (root === null || listed === null) return cannotAnswer('`git ls-files` 出错了')",
+      "replace": "  if (root === null || listed === null) return 0",
+      "by": "test",
+      "kills": [
+        "入口：git ls-files 出错时说无从判断、以 1 结束"
+      ]
+    },
+    {
+      "id": "M-H220-q",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "HEAD 在主干上也照判：主干上的推送一来就红",
+      "find": "  const onTrunk = baseline.kind === 'not-applicable' || baseline.onTrunk",
+      "replace": "  const onTrunk = baseline.kind === 'not-applicable'",
+      "by": "test",
+      "kills": [
+        "入口：HEAD 就在主干上时，待挪多了照样列出、只报不判，以 0 退出"
+      ]
     }
   ],
   "exemptions": [

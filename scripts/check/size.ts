@@ -11,14 +11,14 @@
  *
  * 阈值按本仓库已合并 PR 校准,见 `scripts/check/size-rule.ts`。
  */
-import { execFileSync } from 'node:child_process'
+import { gitOrThrow, gitText } from './git-entry.js'
 import {
-  BUDGET, CATEGORIES, GIT_CONFIG, NUMSTAT, NUMSTAT_IGNORING_SPACE, type Waiver,
+  BUDGET, CATEGORIES, NUMSTAT, NUMSTAT_IGNORING_SPACE, type Waiver,
   discount, judge, merge, parseNumstat, resolveBaseline, scanMessage, tally,
 } from './size-rule.js'
 
 /**
- * 所有 git 调用统一走这里,**一律带上 `GIT_CONFIG` 里钉死的那几项**。
+ * 所有 git 调用统一走这里,经 git 入口(`git-entry.ts`,ADR-220)起,**一律带上 `GIT_CONFIG` 里钉死的那几项**。
  *
  * 逐处补是补不完的:`core.quotePath` 这个坑在这里栽过三次(`diff --numstat`
  * 文档整类被误归、`ls-tree` 基线读成空的、`show --cc` 决策记录归进「其他」),
@@ -30,11 +30,10 @@ import {
  * 「哪些行算新增」那一半也是判定),那里有一个真 git 仓库的夹具守着它。
  */
 function git(...args: string[]): string {
-  return execFileSync('git', [...GIT_CONFIG, ...args],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  return gitOrThrow(args).trim()
 }
 function tryGit(...args: string[]): string | null {
-  try { return git(...args) } catch { return null }
+  return gitText(args)?.trim() ?? null
 }
 
 /** 无从判断时说「无从判断」并失败,不退化成「0 行,通过」。 */

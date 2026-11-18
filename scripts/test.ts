@@ -45,6 +45,7 @@ import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, na
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
 import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
+import { QUESTIONS as gitQuestions, gitOrThrow, gitText, questionOf, runGit } from './check/git-entry.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -345,6 +346,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-child-process-entry', needs: [] },
   { id: 'h-start-process', needs: [] },
   { id: 'h-start-process-shell', needs: [] },
+  { id: 'h-git-entry', needs: [] },
+  { id: 'h-git-entry-run', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -23288,6 +23291,11 @@ await group('h-child-process-entry', () => {
     eq('入口：把新文件塞进「待挪」以 1 退出，点出待挪多了它', [grown.status, String(grown.stderr).includes('「待挪」比基线多了 new.ts')], [1, true])
     const grownInSub = run(cxJoin(root, 'scripts'))
     eq('入口：在子目录里跑，基线那份登记表照样读得到，待挪多了照样以 1 退出', [grownInSub.status, String(grownInSub.stderr).includes('「待挪」比基线多了 new.ts')], [1, true])
+    // 同样的改动摆在主干上（HEAD 就是 main，和它的上一版比）：照样列出来，只报不判、以 0 退出
+    g('checkout', '-q', 'main')
+    const grownOnTrunk = run()
+    eq('入口：HEAD 就在主干上时，待挪多了照样列出、只报不判，以 0 退出', [grownOnTrunk.status, String(grownOnTrunk.stdout).includes('「待挪」比基线多了 new.ts') && String(grownOnTrunk.stdout).includes('只报不判定')], [0, true])
+    g('checkout', '-q', 'work')
     put('scripts/check/child-process-registry.json', '{')
     const brokenNow = run()
     eq('入口：当前那份登记表解析不了时说无从判断、以 1 结束，不当成空表', [brokenNow.status, String(brokenNow.stderr).includes('读不了或解析不了')], [1, true])
@@ -23315,6 +23323,11 @@ await group('h-child-process-entry', () => {
     g('checkout', '-q', '-b', 'work2'); g('commit', '-q', '--allow-empty', '-m', 'w'); registry([])
     const noBase = run()
     eq('入口：基线上有闸门却没有登记表时说无从判断、以 1 结束', [noBase.status, String(noBase.stderr).includes('先合主干')], [1, true])
+    // 列文件那一问答不上来（索引文件坏了；起点那几问不碰索引，照样答得上来）：无从判断，不当成一个文件都没有
+    const index = cxJoin(root, '.git', 'index')
+    cxWriteFileSync(index, '坏了')
+    const noList = run()
+    eq('入口：git ls-files 出错时说无从判断、以 1 结束', [noList.status, String(noList.stderr).includes('`git ls-files` 出错了')], [1, true])
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
     const bare = run()
     eq('起子进程接口闸门的入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 起子进程的接口：无从判断')], [1, true])
@@ -23437,6 +23450,83 @@ await group('h-start-process-shell', async () => {
   })
   eq('写法对、不经 shell 时原样交给 Node：三个函数都照常起、正常退出，cwd 照用，shell: false 也认',
     [synced, filed, spawned], Array.from({ length: 3 }, () => ['/', 0, null, true]))
+})
+
+await group('h-git-entry', async () => {
+  harness('git 入口：只答表里那几问，不在表里的当场抛错、不起 git')
+  // 已挪过来的检查脚本真问的那几串，照它们的写法逐个列（体量闸门、外部工单号的参数直接取规则模块里的常量）
+  const asked: string[][] = [
+    ['rev-parse', 'HEAD'], ['rev-parse', '--is-shallow-repository'], ['rev-parse', '--show-toplevel'], ['rev-parse', '--verify', 'origin/main^{commit}'],
+    ['rev-parse', 'abc^1'], ['merge-base', 'origin/main', 'HEAD'], ['rev-list', 'a..b'], ['ls-tree', '--name-only', 'abc', '--', 'docs/adr/x.json'],
+    ['ls-tree', '-z', '--full-tree', '--name-only', 'abc', '--', 'scripts/check/child-process-registry.json'], ['show', 'abc:docs/有中文的 文件.md'],
+    ['log', '-1', '--format=%B', 'abc'], ['cat-file', 'blob', 'abc:x'], [...NUMSTAT, 'a', 'b'], [...NUMSTAT_IGNORING_SPACE, 'a', 'b'],
+    ['diff', '--name-only', '--no-renames', '-z', 'abc'], ['ls-files', '-z'], ['ls-files', '-s', '-z', '--', '.claude/skills', '.agents/skills'],
+    ['ls-files', '-z', '--full-name', '--cached', '--others', '--exclude-standard', '--', ':(top)'], ['cat-file', '--batch'],
+    ['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', 'a', 'b', 'c'], refsArgs(), refsArgs('abc'),
+    ['log', '--first-parent', '--diff-filter=A', '--format=%H', 'abc', '--', 'docs/x.md'], ['blame', '--first-parent', '--porcelain', '-L', '3,3', 'abc', '--', 'docs/x.md'],
+  ]
+  const verdict = (args: unknown): string => { try { questionOf(args as string[]); return '答' } catch (e) { return (e as Error).message.includes('没有这一问') ? '没有这一问' : (e as Error).message.includes('一组字符串') ? '不是字符串' : (e as Error).message } }
+  eq('已挪过来的检查脚本真问的那几串，表里都有', asked.map(verdict), asked.map(() => '答'))
+  // 不在表里的：要写的子命令、多一个开关、空位里填一个开关（以 - 开头的修订、值）、路径一个都没给、路径放在 -- 前面、少一个、不是字符串
+  const refused: unknown[] = [
+    ['commit', '-m', 'x'], ['rev-parse', 'HEAD', '--short'], ['show', '--output=/tmp/x'], ['rev-parse', '--verify', '--quiet'],
+    ['blame', '--first-parent', '--porcelain', '-L', '--reverse', 'abc', '--', 'x'], ['ls-files', '-s', '-z', '--'], ['ls-files', '-s', '-z', 'x', '--', 'y'],
+    ['diff', '--numstat', '-z', 'a'], ['ls-files'], [], ['rev-parse', 1], 'rev-parse HEAD',
+  ]
+  eq('不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说',
+    refused.map(verdict), [...refused.slice(0, -2).map(() => '没有这一问'), '不是字符串', '不是字符串'])
+  // 表里每一问都只读：子命令只许这几个（status 会顺手刷新索引里的时间戳缓存，不改内容，见 ADR-220 第四节）
+  const readOnly = ['rev-parse', 'merge-base', 'rev-list', 'ls-tree', 'show', 'log', 'cat-file', 'diff', 'ls-files', 'status', 'grep', 'blame']
+  eq('表里每一问的子命令都是只读的那几个', gitQuestions.map(q => q[0]).filter(c => !readOnly.includes(c)), [])
+  // 不在表里的不起 git：模块上起进程的函数换成只记次数的替身
+  const [thrown, calls] = withStubs(() => runGit(['commit', '-m', 'x']))
+  eq('不在表里的当场抛错，一次也没交给 Node', [thrown instanceof Error && thrown.message.includes('没有这一问'), calls], [true, 0])
+  // 表里的交给模块上的 spawnSync（调用时才取）：程序是 git，参数前面先带固定配置，cwd、env、标准输入照传；没给标准输入就不接
+  const module = childProcessModule as unknown as Record<string, unknown>
+  const kept = module.spawnSync
+  const seen: unknown[] = []
+  try {
+    module.spawnSync = (file: unknown, args: unknown, options: Record<string, unknown>) => {
+      seen.push([file, args, options.cwd, (options.env as Record<string, string> | undefined)?.A, options.input, (options.stdio as unknown[])[0]])
+      return { status: 0, stdout: Buffer.from('答'), stderr: Buffer.from('') }
+    }
+    runGit(['cat-file', '--batch'], { cwd: '/某处', env: { A: '1' }, input: 'x\n' })
+    runGit(['rev-parse', 'HEAD'])
+  } finally { module.spawnSync = kept }
+  eq('表里的交给模块上的 spawnSync：起的是 git，参数前带固定配置，cwd、env、标准输入照传，没给标准输入就不接', seen,
+    [['git', [...GIT_CONFIG, 'cat-file', '--batch'], '/某处', '1', 'x\n', 'pipe'], ['git', [...GIT_CONFIG, 'rev-parse', 'HEAD'], undefined, undefined, undefined, 'ignore']])
+})
+
+await group('h-git-entry-run', async () => {
+  harness('git 入口：真起 git，固定配置压得住仓库里反着设的，答不上来的分得开')
+  const repo = mkdtempSync(join(tmpdir(), 'kol-git-entry-'))
+  // 全局与系统配置挡在外面，继承来的仓库指向变量删掉（同体量闸门的真 git 夹具）
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
+  const g = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env })
+  try {
+    g('init', '-q', '.')
+    // 仓库本地配置故意设成反的：中文路径转义打开、改名检测关掉。git 入口带的固定配置要压住它们
+    g('config', 'core.quotePath', 'true'); g('config', 'diff.renames', 'false')
+    g('config', 'user.name', 't'); g('config', 'user.email', 't@t')
+    writeFileSync(join(repo, '中文.md'), Array.from({ length: 20 }, (_, i) => `第 ${i} 行`).join('\n') + '\n')
+    g('add', '.'); g('commit', '-qm', '一')
+    g('mv', '中文.md', '挪了.md'); g('commit', '-qm', '二')
+    const at = { cwd: repo, env }
+    eq('不走 -z 的一问：中文路径原样出来（仓库里打开了转义，固定配置压住了它）',
+      gitText(['ls-tree', '--name-only', 'HEAD', '--', '挪了.md'], at), '挪了.md\n')
+    eq('改名检测开着（仓库里关掉了，固定配置压住了它）：挪个位置是改名，不是删 20 行加 20 行',
+      (gitText([...NUMSTAT, 'HEAD~1', 'HEAD'], at) ?? '').split('\0').slice(0, 1), ['0\t0\t'])
+    const head = gitText(['rev-parse', 'HEAD'], at)?.trim() ?? ''
+    eq('标准输入照传：cat-file --batch 读得到交进去的那一行', /^[0-9a-f]{40} blob \d+\n第 0 行/.test(runGit(['cat-file', '--batch'], { ...at, input: 'HEAD:挪了.md\n' }).stdout.toString('utf8')), true)
+    eq('cwd 照用：在夹具仓库里问 HEAD，答的是夹具仓库的提交', head === g('rev-parse', 'HEAD').stdout.trim() && /^[0-9a-f]{40}$/.test(head), true)
+    eq('答不上来的（没有这个修订）：gitText 交回 null', gitText(['rev-parse', '--verify', '没有这个^{commit}'], at), null)
+    let said = ''
+    try { gitOrThrow(['show', 'HEAD:没有这个文件'], at) } catch (e) { said = (e as Error).message }
+    // git 的原话（标准错误）另问一遍拿来比：错里光有参数里那个文件名不算带了原话
+    const own = runGit(['show', 'HEAD:没有这个文件'], at).stderr.trim()
+    eq('答不上来的：gitOrThrow 抛错，错里带退出码与 git 的原话', [said.includes('退出码 128'), own !== '' && said.includes(own)], [true, true])
+  } finally { rmSync(repo, { recursive: true, force: true }) }
 })
 
 await group('d19-config-known-gap', () => {
