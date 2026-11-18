@@ -8744,7 +8744,7 @@ harness('变异锚点那一步：暂存区里躺着的变异')
   // 拆 cat-file --batch 的回话：拿手写的回话直接测（ADR-220 第三节还 ADR-70「anchors.ts 拆 cat-file 回话那几行留在入口」）
   const sha = 'a'.repeat(40)
   const reply = (...parts: string[]) => Buffer.from(parts.join(''), 'utf8')
-  eq('cat-file 回话：按顺序交回每一样的正文，正文里的换行、中文照字节数切', batchBlobs(reply(`${sha} blob 7\n中\nb\n`, `${sha} blob 0\n\n`), 2), ['中\nb', ''])
+  eq('cat-file 回话：按顺序交回每一样的正文，正文里的换行、中文照字节数切', batchBlobs(reply(`${sha} blob 5\n中\nb\n`, `${sha} blob 0\n\n`), 2), ['中\nb', ''])
   eq('cat-file 回话：问不到的只回一行、没有正文，交 undefined，后面那一样照常读', batchBlobs(reply(':./x missing\n', `${sha} blob 1\nz\n`), 2), [undefined, 'z'])
   eq('cat-file 回话：不是 blob 的交 undefined，跳过它的正文', batchBlobs(reply(`${sha} tree 3\nabc\n`, `${sha} blob 1\nz\n`), 2), [undefined, 'z'])
   eq('cat-file 回话：半截断了（缺头一行的换行、正文不够字节数），这一样和后面的都交 undefined，不当成读到了',
