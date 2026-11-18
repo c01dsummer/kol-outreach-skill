@@ -266,7 +266,7 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
   const def: 'A' | 'B' | 'C' =
     (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'
 
-  // P2：信里每一句对它登记的出处（博主资料、已证实的产品事实、发件人自己的话），并排给人看；没登记的也列出来。
+  // P2：信里每一行对它登记的出处（博主资料、已证实的产品事实、发件人自己的话），并排给人看；没登记的也列出来。
   // 只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-210、ADR-215）。
   const sourcesLine = (c: Creator) => {
     const line = options.mode === 'review'
@@ -274,7 +274,7 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
         bio: c.bio, posts: c.recent_posts?.map(p => p.desc), nickname: c.nickname, facts: options.facts,
       }) : undefined
     return line === undefined ? '' : `
-    <div class="bio" data-draft-sources="sentences">逐句出处：${esc(line)}（改写得准不准请对照原文自己看）</div>`
+    <div class="bio" data-draft-sources="lines">逐行出处：${esc(line)}（改写得准不准请对照原文自己看）</div>`
   }
   // U13.c：只在评审模式、草稿拆得出三态里「有草稿」那两档时出这一行；默认模式一个字节都不加（U9.a）。
   const subjectLine = (c: Creator) => {

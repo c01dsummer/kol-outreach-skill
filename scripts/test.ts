@@ -1765,8 +1765,8 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     const m = card === undefined ? null : new RegExp(`<div class="bio" ${attr}>([^<]*)</div>`).exec(card)
     return m === null ? undefined : m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&')
   }
-  const lineOf = (page: string, handle: string) => rowOf(page, handle, 'data-draft-sources="sentences"')
-  const HEAD = '逐句出处：', TAIL = '（改写得准不准请对照原文自己看）', BAR = '　｜　'
+  const lineOf = (page: string, handle: string) => rowOf(page, handle, 'data-draft-sources="lines"')
+  const HEAD = '逐行出处：', TAIL = '（改写得准不准请对照原文自己看）', BAR = '　｜　'
   const SELF = '发件人自己的话（确认没有借它给博主安新说法，也没有夹带产品说法）：'
   // 「要看」那一段空着时这一行以「要看：无」开头（ADR-215），运营不用从下一段推断。
   const lead = (want: string) => want.startsWith('要看：') ? want : `要看：无${BAR}${want}`
@@ -1776,7 +1776,7 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       '「You run marathons every week.」← 作品文案原文「I run marathons」（原文对不上：他的作品文案里没有这段）',
       '「It comes with a lifetime warranty.」← 产品事实原文「lifetime warranty」（原文对不上：任务里已证实的产品事实没有这段）',
       '「Meicooks is my favourite channel.」（没登记出处）',
-      '「Your old sentence that was edited away」（登记了出处，但信里已经没有这句）',
+      '「Your old sentence that was edited away」（登记了出处，但信里已经没有这段）',
     ].join('；') + BAR + '对得上：' + [
       '「YOUR 3-ingredient   smoothie series」← 简介原文「MEI’S 3-INGREDIENT recipes for busy mornings」',
       '「Your series shows the cleanup every time —」← 作品文案原文「I show the "cleanup" every time - always」',
@@ -1803,7 +1803,7 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     draft_sources: [{ draft: 'A blender. Quiet motor.', from: 'product', quote: 'blender. quiet' }], profile_url: 'https://example.com/prod' })], meta, { mode: 'review', facts: ['A blender.', 'Quiet motor.'] }), 'prod')
   eq('P2.f 产品事实：原文要整段落在同一条事实里，跨两条拼起来的对不上', spliced,
     `${HEAD}要看：「A blender. Quiet motor.」← 产品事实原文「blender. quiet」（原文对不上：任务里已证实的产品事实没有这段）${TAIL}`)
-  // 登记半句盖不住整句：句子里没登记的部分照印出来，不管 Agent 登记的是一小段、一个词还是一个标点。
+  // 登记半句盖不住整行：那一行里没登记的部分照印出来，不管 Agent 登记的是一小段、一个词还是一个标点。
   const one = (draft: string, sources: NonNullable<Creator['draft_sources']>, over: Partial<Creator> = {}) =>
     lineOf(renderHtml([mk('tiktok', 'one', { nickname: 'Mei Lin', bio: '3-ingredient recipes', tier: 'A', outreach_draft: draft, draft_sources: sources, profile_url: 'https://example.com/one', ...over })], meta, { mode: 'review' }), 'one')
   const HALF = { draft: 'Your 3-ingredient series', from: 'bio', quote: '3-ingredient recipes' } as const
@@ -1813,55 +1813,53 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       `要看：「Your 3-ingredient series proves you are the top chef.」（只登记了其中一段，没登记的：「proves you are the top chef.」）${BAR}${MATCH}`],
     ['登记一个词当发件人的话', 'You won awards.', [{ draft: 'you', from: 'self' }],
       `要看：「You won awards.」（只登记了其中一段，没登记的：「won awards.」）${BAR}${SELF}「you」`],
-    ['句号后没空格也切句', 'Your 3-ingredient series.You won awards.', [HALF],
-      `要看：「You won awards.」（没登记出处）${BAR}${MATCH}`],
-    ['引号收尾的句子也切', 'Your 3-ingredient series." You won awards.', [HALF],
-      `要看：「You won awards.」（没登记出处）${BAR}${MATCH}`],
-    ['列表行各自成句', '- Your 3-ingredient series\n- You won awards', [HALF],
-      `要看：「- You won awards」（没登记出处）${BAR}${MATCH}`],
-    ['缩写后的句点不切句', 'We met Dr. Oz in the U.S. for years.', [],
-      '要看：「We met Dr. Oz in the U.S. for years.」（没登记出处）'],
-    ['不提博主的句子没登记也列', 'We make a blender.', [], '要看：「We make a blender.」（没登记出处）'],
+    ['同一行里的几句不拆开，句号后的照列', 'Your 3-ingredient series. You won awards. Dr. Oz agrees.', [HALF],
+      `要看：「Your 3-ingredient series. You won awards. Dr. Oz agrees.」（只登记了其中一段，没登记的：「. You won awards. Dr. Oz agrees.」）${BAR}${MATCH}`],
+    ['列表编号也是字，要登记', '1. Your 3-ingredient series\n2. You won awards', [HALF],
+      `要看：「1. Your 3-ingredient series」（只登记了其中一段，没登记的：「1.」）；「2. You won awards」（没登记出处）${BAR}${MATCH}`],
+    ['回车、回车换行、U+2028、U+2029 都算换行', 'We make a blender.\r\nHi Mei,\rThanks\u2028Best\u2029Yu', [{ draft: 'We make a blender.', from: 'self' }],
+      `要看：「Hi Mei,」（没登记出处）；「Thanks」（没登记出处）；「Best」（没登记出处）；「Yu」（没登记出处）${BAR}${SELF}「We make a blender.」`],
+    ['不提博主的话没登记也列', 'We make a blender.', [], '要看：「We make a blender.」（没登记出处）'],
     ['问候没登记也列', 'Hi Mei,\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
       `要看：「Hi Mei,」（没登记出处）${BAR}${SELF}「We make a blender.」`],
-    ['落款没登记也列，折行接成一句', 'We make a blender.\n\nBest,\nYu', [{ draft: 'We make a blender.', from: 'self' }],
-      `要看：「Best, Yu」（没登记出处）${BAR}${SELF}「We make a blender.」`],
+    ['落款没登记也列，折行各占一行', 'We make a blender.\n\nBest,\nYu', [{ draft: 'We make a blender.', from: 'self' }],
+      `要看：「Best,」（没登记出处）；「Yu」（没登记出处）${BAR}${SELF}「We make a blender.」`],
+    ['登记跨行也算盖住', 'Best,\nYu', [{ draft: 'Best, Yu', from: 'self' }], `${SELF}「Best, Yu」`],
     ['弯撇号与直撇号算同一个', 'You’re a pro.', [{ draft: "You're a pro.", from: 'self' }], `${SELF}「You're a pro.」`],
-    ['要看的按在信里的先后，不按登记的先后', 'You won awards. Your 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
+    ['要看的按在信里的先后，不按登记的先后', 'You won awards.\nYour 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
       '要看：「You won awards.」（没登记出处）；「Your 3-ingredient secret.」← 简介原文「secret」（原文对不上：他的简介里没有这段）'],
-    ['同一句只列一次', 'You rock.\n\nYou rock.', [], '要看：「You rock.」（没登记出处）'],
-    // 同一句在信里出现两处，前一处登记了、后一处没盖住：后一处照列，不被前一处去重吃掉。
-    // 主题行去掉的「Subject:」字样不当成句子去找：正文里同样写着的那句照样核它自己那一处。
-    ['主题行的标签不顶替正文同一句的位置', 'Subject: Subject\n\nSubject', [{ draft: 'Subject: Subject', from: 'self' }],
+    ['同一行在信里出现几处就列几处', 'You rock.\n\nYou rock.', [], '要看：「You rock.」（没登记出处）；「You rock.」（没登记出处）'],
+    // 同一段在信里出现两处，前一处登记了、后一处没盖住：后一处照列。
+    // 主题行去掉的「Subject:」字样不用登记；正文里同样写着的那一行照样核它自己那一处。
+    ['主题行的标签不用登记，正文同样的字照核', 'Subject: Subject\n\nSubject', [{ draft: 'Subject: Subject', from: 'self' }],
       `要看：「Subject」（没登记出处）${BAR}${SELF}「Subject: Subject」`],
-    ['同一句前一处登记了，后一处没盖住照列', 'Want to try it? No pressure.\n\nNo pressure.', [{ draft: 'Want to try it? No pressure.', from: 'self' }],
+    ['同一段前一处登记了，后一处没盖住照列', 'Want to try it? No pressure.\n\nNo pressure.', [{ draft: 'Want to try it? No pressure.', from: 'self' }],
       `要看：「No pressure.」（没登记出处）${BAR}${SELF}「Want to try it? No pressure.」`],
-    ['登记跨过两句的一整段也算盖住', 'You cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
+    ['登记跨过句号的一整段也算盖住', 'You cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
     ['只剩标点的一段不列', 'We make a blender.\n\n— …', [{ draft: 'We make a blender.', from: 'self' }], `${SELF}「We make a blender.」`],
     ['占位符也是字，要登记', '{他的某条具体内容}', [], '要看：「{他的某条具体内容}」（没登记出处）'],
   ]
-  eq('P2.f 每一句都要登记：没盖住的字所在的句子整句印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的句子、占位符也要登记；切句认句号无空格、收尾引号、列表行，不在缩写处切；弯撇号、去重；按在信里出现的先后',
+  eq('P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后',
     halfCases.map(([name, draft, sources]) => [name, one(draft, sources)]), halfCases.map(([name, , , want]) => [name, HEAD + lead(want) + TAIL]))
-  // 登记停在切句点上或跨过切句点：覆盖按整封信的字算，被压到一部分的那句照样列出没登记的部分。
+  // 登记停在一行中间或跨过句号：覆盖按整封信的字算，那一行里没登记的部分照样列出。
   const POST = { recent_posts: [{ desc: 'Yes, I show the cleanup every time! Day 12. Still showing the cleanup!' }] as unknown as Creator['recent_posts'] }
   const crossCases: Array<[string, string, NonNullable<Creator['draft_sources']>, string, Partial<Creator>]> = [
-    ['引号里的感叹号后接小写不切句', 'Your post "Yes, I show the cleanup every time!" proves nobody works harder.',
+    ['登记停在引号收尾处，同一行后面的评价照列', 'Your post "Yes, I show the cleanup every time!" proves nobody works harder.',
       [{ draft: 'Your post "Yes, I show the cleanup every time!"', from: 'post', quote: 'Yes, I show the cleanup every time!' }],
       '要看：「Your post "Yes, I show the cleanup every time!" proves nobody works harder.」（只登记了其中一段，没登记的：「proves nobody works harder.」）' + BAR +
       '对得上：「Your post "Yes, I show the cleanup every time!"」← 作品文案原文「Yes, I show the cleanup every time!」', POST],
-    ['登记跨过切句点，压到下一句一部分', 'Your caption "Day 12. Still showing the cleanup!" is the most honest thing online.',
+    ['登记跨过句号，同一行后半照列', 'Your caption "Day 12. Still showing the cleanup!" is the most honest thing online.',
       [{ draft: 'Your caption "Day 12. Still showing the cleanup!"', from: 'post', quote: 'Day 12. Still showing the cleanup!' }],
-      '要看：「Still showing the cleanup!" is the most honest thing online.」（只登记了其中一段，没登记的：「is the most honest thing online.」）' + BAR +
+      '要看：「Your caption "Day 12. Still showing the cleanup!" is the most honest thing online.」（只登记了其中一段，没登记的：「is the most honest thing online.」）' + BAR +
       '对得上：「Your caption "Day 12. Still showing the cleanup!"」← 作品文案原文「Day 12. Still showing the cleanup!」', POST],
-    ['引文后接破折号评价不切句', 'Your post "Clean kitchen!" — a masterclass in sustainability.',
+    ['引文后接破折号的评价照列，印原文的破折号', 'Your post "Clean kitchen!" — a masterclass in sustainability.',
       [{ draft: 'Your post "Clean kitchen!"', from: 'self' }],
-      `要看：「Your post "Clean kitchen!" — a masterclass in sustainability.」（只登记了其中一段，没登记的：「- a masterclass in sustainability.」）${BAR}${SELF}「Your post "Clean kitchen!"」`, {}],
-    ['表外缩写后接小写不切句', 'Your 5 a.m. smoothie routine is the most disciplined thing around.',
-      [{ draft: 'Your 5 a.m.', from: 'self' }],
-      `要看：「Your 5 a.m. smoothie routine is the most disciplined thing around.」（只登记了其中一段，没登记的：「smoothie routine is the most disciplined thing around.」）${BAR}${SELF}「Your 5 a.m.」`, {}],
+      `要看：「Your post "Clean kitchen!" — a masterclass in sustainability.」（只登记了其中一段，没登记的：「— a masterclass in sustainability.」）${BAR}${SELF}「Your post "Clean kitchen!"」`, {}],
     ['没登记的只剩表情也列出', 'Your smoothie series 🔥🔥', [{ draft: 'Your smoothie series', from: 'self' }], `要看：「Your smoothie series 🔥🔥」（只登记了其中一段，没登记的：「🔥🔥」）${BAR}${SELF}「Your smoothie series」`, {}],
-    ['登记在信里出现几处，每处都算盖住', 'Your cleanup clip. Your cleanup clip is the best.', [{ draft: 'Your cleanup clip', from: 'self' }],
+    ['登记在信里出现几处，每处都算盖住', 'Your cleanup clip.\nYour cleanup clip is the best.', [{ draft: 'Your cleanup clip', from: 'self' }],
       `要看：「Your cleanup clip is the best.」（只登记了其中一段，没登记的：「is the best.」）${BAR}${SELF}「Your cleanup clip」`, {}],
+    ['主题行只登记了标签后的字就算盖住', 'Subject: your blender\n\nWe make a blender.', [{ draft: 'your blender', from: 'self' }, { draft: 'We make a blender.', from: 'self' }],
+      `${SELF}「your blender」；「We make a blender.」`, {}],
     ['主题行写什么都要登记', 'Subject: Mei, your blender\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
       `要看：「Mei, your blender」（没登记出处）${BAR}${SELF}「We make a blender.」`, {}],
     ['没填的占位符整段是标点也要登记', 'Subject: {...}\n\nWe make a {...} blender.', [{ draft: 'We make a', from: 'self' }, { draft: 'blender.', from: 'self' }],
@@ -1870,7 +1868,7 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
     ['分开写的附加符号与合写的算同一个字', 'Café chats are fun.', [{ draft: 'Café chats are fun.', from: 'self' }], `${SELF}「Café chats are fun.」`, {}],
   ]
-  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一',
+  eq('P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一',
     crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + lead(want) + TAIL]))
   // 名单被手改坏（昵称不是字符串、作品文案是 null、简介是数字）时这一行照出，不让 render 失败（P2.g）。
   let crashed = '', badHtml = ''
@@ -1896,9 +1894,9 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（对不了：他的简介没查过）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
       HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（原文对不上：他的作品文案里没有这段）'].join('；') + NICK + TAIL,
     ])
-  // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，和下一行接成一句。
+  // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，标签也要登记，下一行另算一行。
   const subj = renderHtml([mk('tiktok', 'subj', { nickname: 'Ana', tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', draft_sources: [{ draft: 'Hi Ana,', from: 'self' }], profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
-  eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文切句', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen is lovely.」（没登记出处）${BAR}${SELF}「Hi Ana,」${TAIL}`)
+  eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文核，标签也要登记', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen」（没登记出处）；「is lovely.」（没登记出处）${BAR}${SELF}「Hi Ana,」${TAIL}`)
   criterion('P2.f', 'P2.g')
   // P2.c 与 ADR-215：登记成发件人自己的话的约时间、电话这类数字，不进「出处对不上」，另列一行；
   // 价钱、百分比、承诺词这几类登记成自己的话也照列；没登记的那一处照列。
@@ -2012,7 +2010,7 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
     const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
     const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
-    const line = /<div class="bio" data-draft-sources="sentences">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
+    const line = /<div class="bio" data-draft-sources="lines">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
     const csv = read('kol.csv')
     // 每一张工作表都看（分层导出时一层一张，空层也有表），再加共享字符串表；第一张读不出算读不出。
     let xlsxText = ''
@@ -2021,9 +2019,9 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), `xl/worksheets/sheet${i}.xml`) } catch { break }
     }
     try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), 'xl/sharedStrings.xml') } catch { /* 没有共享字符串表时只看工作表 */ }
-    eq('P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
+    eq('P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
       [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('draft_sources'), xlsxText !== 'unreadable' && xlsxText.includes('outreach_draft'), xlsxText.includes('draft_sources')],
-      [0, '逐句出处：要看：「Quick one」（没登记出处）；「Hi Ana,」（没登记出处）；「You also climb.」（没登记出处）；「Best, {name}」（没登记出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true, false])
+      [0, '逐行出处：要看：「Quick one」（没登记出处）；「Hi Ana,」（没登记出处）；「Your sourdough series is lovely. You also climb.」（只登记了其中一段，没登记的：「You also climb.」）；「Best,」（没登记出处）；「{name}」（没登记出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true, false])
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
   } finally { rmSync(root, { recursive: true, force: true }) }
   }

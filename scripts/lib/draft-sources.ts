@@ -7,8 +7,8 @@
  * 这里只做两件确定的事：
  *
  * 1. 对账：登记的原文片段确实在那一样资料里逐字出现；登记的那句确实还在信里。
- * 2. 点名：信里有字没被任何登记盖住的句子列出来。列不列只看「有没有字没被盖住」，
- *    不猜哪句在说博主、哪句是问候（ADR-215 第二节）；切句只决定报告里怎么分组显示。
+ * 2. 点名：信里有字没被任何登记盖住的那一行列出来。列不列只看「有没有字没被盖住」，
+ *    不猜哪句在说博主、哪句是问候（ADR-215 第二节）；报告按换行分组显示，不切句（ADR-215 第九节）。
  *
  * 改写得准不准，机器判断不了 —— 报告把「信里这句」和「原文」并排放，交给人看。
  * **只标不拦**：结果只进评审 HTML，草稿一个字节不改（P2.b），也不让导出失败。
@@ -80,59 +80,31 @@ export function normalizeText(text: string): string {
   return normalized(text).text
 }
 
-/** 第一个非空行以 Subject: 开头时是主题行，冒号后面那段自成一句，不和下面的正文接起来（和拆主题列的规矩 U13.a 一致）。 */
-const SUBJECT = /^subject\s*[:：]\s*/i
-/** 列表行（-、*、•、1. 1) 开头）各自成句，不和上下行接起来。 */
-const LIST_ITEM = /^(?:[-*•·]|\d+[.)])\s+/
-/** 句点前是这些缩写或单个字母时不切句：「Dr. Oz」「U.S.」不在中间断开。 */
-const ABBREVIATIONS = new Set(['mr', 'mrs', 'ms', 'dr', 'st', 'jr', 'sr', 'vs', 'etc', 'e.g', 'i.e', 'u.s', 'u.k', 'no', 'prof', 'mt'])
+/** 换行的认法与拆主题列（`draftSubject`，U13.a）一致：\r\n、\r、\n、\u2028、\u2029 都算一行的结尾。 */
+const LINE_BREAK = /\r\n|\r|\n|\u2028|\u2029/g
+/** 第一个非空行以 Subject: 开头时是主题行，「Subject:」字样不算要登记的字（和拆主题列的规矩 U13.a 一致）。 */
+const SUBJECT = /^\s*subject\s*[:：]\s*/i
 
 const text = (value: unknown): string | undefined => typeof value === 'string' ? value : undefined
 
-/** 在一行正文里切句：句末标点（. ! ? …）后面可带收尾的引号括号，再跟空白、行尾或大写字母开头处切；缩写与单个字母后的句点不切。 */
-function splitSentences(line: string): string[] {
-  const out: string[] = []
-  let start = 0
-  const re = /[.!?…]+["'”’)\]]*/g
-  for (let m = re.exec(line); m !== null; m = re.exec(line)) {
-    const end = m.index + m[0].length
-    const next = line.slice(end)
-    if (next !== '' && !/^\s/.test(next) && !/^\p{Lu}/u.test(next)) continue
-    // 后面空白再接小写字母、破折号或开括号：还是同一句（引号里的感叹号、句中 ...、a.m.、引文后接「— 评价」不切）。
-    if (/^\s+[\p{Ll}—–(（]/u.test(next)) continue
-    if (m[0].startsWith('.')) {
-      const before = /([\p{L}.]+)$/u.exec(line.slice(start, m.index))?.[1].toLowerCase()
-      if (before !== undefined && (before.length === 1 || ABBREVIATIONS.has(before))) continue
-    }
-    const piece = line.slice(start, end).trim()
-    if (piece) out.push(piece)
-    start = end
-  }
-  const rest = line.slice(start).trim()
-  if (rest) out.push(rest)
-  return out
-}
-
-/** 把草稿切成句，只为报告分组显示：空行分段，段内折行接回一行（信常常手动折行），列表行各自成句；主题行（第一个非空行）自成一句。 */
-/** 切出来的每一句；主题行那句带上被去掉的「Subject:」字样，找句子位置时先越过它，免得把标签当成句子（或把主题当成正文里同样的那句）。 */
-type Sentence = { text: string; label?: string }
-function sentences(draft: string): Sentence[] {
-  const out: Sentence[] = []
+/**
+ * 报告按行分组：信按换行切开，每一行（去掉头尾空白）是一个显示单位；主题行去掉「Subject:」字样。
+ * 不切句：切句要猜句子边界（缩写、引号、列表编号、数字里的点），猜错就漏列或拆碎（ADR-215 第九节）。
+ * `start`、`end` 是这一行要登记的字在草稿原文里的下标。
+ */
+type Line = { start: number; end: number; text: string }
+function lines(draft: string): Line[] {
+  const out: Line[] = []
   let first = true
-  for (const paragraph of draft.split(/\r?\n\s*\r?\n/)) {
-    const body: string[] = []
-    const flush = () => { if (body.length) out.push(...splitSentences(body.splice(0).join(' ')).map(text => ({ text }))) }
-    for (const raw of paragraph.split(/\r?\n/)) {
-      const line = raw.trim()
-      if (!line) continue
-      const subject = first && SUBJECT.test(line)
-      first = false
-      if (subject) { const rest = line.replace(SUBJECT, '').trim(); if (rest) out.push({ text: rest, label: SUBJECT.exec(line)![0] }); continue }
-      if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line).map(text => ({ text }))); continue }
-      body.push(line)
-    }
-    flush()
+  const add = (start: number, end: number) => {
+    if (draft.slice(start, end).trim() === '') return
+    if (first) { first = false; start += SUBJECT.exec(draft.slice(start, end))?.[0].length ?? 0 }
+    const body = draft.slice(start, end).trim()
+    if (body) out.push({ start, end, text: body })
   }
+  let start = 0
+  for (const m of draft.matchAll(LINE_BREAK)) { add(start, m.index); start = m.index + m[0].length }
+  add(start, draft.length)
   return out
 }
 
@@ -167,8 +139,8 @@ export type DraftSourceItem =
   | { status: 'unregistered'; draft: string }
 
 /**
- * 覆盖按整封信的字算：每条登记在（归一后的）信里出现的每一处都标成盖住。这样登记停在切句点上、或跨过切句点，
- * 被它压到一部分的下一句也算「只登记了一部分」，不会因为切句切在登记中间而整句漏掉（ADR-210 第六节）。
+ * 覆盖按整封信的字算：每条登记在（归一后的）信里出现的每一处都标成盖住，登记跨不跨行都一样。
+ * 哪一行还有字没被盖住，哪一行就列出来（ADR-210 第六节、ADR-215 第九节）。
  */
 function coverage(normalizedDraft: string, keys: readonly string[]): boolean[] {
   const covered = new Array<boolean>(normalizedDraft.length).fill(false)
@@ -186,15 +158,19 @@ function coverage(normalizedDraft: string, keys: readonly string[]): boolean[] {
  */
 const hasWords = (text: string): boolean => /[^\s\p{P}]|[{}]/u.test(text)
 
-/** 一句（信里从 `at` 起、长 `length` 的一段）有没有被碰到，没被盖住的部分按原顺序用「…」连起来；全盖住时 `rest` 为 ''。 */
-function uncovered(normalizedDraft: string, covered: readonly boolean[], at: number, length: number): { touched: boolean; rest: string } {
+/**
+ * 一行（归一后的第 `at` 到第 `end` 个字）有没有被碰到；没被盖住的部分照草稿原文的写法（`show` 换回原文）按原顺序用「…」连起来，
+ * 全盖住时 `rest` 为 ''。
+ */
+function uncovered(covered: readonly boolean[], at: number, end: number, show: (from: number, to: number) => string): { touched: boolean; rest: string } {
   let touched = false
   const pieces: string[] = []
-  let piece = ''
-  for (let i = at; i < at + length; i++) {
-    if (covered[i]) { touched = true; if (piece) pieces.push(piece); piece = '' } else piece += normalizedDraft[i]
+  let start = -1
+  for (let i = at; i <= end; i++) {
+    if (i < end && !covered[i]) { if (start < 0) start = i; continue }
+    if (i < end) touched = true
+    if (start >= 0) { pieces.push(show(start, i)); start = -1 }
   }
-  if (piece) pieces.push(piece)
   // 只丢纯空白与标点的剩余段；表情、符号（🔥、=、>>>）也是没登记的话，照列。
   const rest = pieces.map(p => p.trim()).filter(hasWords)
   return { touched, rest: rest.join('…') }
@@ -202,13 +178,14 @@ function uncovered(normalizedDraft: string, covered: readonly boolean[], at: num
 
 /**
  * 对一封草稿出逐条结果，按在草稿里出现的先后排；没草稿或只有空白时返回 undefined（不出这一行）。
- * 登记的那句已经不在信里的，排在最后（草稿改过、登记没跟着改）。
+ * 登记的那段已经不在信里的，排在最后（草稿改过、登记没跟着改）。
  */
 export function draftSourceItems(
   draft: string | undefined, sources: readonly DraftSource[] | undefined, given: SourceText,
 ): DraftSourceItem[] | undefined {
   if (draft === undefined || draft.trim() === '') return undefined
-  const normalizedDraft = normalizeText(draft)
+  const { text: normalizedDraft, from, to } = normalized(draft)
+  const show = (start: number, end: number) => draft.slice(from[start], to[end - 1])
   const registered = (sources ?? []).map(source => ({ source, key: normalizeText(source.draft) }))
   const covered = coverage(normalizedDraft, registered.map(r => r.key))
   const placed: Array<{ at: number; item: DraftSourceItem }> = []
@@ -221,23 +198,15 @@ export function draftSourceItems(
       : { status: quoteVerdict({ ...source, from: source.from }, given), draft: source.draft, from: source.from, quote: source.quote === undefined ? '' : source.quote }
     placed.push({ at, item })
   }
-  let cursor = 0
-  const seen = new Set<string>()
-  for (const { text: sentence, label } of sentences(draft)) {
-    const s = normalizeText(sentence)
-    if (label !== undefined) {
-      const skip = normalizeText(label), p = normalizedDraft.indexOf(skip, cursor)
-      if (skip && p >= 0) cursor = p + skip.length
-    }
-    const found = normalizedDraft.indexOf(s, cursor)
-    if (found >= 0) cursor = found + s.length
-    // 同一句只列一次：只在真的列出来时记账 —— 前一处被登记盖住、后一处没盖住的，后一处照列。
-    if (!s || seen.has(s)) continue
-    // 在信里找不到这句（归一前后切法有出入的极少数情形）时当一个字都没被盖住，照列，不放过。
-    const at = found >= 0 ? found : normalizedDraft.length
-    const { touched, rest } = found >= 0 ? uncovered(normalizedDraft, covered, found, s.length) : { touched: false, rest: s }
-    if (touched && rest) { seen.add(s); placed.push({ at, item: { status: 'partial', draft: sentence, rest } }) }
-    else if (!touched && hasWords(s)) { seen.add(s); placed.push({ at, item: { status: 'unregistered', draft: sentence } }) }
+  // 每一行看它的字有没有被登记盖住：归一后的字按来处（原文下标）分到各行，换行与「Subject:」字样不归任何一行。
+  let i = 0
+  for (const line of lines(draft)) {
+    while (i < from.length && from[i] < line.start) i++
+    const begin = i
+    while (i < from.length && from[i] < line.end) i++
+    const { touched, rest } = uncovered(covered, begin, i, show)
+    if (touched && rest) placed.push({ at: begin, item: { status: 'partial', draft: line.text, rest } })
+    else if (!touched && hasWords(normalizedDraft.slice(begin, i))) placed.push({ at: begin, item: { status: 'unregistered', draft: line.text } })
   }
   placed.sort((a, b) => a.at - b.at)
   return [...placed.map(p => p.item), ...missing]
@@ -252,7 +221,7 @@ export function draftSourceText(item: DraftSourceItem): string {
       : `「${item.draft}」← ${KIND_LABEL[item.from]}原文「${item.quote}」（原文对不上：他的${KIND_LABEL[item.from]}里没有这段）`
     case 'not_queried': return `「${item.draft}」← ${KIND_LABEL[item.from]}原文「${item.quote}」（对不了：他的${KIND_LABEL[item.from]}没查过）`
     case 'self': return `「${item.draft}」`
-    case 'not_in_draft': return `「${item.draft}」（登记了出处，但信里已经没有这句）`
+    case 'not_in_draft': return `「${item.draft}」（登记了出处，但信里已经没有这段）`
     case 'partial': return `「${item.draft}」（只登记了其中一段，没登记的：「${item.rest}」）`
     case 'unregistered': return `「${item.draft}」（没登记出处）`
   }
@@ -260,7 +229,7 @@ export function draftSourceText(item: DraftSourceItem): string {
 
 /**
  * 报告那一行的内容。分三段，要人看的在前：「要看：」原文对不上、没查过、只登记了一部分、没登记、信里已没有的；
- * 「对得上：」并排的信里这句与原文；「发件人自己的话：」登记成 self 的。每段内按在信里出现的先后、用「；」连；
+ * 「对得上：」并排的信里这段与原文；「发件人自己的话：」登记成 self 的。每段内按在信里出现的先后、用「；」连；
  * 空的段不出，三段都空写「无」；没草稿返回 undefined。
  */
 export function draftSourceLine(
