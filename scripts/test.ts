@@ -23353,24 +23353,30 @@ await group('h-start-process', async () => {
     startSpawnSync('换上的那个看见了', [])
   } finally { childProcessModule.spawnSync = original }
   eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
-  // 过了检查的参数原样交给 Node：同一个参数数组、同一个选项对象（选项从原型上继承来的值也就跟着到了），个数不变。三个函数各换一次。
-  // 程序用正在跑的这个 node 加「-e 1」：替身没接上（比如函数在载入时就抄下来了）而真起了进程时，也很快结束；真起时抛的错与异步的 error 事件都接住。
-  // 每个函数各给一份新的参数数组，交出去以后内容也要与交之前一样（就地改了内容、同一个数组照样过不了）
-  const inherited = Object.create({ stdio: 'pipe' }) as object
+  // 过了检查的就原样交给 Node，原样把 Node 的结果还回来。三个函数各换一次替身，每次都用新的参数数组和新的选项对象（选项的 stdio 从原型上继承来）。
+  // 一次看全：调用方手里的数组与选项「看上去什么样」（数组内容、选项自己有哪些键、读到的 stdio）在交之前、交给替身那一刻、交完以后都要一样；
+  // 替身只被叫一次，收到的程序名、数组、选项是原来那几个、个数不变；函数还回来的就是替身还的那个东西。
+  // 程序用正在跑的这个 node 加「-e 1」：替身没接上（比如函数在载入时就抄下来了）而真起了进程时，也很快结束；真起时抛的错与异步的 error 事件都接住
   const forwarded = startNames.map(name => {
-    const args = ['-e', '1'], before = JSON.stringify(args)
     const module = childProcessModule as unknown as Record<string, unknown>
     const kept = module[name]
-    let got: unknown[] = [], calls = 0
+    const args = ['-e', '1'], options = Object.create({ stdio: 'pipe' }) as { stdio?: unknown }
+    const look = () => JSON.stringify([args, Object.getOwnPropertyNames(options), options.stdio])
+    const before = look(), handedBack = { 替身还的: name }
+    const dispatched: unknown[] = []
+    let returned: unknown
     try {
-      module[name] = (...a: unknown[]) => { got = a; calls++; return { status: 0 } }
-      const started = (startFunctions[name] as (...a: unknown[]) => unknown)(process.execPath, args, inherited) as { on?: (e: string, h: () => void) => void }
-      started?.on?.('error', () => {})
-    } catch { /* 真起时抛的错：下面 got 是空的，断言照样红 */ } finally { module[name] = kept }
-    return [calls, got.length, got[0] === process.execPath, got[1] === args, JSON.stringify(got[1]) === before, got[2] === inherited]
+      module[name] = (...a: unknown[]) => {
+        dispatched.push([a.length, a[0] === process.execPath, a[1] === args, a[2] === options, look() === before])
+        return handedBack
+      }
+      returned = (startFunctions[name] as (...a: unknown[]) => unknown)(process.execPath, args, options)
+      if (returned !== handedBack) (returned as { on?: (e: string, h: () => void) => void } | undefined)?.on?.('error', () => {})
+    } catch (error) { returned = error } finally { module[name] = kept }
+    return [dispatched, returned === handedBack, look() === before]
   })
-  eq('过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组且内容没改、同一个选项对象（原型上继承的选项值也跟着到），个数不变',
-    forwarded, Array.from({ length: 3 }, () => [1, 3, true, true, true, true]))
+  eq('过了检查的原样交给 Node、原样还回结果：替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，数组内容与选项（含继承来的 stdio）交之前、交的那一刻、交完以后都没变，还回来的就是替身还的',
+    forwarded, Array.from({ length: 3 }, () => [[[3, true, true, true, true]], true, true]))
 })
 
 // 与上一组分开（ADR-131）：上一组不起进程，这一组真起三次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限

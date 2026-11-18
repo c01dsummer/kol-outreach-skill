@@ -28922,7 +28922,7 @@
       "find": "  return rest\n}",
       "replace": "  return rest.map(item => Array.isArray(item) ? [...item] : typeof item === 'object' && item !== null ? { ...item } : item)\n}",
       "by": "test",
-      "kills": ["过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组且内容没改、同一个选项对象（原型上继承的选项值也跟着到），个数不变"]
+      "kills": ["过了检查的原样交给 Node、原样还回结果：替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，数组内容与选项（含继承来的 stdio）交之前、交的那一刻、交完以后都没变，还回来的就是替身还的"]
     },
     {
       "id": "M-H219-m",
@@ -28932,7 +28932,7 @@
       "find": "  return rest\n}",
       "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio')) (args as unknown[]).push('--')\n  return rest\n}",
       "by": "test",
-      "kills": ["过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组且内容没改、同一个选项对象（原型上继承的选项值也跟着到），个数不变"]
+      "kills": ["过了检查的原样交给 Node、原样还回结果：替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，数组内容与选项（含继承来的 stdio）交之前、交的那一刻、交完以后都没变，还回来的就是替身还的"]
     },
     {
       "id": "M-H219-n",
@@ -28942,7 +28942,27 @@
       "find": "  (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as SpawnSync",
       "replace": "  ((cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)), (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...rest))) as SpawnSync",
       "by": "test",
-      "kills": ["过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组且内容没改、同一个选项对象（原型上继承的选项值也跟着到），个数不变"]
+      "kills": ["过了检查的原样交给 Node、原样还回结果：替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，数组内容与选项（含继承来的 stdio）交之前、交的那一刻、交完以后都没变，还回来的就是替身还的"]
+    },
+    {
+      "id": "M-H219-o",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项的 stdio 是继承来的时，往选项对象自己身上补一个同样的值：还是同一个对象、读到的值也一样，调用方的对象却多了一个自己的键",
+      "find": "  return rest\n}",
+      "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio')) (options as { stdio?: unknown }).stdio = (options as { stdio?: unknown }).stdio\n  return rest\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，数组内容与选项（含继承来的 stdio）交之前、交的那一刻、交完以后都没变，还回来的就是替身还的"]
+    },
+    {
+      "id": "M-H219-p",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程拿输出的那个交给 Node 以后不把结果还回来、而是抛错：参数都对，调用方却拿不到 Node 的结果",
+      "find": "  (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as ExecFileSync",
+      "replace": "  { (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)); throw new Error('交完不还') }) as ExecFileSync",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，数组内容与选项（含继承来的 stdio）交之前、交的那一刻、交完以后都没变，还回来的就是替身还的"]
     }
   ],
   "exemptions": [
