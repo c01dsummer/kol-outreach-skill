@@ -36,7 +36,7 @@ import {
   launchSummary, launchTally, paidLaunches, printLabel, settleLaunches, summaryLine, tallyLine,
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchSummary, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
-import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
+import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, isGitProgram, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
@@ -44,7 +44,7 @@ import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, io
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
-import { execFileSync as startExecFileSync, isGitProgram, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
+import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -22675,7 +22675,7 @@ await group('h-observer-run', async () => {
     // 自己的 node_modules 是不是软链。沙箱照搬的是树根下的 node_modules，软链的目标不在沙箱里
     const linked = join(dir, 'linked')
     mkdirSync(join(linked, 'scripts', 'check'), { recursive: true })
-    for (const f of ['observer-run.ts', 'observer-rule.ts', 'start-process.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
+    for (const f of ['observer-run.ts', 'observer-rule.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
     writeFileSync(join(linked, 'package.json'), '{ "type": "module" }\n')
     symlinkSync(realpathSync('node_modules'), join(linked, 'node_modules'))
     // 另起一个带 tsx 加载器的进程导入那棵树里的运行器：本进程可能跑在预编的 JS 上（`npm run compile` 之后的变异），仓库外的 .ts 它认不全
@@ -23340,6 +23340,12 @@ await group('h-start-process', async () => {
   const cwd = startSpawnSync('pwd', { cwd: '/', encoding: 'utf8' })
   eq('选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用',
     [noArgs.error !== undefined, noArgs.status, cwd.stdout], [true, null, '/\n'])
+  const holeArgs = startSpawnSync('echo $HOME', undefined, { cwd: '/', shell: true })
+  const holeCwd = startSpawnSync('pwd', null as unknown as string[], { cwd: '/', encoding: 'utf8' })
+  eq('参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用',
+    [holeArgs.error !== undefined, holeCwd.stdout], [true, '/\n'])
+  const badShape = (() => { try { startSpawnSync('echo', 'hi' as unknown as string[]); return '没抛' } catch (e) { return (e as NodeJS.ErrnoException).code } })()
+  eq('认不出的参数形状原样交给 Node，由它报参数类型错，不悄悄改成别的', badShape, 'ERR_INVALID_ARG_TYPE')
 })
 
 await group('d19-config-known-gap', () => {

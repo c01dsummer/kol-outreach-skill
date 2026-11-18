@@ -8,7 +8,7 @@
  * 每次运行一个新的证据目录：脚本原字节、参数表、事件文件、两股输出与退出码都落在那里，判的结果也写进去。
  * 入口按 kol-test-observer/v1 写的测试观察记录也落在这个目录（`CONTRACT_RECORDS`），环境变量每一跑都给（ADR-186 末尾「第二片」）。
  */
-import { spawn, spawnSync } from './start-process.js'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'

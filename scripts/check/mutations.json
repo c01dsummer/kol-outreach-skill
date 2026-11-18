@@ -14437,7 +14437,7 @@
       "id": "M-H53-e",
       "req": "harness",
       "why": "路径只按正斜杠切：Windows 上反斜杠写的 git.exe 认不出、按普通启动算，同一棵树在 Windows 上多数出 git 那几次",
-      "file": "scripts/check/start-process.ts",
+      "file": "scripts/check/launch-count.ts",
       "find": "file.split(/[/\\\\]/)",
       "replace": "file.split('/')",
       "by": "test",
@@ -28837,7 +28837,7 @@
     {
       "id": "M-H219-d",
       "req": "harness",
-      "file": "scripts/check/start-process.ts",
+      "file": "scripts/check/launch-count.ts",
       "why": "裸名 git 认不出：三个函数都放行",
       "find": "return last === 'git' ||",
       "replace": "return false ||",
@@ -28847,7 +28847,7 @@
     {
       "id": "M-H219-e",
       "req": "harness",
-      "file": "scripts/check/start-process.ts",
+      "file": "scripts/check/launch-count.ts",
       "why": "Windows 上的 git.exe 认不出",
       "find": "|| last === 'git.exe'",
       "replace": "|| false",
@@ -28859,20 +28859,40 @@
       "req": "harness",
       "file": "scripts/check/start-process.ts",
       "why": "带参数数组时选项里的 shell 原样转：传了 shell: true 就经 shell 起，命令串里起什么这里看不到",
-      "find": "[first ?? [], { ...(second as object | undefined), shell: false }]",
-      "replace": "[first ?? [], { ...(second as object | undefined) }]",
+      "find": "return [first ?? [], { ...(second as object | undefined), shell: false }]",
+      "replace": "return [first ?? [], { ...(second as object | undefined) }]",
       "by": "test",
-      "kills": ["传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样"]
+      "kills": ["传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样", "参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用"]
     },
     {
       "id": "M-H219-g",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
       "why": "选项在第二个位置时 shell 原样转",
-      "find": "[[], { ...(first as object | undefined), shell: false }]",
-      "replace": "[[], { ...(first as object | undefined) }]",
+      "find": "return [[], { ...(first as object | undefined), shell: false }]",
+      "replace": "return [[], { ...(first as object | undefined) }]",
       "by": "test",
       "kills": ["选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用"]
+    },
+    {
+      "id": "M-H219-h",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "参数数组的位置写成空值时不认第三个位置的选项：整组原样交出去，传了经 shell 就真经 shell",
+      "find": "(Array.isArray(first) || first == null) &&",
+      "replace": "Array.isArray(first) &&",
+      "by": "test",
+      "kills": ["参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用"]
+    },
+    {
+      "id": "M-H219-i",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "认不出的参数形状被悄悄改成「没有参数、只关 shell」：写错的调用照常起进程、参数丢了也不报",
+      "find": "  return [...rest]\n",
+      "replace": "  return [[], { shell: false }]\n",
+      "by": "test",
+      "kills": ["认不出的参数形状原样交给 Node，由它报参数类型错，不悄悄改成别的"]
     }
   ],
   "exemptions": [

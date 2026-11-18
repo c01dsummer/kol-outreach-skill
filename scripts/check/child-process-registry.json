@@ -16,6 +16,7 @@
     "scripts/check/launches.ts",
     "scripts/check/mutate.ts",
     "scripts/check/observer-cert.ts",
+    "scripts/check/observer-run.ts",
     "scripts/check/revisit-rule.ts",
     "scripts/check/selfcheck.ts",
     "scripts/check/shard-load.ts",

@@ -11,21 +11,21 @@
 import cp from 'node:child_process'
 export type { ChildProcess, SpawnOptions, SpawnSyncOptions, SpawnSyncReturns } from 'node:child_process'
 
-/** 要起的程序是不是 git：看路径末段，`/` 与 `\` 都算分隔 */
-export function isGitProgram(file: string): boolean {
-  const last = file.split(/[/\\]/).pop()
-  return last === 'git' || last === 'git.exe'
-}
+import { isGitProgram } from './launch-count.js'
 
 function refuseGit(file: string): void {
   if (isGitProgram(file)) throw new Error(`通用启动函数不起 git（${file}）：调 git 走 git 入口（ADR-219）`)
 }
 
-// 参数形状照 Node：(程序, 参数数组?, 选项?)；选项在第二个位置时没有参数数组
+const isOptions = (v: unknown): boolean => v === undefined || (typeof v === 'object' && v !== null && !Array.isArray(v))
+
+// 参数形状照 Node：(程序, 参数数组?, 选项?)，参数数组的位置可以写 undefined、null；选项在第二个位置时没有参数数组。
+// 认不出的形状原样交给 Node，由它报参数类型错，不在这里悄悄改
 function withoutShell(rest: readonly unknown[]): unknown[] {
   const [first, second] = rest
-  if (Array.isArray(first) || (first == null && rest.length > 1)) return [first ?? [], { ...(second as object | undefined), shell: false }]
-  return [[], { ...(first as object | undefined), shell: false }]
+  if ((Array.isArray(first) || first == null) && rest.length > 1 && isOptions(second)) return [first ?? [], { ...(second as object | undefined), shell: false }]
+  if (rest.length <= 1 && isOptions(first)) return [[], { ...(first as object | undefined), shell: false }]
+  return [...rest]
 }
 
 export const spawn: typeof cp.spawn = ((file: string, ...rest: unknown[]) => {

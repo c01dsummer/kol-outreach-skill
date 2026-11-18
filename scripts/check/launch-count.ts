@@ -8,7 +8,6 @@
  * **认不得就是 undefined，不是 0**：日志缺一行、多一行、没写完，计数都不能拿来判 —— 记成 0 等于放行。
  */
 import type { BaselineLaunches, LaunchPrint } from './launch-rule.js'
-import { isGitProgram } from './start-process.js'
 
 /**
  * 预加载认的那个环境变量。预加载不能从这里取，得另写一份同样的字面量：它也在 tsx 的壳里加载，那里没有 tsx 的转换，
@@ -33,6 +32,11 @@ export function countingEnv(env: Readonly<Record<string, string | undefined>>,
 
 // 直接起的是不是 git：exec、execSync 与带 shell 的，起的是 shell（第一节「sh -c 都算」）
 const DIRECT = new Set<string>(['spawn', 'spawnSync', 'execFile', 'execFileSync'])
+/** 要起的程序是不是 git：看路径末段，`/` 与 `\` 都算分隔。通用启动函数（`start-process.ts`）拦 git 也用这一个 */
+export function isGitProgram(file: string): boolean {
+  const last = file.split(/[/\\]/).pop()
+  return last === 'git' || last === 'git.exe'
+}
 const isGit = (api: string, file: string, shell: boolean): boolean => DIRECT.has(api) && !shell && isGitProgram(file)
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v)
 
