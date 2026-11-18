@@ -23342,6 +23342,22 @@ await group('h-start-process', async () => {
     startSpawnSync('换上的那个看见了', [])
   } finally { childProcessModule.spawnSync = original }
   eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
+  // 过了检查的参数原样交给 Node：同一个参数数组、同一个选项对象（选项从原型上继承来的值也就跟着到了），个数不变。三个函数各换一次
+  const names = ['spawn', 'spawnSync', 'execFileSync'] as const
+  const starts = { spawn: startSpawn, spawnSync: startSpawnSync, execFileSync: startExecFileSync }
+  const args = ['-e', '1'], inherited = Object.create({ stdio: 'pipe' }) as object
+  const forwarded = names.map(name => {
+    const module = childProcessModule as unknown as Record<string, unknown>
+    const kept = module[name]
+    let got: unknown[] = []
+    try {
+      module[name] = (...a: unknown[]) => { got = a; return { status: 0 } }
+      ;(starts[name] as (...a: unknown[]) => unknown)('/bin/true', args, inherited)
+    } finally { module[name] = kept }
+    return [got.length, got[1] === args, got[2] === inherited]
+  })
+  eq('过了检查的参数原样交给 Node：三个函数都是同一个参数数组、同一个选项对象（原型上继承的选项值也跟着到），个数不变',
+    forwarded, [[3, true, true], [3, true, true], [3, true, true]])
 })
 
 // 与上一组分开（ADR-131）：上一组不起进程，这一组起三次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限

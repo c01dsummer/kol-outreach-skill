@@ -28913,6 +28913,16 @@
       "replace": "import cpLive from 'node:child_process'\nconst cp = { ...cpLive }\n",
       "by": "test",
       "kills": ["起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个"]
+    },
+    {
+      "id": "M-H219-l",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "过了检查的参数抄一份再交出去：选项从原型上继承来的值丢了，调用方看到的和直接调 Node 不一样",
+      "find": "  return rest\n}",
+      "replace": "  return rest.map(item => Array.isArray(item) ? [...item] : typeof item === 'object' && item !== null ? { ...item } : item)\n}",
+      "by": "test",
+      "kills": ["过了检查的参数原样交给 Node：三个函数都是同一个参数数组、同一个选项对象（原型上继承的选项值也跟着到），个数不变"]
     }
   ],
   "exemptions": [
