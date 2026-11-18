@@ -13,12 +13,14 @@
 import cp from 'node:child_process'
 export type { ChildProcess, SpawnOptions, SpawnSyncOptions, SpawnSyncReturns } from 'node:child_process'
 
+import type { Readable, Writable } from 'node:stream'
+
 import { isGitProgram } from './launch-count.js'
 
 const SHAPE = '通用启动函数只认（程序, 参数数组, 选项）一种写法：参数数组不能省（没有就写 []），选项放第三个位置、是对象（ADR-219）'
 
 function checked(file: unknown, rest: readonly unknown[]): readonly unknown[] {
-  // 程序名不是字符串的原样交给 Node：三个函数 Node 都先验程序名是字符串，不是就报它自己的参数类型错，进程起不来
+  // 程序名不是字符串的原样交给 Node：Node 起进程前一定验程序名，不是字符串就报错、进程起不来；同时错了几个参数时先报哪个由 Node 定
   if (typeof file !== 'string') return rest
   if (isGitProgram(file)) throw new Error(`通用启动函数不起 git（${file}）：调 git 走 git 入口（ADR-219）`)
   const [args, options] = rest
@@ -28,11 +30,33 @@ function checked(file: unknown, rest: readonly unknown[]): readonly unknown[] {
   return rest
 }
 
-export const spawn: typeof cp.spawn = ((file: unknown, ...rest: unknown[]) =>
-  (cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...checked(file, rest))) as typeof cp.spawn
+// 类型只留带参数数组的那几种写法：省掉参数数组、选项挪到第二个位置的，编译时就报，不等跑到那一句才抛。返回类型照 Node 自己的签名
+type In<T> = T extends cp.StdioPipe ? Writable : null
+type Out<T> = T extends cp.StdioPipe ? Readable : null
+type Std = cp.StdioNull | cp.StdioPipe
+interface Spawn {
+  (command: string, args: readonly string[], options?: cp.SpawnOptionsWithoutStdio): cp.ChildProcessWithoutNullStreams
+  <I extends Std, O extends Std, E extends Std>(command: string, args: readonly string[], options: cp.SpawnOptionsWithStdioTuple<I, O, E>): cp.ChildProcessByStdio<In<I>, Out<O>, Out<E>>
+  (command: string, args: readonly string[], options: cp.SpawnOptions): cp.ChildProcess
+}
+interface SpawnSync {
+  (command: string, args: readonly string[]): cp.SpawnSyncReturns<NonSharedBuffer>
+  (command: string, args: readonly string[], options: cp.SpawnSyncOptionsWithStringEncoding): cp.SpawnSyncReturns<string>
+  (command: string, args: readonly string[], options: cp.SpawnSyncOptionsWithBufferEncoding): cp.SpawnSyncReturns<NonSharedBuffer>
+  (command: string, args: readonly string[], options?: cp.SpawnSyncOptions): cp.SpawnSyncReturns<string | NonSharedBuffer>
+}
+interface ExecFileSync {
+  (file: string, args: readonly string[]): NonSharedBuffer
+  (file: string, args: readonly string[], options: cp.ExecFileSyncOptionsWithStringEncoding): string
+  (file: string, args: readonly string[], options: cp.ExecFileSyncOptionsWithBufferEncoding): NonSharedBuffer
+  (file: string, args: readonly string[], options?: cp.ExecFileSyncOptions): string | NonSharedBuffer
+}
 
-export const spawnSync: typeof cp.spawnSync = ((file: unknown, ...rest: unknown[]) =>
-  (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as typeof cp.spawnSync
+export const spawn: Spawn = ((file: unknown, ...rest: unknown[]) =>
+  (cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...checked(file, rest))) as Spawn
 
-export const execFileSync: typeof cp.execFileSync = ((file: unknown, ...rest: unknown[]) =>
-  (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as typeof cp.execFileSync
+export const spawnSync: SpawnSync = ((file: unknown, ...rest: unknown[]) =>
+  (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as SpawnSync
+
+export const execFileSync: ExecFileSync = ((file: unknown, ...rest: unknown[]) =>
+  (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as ExecFileSync
