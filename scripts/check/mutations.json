@@ -14418,8 +14418,8 @@
       "req": "harness",
       "why": "命令正好是裸 git、经 shell 起的那次也当 git 不算：真起的是一个 shell，那次启动从账上消失",
       "file": "scripts/check/launch-count.ts",
-      "find": "return DIRECT.has(api) && !shell &&",
-      "replace": "return !shell &&",
+      "find": "=> DIRECT.has(api) && !shell &&",
+      "replace": "=> !shell &&",
       "by": "test",
       "kills": ["git 口径：exec、execSync 起的是 shell、fork 起的是 node，命令写 git 也算"]
     },
@@ -14437,7 +14437,7 @@
       "id": "M-H53-e",
       "req": "harness",
       "why": "路径只按正斜杠切：Windows 上反斜杠写的 git.exe 认不出、按普通启动算，同一棵树在 Windows 上多数出 git 那几次",
-      "file": "scripts/check/launch-count.ts",
+      "file": "scripts/check/start-process.ts",
       "find": "file.split(/[/\\\\]/)",
       "replace": "file.split('/')",
       "by": "test",
@@ -28803,6 +28803,76 @@
       "replace": "      if (false) continue",
       "by": "test",
       "kills": ["入口：受控文件从工作区删掉了照常跳过，不算读不了"]
+    },
+    {
+      "id": "M-H219-a",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "异步起进程那个函数不拦 git：别处经它起 git 照样起得来，调 git 只走一个入口这条就破了",
+      "find": "  refuseGit(file)\n  return (cp.spawn as",
+      "replace": "  return (cp.spawn as",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错（裸名与带路径都算）"]
+    },
+    {
+      "id": "M-H219-b",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程那个函数不拦 git",
+      "find": "  refuseGit(file)\n  return (cp.spawnSync as",
+      "replace": "  return (cp.spawnSync as",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错（裸名与带路径都算）"]
+    },
+    {
+      "id": "M-H219-c",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步执行文件那个函数不拦 git",
+      "find": "  refuseGit(file)\n  return (cp.execFileSync as",
+      "replace": "  return (cp.execFileSync as",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错（裸名与带路径都算）"]
+    },
+    {
+      "id": "M-H219-d",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "裸名 git 认不出：三个函数都放行",
+      "find": "return last === 'git' ||",
+      "replace": "return false ||",
+      "by": "test",
+      "kills": ["认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算", "三个函数叫去起 git 都当场抛错（裸名与带路径都算）"]
+    },
+    {
+      "id": "M-H219-e",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "Windows 上的 git.exe 认不出",
+      "find": "|| last === 'git.exe'",
+      "replace": "|| false",
+      "by": "test",
+      "kills": ["认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算"]
+    },
+    {
+      "id": "M-H219-f",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "带参数数组时选项里的 shell 原样转：传了 shell: true 就经 shell 起，命令串里起什么这里看不到",
+      "find": "[first ?? [], { ...(second as object | undefined), shell: false }]",
+      "replace": "[first ?? [], { ...(second as object | undefined) }]",
+      "by": "test",
+      "kills": ["传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样"]
+    },
+    {
+      "id": "M-H219-g",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项在第二个位置时 shell 原样转",
+      "find": "[[], { ...(first as object | undefined), shell: false }]",
+      "replace": "[[], { ...(first as object | undefined) }]",
+      "by": "test",
+      "kills": ["选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名找不到，cwd 照用"]
     }
   ],
   "exemptions": [

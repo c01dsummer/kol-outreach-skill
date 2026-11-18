@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawnSync } from './check/start-process.js'
 
 export type WallclockGroup = 'core' | 'cpu' | 'unavailable'
 const sha256 = (body: string | Buffer): string => createHash('sha256').update(body).digest('hex')

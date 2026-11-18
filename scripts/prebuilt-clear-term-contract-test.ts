@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from './check/start-process.js'
 import { SELFCHECK_FIXTURE_MARK } from './check/verifier-rule.js'
 
 type Row = Record<string, unknown>

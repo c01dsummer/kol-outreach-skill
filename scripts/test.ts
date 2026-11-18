@@ -44,6 +44,7 @@ import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, io
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
+import { execFileSync as startExecFileSync, isGitProgram, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -342,6 +343,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-child-process-sites', needs: [] },
   { id: 'h-child-process-judge', needs: [] },
   { id: 'h-child-process-entry', needs: [] },
+  { id: 'h-start-process', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -22673,7 +22675,7 @@ await group('h-observer-run', async () => {
     // 自己的 node_modules 是不是软链。沙箱照搬的是树根下的 node_modules，软链的目标不在沙箱里
     const linked = join(dir, 'linked')
     mkdirSync(join(linked, 'scripts', 'check'), { recursive: true })
-    for (const f of ['observer-run.ts', 'observer-rule.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
+    for (const f of ['observer-run.ts', 'observer-rule.ts', 'start-process.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
     writeFileSync(join(linked, 'package.json'), '{ "type": "module" }\n')
     symlinkSync(realpathSync('node_modules'), join(linked, 'node_modules'))
     // 另起一个带 tsx 加载器的进程导入那棵树里的运行器：本进程可能跑在预编的 JS 上（`npm run compile` 之后的变异），仓库外的 .ts 它认不全
@@ -23316,6 +23318,28 @@ await group('h-child-process-entry', () => {
     const bare = run()
     eq('起子进程接口闸门的入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 起子进程的接口：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-start-process', async () => {
+  harness('通用启动函数：起 git 当场抛错，shell 选项一律关掉，其余选项照转')
+  eq('认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算',
+    ['git', '/usr/bin/git', 'C:\\Git\\cmd\\git.exe', 'gitk', 'git-upload-pack', 'mygit', 'node'].map(isGitProgram),
+    [true, true, true, false, false, false, false])
+  const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message.includes('不起 git') ? '抛了' : (e as Error).message } }
+  eq('三个函数叫去起 git 都当场抛错（裸名与带路径都算）',
+    [thrown(() => startSpawnSync('git', ['--version'])), thrown(() => startSpawn('/usr/bin/git', ['--version'])),
+      thrown(() => startExecFileSync('git', ['--version']))], ['抛了', '抛了', '抛了'])
+  const synced = startSpawnSync('echo', ['$HOME'], { shell: true, encoding: 'utf8' })
+  const filed = startExecFileSync('echo', ['$HOME'], { shell: true, encoding: 'utf8' })
+  const child = startSpawn('echo', ['$HOME'], { shell: true })
+  let out = ''
+  child.stdout?.on('data', (d: Buffer) => { out += String(d) })
+  await new Promise(resolve => child.on('close', resolve))
+  eq('传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样', [synced.stdout, filed, out], ['$HOME\n', '$HOME\n', '$HOME\n'])
+  const noArgs = startSpawnSync('echo $HOME', { shell: true })
+  const cwd = startSpawnSync('pwd', { cwd: '/', encoding: 'utf8' })
+  eq('选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名找不到，cwd 照用',
+    [(noArgs.error as NodeJS.ErrnoException | undefined)?.code, cwd.stdout], ['ENOENT', '/\n'])
 })
 
 await group('d19-config-known-gap', () => {
