@@ -36,7 +36,7 @@ import {
   launchSummary, launchTally, paidLaunches, printLabel, settleLaunches, summaryLine, tallyLine,
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchSummary, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
-import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
+import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, isGitProgram, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
@@ -44,6 +44,7 @@ import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, io
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
+import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -144,7 +145,7 @@ import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import * as reviewRowsApi from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul, renameSync } from 'node:fs'
-import { spawnSync, type ChildProcess } from 'node:child_process'
+import childProcessModule, { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual } from 'node:util'
 import { runInNewContext } from 'node:vm'
@@ -342,6 +343,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-child-process-sites', needs: [] },
   { id: 'h-child-process-judge', needs: [] },
   { id: 'h-child-process-entry', needs: [] },
+  { id: 'h-start-process', needs: [] },
+  { id: 'h-start-process-shell', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -23316,6 +23319,124 @@ await group('h-child-process-entry', () => {
     const bare = run()
     eq('起子进程接口闸门的入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 起子进程的接口：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+// 两组共用：把模块上三个起进程的函数暂换成只记次数的替身，跑完换回。被拒的调用要「抛了且一次也没交给 Node」，
+// 只看抛了什么分不出「先交给 Node 起了、再抛」；替身也让变异把拒绝拿掉时不真起进程
+const startNames = ['spawn', 'spawnSync', 'execFileSync'] as const
+const startFunctions = { spawn: startSpawn, spawnSync: startSpawnSync, execFileSync: startExecFileSync }
+const withStubs = <T>(f: () => T): [T | Error, number] => {
+  const module = childProcessModule as unknown as Record<string, unknown>
+  const kept = startNames.map(name => module[name])
+  let calls = 0
+  for (const name of startNames) module[name] = () => { calls++; return { status: 0, on: () => {} } }
+  try { return [f(), calls] } catch (e) { return [e as Error, calls] } finally { startNames.forEach((name, i) => { module[name] = kept[i] }) }
+}
+
+await group('h-start-process', async () => {
+  harness('通用启动函数：起 git 当场抛错')
+  eq('认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算',
+    ['git', '/usr/bin/git', 'C:\\Git\\cmd\\git.exe', 'gitk', 'git-upload-pack', 'mygit', 'node'].map(isGitProgram),
+    [true, true, true, false, false, false, false])
+  const refused = (f: () => unknown): [string, number] => {
+    const [result, calls] = withStubs(f)
+    return [result instanceof Error ? (result.message.includes('不起 git') ? '抛了' : result.message) : '没抛', calls]
+  }
+  eq('三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）',
+    [refused(() => startSpawnSync('git', ['--version'])), refused(() => startSpawn('/usr/bin/git', ['--version'])),
+      refused(() => startExecFileSync('git', ['--version'])), refused(() => startSpawnSync('C:\\Git\\cmd\\git.exe', ['--version'])),
+      refused(() => startSpawn('git.exe', ['--version'])), refused(() => startExecFileSync('C:\\Git\\cmd\\git.exe', ['--version']))],
+    Array.from({ length: 6 }, () => ['抛了', 0]))
+  // 模块上的函数换掉以后，经通用启动函数起的也走换上的那个：计数、观察器两份预加载就是这样数到、拦到的。换上的不真起进程
+  const original = childProcessModule.spawnSync
+  let seen = ''
+  try {
+    childProcessModule.spawnSync = ((file: string) => { seen = file; return { status: 0 } }) as unknown as typeof original
+    startSpawnSync('换上的那个看见了', [])
+  } finally { childProcessModule.spawnSync = original }
+  eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
+  // 过了检查的就原样交给 Node，Node 还什么就还什么、抛什么就抛什么。三个函数各换一次替身，替身一次正常还、一次抛。
+  // 不去一样样列「改了哪里」：交出去的全冻住（连给选项提供 stdio 的原型也冻住），程序名、参数数组、选项对象（自己的键里套一层对象，stdio 从原型上继承来）、替身还的东西都改不动，
+  // 包装就地改哪一处都当场抛错；另外再看替身只被叫一次、收到的就是原来那几个、个数不变，还回来的、抛出来的就是替身的那一个。
+  // 程序名故意带「..」和尾空格，参数里有带空白的、空串，选项里有个为假的 shell：规整、裁剪、删键这类改法在这些值上都看得出来。
+  // 替身没接上（比如函数在载入时就抄下来了）而真去起这个不存在的程序时，抛的错与异步的 error 事件都接住，替身没被叫，断言照样红
+  const program = './a/../不存在的程序 '
+  const forwarded = startNames.flatMap(name => ['还', '抛'].map(mode => {
+    const module = childProcessModule as unknown as Record<string, unknown>
+    const kept = module[name]
+    const args = Object.freeze(['  -e ', '1', '']), env = Object.freeze({ A: ' 1 ' })
+    const options = Object.freeze(Object.assign(Object.create(Object.freeze({ stdio: 'pipe' })), { env, shell: false }))
+    const fromStub = Object.freeze({ 替身的: Object.freeze([name, mode]) })
+    const dispatched: unknown[] = []
+    let outcome: unknown
+    try {
+      module[name] = (...a: unknown[]) => {
+        dispatched.push([a.length, a[0] === program, a[1] === args, a[2] === options])
+        if (mode === '抛') throw fromStub
+        return fromStub
+      }
+      const returned = (startFunctions[name] as (...a: unknown[]) => unknown)(program, args, options)
+      outcome = returned === fromStub ? '还了替身的' : '还了别的'
+      if (returned !== fromStub) (returned as { on?: (e: string, h: () => void) => void } | undefined)?.on?.('error', () => {})
+    } catch (error) { outcome = error === fromStub ? '抛了替身的' : '抛了别的' } finally { module[name] = kept }
+    return [dispatched, outcome]
+  }))
+  eq('过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出',
+    forwarded, Array.from({ length: 3 }, () => [[[[3, true, true, true]], '还了替身的'], [[[3, true, true, true]], '抛了替身的']]).flat())
+})
+
+// 与上一组分开（ADR-131）：上一组不起进程，这一组真起三次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
+await group('h-start-process-shell', async () => {
+  harness('通用启动函数：要经 shell 的、写法不对的当场抛错，写法对的原样交给 Node')
+  // 被起的程序一律用正在跑的这个 node（process.execPath），不靠 PATH 上有没有别的程序
+  const node = process.execPath
+  // 被拒的几条在替身下跑：抛了什么只认两种（不经 shell、写法不对），再加交给 Node 的次数，要是 0
+  const refusal = (start: unknown, args: unknown[]): [string, number] => {
+    const [result, calls] = withStubs(() => (start as (...a: unknown[]) => unknown)(node, ...args))
+    const message = result instanceof Error ? result.message : ''
+    return [message.includes('不经 shell') ? '不经 shell' : message.includes('只认（程序, 参数数组, 选项）') ? '写法不对' : result instanceof Error ? message : '没抛', calls]
+  }
+  const all = (args: unknown[]): [string, number][] => [startSpawnSync, startSpawn, startExecFileSync].map(start => refusal(start, args))
+  eq('选项要经 shell 的三个函数都当场抛错，一次也没交给 Node（shell 写 true 或写一个 shell 的路径都算）',
+    [all([['-e', '1'], { shell: true }]), all([['-e', '1'], { shell: '/bin/sh' }])],
+    Array.from({ length: 2 }, () => Array.from({ length: 3 }, () => ['不经 shell', 0])))
+  eq('写法不是（程序, 参数数组, 选项）的三个函数都当场抛错，一次也没交给 Node：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象或是空值、多出第四个参数',
+    [[], [{ cwd: '/' }], [undefined, { cwd: '/' }], [null, { cwd: '/' }], [['-e', '1'], 'x'], [['-e', '1'], null], [['-e', '1'], []],
+      [['-e', '1'], {}, {}]].map(all),
+    Array.from({ length: 8 }, () => Array.from({ length: 3 }, () => ['写法不对', 0])))
+  // 程序名不是字符串的要真交给 Node，由它报错（不用替身）。有一条的第二个参数也不对（不是数组）：哪个先报由 Node 定，下面只认 Node 报的类型错，不认是哪个参数的错
+  // 模块上的函数暂换成一个记下收到什么、再转给原函数的探子：既看 Node 收到的参数一个没改，也看报的是 Node 自己的错
+  const notString = (file: unknown, ...args: unknown[]): [string, boolean][] => startNames.map(name => {
+    const module = childProcessModule as unknown as Record<string, (...a: unknown[]) => unknown>
+    const kept = module[name]
+    let seen: unknown[] | undefined
+    module[name] = (...a: unknown[]) => { seen = a; return kept(...a) }
+    let code = '没抛'
+    try { (startFunctions[name] as (...a: unknown[]) => unknown)(file, ...args) } catch (e) { code = String((e as NodeJS.ErrnoException).code ?? (e as Error).message) } finally { module[name] = kept }
+    return [code, seen !== undefined && seen.length === args.length + 1 && seen[0] === file && seen.slice(1).every((a, i) => a === args[i])]
+  })
+  eq('程序名不是字符串的三个函数都原样交给 Node（参数一个没改），由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）',
+    [notString(undefined, ['-e', '1']), notString(undefined, 'x'), notString(1)],
+    Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => ['ERR_INVALID_ARG_TYPE', true])))
+  // 写法对的照常起：cwd 照用、shell: false 也认，要正常退出（退出码 0、没有被信号结束）；异步那个不接标准输入，参数丢了也不会卡着等输入
+  const printCwd = ['-e', 'process.stdout.write(process.cwd())']
+  // 子进程不继承调用方的 NODE_OPTIONS：里面要是有相对路径的预加载，在 / 下找不到，子进程会先挂掉
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'NODE_OPTIONS'))
+  const attempt = <T>(f: () => T): T | string => { try { return f() } catch (e) { return `抛了：${(e as Error).message}` } }
+  const synced = attempt(() => { const r = startSpawnSync(node, printCwd, { cwd: '/', env, encoding: 'utf8', shell: false }); return [r.stdout, r.status, r.signal, r.error === undefined] })
+  // execFileSync 退出码不是 0 时自己会抛，抛了就落到 attempt 里
+  const filed = attempt(() => [startExecFileSync(node, printCwd, { cwd: '/', env, encoding: 'utf8' }), 0, null, true])
+  const spawned = await new Promise<unknown>(resolve => {
+    let text = ''
+    try {
+      const child = startSpawn(node, printCwd, { cwd: '/', env, stdio: ['ignore', 'pipe', 'pipe'] })
+      child.stdout?.on('data', (d: Buffer) => { text += String(d) })
+      child.on('error', e => resolve(`出错：${(e as NodeJS.ErrnoException).code}`))
+      child.on('close', (code, signal) => resolve([text, code, signal, true]))
+    } catch (e) { resolve(`抛了：${(e as Error).message}`) }
+  })
+  eq('写法对、不经 shell 时原样交给 Node：三个函数都照常起、正常退出，cwd 照用，shell: false 也认',
+    [synced, filed, spawned], Array.from({ length: 3 }, () => ['/', 0, null, true]))
 })
 
 await group('d19-config-known-gap', () => {
