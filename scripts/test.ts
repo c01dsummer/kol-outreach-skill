@@ -1869,6 +1869,12 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       `要看：「\u0301」（没登记出处）${BAR}${SELF}「Hi Mei,」`, {}],
     ['正文第一行开头的附加符号也要登记', '\n\u0301Hi', [{ draft: 'Hi', from: 'self' }],
       `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
+    ['主题标签后开头的附加符号也要登记', 'Subject: \u0301Hi', [{ draft: 'Hi', from: 'self' }],
+      `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
+    ['紧跟冒号的附加符号不跟着标签跳过', 'Subject:\u0301Hi', [{ draft: 'Hi', from: 'self' }],
+      `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
+    ['空白后的附加符号自成一个字', 'Hi \u0301Mei', [{ draft: 'Hi', from: 'self' }, { draft: 'Mei', from: 'self' }],
+      `要看：「Hi \u0301Mei」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」；「Mei」`, {}],
     ['登记跨行照样盖住', 'Hi\nMei', [{ draft: 'Hi Mei', from: 'self' }], `${SELF}「Hi Mei」`, {}],
     ['主题行写什么都要登记', 'Subject: Mei, your blender\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
       `要看：「Mei, your blender」（没登记出处）${BAR}${SELF}「We make a blender.」`, {}],
@@ -1948,12 +1954,16 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     `只在发件人自己的话里：3pm EST（faster. Free at 3pm EST? Plans start at）${SENDER_NOTE}`,
   ])
   // 日期、钟点、电话后面紧跟单位的是规格或时长（10/20/30 oz、1:30 hours），登记成自己的话也照列。
-  // 单位只看到这一行行尾：下一行开头的字（落款的 Best）不是钟点的单位。
+  // 单位和普通数字一样可以跨行读：换行写的「1:30 / hours」照列；落款的 Best 也被当成 3pm 的单位，约时间多列一条（ADR-215 第三节第 7 条）。
   const UNITS = 'Cups come in 10/20/30 oz. It blends for 1:30 hours. Capacity: 123-456-789 grams. Call 415 555 0199.'
-  eq('P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列；下一行开头的字不算单位', [...claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]), ...claimsOf('Call at 3pm\nBest,\nAri', [{ draft: 'Call at 3pm', from: 'self' }, { draft: 'Best, Ari', from: 'self' }])], [
+  eq('P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列；下一行开头的字也算单位；提示的前后文只取这一行', [...claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]), ...claimsOf('Call at 3pm\nBest,\nAri', [{ draft: 'Call at 3pm', from: 'self' }, { draft: 'Best, Ari', from: 'self' }]),
+    ...claimsOf('It blends for 1:30\nhours.', [{ draft: 'It blends for 1:30 hours.', from: 'self' }]),
+    ...claimsOf('Call at 3pm EST\rBest,\u2028Ari', [{ draft: 'Call at 3pm EST', from: 'self' }, { draft: 'Best, Ari', from: 'self' }])], [
     `出处对不上：10/20/30（Cups come in 10/20/30 oz. It blends）；1:30（It blends for 1:30 hours. Capacity: 123-456-789）；123-456-789（1:30 hours. Capacity: 123-456-789 grams. Call 415）${NOTE}`,
     `只在发件人自己的话里：415 555 0199（123-456-789 grams. Call 415 555 0199.）${SENDER_NOTE}`,
-    `出处对不上：无${NOTE}`, `只在发件人自己的话里：3pm（Call at 3pm）${SENDER_NOTE}`,
+    `出处对不上：3pm（Call at 3pm）${NOTE}`, undefined,
+    `出处对不上：1:30（It blends for 1:30）${NOTE}`, undefined,
+    `出处对不上：3pm EST（Call at 3pm EST）${NOTE}`, undefined,
   ])
   criterion('P2.c')
 }

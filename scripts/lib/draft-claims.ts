@@ -273,10 +273,11 @@ function numberUnit(m: RegExpExecArray): string {
         : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? foldUnit(spaced) : ''
 }
 /** 合成的一条（电话、钟点、斜杠日期）后面的单位：最后一个数接上后面的文字，按普通数字的口径取（1000$ 算价钱）。
- *  只看到这一行行尾：下一行开头的字（落款里的 Best）不是它的单位。 */
+ *  和普通数字一样可以跨行：下一行开头的字也算单位。落款的 Best 因此被当成 3pm 的单位、约时间留在「出处对不上」，
+ *  是多列一条、运营看得出；只读到行尾则会让换行写的「1:30 / hours」被当成约时间挪走（ADR-215 第三节第 7 条）。 */
 function unitAfter(group: string, after: string): string {
   // 不以数字结尾的一串（(400)、1:30 pm）拿 0 去接后文，口径一样。
-  const probe = (/\d+(?:\.\d+)?$/.exec(group)?.[0] ?? '0') + after.split(/\r\n|\r|\n|\u2028|\u2029/, 1)[0]
+  const probe = (/\d+(?:\.\d+)?$/.exec(group)?.[0] ?? '0') + after
   if (new RegExp(`^(?:${PRICE_AFTER.source})`, 'i').test(probe)) return '$'
   const m = new RegExp(`^(?:${NUMBER.source})`, 'i').exec(probe)
   return m === null ? '' : numberUnit(m)
@@ -473,9 +474,10 @@ function withContext(draft: string, claim: Claim): Flagged {
     const text = chars.length > 500 ? `${chars.slice(0, 360).join('')}…${chars.slice(-100).join('')}` : claim.text
     return { text, context: text }
   }
-  const lineStart = draft.lastIndexOf('\n', claim.at - 1) + 1
-  const next = draft.indexOf('\n', claim.at)
-  const lineEnd = next === -1 ? draft.length : next
+  // 行的认法与逐行出处一致：\r\n、\r、\n、\u2028、\u2029 都算一行的结尾。
+  const lineStart = draft.slice(0, claim.at).search(/[^\r\n\u2028\u2029]*$/)
+  const next = draft.slice(claim.at).search(/[\r\n\u2028\u2029]/)
+  const lineEnd = next === -1 ? draft.length : claim.at + next
   const left = /(?:\S*\s+){0,3}\S*$/.exec(draft.slice(lineStart, claim.at))?.[0] ?? ''
   const right = /^\S*(?:\s+\S+){0,3}/.exec(draft.slice(claim.at + claim.text.length, lineEnd))?.[0] ?? ''
   return { text: claim.text, context: `${left}${claim.text}${right}`.replace(/\s+/g, ' ').trim() }

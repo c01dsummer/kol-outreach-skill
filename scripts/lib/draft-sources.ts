@@ -55,7 +55,7 @@ function foldPiece(piece: string): string {
 
 /**
  * 比对前的统一写法，同时记下归一后每个字来自原文哪一段（`from`、`to` 是原文里的下标）。
- * 按「一个字加它后面的附加符号」一段一段归一：空白合并成一个空格、去掉头尾空白。
+ * 按「一个字母、数字或符号加它后面的附加符号」一段一段归一，别的每个字自成一段：空白合并成一个空格、去掉头尾空白。
  * 草稿、登记、原文都走这一个函数，两边口径一致；记下来处是为了把「哪些字被登记成发件人自己的话」
  * 换回原文下标，交给数字扫描用（ADR-215 第三节）。
  */
@@ -63,8 +63,10 @@ function normalized(raw: string): { text: string; from: number[]; to: number[] }
   let text = ''
   const from: number[] = [], to: number[] = []
   let space = -1
-  // 换行自成一段，不带后面的附加符号：紧跟换行的附加符号算下一行的字，来处记在它自己的位置。
-  for (const m of raw.matchAll(/[\r\n\u2028\u2029]|\P{M}\p{M}*|\p{M}+/gsu)) {
+  // 附加符号只跟在字母、数字、符号后面并成一段（合字只发生在这几类上：e+´ 合成 é、=+̸ 合成 ≠）；
+  // 跟在空白、标点、换行后面或打头的附加符号自成一段，来处记在它自己的位置 ——
+  // 不然它会和前面那个不用登记的空白或「Subject:」字样共用一个来处，被一起跳过。
+  for (const m of raw.matchAll(/[\p{L}\p{N}\p{S}]\p{M}*|[^]/gsu)) {
     const start = m.index, end = start + m[0].length
     for (const ch of foldPiece(m[0])) {
       if (/\s/u.test(ch)) { if (space < 0) space = start; continue }
