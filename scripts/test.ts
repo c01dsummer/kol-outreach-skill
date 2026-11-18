@@ -23354,9 +23354,11 @@ await group('h-start-process', async () => {
   } finally { childProcessModule.spawnSync = original }
   eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
   // 过了检查的参数原样交给 Node：同一个参数数组、同一个选项对象（选项从原型上继承来的值也就跟着到了），个数不变。三个函数各换一次。
-  // 程序用正在跑的这个 node 加「-e 1」：替身没接上（比如函数在载入时就抄下来了）而真起了进程时，也很快结束；真起时抛的错与异步的 error 事件都接住
-  const args = ['-e', '1'], inherited = Object.create({ stdio: 'pipe' }) as object
+  // 程序用正在跑的这个 node 加「-e 1」：替身没接上（比如函数在载入时就抄下来了）而真起了进程时，也很快结束；真起时抛的错与异步的 error 事件都接住。
+  // 每个函数各给一份新的参数数组，交出去以后内容也要与交之前一样（就地改了内容、同一个数组照样过不了）
+  const inherited = Object.create({ stdio: 'pipe' }) as object
   const forwarded = startNames.map(name => {
+    const args = ['-e', '1'], before = JSON.stringify(args)
     const module = childProcessModule as unknown as Record<string, unknown>
     const kept = module[name]
     let got: unknown[] = [], calls = 0
@@ -23365,10 +23367,10 @@ await group('h-start-process', async () => {
       const started = (startFunctions[name] as (...a: unknown[]) => unknown)(process.execPath, args, inherited) as { on?: (e: string, h: () => void) => void }
       started?.on?.('error', () => {})
     } catch { /* 真起时抛的错：下面 got 是空的，断言照样红 */ } finally { module[name] = kept }
-    return [calls, got.length, got[0] === process.execPath, got[1] === args, got[2] === inherited]
+    return [calls, got.length, got[0] === process.execPath, got[1] === args, JSON.stringify(got[1]) === before, got[2] === inherited]
   })
-  eq('过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组、同一个选项对象（原型上继承的选项值也跟着到），个数不变',
-    forwarded, Array.from({ length: 3 }, () => [1, 3, true, true, true]))
+  eq('过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组且内容没改、同一个选项对象（原型上继承的选项值也跟着到），个数不变',
+    forwarded, Array.from({ length: 3 }, () => [1, 3, true, true, true, true]))
 })
 
 // 与上一组分开（ADR-131）：上一组不起进程，这一组真起三次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
