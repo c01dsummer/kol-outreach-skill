@@ -23342,9 +23342,11 @@ await group('h-start-process', async () => {
     const [result, calls] = withStubs(f)
     return [result instanceof Error ? (result.message.includes('不起 git') ? '抛了' : result.message) : '没抛', calls]
   }
-  eq('三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名与带路径都算）',
+  eq('三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）',
     [refused(() => startSpawnSync('git', ['--version'])), refused(() => startSpawn('/usr/bin/git', ['--version'])),
-      refused(() => startExecFileSync('git', ['--version']))], [['抛了', 0], ['抛了', 0], ['抛了', 0]])
+      refused(() => startExecFileSync('git', ['--version'])), refused(() => startSpawnSync('C:\\Git\\cmd\\git.exe', ['--version'])),
+      refused(() => startSpawn('git.exe', ['--version'])), refused(() => startExecFileSync('C:\\Git\\cmd\\git.exe', ['--version']))],
+    Array.from({ length: 6 }, () => ['抛了', 0]))
   // 模块上的函数换掉以后，经通用启动函数起的也走换上的那个：计数、观察器两份预加载就是这样数到、拦到的。换上的不真起进程
   const original = childProcessModule.spawnSync
   let seen = ''
@@ -23353,30 +23355,34 @@ await group('h-start-process', async () => {
     startSpawnSync('换上的那个看见了', [])
   } finally { childProcessModule.spawnSync = original }
   eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
-  // 过了检查的就原样交给 Node，原样把 Node 的结果还回来。三个函数各换一次替身，每次都用新的参数数组和新的选项对象（选项的 stdio 从原型上继承来）。
-  // 一次看全：调用方手里的数组与选项「看上去什么样」（数组内容、选项自己有哪些键、读到的 stdio）在交之前、交给替身那一刻、交完以后都要一样；
-  // 替身只被叫一次，收到的程序名、数组、选项是原来那几个、个数不变；函数还回来的就是替身还的那个东西。
-  // 程序用正在跑的这个 node 加「-e 1」：替身没接上（比如函数在载入时就抄下来了）而真起了进程时，也很快结束；真起时抛的错与异步的 error 事件都接住
-  const forwarded = startNames.map(name => {
+  // 过了检查的就原样交给 Node，Node 还什么就还什么、抛什么就抛什么。三个函数各换一次替身，替身一次正常还、一次抛。
+  // 不去一样样列「改了哪里」：交出去的全冻住，程序名、参数数组、选项对象（自己的键里套一层对象，stdio 从原型上继承来）、替身还的东西都改不动，
+  // 包装就地改哪一处都当场抛错；另外再看替身只被叫一次、收到的就是原来那几个、个数不变，还回来的、抛出来的就是替身的那一个。
+  // 程序名故意带「..」和尾空格，参数里有带空白的、空串，选项里有个为假的 shell：规整、裁剪、删键这类改法在这些值上都看得出来。
+  // 替身没接上（比如函数在载入时就抄下来了）而真去起这个不存在的程序时，抛的错与异步的 error 事件都接住，替身没被叫，断言照样红
+  const program = './a/../不存在的程序 '
+  const forwarded = startNames.flatMap(name => ['还', '抛'].map(mode => {
     const module = childProcessModule as unknown as Record<string, unknown>
     const kept = module[name]
-    const args = ['-e', '1'], options = Object.create({ stdio: 'pipe' }) as { stdio?: unknown }
-    const look = () => JSON.stringify([args, Object.getOwnPropertyNames(options), options.stdio])
-    const before = look(), handedBack = { 替身还的: name }
+    const args = Object.freeze(['  -e ', '1', '']), env = Object.freeze({ A: ' 1 ' })
+    const options = Object.freeze(Object.assign(Object.create({ stdio: 'pipe' }), { env, shell: false }))
+    const fromStub = Object.freeze({ 替身的: Object.freeze([name, mode]) })
     const dispatched: unknown[] = []
-    let returned: unknown
+    let outcome: unknown
     try {
       module[name] = (...a: unknown[]) => {
-        dispatched.push([a.length, a[0] === process.execPath, a[1] === args, a[2] === options, look() === before])
-        return handedBack
+        dispatched.push([a.length, a[0] === program, a[1] === args, a[2] === options])
+        if (mode === '抛') throw fromStub
+        return fromStub
       }
-      returned = (startFunctions[name] as (...a: unknown[]) => unknown)(process.execPath, args, options)
-      if (returned !== handedBack) (returned as { on?: (e: string, h: () => void) => void } | undefined)?.on?.('error', () => {})
-    } catch (error) { returned = error } finally { module[name] = kept }
-    return [dispatched, returned === handedBack, look() === before]
-  })
-  eq('过了检查的原样交给 Node、原样还回结果：替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，数组内容与选项（含继承来的 stdio）交之前、交的那一刻、交完以后都没变，还回来的就是替身还的',
-    forwarded, Array.from({ length: 3 }, () => [[[3, true, true, true, true]], true, true]))
+      const returned = (startFunctions[name] as (...a: unknown[]) => unknown)(program, args, options)
+      outcome = returned === fromStub ? '还了替身的' : '还了别的'
+      if (returned !== fromStub) (returned as { on?: (e: string, h: () => void) => void } | undefined)?.on?.('error', () => {})
+    } catch (error) { outcome = error === fromStub ? '抛了替身的' : '抛了别的' } finally { module[name] = kept }
+    return [dispatched, outcome]
+  }))
+  eq('过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出',
+    forwarded, Array.from({ length: 3 }, () => [[[[3, true, true, true]], '还了替身的'], [[[3, true, true, true]], '抛了替身的']]).flat())
 })
 
 // 与上一组分开（ADR-131）：上一组不起进程，这一组真起三次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
