@@ -28933,6 +28933,16 @@
       "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio')) (args as unknown[]).push('--')\n  return rest\n}",
       "by": "test",
       "kills": ["过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组且内容没改、同一个选项对象（原型上继承的选项值也跟着到），个数不变"]
+    },
+    {
+      "id": "M-H219-n",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程的那个过了检查后交给 Node 两次、返回第二次的结果：参数和结果都对，子进程却起了两回",
+      "find": "  (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as SpawnSync",
+      "replace": "  ((cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)), (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...rest))) as SpawnSync",
+      "by": "test",
+      "kills": ["过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组且内容没改、同一个选项对象（原型上继承的选项值也跟着到），个数不变"]
     }
   ],
   "exemptions": [
