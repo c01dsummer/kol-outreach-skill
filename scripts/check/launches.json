@@ -182,6 +182,8 @@
     {"config":"[\"test\",[\"h-shard-load\"]]","launches":0,"maxPaid":null,"running":67,"stopping":0},
     {"config":"[\"test\",[\"h-skill-rule\"]]","launches":0,"maxPaid":null,"running":91,"stopping":0},
     {"config":"[\"test\",[\"h-spec\"]]","launches":0,"maxPaid":null,"running":71,"stopping":0},
+    {"config":"[\"test\",[\"h-start-process\"]]","launches":0,"maxPaid":null,"running":16,"stopping":0},
+    {"config":"[\"test\",[\"h-start-process-shell\"]]","launches":12,"maxPaid":null,"running":5,"stopping":0},
     {"config":"[\"test\",[\"h-ticket-refs\",\"h-ticket-refs-entry\"]]","launches":6,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"h-ticket-refs\"]]","launches":0,"maxPaid":null,"running":10,"stopping":0},
     {"config":"[\"test\",[\"h-ticket-refs-entry\"]]","launches":6,"maxPaid":null,"running":7,"stopping":0},

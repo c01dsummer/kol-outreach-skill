@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn } from './check/start-process.js'
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

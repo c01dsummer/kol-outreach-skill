@@ -14418,8 +14418,8 @@
       "req": "harness",
       "why": "命令正好是裸 git、经 shell 起的那次也当 git 不算：真起的是一个 shell，那次启动从账上消失",
       "file": "scripts/check/launch-count.ts",
-      "find": "return DIRECT.has(api) && !shell &&",
-      "replace": "return !shell &&",
+      "find": "=> DIRECT.has(api) && !shell &&",
+      "replace": "=> !shell &&",
       "by": "test",
       "kills": ["git 口径：exec、execSync 起的是 shell、fork 起的是 node，命令写 git 也算"]
     },
@@ -29159,6 +29159,216 @@
       "replace": "      if (false) continue",
       "by": "test",
       "kills": ["入口：受控文件从工作区删掉了照常跳过，不算读不了"]
+    },
+    {
+      "id": "M-H219-a",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "异步起进程的那个包装不经检查直接起：git、经 shell 的照起",
+      "find": "(cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...checked(file, rest))",
+      "replace": "(cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...rest)",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-b",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程、拿回结果对象的那个包装不经检查直接起：git、经 shell 的照起",
+      "find": "(cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))",
+      "replace": "(cp.spawnSync as (...a: unknown[]) => unknown)(file, ...rest)",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-c",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程、直接拿回输出的那个包装不经检查直接起：git、经 shell 的照起",
+      "find": "(cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))",
+      "replace": "(cp.execFileSync as (...a: unknown[]) => unknown)(file, ...rest)",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-d",
+      "req": "harness",
+      "file": "scripts/check/launch-count.ts",
+      "why": "认不出裸名 git：起 git 不抛错",
+      "find": "return last === 'git' ||",
+      "replace": "return false ||",
+      "by": "test",
+      "kills": ["认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算", "三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-e",
+      "req": "harness",
+      "file": "scripts/check/launch-count.ts",
+      "why": "认不出 git.exe",
+      "find": "|| last === 'git.exe'",
+      "replace": "|| false",
+      "by": "test",
+      "kills": ["认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算"]
+    },
+    {
+      "id": "M-H219-f",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "要经 shell 的照起：命令串里起什么这里看不到",
+      "find": "if ((options as { shell?: unknown } | undefined)?.shell) throw",
+      "replace": "if (false) throw",
+      "by": "test",
+      "kills": ["选项要经 shell 的三个函数都当场抛错，一次也没交给 Node（shell 写 true 或写一个 shell 的路径都算）"]
+    },
+    {
+      "id": "M-H219-g",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "多出第四个参数也照起：写错的调用不报",
+      "find": "if (rest.length > 2 || !Array.isArray(args))",
+      "replace": "if (!Array.isArray(args))",
+      "by": "test",
+      "kills": ["写法不是（程序, 参数数组, 选项）的三个函数都当场抛错，一次也没交给 Node：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象或是空值、多出第四个参数"]
+    },
+    {
+      "id": "M-H219-h",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "参数数组省了、选项挪到第二个位置也照起：选项里的 shell 就会漏过去",
+      "find": "if (rest.length > 2 || !Array.isArray(args))",
+      "replace": "if (rest.length > 2)",
+      "by": "test",
+      "kills": ["写法不是（程序, 参数数组, 选项）的三个函数都当场抛错，一次也没交给 Node：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象或是空值、多出第四个参数"]
+    },
+    {
+      "id": "M-H219-i",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项位置不是对象也照转：写成空值时有的函数当成没给选项，程序与参数数组都对就真起了进程；写成别的由 Node 报，不说该怎么写",
+      "find": "if (options !== undefined && (typeof options !== 'object' || options === null || Array.isArray(options))) throw",
+      "replace": "if (false) throw",
+      "by": "test",
+      "kills": ["写法不是（程序, 参数数组, 选项）的三个函数都当场抛错，一次也没交给 Node：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象或是空值、多出第四个参数"]
+    },
+    {
+      "id": "M-H219-j",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "程序名不是字符串时也拿去认是不是 git：当字符串切的那一下先抛出别的错，盖住 Node 自己的参数类型错",
+      "find": "  if (typeof file !== 'string') return rest\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["程序名不是字符串的三个函数都原样交给 Node（参数一个没改），由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）"]
+    },
+    {
+      "id": "M-H219-k",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "起进程的函数在载入时就抄下来：之后换掉模块上的函数，经它起的进程两份预加载都数不到、拦不到",
+      "find": "import cp from 'node:child_process'\n",
+      "replace": "import cpLive from 'node:child_process'\nconst cp = { ...cpLive }\n",
+      "by": "test",
+      "kills": ["起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个"]
+    },
+    {
+      "id": "M-H219-l",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "过了检查的参数抄一份再交出去：选项从原型上继承来的值丢了，调用方看到的和直接调 Node 不一样",
+      "find": "  return rest\n}",
+      "replace": "  return rest.map(item => Array.isArray(item) ? [...item] : typeof item === 'object' && item !== null ? { ...item } : item)\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-m",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项里没有自己写的 stdio 时，就地往参数数组里塞一个：还是同一个数组，内容却变了，调用方手里的数组也跟着变",
+      "find": "  return rest\n}",
+      "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio')) (args as unknown[]).push('--')\n  return rest\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-n",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程的那个过了检查后交给 Node 两次、返回第二次的结果：参数和结果都对，子进程却起了两回",
+      "find": "  (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as SpawnSync",
+      "replace": "  ((cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)), (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...rest))) as SpawnSync",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-o",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项的 stdio 是继承来的时，往选项对象自己身上补一个同样的值：还是同一个对象、读到的值也一样，调用方的对象却多了一个自己的键",
+      "find": "  return rest\n}",
+      "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio')) (options as { stdio?: unknown }).stdio = (options as { stdio?: unknown }).stdio\n  return rest\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-p",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程拿输出的那个交给 Node 以后不把结果还回来、而是抛错：参数都对，调用方却拿不到 Node 的结果",
+      "find": "  (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as ExecFileSync",
+      "replace": "  { (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)); throw new Error('交完不还') }) as ExecFileSync",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-q",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "交给 Node 以后顺手在 Node 还回的结果上补一个记号：还的是同一个东西，里面却被改过",
+      "find": "  (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as SpawnSync",
+      "replace": "  Object.assign((cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)) as object, { 经过: true })) as SpawnSync",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-r",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "Node 抛的错被接住，改成还回错里带的输出：调用方以为起成功了",
+      "find": "  (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as ExecFileSync",
+      "replace": "  { try { return (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)) } catch (error) { return (error as { stdout?: unknown }).stdout } }) as ExecFileSync",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-s",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "交出去之前把程序名去掉首尾空白：程序名对 Node 来说变了",
+      "find": "  (cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...checked(file, rest))) as Spawn",
+      "replace": "  (cp.spawn as (...a: unknown[]) => cp.ChildProcess)(typeof file === 'string' ? file.trim() : file, ...checked(file, rest))) as Spawn",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-t",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "自己认 git 而不用共用的判断：裸名 git 与 git.exe 都认，路径却只按正斜杠切，反斜杠路径漏过去",
+      "find": "  if (isGitProgram(file)) throw",
+      "replace": "  if (['git', 'git.exe'].includes(file.split('/').pop() ?? '')) throw",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-u",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项的 stdio 是继承来的时，去改提供它的那个原型：选项对象还是原来那个，Node 读到的 stdio 却变了",
+      "find": "  return rest\n}",
+      "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio') && Object.getPrototypeOf(options) !== Object.prototype) Object.getPrototypeOf(options).stdio = 'ignore'\n  return rest\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
     }
   ],
   "exemptions": [
