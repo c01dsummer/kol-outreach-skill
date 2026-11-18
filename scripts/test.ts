@@ -344,6 +344,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-child-process-sites', needs: [] },
   { id: 'h-child-process-judge', needs: [] },
   { id: 'h-child-process-entry', needs: [] },
+  { id: 'h-child-process-entry-edges', needs: [] },
   { id: 'h-start-process', needs: [] },
   { id: 'h-start-process-shell', needs: [] },
   { id: 'h-git-entry', needs: [] },
@@ -23299,11 +23300,6 @@ await group('h-child-process-entry', () => {
     eq('入口：把新文件塞进「待挪」以 1 退出，点出待挪多了它', [grown.status, String(grown.stderr).includes('「待挪」比基线多了 new.ts')], [1, true])
     const grownInSub = run(cxJoin(root, 'scripts'))
     eq('入口：在子目录里跑，基线那份登记表照样读得到，待挪多了照样以 1 退出', [grownInSub.status, String(grownInSub.stderr).includes('「待挪」比基线多了 new.ts')], [1, true])
-    // 同样的改动摆在主干上（HEAD 就是 main，和它的上一版比）：照样列出来，只报不判、以 0 退出
-    g('checkout', '-q', 'main')
-    const grownOnTrunk = run()
-    eq('入口：HEAD 就在主干上时，待挪多了照样列出、只报不判，以 0 退出', [grownOnTrunk.status, String(grownOnTrunk.stdout).includes('「待挪」比基线多了 new.ts') && String(grownOnTrunk.stdout).includes('只报不判定')], [0, true])
-    g('checkout', '-q', 'work')
     put('scripts/check/child-process-registry.json', '{')
     const brokenNow = run()
     eq('入口：当前那份登记表解析不了时说无从判断、以 1 结束，不当成空表', [brokenNow.status, String(brokenNow.stderr).includes('读不了或解析不了')], [1, true])
@@ -23331,13 +23327,36 @@ await group('h-child-process-entry', () => {
     g('checkout', '-q', '-b', 'work2'); g('commit', '-q', '--allow-empty', '-m', 'w'); registry([])
     const noBase = run()
     eq('入口：基线上有闸门却没有登记表时说无从判断、以 1 结束', [noBase.status, String(noBase.stderr).includes('先合主干')], [1, true])
+    cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
+    const bare = run()
+    eq('起子进程接口闸门的入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 起子进程的接口：无从判断')], [1, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+// 与上一组分开（ADR-131）：上一组起入口十几次，变异又多，乘出来的启动数会超上限；这两种走法各配一条变异，放在这里
+await group('h-child-process-entry-edges', () => {
+  harness('起子进程接口闸门的入口：HEAD 在主干上只报不判，列文件那一问答不上来说无从判断')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-child-process-edges-'))
+  const entry = cxJoin(process.cwd(), 'scripts/check/child-process-use.ts')
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
+  const run = () => cxSpawnSync(...tsxCommand([entry]), { cwd: root, encoding: 'utf8', timeout: 60_000, env: gitEnv })
+  const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+  const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
+  const registry = (toMove: string[]) => put('scripts/check/child-process-registry.json', JSON.stringify({ '说明': 'x', '登记': { 'scripts/check/child-process-use-rule.ts': '判定' }, '待挪': toMove }))
+  const CP = 'node:child' + '_process'
+  try {
+    put('scripts/check/child-process-use-rule.ts', `export const N = '${CP}'\n`); put('old.ts', `import { spawn } from '${CP}'\n`); registry(['old.ts'])
+    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base'); g('commit', '-q', '--allow-empty', '-m', 'second')
+    // HEAD 就是 main，和它的上一版比：待挪多了照样列出来，只报不判、以 0 退出
+    put('new.ts', `const cp = require('${CP}')\n`); registry(['new.ts', 'old.ts'])
+    const grownOnTrunk = run()
+    eq('入口：HEAD 就在主干上时，待挪多了照样列出、只报不判，以 0 退出', [grownOnTrunk.status, String(grownOnTrunk.stdout).includes('「待挪」比基线多了 new.ts') && String(grownOnTrunk.stdout).includes('只报不判定')], [0, true])
     // 列文件那一问答不上来（索引文件坏了；起点那几问不碰索引，照样答得上来）：无从判断，不当成一个文件都没有
     cxWriteFileSync(cxJoin(root, '.git', 'index'), '坏了')
     const noList = run()
     eq('入口：git ls-files 出错时说无从判断、以 1 结束', [noList.status, String(noList.stderr).includes('`git ls-files` 出错了')], [1, true])
-    cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
-    const bare = run()
-    eq('起子进程接口闸门的入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 起子进程的接口：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 
