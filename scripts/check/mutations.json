@@ -22679,7 +22679,7 @@
     {
       "id": "M-P2-s27",
       "req": "P2.f",
-      "why": "一行里有字被登记盖住也不算碰过，只登记了一部分的那行报成整行没登记，看不出没登记的是哪几段",
+      "why": "一行里有字被登记盖住也不算碰过：全登记的行也报成整行没登记，只登记了一部分的行看不出没登记的是哪几段",
       "file": "scripts/lib/draft-sources.ts",
       "find": "    if (i < end) touched = true\n",
       "replace": "",
@@ -22718,7 +22718,7 @@
       "req": "P2.f",
       "why": "每一行都把到信末的字算进来，后面几行的字全算到第一行头上",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "    while (i < from.length && from[i] < line.end) i++",
+      "find": "    while (i < from.length && from[i] < next) i++",
       "replace": "    while (i < from.length) i++",
       "by": "test",
       "kills": [
@@ -22825,7 +22825,7 @@
     {
       "id": "M-P2-s52",
       "req": "P2.f",
-      "why": "登记只标在信里第一次出现的地方：同一段话第二次出现时那一处算没登记，整句当一个字都没登记列出，不再指出后面接的「is the best.」才是没登记的部分",
+      "why": "登记只标在信里第一次出现的地方：同一段话第二次出现时那一处算没登记，那一行当一个字都没登记列出，不再指出后面接的「is the best.」才是没登记的部分",
       "file": "scripts/lib/draft-sources.ts",
       "find": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = normalizedDraft.indexOf(key, at + 1)) {",
       "replace": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = -1) {",
@@ -23129,6 +23129,42 @@
       ]
     },
     {
+      "id": "M-P2-s69",
+      "req": "P2.f",
+      "why": "没盖住的那段按原文判要不要列：全角花括号 ｛...｝ 原文是标点，占位符没登记也不列",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "  const keep = (start: number, end: number) => hasWords(normalizedDraft.slice(start, end))",
+      "replace": "  const keep = (start: number, end: number) => hasWords(show(start, end))",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s70",
+      "req": "P2.f",
+      "why": "信开头的空行也算第一行：后面真正的主题行不去掉「Subject:」标签，只登记了标签后的字也被列成只登记了一部分",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    if (draft.slice(start, end).trim() === '') return\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s71",
+      "req": "P2.f",
+      "why": "每一行只管到行尾：紧跟在换行后的附加符号归一时并在换行上，不归任何一行，没登记也不列",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    const next = n + 1 < all.length ? all[n + 1].start : draft.length",
+      "replace": "    const next = line.end",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
       "id": "M-P2-c-own18",
       "req": "P2.c",
       "why": "日期、钟点写法后面紧跟单位（10/20/30 oz、1:30 hours）登记成自己的话也挪走，规格躲过「出处对不上」",
@@ -23182,8 +23218,8 @@
       "req": "P2.f",
       "why": "同一行在信里出现两处只列一处，后一处没登记的被去重吃掉",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "  for (const line of lines(draft)) {\n",
-      "replace": "  const seen = new Set<string>()\n  for (const line of lines(draft)) {\n    if (seen.has(line.text)) continue\n    seen.add(line.text)\n",
+      "find": "  for (const [n, line] of all.entries()) {\n",
+      "replace": "  const seen = new Set<string>()\n  for (const [n, line] of all.entries()) {\n    if (seen.has(line.text)) continue\n    seen.add(line.text)\n",
       "by": "test",
       "kills": [
         "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后"
@@ -28956,7 +28992,7 @@
       "req": "S1.b",
       "scope": "整条（经用户自己的邮箱工具只存草稿、不发送）",
       "why": "调不调、调哪个工具由 Agent 照 Skill 文字在宿主里决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）。",
-      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看（连同报告里那封信的「出处对不上」一行，ADR-199；以及「逐句出处」一行里「要看」那一段，ADR-210、ADR-215），并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
+      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看（连同报告里那封信的「出处对不上」一行，ADR-199；以及「逐行出处」一行里「要看」那一段，ADR-210、ADR-215），并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
     },
     {
       "req": "P2.a",
@@ -28968,7 +29004,7 @@
       "req": "P2.d",
       "scope": "逐句登记里机器判断不了的那几样：改写得准不准、来处填得对不对（比如把产品说法登记成发件人自己的话）、发件人自己的话有没有借机给博主安新说法或夹带产品说法",
       "why": "这几样要读懂句子意思、拿去和博主原文比意思，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。登记的原文在不在、没登记的句子由 P2.e、P2.f、P2.g 管，有自己的认领与负片。",
-      "mitigation": "skill/references/outreach-draft.md 写明写博主的话只能引用或准确改写他的简介、作品文案、昵称，整封信每句登记出处；报告里「逐句出处」一行把信里这句与资料原文并排放，交付或存邮箱前要人看两样：登记了原文的，对照原文看改写得准不准；登记成发件人自己的话的，看有没有借机给博主安新说法、有没有夹带产品说法。见 ADR-210、ADR-215。"
+      "mitigation": "skill/references/outreach-draft.md 写明写博主的话只能引用或准确改写他的简介、作品文案、昵称，整封信每句登记出处；报告里「逐行出处」一行把信里这段与资料原文并排放，交付或存邮箱前要人看两样：登记了原文的，对照原文看改写得准不准；登记成发件人自己的话的，看有没有借机给博主安新说法、有没有夹带产品说法。见 ADR-210、ADR-215。"
     },
     {
       "req": "P1.b",

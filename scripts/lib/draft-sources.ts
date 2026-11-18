@@ -160,20 +160,22 @@ const hasWords = (text: string): boolean => /[^\s\p{P}]|[{}]/u.test(text)
 
 /**
  * 一行（归一后的第 `at` 到第 `end` 个字）有没有被碰到；没被盖住的部分照草稿原文的写法（`show` 换回原文）按原顺序用「…」连起来，
- * 全盖住时 `rest` 为 ''。
+ * 全盖住时 `rest` 为 ''。哪段要列由 `keep` 按归一后的字判（全角花括号归一成 `{}` 才认得出是占位符），印的是原文。
  */
-function uncovered(covered: readonly boolean[], at: number, end: number, show: (from: number, to: number) => string): { touched: boolean; rest: string } {
+function uncovered(
+  covered: readonly boolean[], at: number, end: number,
+  keep: (from: number, to: number) => boolean, show: (from: number, to: number) => string,
+): { touched: boolean; rest: string } {
   let touched = false
   const pieces: string[] = []
   let start = -1
   for (let i = at; i <= end; i++) {
     if (i < end && !covered[i]) { if (start < 0) start = i; continue }
     if (i < end) touched = true
-    if (start >= 0) { pieces.push(show(start, i)); start = -1 }
+    // 只丢纯空白与标点的剩余段；表情、符号（🔥、=、>>>）也是没登记的话，照列。
+    if (start >= 0) { if (keep(start, i)) pieces.push(show(start, i).trim()); start = -1 }
   }
-  // 只丢纯空白与标点的剩余段；表情、符号（🔥、=、>>>）也是没登记的话，照列。
-  const rest = pieces.map(p => p.trim()).filter(hasWords)
-  return { touched, rest: rest.join('…') }
+  return { touched, rest: pieces.join('…') }
 }
 
 /**
@@ -186,6 +188,7 @@ export function draftSourceItems(
   if (draft === undefined || draft.trim() === '') return undefined
   const { text: normalizedDraft, from, to } = normalized(draft)
   const show = (start: number, end: number) => draft.slice(from[start], to[end - 1])
+  const keep = (start: number, end: number) => hasWords(normalizedDraft.slice(start, end))
   const registered = (sources ?? []).map(source => ({ source, key: normalizeText(source.draft) }))
   const covered = coverage(normalizedDraft, registered.map(r => r.key))
   const placed: Array<{ at: number; item: DraftSourceItem }> = []
@@ -198,13 +201,16 @@ export function draftSourceItems(
       : { status: quoteVerdict({ ...source, from: source.from }, given), draft: source.draft, from: source.from, quote: source.quote === undefined ? '' : source.quote }
     placed.push({ at, item })
   }
-  // 每一行看它的字有没有被登记盖住：归一后的字按来处（原文下标）分到各行，换行与「Subject:」字样不归任何一行。
+  // 每一行看它的字有没有被登记盖住：归一后的字按来处（原文下标）分到各行。行尾的换行和后面的空行归上一行（只有空白，不列；
+  // 紧跟在换行后的附加符号归一时并在换行上，这样也有一行管它），第一行前的「Subject:」字样不归任何一行。
+  const all = lines(draft)
   let i = 0
-  for (const line of lines(draft)) {
+  for (const [n, line] of all.entries()) {
     while (i < from.length && from[i] < line.start) i++
     const begin = i
-    while (i < from.length && from[i] < line.end) i++
-    const { touched, rest } = uncovered(covered, begin, i, show)
+    const next = n + 1 < all.length ? all[n + 1].start : draft.length
+    while (i < from.length && from[i] < next) i++
+    const { touched, rest } = uncovered(covered, begin, i, keep, show)
     if (touched && rest) placed.push({ at: begin, item: { status: 'partial', draft: line.text, rest } })
     else if (!touched && hasWords(normalizedDraft.slice(begin, i))) placed.push({ at: begin, item: { status: 'unregistered', draft: line.text } })
   }
