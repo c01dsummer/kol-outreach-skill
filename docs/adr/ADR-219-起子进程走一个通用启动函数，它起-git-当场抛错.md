@@ -6,7 +6,7 @@
 - 决定人与时间：需求所有者丸子 2026-11-17 18:03Z 在「把 #471 的教训落进两层规矩」线程里选「改成按模块拦，加运行时拒绝」；本条是其中「加运行时拒绝」那一半
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
 - 理由：「禁用接口」的另一半 —— 口外不许直接碰，口里要有个能用的口。真要起进程的那一刻，程序名是确切的值，判它是不是 git 不用猜；经 shell 起时起什么要读懂命令串，所以干脆不让经 shell
-- 连带改动：`scripts/check/start-process.ts`（新，通用启动函数）· `scripts/check/launch-count.ts` 认 git 那一句拆成导出的 `isGitProgram`，通用启动函数引它 · 10 个文件的导入改指通用启动函数 · `scripts/check/child-process-registry.json`（「登记」加通用启动函数，「待挪」删 10 行）· `scripts/check/child-process-use-rule.ts` 闸门红时的指路话指到通用启动函数 · `scripts/test.ts` 一组新测试 · `scripts/check/mutations.json` 本条的变异与启动数一条旧变异的锚点 · `scripts/check/launches.json` 重写 · `docs/ARCHITECTURE.md` 两行 · `docs/GLOSSARY.md` 一条 · `docs/SYNC.md` 一行
+- 连带改动：`scripts/check/start-process.ts`（新，通用启动函数）· `scripts/check/launch-count.ts` 认 git 那一句拆成导出的 `isGitProgram`，通用启动函数引它 · 10 个文件的导入改指通用启动函数 · `scripts/check/child-process-registry.json`（「登记」加通用启动函数，「待挪」删 10 行）· `scripts/check/child-process-use-rule.ts` 闸门红时的指路话指到通用启动函数 · `scripts/test.ts` 两组新测试（拦 git 的那组不起进程，关 shell 的那组起进程，分开放，免得启动数乘变异数超上限） · `scripts/check/mutations.json` 本条的变异与启动数一条旧变异的锚点 · `scripts/check/launches.json` 重写 · `docs/ARCHITECTURE.md` 两行 · `docs/GLOSSARY.md` 一条 · `docs/SYNC.md` 一行
 
 ## 一、要用到的事实，各找谁要（`process/3-BUILD.md` 第 8 条）
 

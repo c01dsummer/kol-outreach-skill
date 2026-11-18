@@ -344,6 +344,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-child-process-judge', needs: [] },
   { id: 'h-child-process-entry', needs: [] },
   { id: 'h-start-process', needs: [] },
+  { id: 'h-start-process-shell', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -23321,7 +23322,7 @@ await group('h-child-process-entry', () => {
 })
 
 await group('h-start-process', async () => {
-  harness('通用启动函数：起 git 当场抛错，shell 选项一律关掉，其余选项照转')
+  harness('通用启动函数：起 git 当场抛错')
   eq('认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算',
     ['git', '/usr/bin/git', 'C:\\Git\\cmd\\git.exe', 'gitk', 'git-upload-pack', 'mygit', 'node'].map(isGitProgram),
     [true, true, true, false, false, false, false])
@@ -23329,6 +23330,11 @@ await group('h-start-process', async () => {
   eq('三个函数叫去起 git 都当场抛错（裸名与带路径都算）',
     [thrown(() => startSpawnSync('git', ['--version'])), thrown(() => startSpawn('/usr/bin/git', ['--version'])),
       thrown(() => startExecFileSync('git', ['--version']))], ['抛了', '抛了', '抛了'])
+})
+
+// 与上一组分开（ADR-131）：上一组不起进程，这一组起十来次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
+await group('h-start-process-shell', async () => {
+  harness('通用启动函数：shell 选项一律关掉，其余选项照转，认不出的参数形状原样交给 Node')
   // 被起的程序一律用正在跑的这个 node（process.execPath），不靠 PATH 上有没有 echo、pwd；同步抛的错与异步的 error 事件都接住，算进断言里
   const node = process.execPath
   const attempt = <T>(f: () => T): T | string => { try { return f() } catch (e) { return `抛了：${(e as NodeJS.ErrnoException).code ?? (e as Error).message}` } }
