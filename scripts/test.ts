@@ -23332,8 +23332,7 @@ await group('h-child-process-entry', () => {
     const noBase = run()
     eq('入口：基线上有闸门却没有登记表时说无从判断、以 1 结束', [noBase.status, String(noBase.stderr).includes('先合主干')], [1, true])
     // 列文件那一问答不上来（索引文件坏了；起点那几问不碰索引，照样答得上来）：无从判断，不当成一个文件都没有
-    const index = cxJoin(root, '.git', 'index')
-    cxWriteFileSync(index, '坏了')
+    cxWriteFileSync(cxJoin(root, '.git', 'index'), '坏了')
     const noList = run()
     eq('入口：git ls-files 出错时说无从判断、以 1 结束', [noList.status, String(noList.stderr).includes('`git ls-files` 出错了')], [1, true])
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
@@ -23538,11 +23537,8 @@ await group('h-git-entry-run', async () => {
     eq('答不上来的（没有这个修订）：gitText 交回 null', gitText(['rev-parse', '--verify', '没有这个^{commit}'], at), null)
     eq('gitOrThrow 不去首尾空白（-z 输出首尾的路径可能以空白开头或结尾）', gitOrThrow(['rev-parse', 'HEAD'], at), `${head}\n`)
     // 工作区文件的时间戳变了，问 status 不回写索引（对工作区的 diff 照样会刷新索引里的时间戳缓存，带了开关也一样，见 ADR-220 第四节）
-    const indexBytes = () => rf(join(repo, '.git', 'index')).toString('hex')
-    g('status', '--porcelain')
-    const before = indexBytes()
-    const later = new Date(Date.now() + 60_000)
-    utimesSync(join(repo, '挪了.md'), later, later)
+    const indexBytes = () => rf(join(repo, '.git', 'index')).toString('hex'); g('status', '--porcelain'); const before = indexBytes()
+    const later = new Date(Date.now() + 60_000); utimesSync(join(repo, '挪了.md'), later, later)
     gitText(['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', '挪了.md'], at)
     eq('问 status 不回写索引（文件时间戳变了也一样）', indexBytes() === before, true)
     // 输出超过 Node 缺省的 1 MB 照样读全
