@@ -64,18 +64,18 @@ function foldPiece(piece: string): string {
 
 /**
  * 比对前的统一写法，同时记下归一后每个字来自原文哪一段（`from`、`to` 是原文里的下标）。
- * 按「一个字母、数字或符号加它后面的附加符号」一段一段归一，别的每个字自成一段：空白合并成一个空格、去掉头尾空白。
- * 草稿、登记、原文都走这一个函数，两边口径一致；记下来处是为了把「哪些字被登记成发件人自己的话」
+ * 按「一个字母或符号加它后面的附加符号」一段一段归一，别的每个字自成一段：空白合并成一个空格、去掉头尾空白。
+ * 草稿、登记、原文都走这一个函数，两边口径一致；记下来处是为了把「哪些字被标成约时间、联系方式」
  * 换回原文下标，交给数字扫描用（ADR-215 第三节）。
  */
 function normalized(raw: string): { text: string; from: number[]; to: number[] } {
   let text = ''
   const from: number[] = [], to: number[] = []
   let space = -1
-  // 附加符号只跟在字母、数字、符号后面并成一段（合字只发生在这几类上：e+´ 合成 é、=+̸ 合成 ≠）；
-  // 跟在空白、标点、换行后面或打头的附加符号自成一段，来处记在它自己的位置 ——
+  // 附加符号只跟在字母、符号后面并成一段（合字只发生在这两类上：e+´ 合成 é、=+̸ 合成 ≠）；
+  // 跟在数字、空白、标点、换行后面或打头的附加符号自成一段，来处记在它自己的位置 ——
   // 不然它会和前面那个不用登记的空白或「Subject:」字样共用一个来处，被一起跳过。
-  for (const m of raw.matchAll(/[\p{L}\p{N}\p{S}]\p{M}*|[^]/gsu)) {
+  for (const m of raw.matchAll(/[\p{L}\p{S}]\p{M}*|[^]/gsu)) {
     const start = m.index, end = start + m[0].length
     for (const ch of foldPiece(m[0])) {
       if (/\s/u.test(ch)) { if (space < 0) space = start; continue }
@@ -235,7 +235,7 @@ export function draftSourceText(item: DraftSourceItem): string {
       ? `「${item.draft}」← 产品事实原文「${item.quote}」（原文对不上：任务里已证实的产品事实没有这段）`
       : `「${item.draft}」← ${KIND_LABEL[item.from]}原文「${item.quote}」（原文对不上：他的${KIND_LABEL[item.from]}里没有这段）`
     case 'not_queried': return `「${item.draft}」← ${KIND_LABEL[item.from]}原文「${item.quote}」（对不了：他的${KIND_LABEL[item.from]}没查过）`
-    case 'self': return item.purpose === undefined ? `「${item.draft}」` : `「${item.draft}」（${PURPOSE_LABEL[item.purpose]}）`
+    case 'self': return item.purpose === undefined || !(item.purpose in PURPOSE_LABEL) ? `「${item.draft}」` : `「${item.draft}」（${PURPOSE_LABEL[item.purpose]}）`
     case 'not_in_draft': return `「${item.draft}」（登记了出处，但信里已经没有这段）`
     case 'partial': return `「${item.draft}」（只登记了其中一段，没登记的：「${item.rest}」）`
     case 'unregistered': return `「${item.draft}」（没登记出处）`
@@ -268,7 +268,7 @@ export function draftSourceLine(
  * 登记在信里出现的每一处都算；没有这类登记时一律答否。没标 `purpose` 的 `self` 登记不算 —— 机器不猜哪个数字是约时间。
  */
 export function senderOwnSpans(draft: string, sources: readonly DraftSource[] | undefined): (at: number, length: number) => boolean {
-  const own = (sources ?? []).filter(source => source.from === 'self' && source.purpose !== undefined).map(source => normalizeText(source.draft))
+  const own = (sources ?? []).filter(source => source.from === 'self' && (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose)).map(source => normalizeText(source.draft))
   if (own.length === 0) return () => false
   const { text: normalizedDraft, from, to } = normalized(draft)
   const covered = coverage(normalizedDraft, own)

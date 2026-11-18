@@ -514,8 +514,10 @@ export function draftClaims(draft: string, facts: readonly string[], posts: read
     const list = senderMovable(claim) && senderOwn(claim.at, claim.text.length) ? senderOnly
       : sourced(claim, fromPosts) ? postsOnly : unsourced
     // 去重按「列到哪一行」分开记：同一写法先出现在发件人自己的话里，信里别处没登记的那一处照样进「出处对不上」。
+    // 「只在发件人自己的话里」那一行每一处都列、各带前后文：短标注（只标 1:30）会盖住信里每一处同样的写法，
+    // 只列一处就看不见另一处其实在说产品（Blends in 1:30 minutes）。
     const seenKey = `${list === senderOnly ? 'sender' : 'other'}:${claim.text.toLowerCase()}`
-    if (seen.has(seenKey)) continue
+    if (list !== senderOnly && seen.has(seenKey)) continue
     seen.add(seenKey)
     list.push(withContext(draft, claim))
   }

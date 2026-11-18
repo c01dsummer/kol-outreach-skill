@@ -1884,6 +1884,8 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       `要看：「{...}」（没登记出处）；「We make a {...} blender.」（只登记了其中一段，没登记的：「{...}」）${BAR}${SELF}「We make a」；「blender.」`, {}],
     ['全角字与长破折号归一后对得上', 'Your ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
       '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
+    ['符号后的附加符号与它合成一个字', 'We are =\u0338 them.', [{ draft: 'We are ≠ them.', from: 'self' }], `${SELF}「We are ≠ them.」`, {}],
+    ['认不得的用途不印', 'Call at 3pm.', [{ draft: 'Call at 3pm.', from: 'self', purpose: 'banana' } as unknown as NonNullable<Creator['draft_sources']>[number]], `${SELF}「Call at 3pm.」`, {}],
     ['分开写的附加符号与合写的算同一个字', 'Café chats are fun.', [{ draft: 'Café chats are fun.', from: 'self' }], `${SELF}「Café chats are fun.」`, {}],
   ]
   eq('P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一',
@@ -1958,13 +1960,25 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     `只在发件人自己的话里：3pm EST（faster. Free at 3pm EST? Plans start at）${SENDER_NOTE}`,
   ])
   // 挪不挪只看标注，不看后面的字：行末的约时间下一行是落款照挪；没标的「1:30 / hours」、「10/20/30 oz」整句登记成 self 也照列。
-  // 提示的前后文只取这一行（\r、U+2028 也算换行）。
+  // 提示的前后文只取这一行：回车、换行、U+2028、U+2029 前后都算行界。
   const UNITS = 'Cups come in 10/20/30 oz. It blends for 1:30\nhours.'
+  const marked = (sep: string) => claimsOf(`Hi Ana${sep}3pm EST${sep}Best`, [{ draft: 'Hi Ana', from: 'self' }, { draft: '3pm EST', from: 'self', purpose: 'schedule' }, { draft: 'Best', from: 'self' }])
   eq('P2.c 挪不挪只看约时间、联系方式的标注，不看后面跟的字；提示的前后文只取这一行', [...claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]),
-    ...claimsOf('Call at 3pm EST\rBest,\u2028Ari', [{ draft: 'Call at', from: 'self' }, { draft: '3pm EST', from: 'self', purpose: 'schedule' }, { draft: 'Best, Ari', from: 'self' }])], [
+    ...['\r', '\n', '\r\n', '\u2028', '\u2029'].flatMap(marked)], [
     `出处对不上：10/20/30（Cups come in 10/20/30 oz. It blends）；1:30（It blends for 1:30）${NOTE}`, undefined,
-    `出处对不上：无${NOTE}`, `只在发件人自己的话里：3pm EST（Call at 3pm EST）${SENDER_NOTE}`,
+    ...[0, 1, 2, 3, 4].flatMap(() => [`出处对不上：无${NOTE}`, `只在发件人自己的话里：3pm EST${SENDER_NOTE}`]),
   ])
+  // 短标注会盖住信里每一处同样的写法：「只在发件人自己的话里」每一处都列、各带前后文，另一处其实在说产品时人看得见。
+  // 标了的整句里，兜底整串、尺寸串、版本号这些也照列；手改名单写了认不得的用途不算标注。
+  const RAW = 'See 20.11.2026 or 1920x1080 or v2.3.4 at 3pm EST.'
+  eq('P2.c 「只在发件人自己的话里」每一处都列；标了的整句里兜底整串照列；认不得的用途不算标注',
+    [claimsOf('Free at 1:30? It blends in 1:30 minutes.', [{ draft: 'Free at', from: 'self' }, { draft: '1:30', from: 'self', purpose: 'schedule' }]),
+      claimsOf(RAW, [{ draft: RAW, from: 'self', purpose: 'schedule' }]),
+      claimsOf('Call at 3pm EST.', [{ draft: 'Call at 3pm EST.', from: 'self', purpose: 'banana' } as unknown as NonNullable<Creator['draft_sources']>[number]])],
+    [[`出处对不上：无${NOTE}`, `只在发件人自己的话里：1:30（Free at 1:30? It blends in）；1:30（It blends in 1:30 minutes.）${SENDER_NOTE}`],
+      [`出处对不上：${['20.11.2026（See 20.11.2026 or 1920x1080 or）', '1920x1080（See 20.11.2026 or 1920x1080 or v2.3.4 at）', 'v2（or 1920x1080 or v2.3.4 at 3pm EST.）', '.3.4（or 1920x1080 or v2.3.4 at 3pm EST.）'].join('；')}${NOTE}`,
+        `只在发件人自己的话里：3pm EST（or v2.3.4 at 3pm EST.）${SENDER_NOTE}`],
+      [`出处对不上：3pm EST（Call at 3pm EST.）${NOTE}`, undefined]])
   criterion('P2.c')
 }
 {

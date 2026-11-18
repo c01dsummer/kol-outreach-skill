@@ -22927,8 +22927,8 @@
       "req": "P2.c",
       "why": "登记成产品事实却挂着约时间标注（手改名单绕过正本校验）也把句里的数字移出「出处对不上」",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "(sources ?? []).filter(source => source.from === 'self' && source.purpose !== undefined)",
-      "replace": "(sources ?? []).filter(source => source.purpose !== undefined)",
+      "find": "(sources ?? []).filter(source => source.from === 'self' && (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose))",
+      "replace": "(sources ?? []).filter(source => (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose))",
       "by": "test",
       "kills": [
         "P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算"
@@ -22949,7 +22949,7 @@
     {
       "id": "M-P2-c-own3",
       "req": "P2.c",
-      "why": "登记成发件人自己的话时，说法里分隔用的空白不认，两个空格隔开的电话移不走",
+      "why": "标成约时间、联系方式时，说法里分隔用的空白不认，两个空格隔开的电话移不走",
       "file": "scripts/lib/draft-sources.ts",
       "find": "      if (/\\s/u.test(draft[i])) continue\n",
       "replace": "",
@@ -22961,7 +22961,7 @@
     {
       "id": "M-P2-c-own4",
       "req": "P2.c",
-      "why": "价钱登记成发件人自己的话也移出「出处对不上」",
+      "why": "价钱标成约时间、联系方式也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
       "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
       "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'price'])",
@@ -22973,7 +22973,7 @@
     {
       "id": "M-P2-c-own5",
       "req": "P2.c",
-      "why": "承诺词登记成发件人自己的话也移出「出处对不上」",
+      "why": "承诺词标成约时间、联系方式也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
       "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
       "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'word'])",
@@ -22985,7 +22985,7 @@
     {
       "id": "M-P2-c-own6",
       "req": "P2.c",
-      "why": "普通数量（带单位的数、倍数）登记成发件人自己的话也移出「出处对不上」，产品规格躲过检查",
+      "why": "普通数量（带单位的数、倍数）标成约时间、联系方式也移出「出处对不上」，产品规格躲过检查",
       "file": "scripts/lib/draft-claims.ts",
       "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
       "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'num'])",
@@ -22997,7 +22997,7 @@
     {
       "id": "M-P2-c-own7",
       "req": "P2.c",
-      "why": "half off 这类数量写法登记成发件人自己的话也移出「出处对不上」",
+      "why": "half off 这类数量写法标成约时间、联系方式也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
       "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
       "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'phrase'])",
@@ -23009,7 +23009,7 @@
     {
       "id": "M-P2-c-own8",
       "req": "P2.c",
-      "why": "型号串登记成发件人自己的话也移出「出处对不上」",
+      "why": "型号串标成约时间、联系方式也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
       "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
       "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'alnum'])",
@@ -23058,7 +23058,7 @@
     {
       "id": "M-P2-c-own12",
       "req": "P2.c",
-      "why": "认证、批准这类说法的那一整句登记成发件人自己的话也移出「出处对不上」",
+      "why": "认证、批准这类说法的那一整句标成约时间、联系方式也移出「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
       "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
       "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'endorsed'])",
@@ -23070,7 +23070,7 @@
     {
       "id": "M-P2-c-own13",
       "req": "P2.c",
-      "why": "登记成发件人自己的话的电话这类连着的一串数字不移，约时间、联系方式照样挤在「出处对不上」",
+      "why": "标成约时间、联系方式的电话这类连着的一串数字不移，约时间、联系方式照样挤在「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
       "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
       "replace": "SENDER_MOVABLE = new Set(['date', 'time'])",
@@ -23083,7 +23083,7 @@
     {
       "id": "M-P2-c-own14",
       "req": "P2.c",
-      "why": "登记成发件人自己的话的日期不移，约时间照样挤在「出处对不上」",
+      "why": "标成约时间、联系方式的日期不移，约时间照样挤在「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
       "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
       "replace": "SENDER_MOVABLE = new Set(['time', 'digits'])",
@@ -23157,7 +23157,7 @@
       "req": "P2.f",
       "why": "附加符号跟着前面任何字并成一段：紧跟换行、空白或「Subject:」字样的附加符号和它们共用来处，被一起跳过，没登记也不列",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "/[\\p{L}\\p{N}\\p{S}]\\p{M}*|[^]/gsu",
+      "find": "/[\\p{L}\\p{S}]\\p{M}*|[^]/gsu",
       "replace": "/\\P{M}\\p{M}*|\\p{M}+/gsu",
       "by": "test",
       "kills": [
@@ -23217,7 +23217,7 @@
       "req": "P2.c",
       "why": "没标用途的发件人自己的话也算约时间：整句登记成 self 就把句里的日期、钟点、电话挪出「出处对不上」，回到按长相猜",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "source.from === 'self' && source.purpose !== undefined",
+      "find": "source.from === 'self' && (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose)",
       "replace": "source.from === 'self'",
       "by": "test",
       "kills": [
@@ -23229,7 +23229,7 @@
       "req": "P2.f",
       "why": "逐行出处里标了约时间、联系方式的登记不印用途，运营看不出这一段是 Agent 标的",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "item.purpose === undefined ? `「${item.draft}」` : `「${item.draft}」（${PURPOSE_LABEL[item.purpose]}）`",
+      "find": "item.purpose === undefined || !(item.purpose in PURPOSE_LABEL) ? `「${item.draft}」` : `「${item.draft}」（${PURPOSE_LABEL[item.purpose]}）`",
       "replace": "`「${item.draft}」`",
       "by": "test",
       "kills": [
@@ -23261,9 +23261,93 @@
       ]
     },
     {
+      "id": "M-P2-c-own23",
+      "req": "P2.c",
+      "why": "提示前后文的行首只认 \\n：回车、U+2028、U+2029 分开的上一行混进提示",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "draft.slice(0, claim.at).search(/[^\\r\\n\\u2028\\u2029]*$/)",
+      "replace": "draft.slice(0, claim.at).search(/[^\\n]*$/)",
+      "by": "test",
+      "kills": [
+        "P2.c 挪不挪只看约时间、联系方式的标注，不看后面跟的字；提示的前后文只取这一行"
+      ]
+    },
+    {
+      "id": "M-P2-c-own24",
+      "req": "P2.c",
+      "why": "提示前后文的行尾不认 U+2028、U+2029：下一行的落款混进约时间的提示",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "const next = draft.slice(claim.at).search(/[\\r\\n\\u2028\\u2029]/)",
+      "replace": "const next = draft.slice(claim.at).search(/[\\r\\n]/)",
+      "by": "test",
+      "kills": [
+        "P2.c 挪不挪只看约时间、联系方式的标注，不看后面跟的字；提示的前后文只取这一行"
+      ]
+    },
+    {
+      "id": "M-P2-c-own25",
+      "req": "P2.c",
+      "why": "兜底整串也算能挪的：标了约时间的整句里，认不出种类的带数字串跟着挪出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "const SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "const SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'raw'])",
+      "by": "test",
+      "kills": [
+        "P2.c 「只在发件人自己的话里」每一处都列；标了的整句里兜底整串照列；认不得的用途不算标注"
+      ]
+    },
+    {
+      "id": "M-P2-c-own26",
+      "req": "P2.c",
+      "why": "「只在发件人自己的话里」同一写法只列一处：短标注盖住的另一处其实在说产品，人看不见",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "if (list !== senderOnly && seen.has(seenKey)) continue",
+      "replace": "if (seen.has(seenKey)) continue",
+      "by": "test",
+      "kills": [
+        "P2.c 「只在发件人自己的话里」每一处都列；标了的整句里兜底整串照列；认不得的用途不算标注"
+      ]
+    },
+    {
+      "id": "M-P2-c-own27",
+      "req": "P2.c",
+      "why": "认不得的用途（手改名单写了 banana）也算标注，句里的约时间被挪走",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "source.from === 'self' && (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose)",
+      "replace": "source.from === 'self' && source.purpose !== undefined",
+      "by": "test",
+      "kills": [
+        "P2.c 「只在发件人自己的话里」每一处都列；标了的整句里兜底整串照列；认不得的用途不算标注"
+      ]
+    },
+    {
+      "id": "M-P2-s77",
+      "req": "P2.f",
+      "why": "附加符号不跟符号并字：分开写的 =+̸ 与合写的 ≠ 对不上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "raw.matchAll(/[\\p{L}\\p{S}]\\p{M}*|[^]/gsu)",
+      "replace": "raw.matchAll(/[\\p{L}]\\p{M}*|[^]/gsu)",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s78",
+      "req": "P2.f",
+      "why": "认不得的用途照印：逐行出处里印出「（undefined）」",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "item.purpose === undefined || !(item.purpose in PURPOSE_LABEL) ?",
+      "replace": "item.purpose === undefined ?",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
       "id": "M-P2-c-own16",
       "req": "P2.c",
-      "why": "登记成发件人自己的话的钟点不再移走，约时间照列在「出处对不上」",
+      "why": "标成约时间、联系方式的钟点不再移走，约时间照列在「出处对不上」",
       "file": "scripts/lib/draft-claims.ts",
       "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
       "replace": "SENDER_MOVABLE = new Set(['date', 'digits'])",

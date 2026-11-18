@@ -291,7 +291,7 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
     if (lines === undefined) return ''
     const posts = lines.postsOnly === undefined ? '' : `
     <div class="bio" data-draft-claims="posts-only">只在博主作品里有：${esc(lines.postsOnly)}（确认是在引用博主，不是在说产品）</div>`
-    // ADR-215：登记成发件人自己的话里的日期、钟点、电话三类移到这一行；普通数字、价钱、承诺词这些不移（draft-claims.ts 的 senderMovable）。
+    // ADR-215：Agent 标成约时间、联系方式的登记里的日期、钟点、电话三类移到这一行；普通数字、价钱、承诺词这些不移（draft-claims.ts 的 senderMovable）。
     const sender = lines.senderOnly === undefined ? '' : `
     <div class="bio" data-draft-claims="sender-only">只在发件人自己的话里：${esc(lines.senderOnly)}（确认是约时间、联系方式这类，不是产品说法）</div>`
     return `
