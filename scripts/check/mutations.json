@@ -28858,19 +28858,19 @@
       "id": "M-H219-f",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "带参数数组时选项里的 shell 原样转：传了 shell: true 就经 shell 起，命令串里起什么这里看不到",
-      "find": "return [first ?? [], { ...(second as object | undefined), shell: false }]",
-      "replace": "return [first ?? [], { ...(second as object | undefined) }]",
+      "why": "选项里的 shell 原样转：传了 shell: true 就经 shell 起，命令串里起什么这里看不到",
+      "find": ", shell: false }]",
+      "replace": " }]",
       "by": "test",
-      "kills": ["传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样", "参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用"]
+      "kills": ["传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样", "选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用", "选项写在第二个位置、第三个位置再跟 undefined 或别的对象时，照 Node 只认第二个位置：shell 照样关掉", "参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用"]
     },
     {
       "id": "M-H219-g",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "选项在第二个位置时 shell 原样转",
-      "find": "return [[], { ...(first as object | undefined), shell: false }]",
-      "replace": "return [[], { ...(first as object | undefined) }]",
+      "why": "选项写在第二个位置时被丢掉：cwd 这类别的选项悄悄不生效",
+      "find": "{ options = args; args = [] }",
+      "replace": "{ args = [] }",
       "by": "test",
       "kills": ["选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用"]
     },
@@ -28879,8 +28879,8 @@
       "req": "harness",
       "file": "scripts/check/start-process.ts",
       "why": "参数数组的位置写成空值时不认第三个位置的选项：整组原样交出去，传了经 shell 就真经 shell",
-      "find": "(Array.isArray(first) || first == null) &&",
-      "replace": "Array.isArray(first) &&",
+      "find": "if (Array.isArray(args) || args == null)",
+      "replace": "if (Array.isArray(args))",
       "by": "test",
       "kills": ["参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用"]
     },
@@ -28888,9 +28888,19 @@
       "id": "M-H219-i",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "认不出的参数形状被悄悄改成「没有参数、只关 shell」：写错的调用照常起进程、参数丢了也不报",
-      "find": "  return [...rest]\n",
-      "replace": "  return [[], { shell: false }]\n",
+      "why": "第二个位置是认不出的东西时被悄悄改成「没有参数、只关 shell」：写错的调用照常起进程、参数丢了也不报",
+      "find": "else return [...rest]",
+      "replace": "else return [[], { shell: false }]",
+      "by": "test",
+      "kills": ["认不出的参数形状原样交给 Node，由它报参数类型错，不悄悄改成别的"]
+    },
+    {
+      "id": "M-H219-j",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项位置是对象以外的东西时被当成对象展开：写错的调用照常起进程、不报参数类型错",
+      "find": "(typeof options !== 'object' || options === null || Array.isArray(options))) return",
+      "replace": "false) return",
       "by": "test",
       "kills": ["认不出的参数形状原样交给 Node，由它报参数类型错，不悄悄改成别的"]
     }

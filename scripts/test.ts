@@ -23329,23 +23329,40 @@ await group('h-start-process', async () => {
   eq('三个函数叫去起 git 都当场抛错（裸名与带路径都算）',
     [thrown(() => startSpawnSync('git', ['--version'])), thrown(() => startSpawn('/usr/bin/git', ['--version'])),
       thrown(() => startExecFileSync('git', ['--version']))], ['抛了', '抛了', '抛了'])
-  const synced = startSpawnSync('echo', ['$HOME'], { shell: true, encoding: 'utf8' })
-  const filed = startExecFileSync('echo', ['$HOME'], { shell: true, encoding: 'utf8' })
-  const child = startSpawn('echo', ['$HOME'], { shell: true })
-  let out = ''
-  child.stdout?.on('data', (d: Buffer) => { out += String(d) })
-  await new Promise(resolve => child.on('close', resolve))
-  eq('传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样', [synced.stdout, filed, out], ['$HOME\n', '$HOME\n', '$HOME\n'])
-  const noArgs = startSpawnSync('echo $HOME', { shell: true })
-  const cwd = startSpawnSync('pwd', { cwd: '/', encoding: 'utf8' })
+  // 被起的程序一律用正在跑的这个 node（process.execPath），不靠 PATH 上有没有 echo、pwd；同步抛的错与异步的 error 事件都接住，算进断言里
+  const node = process.execPath
+  const attempt = <T>(f: () => T): T | string => { try { return f() } catch (e) { return `抛了：${(e as NodeJS.ErrnoException).code ?? (e as Error).message}` } }
+  const printArg = ['-e', 'process.stdout.write(process.argv[1])', '$HOME']
+  const synced = attempt(() => startSpawnSync(node, printArg, { shell: true, encoding: 'utf8' }).stdout)
+  const filed = attempt(() => startExecFileSync(node, printArg, { shell: true, encoding: 'utf8' }))
+  const out = await new Promise<string>(resolve => {
+    let text = ''
+    try {
+      const child = startSpawn(node, printArg, { shell: true })
+      child.stdout?.on('data', (d: Buffer) => { text += String(d) })
+      child.on('error', e => resolve(`出错：${(e as NodeJS.ErrnoException).code}`))
+      child.on('close', () => resolve(text))
+    } catch (e) { resolve(`抛了：${(e as Error).message}`) }
+  })
+  eq('传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样', [synced, filed, out], ['$HOME', '$HOME', '$HOME'])
+  // 整串「node -e 1」当程序名：经 shell 能跑起来（没有 error），不经 shell 起不来（有 error）
+  const whole = `${node} -e 1`
+  const printCwd = { input: 'process.stdout.write(process.cwd())', cwd: '/', encoding: 'utf8' } as const
+  const noArgs = startSpawnSync(whole, { shell: true })
+  const cwd = startSpawnSync(node, printCwd)
   eq('选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用',
-    [noArgs.error !== undefined, noArgs.status, cwd.stdout], [true, null, '/\n'])
-  const holeArgs = startSpawnSync('echo $HOME', undefined, { cwd: '/', shell: true })
-  const holeCwd = startSpawnSync('pwd', null as unknown as string[], { cwd: '/', encoding: 'utf8' })
+    [noArgs.error !== undefined, noArgs.status, cwd.stdout], [true, null, '/'])
+  const trailing = startSpawnSync(whole, { shell: true } as never, undefined)
+  const ignored = startSpawnSync(whole, { shell: true } as never, { cwd: '/' })
+  eq('选项写在第二个位置、第三个位置再跟 undefined 或别的对象时，照 Node 只认第二个位置：shell 照样关掉',
+    [trailing.error !== undefined, ignored.error !== undefined], [true, true])
+  const holeArgs = startSpawnSync(whole, undefined, { cwd: '/', shell: true })
+  const holeCwd = startSpawnSync(node, null as unknown as string[], printCwd)
   eq('参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用',
-    [holeArgs.error !== undefined, holeCwd.stdout], [true, '/\n'])
-  const badShape = (() => { try { startSpawnSync('echo', 'hi' as unknown as string[]); return '没抛' } catch (e) { return (e as NodeJS.ErrnoException).code } })()
-  eq('认不出的参数形状原样交给 Node，由它报参数类型错，不悄悄改成别的', badShape, 'ERR_INVALID_ARG_TYPE')
+    [holeArgs.error !== undefined, holeCwd.stdout], [true, '/'])
+  eq('认不出的参数形状原样交给 Node，由它报参数类型错，不悄悄改成别的',
+    [attempt(() => startSpawnSync(node, 'hi' as unknown as string[])), attempt(() => startSpawnSync(node, ['-e', '1'], 'x' as never))],
+    ['抛了：ERR_INVALID_ARG_TYPE', '抛了：ERR_INVALID_ARG_TYPE'])
 })
 
 await group('d19-config-known-gap', () => {
