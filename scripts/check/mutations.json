@@ -28902,7 +28902,7 @@
       "find": "  if (typeof file !== 'string') return rest\n",
       "replace": "",
       "by": "test",
-      "kills": ["程序名不是字符串的三个函数都原样交给 Node，由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）"]
+      "kills": ["程序名不是字符串的三个函数都原样交给 Node（参数一个没改），由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）"]
     },
     {
       "id": "M-H219-k",
@@ -28922,7 +28922,7 @@
       "find": "  return rest\n}",
       "replace": "  return rest.map(item => Array.isArray(item) ? [...item] : typeof item === 'object' && item !== null ? { ...item } : item)\n}",
       "by": "test",
-      "kills": ["过了检查的参数原样交给 Node：三个函数都是同一个参数数组、同一个选项对象（原型上继承的选项值也跟着到），个数不变"]
+      "kills": ["过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组、同一个选项对象（原型上继承的选项值也跟着到），个数不变"]
     }
   ],
   "exemptions": [

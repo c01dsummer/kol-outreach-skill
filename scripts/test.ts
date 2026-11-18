@@ -23324,6 +23324,7 @@ await group('h-child-process-entry', () => {
 // 两组共用：把模块上三个起进程的函数暂换成只记次数的替身，跑完换回。被拒的调用要「抛了且一次也没交给 Node」，
 // 只看抛了什么分不出「先交给 Node 起了、再抛」；替身也让变异把拒绝拿掉时不真起进程
 const startNames = ['spawn', 'spawnSync', 'execFileSync'] as const
+const startFunctions = { spawn: startSpawn, spawnSync: startSpawnSync, execFileSync: startExecFileSync }
 const withStubs = <T>(f: () => T): [T | Error, number] => {
   const module = childProcessModule as unknown as Record<string, unknown>
   const kept = startNames.map(name => module[name])
@@ -23354,21 +23355,20 @@ await group('h-start-process', async () => {
   eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
   // 过了检查的参数原样交给 Node：同一个参数数组、同一个选项对象（选项从原型上继承来的值也就跟着到了），个数不变。三个函数各换一次。
   // 程序用正在跑的这个 node 加「-e 1」：替身没接上（比如函数在载入时就抄下来了）而真起了进程时，也很快结束；真起时抛的错与异步的 error 事件都接住
-  const starts = { spawn: startSpawn, spawnSync: startSpawnSync, execFileSync: startExecFileSync }
   const args = ['-e', '1'], inherited = Object.create({ stdio: 'pipe' }) as object
   const forwarded = startNames.map(name => {
     const module = childProcessModule as unknown as Record<string, unknown>
     const kept = module[name]
-    let got: unknown[] = []
+    let got: unknown[] = [], calls = 0
     try {
-      module[name] = (...a: unknown[]) => { got = a; return { status: 0 } }
-      const started = (starts[name] as (...a: unknown[]) => unknown)(process.execPath, args, inherited) as { on?: (e: string, h: () => void) => void }
+      module[name] = (...a: unknown[]) => { got = a; calls++; return { status: 0 } }
+      const started = (startFunctions[name] as (...a: unknown[]) => unknown)(process.execPath, args, inherited) as { on?: (e: string, h: () => void) => void }
       started?.on?.('error', () => {})
     } catch { /* 真起时抛的错：下面 got 是空的，断言照样红 */ } finally { module[name] = kept }
-    return [got.length, got[1] === args, got[2] === inherited]
+    return [calls, got.length, got[0] === process.execPath, got[1] === args, got[2] === inherited]
   })
-  eq('过了检查的参数原样交给 Node：三个函数都是同一个参数数组、同一个选项对象（原型上继承的选项值也跟着到），个数不变',
-    forwarded, [[3, true, true], [3, true, true], [3, true, true]])
+  eq('过了检查的参数原样交给 Node：三个函数都只交一次，程序名、同一个参数数组、同一个选项对象（原型上继承的选项值也跟着到），个数不变',
+    forwarded, Array.from({ length: 3 }, () => [1, 3, true, true, true]))
 })
 
 // 与上一组分开（ADR-131）：上一组不起进程，这一组真起三次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
@@ -23391,22 +23391,31 @@ await group('h-start-process-shell', async () => {
       [['-e', '1'], {}, {}]].map(all),
     Array.from({ length: 8 }, () => Array.from({ length: 3 }, () => ['写法不对', 0])))
   // 程序名不是字符串的要真交给 Node，由它报错（不用替身）；Node 先验哪个参数由它定，这几条都只给了错的程序名
-  const nodeError = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return String((e as NodeJS.ErrnoException).code ?? (e as Error).message) } }
-  const notString = (file: unknown, ...args: unknown[]): string[] => [startSpawnSync, startSpawn, startExecFileSync]
-    .map(start => nodeError(() => (start as (...a: unknown[]) => unknown)(file, ...args)))
-  eq('程序名不是字符串的三个函数都原样交给 Node，由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）',
+  // 模块上的函数暂换成一个记下收到什么、再转给原函数的探子：既看 Node 收到的参数一个没改，也看报的是 Node 自己的错
+  const notString = (file: unknown, ...args: unknown[]): [string, boolean][] => startNames.map(name => {
+    const module = childProcessModule as unknown as Record<string, (...a: unknown[]) => unknown>
+    const kept = module[name]
+    let seen: unknown[] | undefined
+    module[name] = (...a: unknown[]) => { seen = a; return kept(...a) }
+    let code = '没抛'
+    try { (startFunctions[name] as (...a: unknown[]) => unknown)(file, ...args) } catch (e) { code = String((e as NodeJS.ErrnoException).code ?? (e as Error).message) } finally { module[name] = kept }
+    return [code, seen !== undefined && seen.length === args.length + 1 && seen[0] === file && seen.slice(1).every((a, i) => a === args[i])]
+  })
+  eq('程序名不是字符串的三个函数都原样交给 Node（参数一个没改），由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）',
     [notString(undefined, ['-e', '1']), notString(undefined, 'x'), notString(1)],
-    Array.from({ length: 3 }, () => ['ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_TYPE']))
+    Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => ['ERR_INVALID_ARG_TYPE', true])))
   // 写法对的照常起：cwd 照用、shell: false 也认，要正常退出（退出码 0、没有被信号结束）；异步那个不接标准输入，参数丢了也不会卡着等输入
   const printCwd = ['-e', 'process.stdout.write(process.cwd())']
+  // 子进程不继承调用方的 NODE_OPTIONS：里面要是有相对路径的预加载，在 / 下找不到，子进程会先挂掉
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'NODE_OPTIONS'))
   const attempt = <T>(f: () => T): T | string => { try { return f() } catch (e) { return `抛了：${(e as Error).message}` } }
-  const synced = attempt(() => { const r = startSpawnSync(node, printCwd, { cwd: '/', encoding: 'utf8', shell: false }); return [r.stdout, r.status, r.signal, r.error === undefined] })
+  const synced = attempt(() => { const r = startSpawnSync(node, printCwd, { cwd: '/', env, encoding: 'utf8', shell: false }); return [r.stdout, r.status, r.signal, r.error === undefined] })
   // execFileSync 退出码不是 0 时自己会抛，抛了就落到 attempt 里
-  const filed = attempt(() => [startExecFileSync(node, printCwd, { cwd: '/', encoding: 'utf8' }), 0, null, true])
+  const filed = attempt(() => [startExecFileSync(node, printCwd, { cwd: '/', env, encoding: 'utf8' }), 0, null, true])
   const spawned = await new Promise<unknown>(resolve => {
     let text = ''
     try {
-      const child = startSpawn(node, printCwd, { cwd: '/', stdio: ['ignore', 'pipe', 'pipe'] })
+      const child = startSpawn(node, printCwd, { cwd: '/', env, stdio: ['ignore', 'pipe', 'pipe'] })
       child.stdout?.on('data', (d: Buffer) => { text += String(d) })
       child.on('error', e => resolve(`出错：${(e as NodeJS.ErrnoException).code}`))
       child.on('close', (code, signal) => resolve([text, code, signal, true]))
