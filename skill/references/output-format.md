@@ -52,6 +52,46 @@ npm run collect -- --config product.json --ignore-memory # 只在用户明确接
 
 `{product}` 用短横线小写，如 `anker-powerbank`。它不能含 `/`、`\` 或 NUL：任务目录由它拼成，含这几个字符时 collect 新建任务以 2 拒绝、不建目录（D29）。
 
+### 导出（render）读哪几个文件
+
+```bash
+npm run render -- --dir output/{task}
+npm run render -- --dir output/{task} --ignore-memory   # 只在用户明确接受不去重时加
+```
+
+- **名单从任务目录的 `creators.json` 来**，也就是 collect 保存的当前名单。`creators.raw.json`（采集原件）只用来认关联账号，不往名单里加人；它不在时拿 `creators.json` 顶上。`creators.json` 不在时导出一份空名单，照常以 0 结束。
+- **判断从 `agent-review.json` 来**。这份不在时，render 把 `creators.json` 旧行里带的判断（`fit`、`fit_reason`、草稿等）迁成正本存下，再照正本出名单。
+- `enrichment.json` 可以没有，没有就是公开指标全部未查询。
+- 跨任务记忆 `memory/creators.json` 与 collect 一样，按 render 进程的当前目录找（用 `npm run` 时就是仓库根目录）。文件还不存在时 `memory_status` 是 `absent`，render 会新建它、记下这批推荐。
+
+能导出的最小任务目录长这样：render 以 0 结束，写出 `kol.csv`、`kol.xlsx`、`report.html`、`meta.json`，并存下 `agent-review.json`。照着试的时候，先用 `cp -r` 把整个仓库（连同 `node_modules`）复制一份一次性的副本，把这两个文件放进副本里的 `output/demo/`，在副本根目录跑 `npm run render -- --dir output/demo`。这样 `memory/creators.json` 和 `output/` 都落在副本里，用完整份删掉；直接在仓库根目录跑，这个示例里的人会被记进真的跨任务记忆。`--ignore-memory` 不起隔离作用：它只让读不出的记忆不拦导出，读得出时照常去重、照常写回。
+
+```
+task.json      {"product":"demo","market":"US","target_count":1,
+                "tasks":[{"keyword":"portable charger","dimension":"category","platform":"tiktok"},
+                         {"keyword":"power bank","dimension":"category","platform":"instagram"}],
+                "done":[0],"answered":{"0":1},"found":{"0":1},"offsets":{"0":0},"pages":{"0":1},
+                "created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}
+creators.json  [{"platform":"tiktok","handle":"alice","nickname":"Alice","followers":80000,"bio":"Tech reviews",
+                 "bio_links":[],"verified":false,"profile_url":"https://www.tiktok.com/@alice",
+                 "source_keyword":"portable charger","source_dimension":"category","source_tasks":[0],
+                 "fit":"✅","fit_reason":"测评充电宝"}]
+```
+
+关键词表那一列（`meta.json` 的 `keywords[].status` 与 `found`，HTML 的「找到」）从 `task.json` 里两张表读出来：
+
+| `task.json` 里 | `status` | `found` | HTML「找到」那格 |
+|---|---|---|---|
+| 整张 `answered` 表没有（旧目录） | `unknown` | `null` | 无从确认 |
+| 有 `answered` 表、没有这个任务的下标 | `unqueried` | `null` | 未查询 |
+| `answered` 里有这个下标、`found` 里没有 | `queried` | `null` | 未知 |
+| `answered` 里有、`found` 里是 0 | `queried` | `0` | 0 |
+| `answered` 里有、`found` 里是 N | `queried` | N | N |
+
+`answered` 写成 `null` 或别的不是对象的值，不算「没有表」，算进度损坏：render 以 2 拒收，stderr 写「answered 必须是按任务索引记录的对象」，什么都不写。
+
+上面那个最小目录导出后，第一行是找到 1、入围 1、语义通过 1，第二行（Instagram 那个词）是未查询；入围、语义通过两格在没查过的行印「无从确认」，不印 0（P5.i）。
+
 ## 人工反馈模板（D23、D24、D26）
 
 本次改动开放的本地入口只为已保存冻结池创建或追加空白人工表：
@@ -344,6 +384,22 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 | `memory_write_error` | 只在没记进去时出现 | 原因原文。**有两类，别替用户猜**：读不出来要去修 JSON，写不进去（权限、磁盘满）要去看环境 |
 
 两条都会同时出现在 HTML 报告的数据边界里。见 `references/memory.md` 与 ADR-15。
+
+### HTML 报告里数据边界的原句
+
+报告上方统计数字下面那一块黄色提醒就是数据边界，每句单独一行、前面带「⚠️ 」。按下面的顺序出现，条件不满足的那句不出；去重那两句之一出现时排在最前面。
+
+| 什么时候出 | 原句 |
+|---|---|
+| `memory_status` 是 `unreadable_ignored` | 本次名单未做「已联系 / 已推荐」去重（记忆文件读不出来，运行时显式跳过）—— 名单里可能包含你已经联系过、甚至已经拉黑的人。发信前请自行核对。 |
+| `memory_status` 是 `unknown` | 本次名单的「已联系 / 已推荐」去重状态无从确认 —— 名单里可能包含你已经联系过的人。重跑一次采集即可得到确定答案。 |
+| `memory_written` 是 `false` | 本次推荐未记入跨任务记忆（原文件未被改动）—— 原因：`memory_write_error` 的原文（没有时写「未记录」）。在解决之前，下一批名单可能重复推荐这批人。 |
+| `capabilities.email_verification` 的 `total` 是 0，或 `measured` 小于 `total`（没有 `capabilities` 时看 `enriched` 是 `false`） | 邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。 |
+| `capabilities.audience_geo` 同上 | 未配置增强层，无法确认这批人的粉丝是否在目标市场。 |
+| `capabilities.public_post_sample` 的 `measured` 或 `unavailable` 不是 0 | 受众质量风险只依据近期公开互动异常，不是假粉率，也不能代表实际带货效果。 |
+| `capabilities.public_post_sample` 的 `unqueried` 或 `unavailable` 不是 0 | 公开指标边界：{unqueried} 个账号未查询，{unavailable} 个账号不可用。 |
+
+报告副标题写「目标市场 {market} · {platforms 用 ` + ` 连起来}」；`meta.json` 的 `platforms` 按 `task.json` 任务列表里出现过的平台列，哪怕那个平台一个人都没采到（上面的最小目录就是这样：名单里只有 TikTok 的人，`platforms` 仍是 `["tiktok","instagram"]`）。
 
 ## 收尾输出
 
