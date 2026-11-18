@@ -34,7 +34,7 @@ Hi {nickname 或 first name},
 
 {第一句：引用他某条具体内容，说清你看到了什么、为什么想到他}
 
-I'm {name} from {brand} — we make {产品一句话，带一个具体差异点}.
+I'm {name} from {brand}. We make {产品一句话，带一个具体差异点}.
 
 {提议：寄样测评 / 付费合作 / 联盟分成，说清能给什么}
 

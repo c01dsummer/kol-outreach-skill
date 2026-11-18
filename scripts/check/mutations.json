@@ -22718,7 +22718,7 @@
       "req": "P2.f",
       "why": "每一行都把到信末的字算进来，后面几行的字全算到第一行头上",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "    while (i < from.length && from[i] < next) i++",
+      "find": "    while (i < from.length && from[i] < line.end) i++",
       "replace": "    while (i < from.length) i++",
       "by": "test",
       "kills": [
@@ -23155,10 +23155,10 @@
     {
       "id": "M-P2-s71",
       "req": "P2.f",
-      "why": "每一行只管到行尾：紧跟在换行后的附加符号归一时并在换行上，不归任何一行，没登记也不列",
+      "why": "换行带上后面的附加符号：紧跟换行的附加符号来处记在换行上，不归任何一行，没登记也不列",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "    const next = n + 1 < all.length ? all[n + 1].start : draft.length",
-      "replace": "    const next = line.end",
+      "find": "/[\\r\\n\\u2028\\u2029]|\\P{M}\\p{M}*|\\p{M}+/gsu",
+      "replace": "/\\P{M}\\p{M}*|\\p{M}+/gsu",
       "by": "test",
       "kills": [
         "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
@@ -23173,7 +23173,7 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列"
+        "P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列；下一行开头的字不算单位"
       ]
     },
     {
@@ -23186,6 +23186,18 @@
       "by": "test",
       "kills": [
         "P2.c 登记成发件人自己的话也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点"
+      ]
+    },
+    {
+      "id": "M-P2-c-own20",
+      "req": "P2.c",
+      "why": "钟点、日期、电话后面的单位读到下一行：落款开头的 Best 被当成 3pm 的单位，登记成自己的话的约时间留在「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": " + after.split(/\\r\\n|\\r|\\n|\\u2028|\\u2029/, 1)[0]",
+      "replace": " + after",
+      "by": "test",
+      "kills": [
+        "P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列；下一行开头的字不算单位"
       ]
     },
     {
@@ -23218,8 +23230,8 @@
       "req": "P2.f",
       "why": "同一行在信里出现两处只列一处，后一处没登记的被去重吃掉",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "  for (const [n, line] of all.entries()) {\n",
-      "replace": "  const seen = new Set<string>()\n  for (const [n, line] of all.entries()) {\n    if (seen.has(line.text)) continue\n    seen.add(line.text)\n",
+      "find": "  for (const line of lines(draft)) {\n",
+      "replace": "  const seen = new Set<string>()\n  for (const line of lines(draft)) {\n    if (seen.has(line.text)) continue\n    seen.add(line.text)\n",
       "by": "test",
       "kills": [
         "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后"

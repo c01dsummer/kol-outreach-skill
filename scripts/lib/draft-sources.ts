@@ -63,7 +63,8 @@ function normalized(raw: string): { text: string; from: number[]; to: number[] }
   let text = ''
   const from: number[] = [], to: number[] = []
   let space = -1
-  for (const m of raw.matchAll(/\P{M}\p{M}*|\p{M}+/gsu)) {
+  // 换行自成一段，不带后面的附加符号：紧跟换行的附加符号算下一行的字，来处记在它自己的位置。
+  for (const m of raw.matchAll(/[\r\n\u2028\u2029]|\P{M}\p{M}*|\p{M}+/gsu)) {
     const start = m.index, end = start + m[0].length
     for (const ch of foldPiece(m[0])) {
       if (/\s/u.test(ch)) { if (space < 0) space = start; continue }
@@ -201,15 +202,12 @@ export function draftSourceItems(
       : { status: quoteVerdict({ ...source, from: source.from }, given), draft: source.draft, from: source.from, quote: source.quote === undefined ? '' : source.quote }
     placed.push({ at, item })
   }
-  // 每一行看它的字有没有被登记盖住：归一后的字按来处（原文下标）分到各行。行尾的换行和后面的空行归上一行（只有空白，不列；
-  // 紧跟在换行后的附加符号归一时并在换行上，这样也有一行管它），第一行前的「Subject:」字样不归任何一行。
-  const all = lines(draft)
+  // 每一行看它的字有没有被登记盖住：归一后的字按来处（原文下标）分到各行，换行与「Subject:」字样不归任何一行。
   let i = 0
-  for (const [n, line] of all.entries()) {
+  for (const line of lines(draft)) {
     while (i < from.length && from[i] < line.start) i++
     const begin = i
-    const next = n + 1 < all.length ? all[n + 1].start : draft.length
-    while (i < from.length && from[i] < next) i++
+    while (i < from.length && from[i] < line.end) i++
     const { touched, rest } = uncovered(covered, begin, i, keep, show)
     if (touched && rest) placed.push({ at: begin, item: { status: 'partial', draft: line.text, rest } })
     else if (!touched && hasWords(normalizedDraft.slice(begin, i))) placed.push({ at: begin, item: { status: 'unregistered', draft: line.text } })

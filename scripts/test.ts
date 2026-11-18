@@ -1865,8 +1865,11 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     ['全角花括号的占位符归一后也要登记', 'We make a ｛...｝ blender.', [{ draft: 'We make a', from: 'self' }, { draft: 'blender.', from: 'self' }],
       `要看：「We make a ｛...｝ blender.」（只登记了其中一段，没登记的：「｛...｝」）${BAR}${SELF}「We make a」；「blender.」`, {}],
     ['归一后是撇号的字不算没登记', 'Thanksʼ Mei', [{ draft: 'Thanks', from: 'self' }, { draft: 'Mei', from: 'self' }], `${SELF}「Thanks」；「Mei」`, {}],
-    ['紧跟在换行后的附加符号也有一行管它', 'Hi Mei,\n\u0301', [{ draft: 'Hi Mei,', from: 'self' }],
-      `要看：「Hi Mei,」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi Mei,」`, {}],
+    ['紧跟在换行后的附加符号算下一行的字', 'Hi Mei,\n\u0301', [{ draft: 'Hi Mei,', from: 'self' }],
+      `要看：「\u0301」（没登记出处）${BAR}${SELF}「Hi Mei,」`, {}],
+    ['正文第一行开头的附加符号也要登记', '\n\u0301Hi', [{ draft: 'Hi', from: 'self' }],
+      `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
+    ['登记跨行照样盖住', 'Hi\nMei', [{ draft: 'Hi Mei', from: 'self' }], `${SELF}「Hi Mei」`, {}],
     ['主题行写什么都要登记', 'Subject: Mei, your blender\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
       `要看：「Mei, your blender」（没登记出处）${BAR}${SELF}「We make a blender.」`, {}],
     ['没填的占位符整段是标点也要登记', 'Subject: {...}\n\nWe make a {...} blender.', [{ draft: 'We make a', from: 'self' }, { draft: 'blender.', from: 'self' }],
@@ -1930,9 +1933,11 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   eq('P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移',
     [claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self' }]),
      claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'product', quote: 'noon' }]),
-     claimsOf('Free on  11/20/2026\nat noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'self' }])[1],
-     claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at 415 555 0199.', from: 'self' }])[1]],
-    [...[0, 1].map(() => [`出处对不上：11/20/2026（Free on 11/20/2026 at noon.）${NOTE}`, undefined]), `只在发件人自己的话里：11/20/2026（Free on 11/20/2026）${SENDER_NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`])
+     claimsOf('Free on  11/20/2026\nat noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'self' }]),
+     claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at 415 555 0199.', from: 'self' }])],
+    [...[0, 1].map(() => [`出处对不上：11/20/2026（Free on 11/20/2026 at noon.）${NOTE}`, undefined]),
+      [`出处对不上：无${NOTE}`, `只在发件人自己的话里：11/20/2026（Free on 11/20/2026）${SENDER_NOTE}`],
+      [`出处对不上：无${NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`]])
   const escaped = renderHtml([mk('tiktok', 'esc', { tier: 'A', outreach_draft: 'Text me at 415 555 0199 <b>now</b> & then.', draft_sources: [{ draft: 'Text me at 415 555 0199 <b>now</b> & then.', from: 'self' }], profile_url: 'https://example.com/esc' })], meta, { mode: 'review', facts: ['x'] })
   ok('P2.c 「只在发件人自己的话里」一行在输出处转义', rowOf(escaped, 'esc', 'data-draft-claims="sender-only"') === `只在发件人自己的话里：415 555 0199（Text me at 415 555 0199 &lt;b&gt;now&lt;/b&gt; & then.）${SENDER_NOTE}`)
   // 产品规格（带单位的数量、倍数）登记成发件人自己的话也照列在「出处对不上」：只有日期、钟点、电话移走（ADR-215）。
@@ -1943,10 +1948,12 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     `只在发件人自己的话里：3pm EST（faster. Free at 3pm EST? Plans start at）${SENDER_NOTE}`,
   ])
   // 日期、钟点、电话后面紧跟单位的是规格或时长（10/20/30 oz、1:30 hours），登记成自己的话也照列。
+  // 单位只看到这一行行尾：下一行开头的字（落款的 Best）不是钟点的单位。
   const UNITS = 'Cups come in 10/20/30 oz. It blends for 1:30 hours. Capacity: 123-456-789 grams. Call 415 555 0199.'
-  eq('P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列', claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]), [
+  eq('P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列；下一行开头的字不算单位', [...claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]), ...claimsOf('Call at 3pm\nBest,\nAri', [{ draft: 'Call at 3pm', from: 'self' }, { draft: 'Best, Ari', from: 'self' }])], [
     `出处对不上：10/20/30（Cups come in 10/20/30 oz. It blends）；1:30（It blends for 1:30 hours. Capacity: 123-456-789）；123-456-789（1:30 hours. Capacity: 123-456-789 grams. Call 415）${NOTE}`,
     `只在发件人自己的话里：415 555 0199（123-456-789 grams. Call 415 555 0199.）${SENDER_NOTE}`,
+    `出处对不上：无${NOTE}`, `只在发件人自己的话里：3pm（Call at 3pm）${SENDER_NOTE}`,
   ])
   criterion('P2.c')
 }
@@ -2020,12 +2027,16 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     const line = /<div class="bio" data-draft-sources="lines">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
     const csv = read('kol.csv')
     // 每一张工作表都看（分层导出时一层一张，空层也有表），再加共享字符串表；第一张读不出算读不出。
+    // 工作表清单取自工作簿自己的关系表（分层导出时一层一张，空层也有表）；清单里任一张读不出、或清单为空，都算读不出，
+    // 不拿读得到的那几张顶替。共享字符串表另读，读不出不算（表头可以是内联字符串）。
+    const xlsx = join(dir, 'kol.xlsx')
     let xlsxText = ''
-    try { xlsxText = xlsxPart(join(dir, 'kol.xlsx'), 'xl/worksheets/sheet1.xml') } catch { xlsxText = 'unreadable' }
-    for (let i = 2; xlsxText !== 'unreadable'; i++) {
-      try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), `xl/worksheets/sheet${i}.xml`) } catch { break }
-    }
-    try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), 'xl/sharedStrings.xml') } catch { /* 没有共享字符串表时只看工作表 */ }
+    try {
+      const sheets = [...xlsxPart(xlsx, 'xl/_rels/workbook.xml.rels').matchAll(/Target="\/?(?:xl\/)?(worksheets\/[^"]+\.xml)"/g)].map(m => `xl/${m[1]}`)
+      if (sheets.length === 0) throw new Error('no sheets')
+      for (const sheet of sheets) xlsxText += xlsxPart(xlsx, sheet)
+    } catch { xlsxText = 'unreadable' }
+    if (xlsxText !== 'unreadable') try { xlsxText += xlsxPart(xlsx, 'xl/sharedStrings.xml') } catch { /* 没有共享字符串表时只看工作表 */ }
     eq('P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
       [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('draft_sources'), xlsxText !== 'unreadable' && xlsxText.includes('outreach_draft'), xlsxText.includes('draft_sources')],
       [0, '逐行出处：要看：「Quick one」（没登记出处）；「Hi Ana,」（没登记出处）；「Your sourdough series is lovely. You also climb.」（只登记了其中一段，没登记的：「You also climb.」）；「Best,」（没登记出处）；「{name}」（没登记出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true, false])

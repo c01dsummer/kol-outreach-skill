@@ -272,10 +272,11 @@ function numberUnit(m: RegExpExecArray): string {
       : glued !== undefined ? foldUnit(glued)
         : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? foldUnit(spaced) : ''
 }
-/** 合成的一条（电话、钟点、斜杠日期）后面的单位：最后一个数接上后面的文字，按普通数字的口径取（1000$ 算价钱）。 */
+/** 合成的一条（电话、钟点、斜杠日期）后面的单位：最后一个数接上后面的文字，按普通数字的口径取（1000$ 算价钱）。
+ *  只看到这一行行尾：下一行开头的字（落款里的 Best）不是它的单位。 */
 function unitAfter(group: string, after: string): string {
   // 不以数字结尾的一串（(400)、1:30 pm）拿 0 去接后文，口径一样。
-  const probe = (/\d+(?:\.\d+)?$/.exec(group)?.[0] ?? '0') + after
+  const probe = (/\d+(?:\.\d+)?$/.exec(group)?.[0] ?? '0') + after.split(/\r\n|\r|\n|\u2028|\u2029/, 1)[0]
   if (new RegExp(`^(?:${PRICE_AFTER.source})`, 'i').test(probe)) return '$'
   const m = new RegExp(`^(?:${NUMBER.source})`, 'i').exec(probe)
   return m === null ? '' : numberUnit(m)
