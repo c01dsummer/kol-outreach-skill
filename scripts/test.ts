@@ -23294,6 +23294,14 @@ await group('h-child-process-entry', () => {
     registry([])
     const shrunk = run()
     eq('入口：挪完删掉那一行以 0 退出，列出挪走了它', [shrunk.status, String(shrunk.stdout).includes('挪走了 old.ts')], [0, true])
+    cxRmSync(cxJoin(root, 'old.ts'))
+    const gone = run()
+    eq('入口：受控文件从工作区删掉了照常跳过，不算读不了', gone.status, 0)
+    // 读出错却不是「已删」：索引里有、工作区里是同名目录（读它报 EISDIR；用目录而不用去掉读权限，root 跑也成立）
+    put('odd.ts', 'export {}\n'); g('add', 'odd.ts'); cxRmSync(cxJoin(root, 'odd.ts')); cxMkdirSync(cxJoin(root, 'odd.ts'))
+    const unreadable = run()
+    eq('入口：受控文件读出错却不是「已删」（这里换成了同名目录）时点出文件、说无从判断、以 1 结束',
+      [unreadable.status, String(unreadable.stderr).includes('无从判断') && String(unreadable.stderr).includes('odd.ts 读不了')], [1, true])
     // 基线那份登记表坏了：无从判断，不当成空表
     g('checkout', '-q', '-f', 'main'); put('scripts/check/child-process-registry.json', '{'); g('commit', '-qam', 'broken')
     g('checkout', '-q', '-b', 'work-broken'); g('commit', '-q', '--allow-empty', '-m', 'w'); registry(['old.ts'])

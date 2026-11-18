@@ -28782,7 +28782,27 @@
       "find": "  return code === 'ENOENT' || code === 'ENOTDIR'\n",
       "replace": "  return true\n",
       "by": "test",
-      "kills": ["读工作区文件出错：删掉了、上一级不再是目录算「不在了」；没权限和别的错不算，要说无从判断"]
+      "kills": ["读工作区文件出错：删掉了、上一级不再是目录算「不在了」；没权限和别的错不算，要说无从判断", "入口：受控文件读出错却不是「已删」（这里换成了同名目录）时点出文件、说无从判断、以 1 结束"]
+    },
+    {
+      "id": "M-H217-aj",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "入口读文件出错不是「已删」时也跳过 —— 判定说了要无从判断，入口没照办，读不了的文件碰了也放行",
+      "find": "      return cannotAnswer(`${path} 读不了：${(e as Error).message}`)\n",
+      "replace": "      continue\n",
+      "by": "test",
+      "kills": ["入口：受控文件读出错却不是「已删」（这里换成了同名目录）时点出文件、说无从判断、以 1 结束"]
+    },
+    {
+      "id": "M-H217-ak",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "入口不问判定、读出错一律说无从判断 —— 受控文件从工作区删掉（改动里删了一个文件）整道检查就红",
+      "find": "      if (goneFromWorktree(e)) continue",
+      "replace": "      if (false) continue",
+      "by": "test",
+      "kills": ["入口：受控文件从工作区删掉了照常跳过，不算读不了"]
     }
   ],
   "exemptions": [
