@@ -23332,43 +23332,46 @@ await group('h-start-process', async () => {
       thrown(() => startExecFileSync('git', ['--version']))], ['抛了', '抛了', '抛了'])
 })
 
-// 与上一组分开（ADR-131）：上一组不起进程，这一组起十来次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
+// 与上一组分开（ADR-131）：上一组不起进程，这一组起三次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
 await group('h-start-process-shell', async () => {
-  harness('通用启动函数：shell 选项一律关掉，其余选项照转，认不出的参数形状原样交给 Node')
-  // 被起的程序一律用正在跑的这个 node（process.execPath），不靠 PATH 上有没有 echo、pwd；同步抛的错与异步的 error 事件都接住，算进断言里
+  harness('通用启动函数：要经 shell 的、写法不对的当场抛错，写法对的原样交给 Node')
+  // 被起的程序一律用正在跑的这个 node（process.execPath），不靠 PATH 上有没有别的程序
   const node = process.execPath
-  const attempt = <T>(f: () => T): T | string => { try { return f() } catch (e) { return `抛了：${(e as NodeJS.ErrnoException).code ?? (e as Error).message}` } }
-  const printArg = ['-e', 'process.stdout.write(process.argv[1])', '$HOME']
-  const synced = attempt(() => startSpawnSync(node, printArg, { shell: true, encoding: 'utf8' }).stdout)
-  const filed = attempt(() => startExecFileSync(node, printArg, { shell: true, encoding: 'utf8' }))
-  const out = await new Promise<string>(resolve => {
+  // 抛了什么只认三种：不经 shell、写法不对、Node 自己的错误代码；没抛就是「没抛」。抛之前没起进程，这几条断言不起进程
+  const outcome = (f: () => unknown): string => {
+    // 没抛时要是起了异步子进程，当场关掉它的标准输入并结束它，免得没带参数的 node 一直等输入、卡住整组
+    try { const started = f() as { kill?: () => void, stdin?: { end: () => void } | null }; started?.stdin?.end(); started?.kill?.(); return '没抛' } catch (e) {
+      const message = (e as Error).message
+      return message.includes('不经 shell') ? '不经 shell' : message.includes('只认（程序, 参数数组, 选项）') ? '写法不对' : String((e as NodeJS.ErrnoException).code)
+    }
+  }
+  const all = (args: unknown[]): string[] => [startSpawnSync, startSpawn, startExecFileSync]
+    .map(start => outcome(() => (start as (...a: unknown[]) => unknown)(node, ...args)))
+  eq('选项要经 shell 的三个函数都当场抛错（shell 写 true 或写一个 shell 的路径都算）',
+    [all([['-e', '1'], { shell: true }]), all([['-e', '1'], { shell: '/bin/sh' }])],
+    [['不经 shell', '不经 shell', '不经 shell'], ['不经 shell', '不经 shell', '不经 shell']])
+  eq('写法不是（程序, 参数数组, 选项）的三个函数都当场抛错：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象、多出第四个参数',
+    [[], [{ cwd: '/' }], [undefined, { cwd: '/' }], [null, { cwd: '/' }], [['-e', '1'], 'x'], [['-e', '1'], null], [['-e', '1'], []],
+      [['-e', '1'], {}, {}]].map(all),
+    Array.from({ length: 8 }, () => ['写法不对', '写法不对', '写法不对']))
+  eq('程序名不是字符串的原样交给 Node，由它报参数类型错，不先报写法不对',
+    [outcome(() => startSpawnSync(undefined as unknown as string, 'x' as never)), outcome(() => startExecFileSync(1 as unknown as string))],
+    ['ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_TYPE'])
+  // 写法对的照常起：cwd 照用、shell: false 也认；异步那个不接标准输入，参数丢了也不会卡着等输入
+  const printCwd = ['-e', 'process.stdout.write(process.cwd())']
+  const attempt = <T>(f: () => T): T | string => { try { return f() } catch (e) { return `抛了：${(e as Error).message}` } }
+  const synced = attempt(() => startSpawnSync(node, printCwd, { cwd: '/', encoding: 'utf8', shell: false }).stdout)
+  const filed = attempt(() => startExecFileSync(node, printCwd, { cwd: '/', encoding: 'utf8' }))
+  const spawned = await new Promise<string>(resolve => {
     let text = ''
     try {
-      const child = startSpawn(node, printArg, { shell: true })
+      const child = startSpawn(node, printCwd, { cwd: '/', stdio: ['ignore', 'pipe', 'pipe'] })
       child.stdout?.on('data', (d: Buffer) => { text += String(d) })
       child.on('error', e => resolve(`出错：${(e as NodeJS.ErrnoException).code}`))
       child.on('close', () => resolve(text))
     } catch (e) { resolve(`抛了：${(e as Error).message}`) }
   })
-  eq('传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样', [synced, filed, out], ['$HOME', '$HOME', '$HOME'])
-  // 整串「node -e 1」当程序名：经 shell 能跑起来（没有 error），不经 shell 起不来（有 error）
-  const whole = `${node} -e 1`
-  const printCwd = { input: 'process.stdout.write(process.cwd())', cwd: '/', encoding: 'utf8' } as const
-  const noArgs = startSpawnSync(whole, { shell: true })
-  const cwd = startSpawnSync(node, printCwd)
-  eq('选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用',
-    [noArgs.error !== undefined, noArgs.status, cwd.stdout], [true, null, '/'])
-  const trailing = startSpawnSync(whole, { shell: true } as never, undefined)
-  const ignored = startSpawnSync(whole, { shell: true } as never, { cwd: '/' })
-  eq('选项写在第二个位置、第三个位置再跟 undefined 或别的对象时，照 Node 只认第二个位置：shell 照样关掉',
-    [trailing.error !== undefined, ignored.error !== undefined], [true, true])
-  const holeArgs = startSpawnSync(whole, undefined, { cwd: '/', shell: true })
-  const holeCwd = startSpawnSync(node, null as unknown as string[], printCwd)
-  eq('参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用',
-    [holeArgs.error !== undefined, holeCwd.stdout], [true, '/'])
-  eq('认不出的参数形状原样交给 Node，由它报参数类型错，不悄悄改成别的',
-    [attempt(() => startSpawnSync(node, 'hi' as unknown as string[])), attempt(() => startSpawnSync(node, ['-e', '1'], 'x' as never))],
-    ['抛了：ERR_INVALID_ARG_TYPE', '抛了：ERR_INVALID_ARG_TYPE'])
+  eq('写法对、不经 shell 时原样交给 Node：三个函数都照常起，cwd 照用，shell: false 也认', [synced, filed, spawned], ['/', '/', '/'])
 })
 
 await group('d19-config-known-gap', () => {

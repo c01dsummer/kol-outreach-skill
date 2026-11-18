@@ -28808,9 +28808,9 @@
       "id": "M-H219-a",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "异步起进程那个函数不拦 git：别处经它起 git 照样起得来，调 git 只走一个入口这条就破了",
-      "find": "  refuseGit(file)\n  return (cp.spawn as",
-      "replace": "  return (cp.spawn as",
+      "why": "spawn 不经检查直接起：git、经 shell 的照起",
+      "find": "(cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...checked(file, rest))",
+      "replace": "(cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...rest)",
       "by": "test",
       "kills": ["三个函数叫去起 git 都当场抛错（裸名与带路径都算）"]
     },
@@ -28818,9 +28818,9 @@
       "id": "M-H219-b",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "同步起进程那个函数不拦 git",
-      "find": "  refuseGit(file)\n  return (cp.spawnSync as",
-      "replace": "  return (cp.spawnSync as",
+      "why": "spawnSync 不经检查直接起：git、经 shell 的照起",
+      "find": "(cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))",
+      "replace": "(cp.spawnSync as (...a: unknown[]) => unknown)(file, ...rest)",
       "by": "test",
       "kills": ["三个函数叫去起 git 都当场抛错（裸名与带路径都算）"]
     },
@@ -28828,9 +28828,9 @@
       "id": "M-H219-c",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "同步执行文件那个函数不拦 git",
-      "find": "  refuseGit(file)\n  return (cp.execFileSync as",
-      "replace": "  return (cp.execFileSync as",
+      "why": "execFileSync 不经检查直接起：git、经 shell 的照起",
+      "find": "(cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))",
+      "replace": "(cp.execFileSync as (...a: unknown[]) => unknown)(file, ...rest)",
       "by": "test",
       "kills": ["三个函数叫去起 git 都当场抛错（裸名与带路径都算）"]
     },
@@ -28838,7 +28838,7 @@
       "id": "M-H219-d",
       "req": "harness",
       "file": "scripts/check/launch-count.ts",
-      "why": "裸名 git 认不出：三个函数都放行",
+      "why": "认不出裸名 git：起 git 不抛错",
       "find": "return last === 'git' ||",
       "replace": "return false ||",
       "by": "test",
@@ -28848,7 +28848,7 @@
       "id": "M-H219-e",
       "req": "harness",
       "file": "scripts/check/launch-count.ts",
-      "why": "Windows 上的 git.exe 认不出",
+      "why": "认不出 git.exe",
       "find": "|| last === 'git.exe'",
       "replace": "|| false",
       "by": "test",
@@ -28858,51 +28858,51 @@
       "id": "M-H219-f",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "选项里的 shell 原样转：传了 shell: true 就经 shell 起，命令串里起什么这里看不到",
-      "find": ", shell: false }]",
-      "replace": " }]",
+      "why": "要经 shell 的照起：命令串里起什么这里看不到",
+      "find": "if ((options as { shell?: unknown } | undefined)?.shell) throw",
+      "replace": "if (false) throw",
       "by": "test",
-      "kills": ["传了 shell: true 也不经 shell：$HOME 原样打出来，三个函数都一样", "选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用", "选项写在第二个位置、第三个位置再跟 undefined 或别的对象时，照 Node 只认第二个位置：shell 照样关掉", "参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用"]
+      "kills": ["选项要经 shell 的三个函数都当场抛错（shell 写 true 或写一个 shell 的路径都算）"]
     },
     {
       "id": "M-H219-g",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "选项写在第二个位置时被丢掉：cwd 这类别的选项悄悄不生效",
-      "find": "{ options = args; args = [] }",
-      "replace": "{ args = [] }",
+      "why": "多出第四个参数也照起：写错的调用不报",
+      "find": "if (rest.length > 2 || !Array.isArray(args))",
+      "replace": "if (!Array.isArray(args))",
       "by": "test",
-      "kills": ["选项写在第二个位置（没有参数数组）时 shell 也关掉、别的选项照转：整串当程序名起不来，cwd 照用"]
+      "kills": ["写法不是（程序, 参数数组, 选项）的三个函数都当场抛错：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象、多出第四个参数"]
     },
     {
       "id": "M-H219-h",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "参数数组的位置写成空值时不认第三个位置的选项：整组原样交出去，传了经 shell 就真经 shell",
-      "find": "if (Array.isArray(args) || args == null)",
-      "replace": "if (Array.isArray(args))",
+      "why": "参数数组省了、选项挪到第二个位置也照起：选项里的 shell 就会漏过去",
+      "find": "if (rest.length > 2 || !Array.isArray(args))",
+      "replace": "if (rest.length > 2)",
       "by": "test",
-      "kills": ["参数数组的位置写 undefined、null 时，第三个位置的选项照样认：shell 关掉、cwd 照用"]
+      "kills": ["写法不是（程序, 参数数组, 选项）的三个函数都当场抛错：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象、多出第四个参数"]
     },
     {
       "id": "M-H219-i",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "第二个位置是认不出的东西时被悄悄改成「没有参数、只关 shell」：写错的调用照常起进程、参数丢了也不报",
-      "find": "else return [...rest]",
-      "replace": "else return [[], { shell: false }]",
+      "why": "选项不是对象也照转：写错的调用由 Node 报，不说该怎么写",
+      "find": "if (options !== undefined && (typeof options !== 'object' || options === null || Array.isArray(options))) throw",
+      "replace": "if (false) throw",
       "by": "test",
-      "kills": ["认不出的参数形状原样交给 Node，由它报参数类型错，不悄悄改成别的"]
+      "kills": ["写法不是（程序, 参数数组, 选项）的三个函数都当场抛错：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象、多出第四个参数"]
     },
     {
       "id": "M-H219-j",
       "req": "harness",
       "file": "scripts/check/start-process.ts",
-      "why": "选项位置是对象以外的东西时被当成对象展开：写错的调用照常起进程、不报参数类型错",
-      "find": "(typeof options !== 'object' || options === null || Array.isArray(options))) return",
-      "replace": "false) return",
+      "why": "程序名不是字符串时先报写法不对，盖住 Node 自己的参数类型错",
+      "find": "  if (typeof file !== 'string') return rest\n",
+      "replace": "",
       "by": "test",
-      "kills": ["认不出的参数形状原样交给 Node，由它报参数类型错，不悄悄改成别的"]
+      "kills": ["程序名不是字符串的原样交给 Node，由它报参数类型错，不先报写法不对"]
     }
   ],
   "exemptions": [

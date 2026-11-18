@@ -5,28 +5,29 @@
 - 触发它的事实：ADR-217 定了「只有登记过的文件能直接碰起子进程的模块」，第四节留了「运行时拒绝」不在那条里。主干 `46b1cd7` 上「待挪」27 个文件，其中 10 个自己的进程只起 node、ps、date、jq 这类程序，从不起 git，它们缺的只是一个不碰模块也能起进程的地方
 - 决定人与时间：需求所有者丸子 2026-11-17 18:03Z 在「把 #471 的教训落进两层规矩」线程里选「改成按模块拦，加运行时拒绝」；本条是其中「加运行时拒绝」那一半
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
-- 理由：「禁用接口」的另一半 —— 口外不许直接碰，口里要有个能用的口。真要起进程的那一刻，程序名是确切的值，判它是不是 git 不用猜；经 shell 起时起什么要读懂命令串，所以干脆不让经 shell
-- 连带改动：`scripts/check/start-process.ts`（新，通用启动函数）· `scripts/check/launch-count.ts` 认 git 那一句拆成导出的 `isGitProgram`，通用启动函数引它 · 10 个文件的导入改指通用启动函数 · `scripts/check/child-process-registry.json`（「登记」加通用启动函数，「待挪」删 10 行）· `scripts/check/child-process-use-rule.ts` 闸门红时的指路话指到通用启动函数 · `scripts/test.ts` 两组新测试（拦 git 的那组不起进程，关 shell 的那组起进程，分开放，免得启动数乘变异数超上限） · `scripts/check/mutations.json` 本条的变异与启动数一条旧变异的锚点 · `scripts/check/launches.json` 重写 · `docs/ARCHITECTURE.md` 两行 · `docs/GLOSSARY.md` 一条 · `docs/SYNC.md` 一行
+- 理由：「禁用接口」的另一半 —— 口外不许直接碰，口里要有个能用的口。真要起进程的那一刻，程序名是确切的值，判它是不是 git 不用猜；经 shell 起时起什么要读懂命令串，所以干脆不让经 shell。写法只认一种、别的当场报错，不替调用方改写：改写就得照 Node 每个函数各自怎么分参数去模仿，前一版这样做，评审连着两轮挑出模仿不全的地方（独立评审一轮、自动评审两轮都挑在同一处），按「同一处反复出问题就改设计」改成了报错
+- 连带改动：`scripts/check/start-process.ts`（新，通用启动函数）· `scripts/check/launch-count.ts` 认 git 那一句拆成导出的 `isGitProgram`，通用启动函数引它 · 10 个文件的导入改指通用启动函数 · `scripts/check/child-process-registry.json`（「登记」加通用启动函数，「待挪」删 10 行）· `scripts/check/child-process-use-rule.ts` 闸门红时的指路话指到通用启动函数 · `scripts/test.ts` 两组新测试（拦 git 的那组不起进程，另一组起三次进程，分开放，免得启动数乘变异数超上限） · `scripts/check/mutations.json` 本条的变异与启动数一条旧变异的锚点 · `scripts/check/launches.json` 重写 · `docs/ARCHITECTURE.md` 两行 · `docs/GLOSSARY.md` 一条 · `docs/SYNC.md` 一行
 
 ## 一、要用到的事实，各找谁要（`process/3-BUILD.md` 第 8 条）
 
 | 要用到的事实 | 找谁要 | 给机器读的还是给人看的 |
 |---|---|---|
 | 这一次要起的是不是 git | 调用时传进来的程序名，取路径末段（`/` 与 `\` 都切），是 `git` 或 `git.exe` | 机器（真值，闭集） |
-| 这一次经不经 shell | 不问：选项里的 `shell` 一律改成 `false` | — |
-| 参数是哪种形状 | 逐句照 Node 自己分参数的那段代码（`lib/child_process.js` 的 `normalizeSpawnArguments`）：第二个位置是数组或空值就是参数数组，是别的对象就是选项、第三个位置不看；认不出的形状原样交给 Node，由它报参数类型错 | 机器（Node 自己校验） |
+| 这一次经不经 shell | 选项里的 `shell` 是不是真值（Node 自己也照真值判）；是就当场抛错 | 机器（真值） |
+| 参数是哪种形状 | 不认别的形状，只看是不是那一种：第二个位置是数组、第三个位置没有或是对象、没有第四个；不是就当场抛错。程序名不是字符串的原样交给 Node，由它报参数类型错 | 机器（真值） |
 | 计数预加载、观察器预加载还拦不拦得到 | 通用启动函数在调用时才从模块对象上取函数，预加载换掉的就是这个对象上的函数；启动数摘要逐配置比对，经它起的进程照样记数 | 机器 |
 | 一个文件挪干净了没有 | ADR-217 的闸门：文件里不再写出模块名，「待挪」里那一行就得删 | 机器 |
 
 ## 二、通用启动函数做什么
 
-包 `spawn`、`spawnSync`、`execFileSync` 三个，形状与 Node 的一样，其余参数原样转：
+包 `spawn`、`spawnSync`、`execFileSync` 三个，只认（程序, 参数数组, 选项?）一种写法。下面几种当场抛错、不起进程，过了的参数原样交给 Node，一个字不改：
 
 1. 程序名末段是 `git`、`git.exe`：当场抛错，不起进程。认法与启动数计数不算 git 的那一句是同一个函数（`launch-count.ts` 的 `isGitProgram`），不另写一份。
-2. 选项里的 `shell` 一律改成 `false`，没给选项的补上；选项写在第二个位置（没有参数数组）、参数数组的位置写成空值时也一样。
-3. 子进程对象等几个类型从这里再导出，挪过来的文件不用为了类型再去碰那个模块。
+2. 选项里的 `shell` 是真值（写 `true` 或写一个 shell 的路径）。
+3. 写法不是那一种：参数数组省了（没有参数就写 `[]`）、选项挪到第二个位置、参数数组的位置写空值、选项不是对象、多出第四个参数。挪过来的 10 个文件本来就是这种写法。
+4. 子进程对象等几个类型从这里再导出，挪过来的文件不用为了类型再去碰那个模块。
 
-`exec`、`execSync` 只能经 shell，`fork`、`execFile` 这批文件用不到，都不包；要用时再加，加的时候照样拦 git、关 shell。
+`exec`、`execSync` 只能经 shell，`fork`、`execFile` 这批文件用不到，都不包；要用时再加，加的时候照样拦 git、不许经 shell。
 
 ## 三、这一片挪了哪些
 
