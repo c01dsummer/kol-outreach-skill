@@ -17,6 +17,7 @@
     "shard-load": "tsx scripts/check/shard-load.ts",
     "shard-weights": "tsx scripts/check/shard-weights.ts",
     "ticket-refs": "tsx scripts/check/ticket-refs.ts",
+    "child-process-use": "tsx scripts/check/child-process-use.ts",
     "spec": "tsx scripts/check/spec-sync.ts",
     "anchors": "tsx scripts/check/anchors.ts",
     "skill": "tsx scripts/check/skill.ts",
@@ -30,7 +31,7 @@
     "launches": "tsx scripts/check/launches.ts",
     "typecheck": "tsc --noEmit",
     "compile": "tsx scripts/check/compile.ts",
-    "check": "npm run anchors && npm run size && npm run shard-load && npm run ticket-refs && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run compile && npm test && npm run mutate && npm run selfcheck && npm run audit && npm run launches"
+    "check": "npm run anchors && npm run size && npm run shard-load && npm run ticket-refs && npm run child-process-use && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run compile && npm test && npm run mutate && npm run selfcheck && npm run audit && npm run launches"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
