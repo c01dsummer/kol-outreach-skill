@@ -5,7 +5,7 @@
     "scripts/check/launch-preload.ts": "计数预加载：要包住起进程的那几个函数数次数，只能直接拿到那个模块（ADR-145）",
     "scripts/check/observer-preload.ts": "零请求观察器：要把起进程的那几个函数与 process.execve 换成「一起就叫停」，只能直接拿到它们",
     "scripts/check/prebuilt-parent.ts": "缓存入口的父进程：唯一的活就是起那一个子进程、转发信号（ADR-158）；只引 node: 内建模块，与起进程的通用函数分开也不减风险",
-    "scripts/check/start-process.ts": "通用启动函数：别处都经它起进程，它起 git 当场抛错、把 shell 选项改成 false（ADR-219）"
+    "scripts/check/start-process.ts": "通用启动函数：挪过来的文件经它起进程，它起 git、经 shell、写法不对都当场抛错（ADR-219）"
   },
   "待挪": [
     "scripts/check/admission.ts",
