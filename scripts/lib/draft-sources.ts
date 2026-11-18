@@ -64,20 +64,21 @@ function foldPiece(piece: string): string {
 
 /**
  * 比对前的统一写法，同时记下归一后每个字来自原文哪一段（`from`、`to` 是原文里的下标）。
- * 按「一个字母或符号加它后面的附加符号」一段一段归一，别的每个字自成一段：空白合并成一个空格、去掉头尾空白。
+ * 按 Unicode 官方的分字规则（UAX #29 的「字素簇」，`Intl.Segmenter` 照它切）一段一段归一：空白合并成一个空格、去掉头尾空白。
+ * 哪些字要并在一起不由本仓库列举：e+´、=+̸、半角片假名加半角浊点（ｶﾞ）都由这套规则并成一段。
  * 草稿、登记、原文都走这一个函数，两边口径一致；记下来处是为了把「哪些字被标成约时间、联系方式」
  * 换回原文下标，交给数字扫描用（ADR-215 第三节）。
  */
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
 function normalized(raw: string): { text: string; from: number[]; to: number[] } {
   let text = ''
   const from: number[] = [], to: number[] = []
   let space = -1
-  // 附加符号只跟在字母、符号后面并成一段（合字只发生在这两类上：e+´ 合成 é、=+̸ 合成 ≠）；
-  // 跟在数字、空白、标点、换行后面或打头的附加符号自成一段，来处记在它自己的位置 ——
-  // 不然它会和前面那个不用登记的空白或「Subject:」字样共用一个来处，被一起跳过。
-  for (const m of raw.matchAll(/[\p{L}\p{S}]\p{M}*|[^]/gsu)) {
-    const start = m.index, end = start + m[0].length
-    for (const ch of foldPiece(m[0])) {
+  // 一段跨过「Subject:」字样与正文（冒号加附加符号）时，按「这一段有没有伸进那一行」归行（见 `draftSourceItems`），不会被一起跳过。
+  for (const { segment, index: start } of GRAPHEMES.segment(raw)) {
+    const end = start + segment.length
+    for (const ch of foldPiece(segment)) {
       if (/\s/u.test(ch)) { if (space < 0) space = start; continue }
       if (space >= 0 && text !== '') { text += ' '; from.push(space); to.push(space + 1) }
       space = -1
@@ -205,7 +206,7 @@ export function draftSourceItems(
   const covered = coverage(normalizedDraft, registered.map(r => r.key))
   const bodyLines = lines(draft)
   // 归一后的字里，排在第一行内容之前的（开头「Subject:」字样）有几个。
-  const label = bodyLines.length === 0 ? normalizedDraft.length : Math.max(0, from.findIndex(f => f >= bodyLines[0].start))
+  const label = bodyLines.length === 0 ? normalizedDraft.length : Math.max(0, to.findIndex(t => t > bodyLines[0].start))
   const placed: Array<{ at: number; item: DraftSourceItem }> = []
   const missing: DraftSourceItem[] = []
   for (const { source, key } of registered) {
@@ -218,10 +219,10 @@ export function draftSourceItems(
       : { status: quoteVerdict({ ...source, from: source.from }, given), draft: source.draft, from: source.from, quote: source.quote === undefined ? '' : source.quote }
     placed.push({ at, item })
   }
-  // 每一行看它的字有没有被登记盖住：归一后的字按来处（原文下标）分到各行，换行与「Subject:」字样不归任何一行。
+  // 每一行看它的字有没有被登记盖住：归一后的字按来处（原文下标）分到各行，一个字有一部分伸进这一行就归这一行；换行与「Subject:」字样不归任何一行。
   let i = 0
   for (const line of bodyLines) {
-    while (i < from.length && from[i] < line.start) i++
+    while (i < from.length && to[i] <= line.start) i++
     const begin = i
     while (i < from.length && from[i] < line.end) i++
     const { touched, rest } = uncovered(covered, begin, i, keep, show)

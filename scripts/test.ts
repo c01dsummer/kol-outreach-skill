@@ -1874,9 +1874,10 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
     ['主题标签后开头的附加符号也要登记', 'Subject: \u0301Hi', [{ draft: 'Hi', from: 'self' }],
       `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
+    // 冒号加附加符号按 Unicode 分字规则是一个字，伸进了正文，整个印出来（不跟着标签跳过）。
     ['紧跟冒号的附加符号不跟着标签跳过', 'Subject:\u0301Hi', [{ draft: 'Hi', from: 'self' }],
-      `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
-    ['空白后的附加符号自成一个字', 'Hi \u0301Mei', [{ draft: 'Hi', from: 'self' }, { draft: 'Mei', from: 'self' }],
+      `要看：「\u0301Hi」（只登记了其中一段，没登记的：「:\u0301」）${BAR}${SELF}「Hi」`, {}],
+    ['空白后的附加符号也要登记', 'Hi \u0301Mei', [{ draft: 'Hi', from: 'self' }, { draft: 'Mei', from: 'self' }],
       `要看：「Hi \u0301Mei」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」；「Mei」`, {}],
     ['标了约时间、联系方式的登记印出用途', 'Free at 3pm EST? Text 415 555 0199.', [{ draft: 'Free at', from: 'self' }, { draft: '3pm EST?', from: 'self', purpose: 'schedule' }, { draft: 'Text', from: 'self' }, { draft: '415 555 0199.', from: 'self', purpose: 'contact' }],
       `${SELF}「Free at」；「3pm EST?」（约时间）；「Text」；「415 555 0199.」（联系方式）`, {}],
@@ -1889,6 +1890,8 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
     ['符号后的附加符号与它合成一个字', 'We are =\u0338 them.', [{ draft: 'We are ≠ them.', from: 'self' }], `${SELF}「We are ≠ them.」`, {}],
     ['认不得的用途不印', 'Call at 3pm.', [{ draft: 'Call at 3pm.', from: 'self', purpose: 'banana' } as unknown as NonNullable<Creator['draft_sources']>[number]], `${SELF}「Call at 3pm.」`, {}],
+    ['半角片假名加半角浊点与全角合写的算同一个字', 'ガイド付き', [{ draft: 'ｶﾞｲﾄﾞ付き', from: 'self' }], `${SELF}「ｶﾞｲﾄﾞ付き」`, {}],
+    ['半角浊点跨宽度对得上原文', 'ｶﾞｲﾄﾞ付き', [{ draft: 'ｶﾞｲﾄﾞ付き', from: 'bio', quote: 'ガイド' }], '对得上：「ｶﾞｲﾄﾞ付き」← 简介原文「ガイド」', { bio: 'ガイド付きツアー' }],
     ['分开写的附加符号与合写的算同一个字', 'Café chats are fun.', [{ draft: 'Café chats are fun.', from: 'self' }], `${SELF}「Café chats are fun.」`, {}],
   ]
   eq('P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一',
@@ -1897,9 +1900,11 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   let crashed = '', badHtml = ''
   try {
     badHtml = renderHtml([mk('tiktok', 'bad', { nickname: 7 as unknown as string, bio: 5 as unknown as string, recent_posts: [{ desc: null }] as unknown as Creator['recent_posts'], tier: 'A',
-      outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post. Your name.', draft_sources: [{ draft: 'Your bio.', from: 'bio', quote: 'x' }, { draft: 'Your post.', from: 'post', quote: 'x' }, { draft: 'Your name.', from: 'nickname', quote: 'x' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
+      outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post. Your name.', draft_sources: [{ draft: 'Your bio.', from: 'bio', quote: '5' }, { draft: 'Your post.', from: 'post', quote: 'null' }, { draft: 'Your name.', from: 'nickname', quote: '7' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
   } catch (error) { crashed = String(error) }
-  eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', [crashed, lineOf(badHtml, 'bad') !== undefined], ['', true])
+  // 原文写成坏资料变成字符串后的样子（5、null、7）也对不上：不是字符串的资料不当字符串用。
+  eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', [crashed, lineOf(badHtml, 'bad')], ['', HEAD + '要看：' + ['「Hi,」（没登记出处）', '「You rock. Your bio. Your post. Your name.」（只登记了其中一段，没登记的：「You rock.」）',
+    '「Your bio.」← 简介原文「5」（原文对不上：他的简介里没有这段）', '「Your post.」← 作品文案原文「null」（原文对不上：他的作品文案里没有这段）', '「Your name.」← 昵称原文「7」（对不了：他的昵称没查过）'].join('；') + TAIL])
   // 资料三态（P1）：简介查过没写（null）是「对不上」；简介没查过（缺席）、作品没查过（缺席或空数组）是「对不了，没查过」，不说成「没有」。
   const SRC3 = [{ draft: 'Hey Sam,', from: 'self' }, { draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['draft_sources']>
   const DRAFT3 = 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.'

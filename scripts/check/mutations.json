@@ -23097,7 +23097,7 @@
       "req": "P2.f",
       "why": "一行开头之前的字（主题行去掉的「Subject:」标签）算进这一行，主题只登记了标签后的字也被列成只登记了一部分",
       "file": "scripts/lib/draft-sources.ts",
-      "find": "    while (i < from.length && from[i] < line.start) i++\n",
+      "find": "    while (i < from.length && to[i] <= line.start) i++\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -23135,18 +23135,6 @@
       "file": "scripts/lib/draft-sources.ts",
       "find": "    if (draft.slice(start, end).trim() === '') return\n",
       "replace": "",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s71",
-      "req": "P2.f",
-      "why": "附加符号跟着前面任何字并成一段：紧跟换行、空白或「Subject:」字样的附加符号和它们共用来处，被一起跳过，没登记也不列",
-      "file": "scripts/lib/draft-sources.ts",
-      "find": "/[\\p{L}\\p{S}]\\p{M}*|[^]/gsu",
-      "replace": "/\\P{M}\\p{M}*|\\p{M}+/gsu",
       "by": "test",
       "kills": [
         "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
@@ -23309,18 +23297,6 @@
       ]
     },
     {
-      "id": "M-P2-s77",
-      "req": "P2.f",
-      "why": "附加符号不跟符号并字：分开写的 =+̸ 与合写的 ≠ 对不上",
-      "file": "scripts/lib/draft-sources.ts",
-      "find": "raw.matchAll(/[\\p{L}\\p{S}]\\p{M}*|[^]/gsu)",
-      "replace": "raw.matchAll(/[\\p{L}]\\p{M}*|[^]/gsu)",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
-      ]
-    },
-    {
       "id": "M-P2-s78",
       "req": "P2.f",
       "why": "认不得的用途照印：逐行出处里印出「（undefined）」",
@@ -23366,6 +23342,30 @@
       "by": "test",
       "kills": [
         "P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列"
+      ]
+    },
+    {
+      "id": "M-P2-s81",
+      "req": "P2.f",
+      "why": "分字改回本仓库自己列的规则（附加符号只跟字母、符号）：半角浊点 ﾞ 不是附加符号，ｶﾞ 和 ガ 对不上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "GRAPHEMES.segment(raw)",
+      "replace": "[...raw.matchAll(/[\\p{L}\\p{S}]\\p{M}*|[^]/gsu)].map(m => ({ segment: m[0], index: m.index ?? 0 }))",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s82",
+      "req": "P2.f",
+      "why": "一个字按它开头的位置归行：冒号加附加符号那个字开头在「Subject:」字样里，整个跟着标签跳过",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "to[i] <= line.start",
+      "replace": "from[i] < line.start",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
