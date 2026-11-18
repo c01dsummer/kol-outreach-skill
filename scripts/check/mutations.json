@@ -23165,6 +23165,30 @@
       ]
     },
     {
+      "id": "M-P2-s72",
+      "req": "P2.g",
+      "why": "只有一层（B 层）的工作表多出出处列：别的表里有表头、拼起来找词的检查照绿",
+      "file": "scripts/lib/rows.ts",
+      "find": "headers: [...REVIEW_HEADERS],",
+      "replace": "headers: t === 'B' ? [...REVIEW_HEADERS, 'draft_sources'] : [...REVIEW_HEADERS],",
+      "by": "test",
+      "kills": [
+        "P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列"
+      ]
+    },
+    {
+      "id": "M-P2-s73",
+      "req": "P2.g",
+      "why": "工作簿里第二张表的关系指到不存在的文件：只数读得到的那几张的检查照绿",
+      "file": "scripts/lib/xlsx.ts",
+      "find": "Target=\"worksheets/sheet${i + 1}.xml\"",
+      "replace": "Target=\"worksheets/sheet${i === 1 ? 9 : i + 1}.xml\"",
+      "by": "test",
+      "kills": [
+        "P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列"
+      ]
+    },
+    {
       "id": "M-P2-c-own18",
       "req": "P2.c",
       "why": "日期、钟点写法后面紧跟单位（10/20/30 oz、1:30 hours）登记成自己的话也挪走，规格躲过「出处对不上」",

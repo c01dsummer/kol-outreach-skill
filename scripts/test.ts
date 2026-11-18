@@ -2026,20 +2026,30 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
     const line = /<div class="bio" data-draft-sources="lines">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
     const csv = read('kol.csv')
-    // 每一张工作表都看（分层导出时一层一张，空层也有表），再加共享字符串表；第一张读不出算读不出。
-    // 工作表清单取自工作簿自己的关系表（分层导出时一层一张，空层也有表）；清单里任一张读不出、或清单为空，都算读不出，
-    // 不拿读得到的那几张顶替。共享字符串表另读，读不出不算（表头可以是内联字符串）。
+    // 工作簿逐张对：按工作簿自己的表清单（表名 + 关系号），用关系号在关系表里找到那张表的文件，读它第一行的表头。
+    // 期望整体全等：三层各一张（空层也有，名字里带人数），每张表头都和 kol.csv 的表头逐格相同。
+    // 任一张缺、关系对不上、表头读不出，结果都和期望不等 —— 不拿几张拼起来的字里「找得到某个词」顶替。
     const xlsx = join(dir, 'kol.xlsx')
-    let xlsxText = ''
-    try {
-      const sheets = [...xlsxPart(xlsx, 'xl/_rels/workbook.xml.rels').matchAll(/Target="\/?(?:xl\/)?(worksheets\/[^"]+\.xml)"/g)].map(m => `xl/${m[1]}`)
-      if (sheets.length === 0) throw new Error('no sheets')
-      for (const sheet of sheets) xlsxText += xlsxPart(xlsx, sheet)
-    } catch { xlsxText = 'unreadable' }
-    if (xlsxText !== 'unreadable') try { xlsxText += xlsxPart(xlsx, 'xl/sharedStrings.xml') } catch { /* 没有共享字符串表时只看工作表 */ }
+    const cellText = (c: string) => (/<t\b[^>]*>([\s\S]*?)<\/t>/.exec(c)?.[1] ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+    const sheetHeads = (() => {
+      try {
+        const rels = xlsxPart(xlsx, 'xl/_rels/workbook.xml.rels')
+        return [...xlsxPart(xlsx, 'xl/workbook.xml').matchAll(/<sheet name="([^"]*)"[^>]*\br:id="([^"]+)"/g)].map(([, name, id]) => {
+          const target = new RegExp(`<Relationship Id="${id}"[^>]*Target="([^"]+)"`).exec(rels)?.[1]
+          if (target === undefined) return { name, head: 'no relationship' }
+          let xml: string
+          try { xml = xlsxPart(xlsx, `xl/${target.replace(/^\/?(?:xl\/)?/, '')}`) } catch { return { name, head: 'unreadable' } }
+          const first = /<row r="1"[^>]*>([\s\S]*?)<\/row>/.exec(xml)?.[1]
+          return { name, head: first === undefined ? 'no header row' : [...first.matchAll(/<c\b[^>]*>([\s\S]*?)<\/c>/g)].map(m => cellText(m[1])) }
+        })
+      } catch { return 'unreadable' }
+    })()
+    // kol.csv 开头有给 Excel 认编码的 BOM，表头比对前去掉它。
+    const csvHead = csv.replace(/^\uFEFF/, '').split(/\r?\n/)[0].split(',')
     eq('P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
-      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('draft_sources'), xlsxText !== 'unreadable' && xlsxText.includes('outreach_draft'), xlsxText.includes('draft_sources')],
-      [0, '逐行出处：要看：「Quick one」（没登记出处）；「Hi Ana,」（没登记出处）；「Your sourdough series is lovely. You also climb.」（只登记了其中一段，没登记的：「You also climb.」）；「Best,」（没登记出处）；「{name}」（没登记出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true, false])
+      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csvHead.includes('draft_sources'), csvHead.includes('outreach_draft'), sheetHeads],
+      [0, '逐行出处：要看：「Quick one」（没登记出处）；「Hi Ana,」（没登记出处）；「Your sourdough series is lovely. You also climb.」（只登记了其中一段，没登记的：「You also climb.」）；「Best,」（没登记出处）；「{name}」（没登记出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true,
+        ['A级 直接发信 (1)', 'B级 先互动 (0)', 'C级 观察池 (0)'].map(name => ({ name, head: csvHead }))])
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
   } finally { rmSync(root, { recursive: true, force: true }) }
   }
