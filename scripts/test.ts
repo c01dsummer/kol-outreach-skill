@@ -23532,8 +23532,7 @@ await group('h-git-entry-run', async () => {
     eq('标准输入照传：cat-file --batch 读得到交进去的那一行', /^[0-9a-f]{40} blob \d+\n第 0 行/.test(runGit(['cat-file', '--batch'], { ...at, input: 'HEAD:挪了.md\n' }).stdout.toString('utf8')), true)
     eq('cwd 照用：在夹具仓库里问 HEAD，答的是夹具仓库的提交', head === g('rev-parse', 'HEAD').stdout.trim() && /^[0-9a-f]{40}$/.test(head), true)
     // askGit 不收 cwd、env（决策记录同步、体量闸门的起点判法都吃它）：暂把当前目录换到夹具仓库里问。答得上来的去掉末尾换行，答不上来的交 null
-    const here = process.cwd()
-    let asked: unknown
+    const here = process.cwd(); let asked: unknown
     try { process.chdir(repo); asked = [askGit('rev-parse', 'HEAD'), askGit('rev-parse', '--verify', '没有这个^{commit}')] } finally { process.chdir(here) }
     eq('askGit：答得上来的去掉首尾空白，答不上来的交 null', asked, [head, null])
     eq('答不上来的（没有这个修订）：gitText 交回 null', gitText(['rev-parse', '--verify', '没有这个^{commit}'], at), null)
