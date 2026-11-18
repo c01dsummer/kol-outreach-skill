@@ -363,7 +363,7 @@ export interface Creator {
   tier?: Tier
   outreach_draft?: string
   /** P2：由正本投影；草稿里每一句依据的出处：博主资料、已证实的产品事实或发件人自己的话（ADR-210、ADR-215）。 */
-  draft_sources?: Array<{ draft: string; from: 'bio' | 'post' | 'nickname' | 'product' | 'self'; quote?: string }>
+  draft_sources?: Array<{ draft: string; from: 'bio' | 'post' | 'nickname' | 'product' | 'self'; quote?: string; purpose?: 'schedule' | 'contact' }>
   /** D21：由任务级 Agent 正本投影；不是采集原件字段。 */
   eligibility?: Eligibility
   adoption_priority?: AdoptionPriority

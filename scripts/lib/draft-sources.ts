@@ -4,6 +4,8 @@
  * Agent 写草稿时，在评审正本里给信里每一句登记一条出处：信里那句（`draft`），
  * 依据的是哪一样（`from`）—— 博主自己的资料（简介、作品文案、昵称）、任务里已证实的产品事实，
  * 或者 `self` = 发件人自己的话（问候、提议、感受、约时间、联系方式、落款）—— 以及资料里的原文片段（`quote`）。
+ * 约时间、联系方式那几个字由 Agent 单独登记一条 `self`，并标上 `purpose`（`schedule` 约时间、`contact` 联系方式）：
+ * 机器不猜哪个数字是约时间，只认这条标注（ADR-215 第三节）。
  * 这里只做两件确定的事：
  *
  * 1. 对账：登记的原文片段确实在那一样资料里逐字出现；登记的那句确实还在信里。
@@ -25,7 +27,14 @@ export interface DraftSource {
   from: DraftSourceKind
   /** 资料里的原文片段；`from` 为 `self` 时不写 */
   quote?: string
+  /** 只有 `from` 为 `self` 时可写：这一段是约时间（`schedule`）还是联系方式（`contact`）。 */
+  purpose?: DraftSourcePurpose
 }
+
+/** 发件人自己的话里，Agent 明着标出的两种用途（P2.e）。 */
+export const DRAFT_SOURCE_PURPOSES = ['schedule', 'contact'] as const
+export type DraftSourcePurpose = typeof DRAFT_SOURCE_PURPOSES[number]
+const PURPOSE_LABEL: Record<DraftSourcePurpose, string> = { schedule: '约时间', contact: '联系方式' }
 
 /**
  * 对账要用到的资料：博主的简介、作品文案、昵称，和任务里已证实的产品事实原文。
@@ -136,7 +145,7 @@ export type DraftSourceItem =
   | { status: 'matched'; draft: string; from: QuotedKind; quote: string }
   | { status: 'quote_missing'; draft: string; from: QuotedKind; quote: string }
   | { status: 'not_queried'; draft: string; from: QuotedKind; quote: string }
-  | { status: 'self'; draft: string }
+  | { status: 'self'; draft: string; purpose?: DraftSourcePurpose }
   | { status: 'not_in_draft'; draft: string }
   | { status: 'partial'; draft: string; rest: string }
   | { status: 'unregistered'; draft: string }
@@ -200,7 +209,7 @@ export function draftSourceItems(
     const at = key ? normalizedDraft.indexOf(key) : -1
     if (at < 0) { missing.push({ status: 'not_in_draft', draft: source.draft }); continue }
     const item: DraftSourceItem = source.from === 'self'
-      ? { status: 'self', draft: source.draft }
+      ? { status: 'self', draft: source.draft, ...(source.purpose === undefined ? {} : { purpose: source.purpose }) }
       : { status: quoteVerdict({ ...source, from: source.from }, given), draft: source.draft, from: source.from, quote: source.quote === undefined ? '' : source.quote }
     placed.push({ at, item })
   }
@@ -226,7 +235,7 @@ export function draftSourceText(item: DraftSourceItem): string {
       ? `「${item.draft}」← 产品事实原文「${item.quote}」（原文对不上：任务里已证实的产品事实没有这段）`
       : `「${item.draft}」← ${KIND_LABEL[item.from]}原文「${item.quote}」（原文对不上：他的${KIND_LABEL[item.from]}里没有这段）`
     case 'not_queried': return `「${item.draft}」← ${KIND_LABEL[item.from]}原文「${item.quote}」（对不了：他的${KIND_LABEL[item.from]}没查过）`
-    case 'self': return `「${item.draft}」`
+    case 'self': return item.purpose === undefined ? `「${item.draft}」` : `「${item.draft}」（${PURPOSE_LABEL[item.purpose]}）`
     case 'not_in_draft': return `「${item.draft}」（登记了出处，但信里已经没有这段）`
     case 'partial': return `「${item.draft}」（只登记了其中一段，没登记的：「${item.rest}」）`
     case 'unregistered': return `「${item.draft}」（没登记出处）`
@@ -254,12 +263,12 @@ export function draftSourceLine(
 }
 
 /**
- * 草稿里哪些字被登记成发件人自己的话盖住了，换成原文下标给数字扫描用（P2.c 与 ADR-215 第三节）：
- * 返回的函数回答「草稿原文从 `at` 起、长 `length` 的这一段，除空白外每个字是不是都在登记成 self 的那几段里」。
- * 登记在信里出现的每一处都算；没有 self 登记时一律答否。
+ * 草稿里哪些字被 Agent 明着标成约时间、联系方式（`self` 且带 `purpose`），换成原文下标给数字扫描用（P2.c 与 ADR-215 第三节）：
+ * 返回的函数回答「草稿原文从 `at` 起、长 `length` 的这一段，除空白外每个字是不是都在这几条登记里」。
+ * 登记在信里出现的每一处都算；没有这类登记时一律答否。没标 `purpose` 的 `self` 登记不算 —— 机器不猜哪个数字是约时间。
  */
 export function senderOwnSpans(draft: string, sources: readonly DraftSource[] | undefined): (at: number, length: number) => boolean {
-  const own = (sources ?? []).filter(source => source.from === 'self').map(source => normalizeText(source.draft))
+  const own = (sources ?? []).filter(source => source.from === 'self' && source.purpose !== undefined).map(source => normalizeText(source.draft))
   if (own.length === 0) return () => false
   const { text: normalizedDraft, from, to } = normalized(draft)
   const covered = coverage(normalizedDraft, own)
@@ -285,7 +294,7 @@ export function draftSourceProblems(value: unknown, at: string): string[] {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) { problems.push(`${here} 必须是对象`); return }
     const record = entry as Record<string, unknown>
     for (const key of Object.keys(record)) {
-      if (!['draft', 'from', 'quote'].includes(key)) problems.push(`${here}.${key} 不认得（只有 draft、from、quote）`)
+      if (!['draft', 'from', 'quote', 'purpose'].includes(key)) problems.push(`${here}.${key} 不认得（只有 draft、from、quote、purpose）`)
     }
     if (typeof record.draft !== 'string' || record.draft.trim() === '') problems.push(`${here}.draft 必须是非空字符串`)
     if (!(DRAFT_SOURCE_KINDS as readonly unknown[]).includes(record.from)) {
@@ -294,7 +303,13 @@ export function draftSourceProblems(value: unknown, at: string): string[] {
     }
     if (record.from === 'self') {
       if (record.quote !== undefined) problems.push(`${here}.quote 发件人自己的话不写原文`)
-    } else if (typeof record.quote !== 'string' || record.quote.trim() === '') {
+      if (record.purpose !== undefined && !(DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(record.purpose)) {
+        problems.push(`${here}.purpose 必须是 ${DRAFT_SOURCE_PURPOSES.join('、')} 之一（约时间、联系方式）`)
+      }
+    } else if (record.purpose !== undefined) {
+      problems.push(`${here}.purpose 只有发件人自己的话（from 为 self）才写`)
+    }
+    if (record.from !== 'self' && (typeof record.quote !== 'string' || record.quote.trim() === '')) {
       problems.push(`${here}.quote 必须是非空字符串（资料里的原文片段）`)
     }
   })

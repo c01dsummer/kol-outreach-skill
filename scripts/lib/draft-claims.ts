@@ -272,9 +272,7 @@ function numberUnit(m: RegExpExecArray): string {
       : glued !== undefined ? foldUnit(glued)
         : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? foldUnit(spaced) : ''
 }
-/** 合成的一条（电话、钟点、斜杠日期）后面的单位：最后一个数接上后面的文字，按普通数字的口径取（1000$ 算价钱）。
- *  和普通数字一样可以跨行：下一行开头的字也算单位。落款的 Best 因此被当成 3pm 的单位、约时间留在「出处对不上」，
- *  是多列一条、运营看得出；只读到行尾则会让换行写的「1:30 / hours」被当成约时间挪走（ADR-215 第三节第 7 条）。 */
+/** 合成的一条（电话、钟点、斜杠日期）后面的单位：最后一个数接上后面的文字，按普通数字的口径取（1000$ 算价钱）。 */
 function unitAfter(group: string, after: string): string {
   // 不以数字结尾的一串（(400)、1:30 pm）拿 0 去接后文，口径一样。
   const probe = (/\d+(?:\.\d+)?$/.exec(group)?.[0] ?? '0') + after
@@ -490,25 +488,19 @@ const shown = (f: Flagged): string => f.context === f.text ? f.text : `${f.text}
 export interface DraftClaims { unsourced: Flagged[]; postsOnly: Flagged[]; senderOnly: Flagged[]; unmatchedBraces: boolean }
 
 /**
- * 登记成发件人自己的话时能从「出处对不上」挪走的只有约时间、联系方式这三类：日期、钟点、
- * 电话这类连着的一串数字（需求所有者 2026-11-16 定的「约时间、电话」）。按「能挪的」列：
- * 普通数字（带单位的规格 `40-hour`、`12 blades`、倍数 `2x`、没带币符的价钱）、价钱、百分比、承诺词、
- * 认证那一整句、数量写法、型号串、兜底整串，以及以后新加的任何种类，默认都留在「出处对不上」——
- * 一句登记不能让产品说法离开那一行（ADR-215 第三节）。
- * 这三类后面紧跟单位的（`10/20/30 oz`、`1:30 hours`）是规格、时长，不是约时间，也不挪：键的最后一段记着单位，空着才挪。
+ * 落在 Agent 明着标成约时间、联系方式的登记里时，能从「出处对不上」挪走的只有日期、钟点、
+ * 电话这类连着的一串数字这三种（需求所有者 2026-11-16 定的「约时间、电话」）。按「能挪的」列：
+ * 价钱、百分比、承诺词、普通数字、认证那一整句、数量写法、型号串、兜底整串，以及以后新加的任何种类，
+ * 标了也留在「出处对不上」。是不是约时间不由机器猜（不看后面跟没跟单位、是不是落款），只认 Agent 的标注；
+ * 标错了也是摆在「只在发件人自己的话里」那一行给人确认，不是藏起来（ADR-215 第三节）。
  */
 const SENDER_MOVABLE = new Set(['date', 'time', 'digits'])
-/** 键的最后一段记着后面紧跟的单位的那几类（见 `claimsIn` 里日期、钟点、电话三条）。 */
-const UNIT_LAST = new Set(['date', 'time', 'digits'])
-function senderMovable(claim: Claim): boolean {
-  const kind = claim.key.split(':')[0]
-  return SENDER_MOVABLE.has(kind) && !(UNIT_LAST.has(kind) && !claim.key.endsWith(':'))
-}
+const senderMovable = (claim: Claim): boolean => SENDER_MOVABLE.has(claim.key.split(':')[0])
 
 /**
  * `facts` 是任务里已证实的产品事实原文（`kind=verified_product_fact` 的 detail）；
  * `posts` 是这位博主作品的文字。都可以是空的。只有 `facts` 能让一条说法过关。
- * `senderOwn` 回答草稿原文里某一段是不是整段落在登记成发件人自己的话的字里（见 draft-sources.ts）；
+ * `senderOwn` 回答草稿原文里某一段是不是整段落在 Agent 标成约时间、联系方式的登记里（见 draft-sources.ts）；
  * 落在里面、又不是产品形状的那几类，从「出处对不上」移到 `senderOnly`，不是放过，人照样看得到。
  */
 export function draftClaims(draft: string, facts: readonly string[], posts: readonly string[],

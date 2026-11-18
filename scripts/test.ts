@@ -1875,6 +1875,8 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
     ['空白后的附加符号自成一个字', 'Hi \u0301Mei', [{ draft: 'Hi', from: 'self' }, { draft: 'Mei', from: 'self' }],
       `要看：「Hi \u0301Mei」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」；「Mei」`, {}],
+    ['标了约时间、联系方式的登记印出用途', 'Free at 3pm EST? Text 415 555 0199.', [{ draft: 'Free at', from: 'self' }, { draft: '3pm EST?', from: 'self', purpose: 'schedule' }, { draft: 'Text', from: 'self' }, { draft: '415 555 0199.', from: 'self', purpose: 'contact' }],
+      `${SELF}「Free at」；「3pm EST?」（约时间）；「Text」；「415 555 0199.」（联系方式）`, {}],
     ['登记跨行照样盖住', 'Hi\nMei', [{ draft: 'Hi Mei', from: 'self' }], `${SELF}「Hi Mei」`, {}],
     ['主题行写什么都要登记', 'Subject: Mei, your blender\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
       `要看：「Mei, your blender」（没登记出处）${BAR}${SELF}「We make a blender.」`, {}],
@@ -1914,10 +1916,12 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   const subj = renderHtml([mk('tiktok', 'subj', { nickname: 'Ana', tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', draft_sources: [{ draft: 'Hi Ana,', from: 'self' }], profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
   eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文核，标签也要登记', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen」（没登记出处）；「is lovely.」（没登记出处）${BAR}${SELF}「Hi Ana,」${TAIL}`)
   criterion('P2.f', 'P2.g')
-  // P2.c 与 ADR-215：登记成发件人自己的话的约时间、电话这类数字，不进「出处对不上」，另列一行；
-  // 价钱、百分比、承诺词这几类登记成自己的话也照列；没登记的那一处照列。
+  // P2.c 与 ADR-215：Agent 把约时间、联系方式那几个字单独登记成 self 并标上 purpose，里面的日期、钟点、电话不进「出处对不上」，另列一行；
+  // 机器不猜哪个数字是约时间：没标 purpose 的 self 登记一个都不挪；标了的，价钱、百分比、承诺词这几类也照列。
   const CALL = 'Free for a quick call on 11/20/2026 at 3:30pm? Text me at 415 555 0199 for a 15-minute chat. I can do $40 off and free shipping, 20% too, even half off on the IPX7 one. It is FDA approved.'
   const LETTER = `Hi Ana,\n\nWe make a 400ml blender.\n\n${CALL}\n\nOr call 415 555 0199 any time.`
+  // 整句标成约时间：句里只有日期、钟点、电话挪走，别的照列（标注不能替产品说法开门）。
+  const MARKED: NonNullable<Creator['draft_sources']> = [{ draft: CALL, from: 'self', purpose: 'schedule' }]
   const claimsOf = (draft: string, sources: NonNullable<Creator['draft_sources']> | undefined) => {
     const page = renderHtml([mk('tiktok', 'call', { tier: 'A', outreach_draft: draft, draft_sources: sources, profile_url: 'https://example.com/call' })], meta, { mode: 'review', facts: ['Portable 400ml blender.'] })
     return [rowOf(page, 'call', 'data-draft-claims="unsourced"'), rowOf(page, 'call', 'data-draft-claims="sender-only"')]
@@ -1926,44 +1930,40 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   const PRODUCTISH = ['$40（I can do $40 off and free）', 'free shipping（$40 off and free shipping, 20% too, even）', '20%（and free shipping, 20% too, even half）',
     'half off（20% too, even half off on the IPX7）', 'IPX7（off on the IPX7 one. It is）', 'It is FDA approved']
   const TIMEISH = ['11/20/2026（quick call on 11/20/2026 at 3:30pm? Text）', '3:30pm（on 11/20/2026 at 3:30pm? Text me at）', '415 555 0199（Text me at 415 555 0199 for a 15-minute）']
-  // 「15-minute」是带单位的数量写法：登记成自己的话也留在「出处对不上」，跟产品规格（5000mAh、40-hour）同一类，不移走。
-  const MINUTES = '15-minute（0199 for a 15-minute chat. I can）'
-  eq('P2.c 登记成发件人自己的话的日期、钟点、电话移到「只在发件人自己的话里」一行，带单位的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没登记的那一处照列',
-    claimsOf(LETTER, [{ draft: CALL, from: 'self' }]), [
-      `出处对不上：${[MINUTES, ...PRODUCTISH, '415 555 0199（Or call 415 555 0199 any time.）'].join('；')}${NOTE}`,
+  const MINUTES = '15-minute（0199 for a 15-minute chat. I can）', OTHER_PHONE = '415 555 0199（Or call 415 555 0199 any time.）'
+  eq('P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列',
+    claimsOf(LETTER, MARKED), [
+      `出处对不上：${[MINUTES, ...PRODUCTISH, OTHER_PHONE].join('；')}${NOTE}`,
       `只在发件人自己的话里：${TIMEISH.join('；')}${SENDER_NOTE}`,
     ])
-  eq('P2.c 没登记成发件人自己的话时约时间、电话照列在「出处对不上」，不出另一行',
-    claimsOf(LETTER, undefined), [`出处对不上：${[...TIMEISH, MINUTES, ...PRODUCTISH].join('；')}${NOTE}`, undefined])
-  // 登记只盖住半个日期（停在 11/20 上）时那个日期不算落在发件人自己的话里；登记成博主资料或产品事实的也不算。
-  eq('P2.c 一条说法要整段落在登记成发件人自己的话的字里才移走；登记成别的来处不移',
-    [claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self' }]),
-     claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'product', quote: 'noon' }]),
-     claimsOf('Free on  11/20/2026\nat noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'self' }]),
-     claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at 415 555 0199.', from: 'self' }])],
+  // 整句登记成 self 但没标 purpose：机器不替 Agent 判断哪个数字是约时间，一个都不挪。
+  eq('P2.c 没标约时间、联系方式时一个都不挪：没登记、或整句登记成发件人自己的话，约时间、电话都照列在「出处对不上」，不出另一行',
+    [claimsOf(LETTER, undefined), claimsOf(LETTER, [{ draft: CALL, from: 'self' }])],
+    [0, 1].map(() => [`出处对不上：${[...TIMEISH, MINUTES, ...PRODUCTISH].join('；')}${NOTE}`, undefined]))
+  // 标注只盖住半个日期（停在 11/20 上）时那个日期不算落在里面；登记成博主资料或产品事实的也不算（手改名单挂上标注也不算）。
+  eq('P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算',
+    [claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self', purpose: 'schedule' }]),
+     claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'product', quote: 'noon', purpose: 'schedule' }]),
+     claimsOf('Free on  11/20/2026\nat noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'self', purpose: 'schedule' }]),
+     claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at', from: 'self' }, { draft: '415 555 0199.', from: 'self', purpose: 'contact' }])],
     [...[0, 1].map(() => [`出处对不上：11/20/2026（Free on 11/20/2026 at noon.）${NOTE}`, undefined]),
       [`出处对不上：无${NOTE}`, `只在发件人自己的话里：11/20/2026（Free on 11/20/2026）${SENDER_NOTE}`],
       [`出处对不上：无${NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`]])
-  const escaped = renderHtml([mk('tiktok', 'esc', { tier: 'A', outreach_draft: 'Text me at 415 555 0199 <b>now</b> & then.', draft_sources: [{ draft: 'Text me at 415 555 0199 <b>now</b> & then.', from: 'self' }], profile_url: 'https://example.com/esc' })], meta, { mode: 'review', facts: ['x'] })
+  const escaped = renderHtml([mk('tiktok', 'esc', { tier: 'A', outreach_draft: 'Text me at 415 555 0199 <b>now</b> & then.', draft_sources: [{ draft: 'Text me at 415 555 0199 <b>now</b> & then.', from: 'self', purpose: 'contact' }], profile_url: 'https://example.com/esc' })], meta, { mode: 'review', facts: ['x'] })
   ok('P2.c 「只在发件人自己的话里」一行在输出处转义', rowOf(escaped, 'esc', 'data-draft-claims="sender-only"') === `只在发件人自己的话里：415 555 0199（Text me at 415 555 0199 &lt;b&gt;now&lt;/b&gt; & then.）${SENDER_NOTE}`)
-  // 产品规格（带单位的数量、倍数）登记成发件人自己的话也照列在「出处对不上」：只有日期、钟点、电话移走（ADR-215）。
-  // 币符后隔一个空白的数归价格（£ 10 pm 是价格，不是钟点）。
+  // 整段标成约时间也只挪日期、钟点、电话三类：产品规格（带单位的数量、倍数）照列。币符后隔一个空白的数归价格（£ 10 pm 是价格，不是钟点）。
   const SPEC = 'It runs 40-hour with 5000mAh, 12 blades, 2x faster. Free at 3pm EST? Plans start at £ 10 pm.'
-  eq('P2.c 登记成发件人自己的话也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点', claimsOf(SPEC, [{ draft: SPEC, from: 'self' }]), [
+  eq('P2.c 标成约时间也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点', claimsOf(SPEC, [{ draft: SPEC, from: 'self', purpose: 'schedule' }]), [
     `出处对不上：${['40-hour（It runs 40-hour with 5000mAh, 12）', '5000mAh（runs 40-hour with 5000mAh, 12 blades, 2x）', '12 blades（40-hour with 5000mAh, 12 blades, 2x faster. Free）', '2x（5000mAh, 12 blades, 2x faster. Free at）', '£ 10（Plans start at £ 10 pm.）'].join('；')}${NOTE}`,
     `只在发件人自己的话里：3pm EST（faster. Free at 3pm EST? Plans start at）${SENDER_NOTE}`,
   ])
-  // 日期、钟点、电话后面紧跟单位的是规格或时长（10/20/30 oz、1:30 hours），登记成自己的话也照列。
-  // 单位和普通数字一样可以跨行读：换行写的「1:30 / hours」照列；落款的 Best 也被当成 3pm 的单位，约时间多列一条（ADR-215 第三节第 7 条）。
-  const UNITS = 'Cups come in 10/20/30 oz. It blends for 1:30 hours. Capacity: 123-456-789 grams. Call 415 555 0199.'
-  eq('P2.c 日期、钟点、电话写法后面紧跟单位的登记成发件人自己的话也照列；下一行开头的字也算单位；提示的前后文只取这一行', [...claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]), ...claimsOf('Call at 3pm\nBest,\nAri', [{ draft: 'Call at 3pm', from: 'self' }, { draft: 'Best, Ari', from: 'self' }]),
-    ...claimsOf('It blends for 1:30\nhours.', [{ draft: 'It blends for 1:30 hours.', from: 'self' }]),
-    ...claimsOf('Call at 3pm EST\rBest,\u2028Ari', [{ draft: 'Call at 3pm EST', from: 'self' }, { draft: 'Best, Ari', from: 'self' }])], [
-    `出处对不上：10/20/30（Cups come in 10/20/30 oz. It blends）；1:30（It blends for 1:30 hours. Capacity: 123-456-789）；123-456-789（1:30 hours. Capacity: 123-456-789 grams. Call 415）${NOTE}`,
-    `只在发件人自己的话里：415 555 0199（123-456-789 grams. Call 415 555 0199.）${SENDER_NOTE}`,
-    `出处对不上：3pm（Call at 3pm）${NOTE}`, undefined,
-    `出处对不上：1:30（It blends for 1:30）${NOTE}`, undefined,
-    `出处对不上：3pm EST（Call at 3pm EST）${NOTE}`, undefined,
+  // 挪不挪只看标注，不看后面的字：行末的约时间下一行是落款照挪；没标的「1:30 / hours」、「10/20/30 oz」整句登记成 self 也照列。
+  // 提示的前后文只取这一行（\r、U+2028 也算换行）。
+  const UNITS = 'Cups come in 10/20/30 oz. It blends for 1:30\nhours.'
+  eq('P2.c 挪不挪只看约时间、联系方式的标注，不看后面跟的字；提示的前后文只取这一行', [...claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]),
+    ...claimsOf('Call at 3pm EST\rBest,\u2028Ari', [{ draft: 'Call at', from: 'self' }, { draft: '3pm EST', from: 'self', purpose: 'schedule' }, { draft: 'Best, Ari', from: 'self' }])], [
+    `出处对不上：10/20/30（Cups come in 10/20/30 oz. It blends）；1:30（It blends for 1:30）${NOTE}`, undefined,
+    `出处对不上：无${NOTE}`, `只在发件人自己的话里：3pm EST（Call at 3pm EST）${SENDER_NOTE}`,
   ])
   criterion('P2.c')
 }
@@ -1972,7 +1972,7 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   const root = mkdtempSync(join(tmpdir(), 'kol-p2src-review-'))
   try {
     const key = 'tiktok:meicooks'
-    const SOURCES = [{ draft: 'Your series', from: 'post', quote: 'my series' }, { draft: 'that stuck with me', from: 'self' }, { draft: 'We make blenders', from: 'product', quote: 'blender' }]
+    const SOURCES = [{ draft: 'Your series', from: 'post', quote: 'my series' }, { draft: 'that stuck with me', from: 'self' }, { draft: 'We make blenders', from: 'product', quote: 'blender' }, { draft: 'Your series.', from: 'self', purpose: 'schedule' }]
     const doc = (sources: unknown): AgentReviewDocument => ({ version: 1, updated_at: '2026-11-15T00:00:00Z', rounds: [],
       reviews: { [key]: { account_keys: [key], outreach_draft: 'Your series. that stuck with me', draft_sources: sources } as unknown as AgentReview } })
     // 写不进去时不在这里抛错（整组会死在半路），交给下面「读写往返不丢」那条报红。
@@ -1989,6 +1989,8 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
       ['from 不认得', [{ draft: 'x', from: 'observed_content', quote: 'y' }], 'draft_sources[0].from 必须是'],
       ['self 写了原文', [{ draft: 'x', from: 'self', quote: 'y' }], 'draft_sources[0].quote 发件人自己的话不写原文'],
       ['bio 没写原文', [{ draft: 'x', from: 'bio' }], 'draft_sources[0].quote 必须是非空字符串'],
+      ['用途不认得', [{ draft: 'x', from: 'self', purpose: 'price' }], 'draft_sources[0].purpose 必须是 schedule、contact 之一'],
+      ['不是发件人自己的话却写了用途', [{ draft: 'x', from: 'product', quote: 'x', purpose: 'contact' }], 'draft_sources[0].purpose 只有发件人自己的话'],
       ['post 原文空白', [{ draft: 'x', from: 'post', quote: '  ' }], 'draft_sources[0].quote 必须是非空字符串'],
       ['nickname 原文不是字符串', [{ draft: 'x', from: 'nickname', quote: 3 }], 'draft_sources[0].quote 必须是非空字符串'],
       ['product 没写原文', [{ draft: 'x', from: 'product' }], 'draft_sources[0].quote 必须是非空字符串'],
