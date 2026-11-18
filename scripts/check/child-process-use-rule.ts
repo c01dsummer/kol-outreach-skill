@@ -94,7 +94,7 @@ export function launchSites(path: string, text: string): Site[] {
   const isLoader = (call: Ts.CallExpression): boolean => {
     const callee = call.expression
     if (callee.kind === ts.SyntaxKind.ImportKeyword) return true
-    if (ts.isIdentifier(callee)) return requireNames.has(callee.text)
+    if (ts.isIdentifier(callee)) return requireNames.has(callee.text) || callee.text === 'getBuiltinModule'
     if (ts.isPropertyAccessExpression(callee)) return callee.name.text === 'require' || callee.name.text === 'getBuiltinModule'
     return isCreateRequire(callee)
   }
@@ -167,6 +167,25 @@ export function parseRegistry(text: string): Registry {
 
 /** 基线那一侧：有登记表；或者那时还没有这道闸门（引入它的那条 PR）。 */
 export type BaselineRegistry = { kind: 'registry'; registry: Registry } | { kind: 'no-gate' }
+
+/**
+ * 基线那份登记表算哪一种。入口只交来 git 答的事实，在这里判：
+ * `registryListed`、`ruleListed` 是 `git ls-tree --name-only` 对登记表、判定文件的回答（空串＝基线上没有，`null`＝git 出错）；
+ * `readRegistry` 读基线那份登记表的内容（`null`＝读不出）。返回字符串＝无从判断的说法。
+ */
+export function baselineFromFacts(registryListed: string | null, ruleListed: string | null, readRegistry: () => string | null): BaselineRegistry | string {
+  if (registryListed === null || ruleListed === null) return '`git ls-tree` 读不了基线'
+  if (registryListed === '') return ruleListed === '' ? { kind: 'no-gate' } : '基线上有这道闸门却没有登记表（无从判断，先合主干）'
+  const text = readRegistry()
+  if (text === null) return '基线那份登记表读不出来'
+  try { return { kind: 'registry', registry: parseRegistry(text) } } catch (e) { return `基线那份登记表解析不了：${(e as Error).message}` }
+}
+
+/** 读工作区里一个受控文件出错时，是不是「它已经不在了」（删掉了、上一级不再是目录）。别的错（没权限……）不是，要说无从判断。 */
+export function goneFromWorktree(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code
+  return code === 'ENOENT' || code === 'ENOTDIR'
+}
 
 export interface UseReport {
   /** 不在两节里却碰了的文件，带着每一处 */

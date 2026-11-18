@@ -28657,20 +28657,20 @@
     {
       "id": "M-H217-w",
       "req": "harness",
-      "file": "scripts/check/child-process-use.ts",
+      "file": "scripts/check/child-process-use-rule.ts",
       "why": "基线上有闸门却没有登记表时当成第一次 —— 删掉登记表的那条改动之后，下一条 PR 往待挪里塞什么都合法",
-      "find": "  if (reg === '') return rule === '' ? { kind: 'no-gate' } :",
-      "replace": "  if (reg === '') return true ? { kind: 'no-gate' } :",
+      "find": "  if (registryListed === '') return ruleListed === '' ? { kind: 'no-gate' } :",
+      "replace": "  if (registryListed === '') return true ? { kind: 'no-gate' } :",
       "by": "test",
-      "kills": ["入口：基线上有闸门却没有登记表时说无从判断、以 1 结束"]
+      "kills": ["入口：基线上有闸门却没有登记表时说无从判断、以 1 结束", "基线那份登记表算哪一种：git 出错、基线上有闸门没登记表、读不出、解析不了都是无从判断；两样都没有是还没有闸门；读得出是登记表"]
     },
     {
       "id": "M-H217-x",
       "req": "harness",
       "file": "scripts/check/child-process-use.ts",
       "why": "基线那份登记表不读，拿当前这份当基线 —— 待挪多了永远比不出来",
-      "find": "  const text = tryGit('cat-file', 'blob', `${base}:${REGISTRY_PATH}`)",
-      "replace": "  const text = readFileSync(REGISTRY_PATH, 'utf8')",
+      "find": "() => tryGit('cat-file', 'blob', `${base}:${REGISTRY_PATH}`))",
+      "replace": "() => readFileSync(REGISTRY_PATH, 'utf8'))",
       "by": "test",
       "kills": ["入口：把新文件塞进「待挪」以 1 退出，点出待挪多了它"]
     },
@@ -28733,6 +28733,56 @@
       "replace": "        && isProcess(node.expression)) add(node, '进程内部的口')",
       "by": "test",
       "kills": ["process 外面套括号、类型断言、! 再取下标也算"]
+    },
+    {
+      "id": "M-H217-ae",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "按名字导入或解构出来的「直接取内建模块」那个口不算取模块 —— 用拼出来的名字就能拿到起进程的模块而不报",
+      "find": "    if (ts.isIdentifier(callee)) return requireNames.has(callee.text) || callee.text === 'getBuiltinModule'\n",
+      "replace": "    if (ts.isIdentifier(callee)) return requireNames.has(callee.text)\n",
+      "by": "test",
+      "kills": ["从 node:process 按名字导入、解构出来的 getBuiltinModule 直接调也是取模块：实参拼出来的算，字面量的不算"]
+    },
+    {
+      "id": "M-H217-af",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "基线上 git 出错当成「还没有这道闸门」 —— 待挪多了也不比、不红，放行",
+      "find": "  if (registryListed === null || ruleListed === null) return '`git ls-tree` 读不了基线'\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["基线那份登记表算哪一种：git 出错、基线上有闸门没登记表、读不出、解析不了都是无从判断；两样都没有是还没有闸门；读得出是登记表"]
+    },
+    {
+      "id": "M-H217-ag",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "基线那份登记表读不出来当成「还没有这道闸门」 —— 放行",
+      "find": "  if (text === null) return '基线那份登记表读不出来'\n",
+      "replace": "  if (text === null) return { kind: 'no-gate' }\n",
+      "by": "test",
+      "kills": ["基线那份登记表算哪一种：git 出错、基线上有闸门没登记表、读不出、解析不了都是无从判断；两样都没有是还没有闸门；读得出是登记表"]
+    },
+    {
+      "id": "M-H217-ah",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "基线那份登记表解析不了当成「还没有这道闸门」 —— 放行",
+      "find": "catch (e) { return `基线那份登记表解析不了：${(e as Error).message}` }",
+      "replace": "catch { return { kind: 'no-gate' } }",
+      "by": "test",
+      "kills": ["基线那份登记表算哪一种：git 出错、基线上有闸门没登记表、读不出、解析不了都是无从判断；两样都没有是还没有闸门；读得出是登记表"]
+    },
+    {
+      "id": "M-H217-ai",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "读工作区文件出什么错都当「文件已删」跳过 —— 没权限读的新文件碰了也不报，放行",
+      "find": "  return code === 'ENOENT' || code === 'ENOTDIR'\n",
+      "replace": "  return true\n",
+      "by": "test",
+      "kills": ["读工作区文件出错：删掉了、上一级不再是目录算「不在了」；没权限和别的错不算，要说无从判断"]
     }
   ],
   "exemptions": [

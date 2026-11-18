@@ -43,7 +43,7 @@ import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, led
 import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
-import { type Registry as LaunchRegistry, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
+import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -23192,6 +23192,8 @@ await group('h-child-process-sites', () => {
     ['2:动态取模块', '3:动态取模块', '4:动态取模块', '6:动态取模块', '7:动态取模块', '8:动态取模块'])
   eq('实参是字面量、模板串里没有插值、或是 pathToFileURL(…) 及其 .href 的，不算动态',
     kinds('require(\'node:fs\')\nawait import(`./x.js`)\nawait import(pathToFileURL(p).href)\nawait import(url.pathToFileURL(p))\nconst r = createRequire(u)\nr(\'typescript\')\n'), [])
+  eq('从 node:process 按名字导入、解构出来的 getBuiltinModule 直接调也是取模块：实参拼出来的算，字面量的不算',
+    kinds("import { getBuiltinModule } from 'node:process'\nconst cp = getBuiltinModule('child' + '_x')\ngetBuiltinModule('node:fs')\n"), ['2:动态取模块'])
   eq('带插值的模板串、拼出来的串照样算动态', kinds('await import(`node:${m}`)\nrequire(\'child\' + \'_x\')\n'), ['1:动态取模块', '2:动态取模块'])
   eq('进程内部的口：.execve、.binding、[\'execve\']、process[不是字面量] 都算；process[\'env\'] 不算',
     kinds("process.execve(a)\nprocess.binding('spawn_sync')\nprocess['execve']\nprocess[k]\nprocess['env']\n"),
@@ -23222,6 +23224,15 @@ await group('h-child-process-judge', () => {
   ]
   eq('形状不对一律抛错，不当成空表：多键、少键、理由空、登记不是对象、待挪没排序或重复、两节都在、说明不是字、根不是对象',
     bad.map(b => { try { parseRegistry(text(b)); return 'ok' } catch { return 'throw' } }), bad.map(() => 'throw'))
+  const kindOf = (b: ReturnType<typeof baselineFromFacts>) => typeof b === 'string' ? b : b.kind
+  eq('基线那份登记表算哪一种：git 出错、基线上有闸门没登记表、读不出、解析不了都是无从判断；两样都没有是还没有闸门；读得出是登记表',
+    [kindOf(baselineFromFacts(null, '', () => '')), kindOf(baselineFromFacts('', null, () => '')),
+      kindOf(baselineFromFacts('', 'x', () => text(good))), kindOf(baselineFromFacts('x', 'x', () => null)),
+      kindOf(baselineFromFacts('x', 'x', () => '{')).split('：')[0], kindOf(baselineFromFacts('', '', () => text(good))), kindOf(baselineFromFacts('x', '', () => text(good)))],
+    ['`git ls-tree` 读不了基线', '`git ls-tree` 读不了基线', '基线上有这道闸门却没有登记表（无从判断，先合主干）', '基线那份登记表读不出来',
+      '基线那份登记表解析不了', 'no-gate', 'registry'])
+  eq('读工作区文件出错：删掉了、上一级不再是目录算「不在了」；没权限和别的错不算，要说无从判断',
+    [{ code: 'ENOENT' }, { code: 'ENOTDIR' }, { code: 'EACCES' }, { code: 'EISDIR' }, new Error('x'), null].map(goneFromWorktree), [true, true, false, false, false, false])
   const site = [{ line: 3, kind: '模块名' as const }]
   const sites = new Map([['a.ts', site], ['b.ts', site], ['c.ts', []], ['d.ts', site], ['e.ts', []]])
   const now = reg({ 'a.ts': '理由', 'r.ts': '新' }, ['b.ts', 'c.ts', 'n.ts'])

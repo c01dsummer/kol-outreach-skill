@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
-import { type BaselineRegistry, type Site, REGISTRY_PATH, RULE_PATH, isScanned, judgeUse, launchSites, parseRegistry, useLines } from './child-process-use-rule.js'
+import { type BaselineRegistry, type Site, REGISTRY_PATH, RULE_PATH, baselineFromFacts, goneFromWorktree, isScanned, judgeUse, launchSites, parseRegistry, useLines } from './child-process-use-rule.js'
 
 function tryGit(...args: string[]): string | null {
   try {
@@ -25,16 +25,11 @@ function cannotAnswer(why: string): number {
   return 1
 }
 
-/** 基线那份登记表。`ls-tree` 答「没有这个文件」与 git 出错分开；读到了解析不了就抛错。 */
+/** 基线那份登记表：这里只问 git，算哪一种在 `baselineFromFacts`。 */
 function baselineRegistry(base: string): BaselineRegistry | string {
   // --full-tree：路径从仓库根算，在子目录里跑也问得对
   const has = (path: string) => tryGit('ls-tree', '-z', '--full-tree', '--name-only', base, '--', path)
-  const reg = has(REGISTRY_PATH), rule = has(RULE_PATH)
-  if (reg === null || rule === null) return '`git ls-tree` 读不了基线'
-  if (reg === '') return rule === '' ? { kind: 'no-gate' } : '基线上有这道闸门却没有登记表（无从判断，先合主干）'
-  const text = tryGit('cat-file', 'blob', `${base}:${REGISTRY_PATH}`)
-  if (text === null) return '基线那份登记表读不出来'
-  try { return { kind: 'registry', registry: parseRegistry(text) } } catch (e) { return `基线那份登记表解析不了：${(e as Error).message}` }
+  return baselineFromFacts(has(REGISTRY_PATH), has(RULE_PATH), () => tryGit('cat-file', 'blob', `${base}:${REGISTRY_PATH}`))
 }
 
 function main(): number {
@@ -47,7 +42,10 @@ function main(): number {
   for (const path of new Set(listed.split('\0').filter(Boolean))) {
     if (!isScanned(path)) continue
     let text: string
-    try { text = readFileSync(join(root, path), 'utf8') } catch { continue } // 受控却已从工作区删掉的文件：不在仓库里
+    try { text = readFileSync(join(root, path), 'utf8') } catch (e) {
+      if (goneFromWorktree(e)) continue // 受控却已从工作区删掉的文件：不在仓库里
+      return cannotAnswer(`${path} 读不了：${(e as Error).message}`)
+    }
     sites.set(path, launchSites(path, text))
   }
   let now
