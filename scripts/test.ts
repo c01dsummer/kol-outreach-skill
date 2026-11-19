@@ -24093,6 +24093,7 @@ await group('h-same-spot', () => {
   eq('同一处：变量语句前面的注释算整条语句的名字，不算文件末尾', codeSpots('x.ts', '/** 说明 */\nexport const foo = 1\nexport const bar = 2\n', 1, 1), ['foo'])
   const grouped = "await group('甲', () => {\n  eq(1)\n})\nvoid (run('乙'))\n"
   eq('同一处：顶层调用剥掉 await、void、括号再取第一个字符串参数', [codeSpots('x.ts', grouped, 2, 2), codeSpots('x.ts', grouped, 4, 4)], [["group('甲')"], ["run('乙')"]])
+  eq('同一处：上一条语句行尾的注释算上一条，不算下一条', [codeSpots('x.ts', 'const x = 1 // 说明\nexport const foo = 2\n', 1, 1), codeSpots('x.ts', '// 文件头\nconst y = 1\n', 1, 1)], [['x'], ['y']])
   eq('同一处：多行变量声明只算落到的那个名字', codeSpots('x.ts', 'const p = 1,\n  q = 2\n', 2, 2), ['q'])
   eq('同一处：最后一条语句之后算文件末尾', codeSpots('x.ts', 'const a = 1\n\n\n', 3, 3), ['（文件末尾）'])
   const doc = '开头\n# 甲\n正文\n```\n## 假的\n```\n## 乙\n正文\n'
@@ -24178,8 +24179,9 @@ await group('h-same-spot', () => {
   eq('同一处：取数入口用的几问 git 入口原本就答', ['abc^@', 'abc^{tree}', 'HEAD~1'].map(r => { try { questionOf(['rev-parse', r]); return true } catch { return false } }).concat((() => { try { questionOf(['cat-file', 'blob', 'abc:x.ts']); questionOf(['rev-list', 'origin/main']); return true } catch { return false } })()), [true, true, true, true])
   const wf = rf('.github/workflows/same-spot.yml', 'utf8')
   eq('同一处：工作流只读，评审事件与推送都触发，跑的是这个入口',
-    ['pull-requests: read', 'contents: read', 'pull_request_review:', 'pull_request_review_comment:', 'synchronize', 'npm run same-spot', 'cancel-in-progress: true'].filter(x => !wf.includes(x)), [])
+    ['pull-requests: read', 'contents: read', 'pull_request_review:', 'synchronize', 'npm run same-spot', 'cancel-in-progress: true'].filter(x => !wf.includes(x)), [])
   eq('同一处：工作流不给写权限', /:\s*write/.test(wf), false)
+  eq('同一处：工作流不用单条行内意见那个事件，并发按事件分组', [wf.includes('pull_request_review_comment:'), wf.includes('-${{ github.event_name }}')], [false, true])
 })
 
 await group('d19-config-known-gap', () => {

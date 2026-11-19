@@ -31313,6 +31313,30 @@
       "kills": [
         "同一处：解除表表头差一个字也不算"
       ]
+    },
+    {
+      "id": "M-H225-au",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "上一条语句行尾的注释被算进下一条语句，那一行同时落在两处",
+      "find": "    if (trailing?.length) p = trailing[trailing.length - 1].end\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "同一处：上一条语句行尾的注释算上一条，不算下一条"
+      ]
+    },
+    {
+      "id": "M-H225-av",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "文件开头的注释也当成上一条语句的行尾跳过，第一条语句的头一行一处都不算",
+      "find": "    const trailing = p > 0 ? ts.getTrailingCommentRanges(text, p) : undefined",
+      "replace": "    const trailing = p >= 0 ? ts.getTrailingCommentRanges(text, p) : undefined",
+      "by": "test",
+      "kills": [
+        "同一处：上一条语句行尾的注释算上一条，不算下一条"
+      ]
     }
   ],
   "exemptions": [

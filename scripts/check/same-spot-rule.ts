@@ -89,6 +89,9 @@ export function codeSpots(path: string, text: string, a: number, b: number): str
   // getFullStart 落在上一条语句收尾那一行的换行符前，跳过那一段行尾，从下一行算起
   const startLine = (n: Ts.Node) => {
     let p = n.getFullStart()
+    // 上一条语句行尾的注释（`const x = 1 // 说明`）是上一条的，先跳过它；文件开头那一处不算行尾
+    const trailing = p > 0 ? ts.getTrailingCommentRanges(text, p) : undefined
+    if (trailing?.length) p = trailing[trailing.length - 1].end
     while (p < text.length && (text[p] === ' ' || text[p] === '\t' || text[p] === '\r')) p++
     if (text[p] === '\n') p++
     return lineOf(Math.min(p, n.getStart(file)))
