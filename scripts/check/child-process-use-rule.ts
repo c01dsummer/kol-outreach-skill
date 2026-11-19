@@ -23,8 +23,8 @@
  * `worker_threads` 不起进程不算）；拿到子进程对象后碰未公开的内部方法；不在仓库受控文件里、
  * 扩展名不在 `SCANNED` 里的文件（`.sh`、工作流 yaml）。
  *
- * **只给测试用的模块**（`TEST_ONLY_MODULES`，ADR-222）：git 夹具能在临时目录里写玩具仓库，自检记当前目录那一处会换掉
- * 起进程的函数，都只该测试文件用。按名字认（`testOnlyMentions`）：任何字符串字面量、模板串的任何一段里带着这几个模块名
+ * **只给测试用的模块**（`TEST_ONLY_MODULES`，ADR-222、ADR-223）：git 夹具能在临时目录里写玩具仓库，自检记当前目录那一处、
+ * 起进程的替身都会换掉起进程的函数，都只该测试文件用。按名字认（`testOnlyMentions`）：任何字符串字面量、模板串的任何一段里带着这几个模块名
  * （导入说明符就是字符串），就算提到了。认不出拆开拼的名字、从别的模块转手引的。
  *
  * **登记表**（`REGISTRY_PATH`，JSON）分三节：「登记」是可以碰的文件与逐个的理由；「待挪」是现在碰着、
@@ -56,7 +56,7 @@ export const SCANNED: readonly string[] = ['.ts', '.mts', '.cts', '.tsx', '.js',
 /** 进程内部、能绕开这个模块起进程的两个口。 */
 const INTERNAL_NAMES: readonly string[] = ['execve', 'binding']
 /** 只给测试用的模块（文件名去掉扩展名）：只许「测试文件」那一节里的文件提到（ADR-222）。 */
-export const TEST_ONLY_MODULES: readonly string[] = ['git-fixture', 'selfcheck-spawn-notes']
+export const TEST_ONLY_MODULES: readonly string[] = ['child-process-stand-in', 'git-fixture', 'selfcheck-spawn-notes']
 
 export function isScanned(path: string): boolean {
   return SCANNED.some(ext => path.endsWith(ext))
@@ -298,6 +298,6 @@ export function useLines(report: UseReport, onTrunk: boolean, scope: string, fir
   const err = [`✗ 起子进程的接口：${faults.length} 处不对`, ...faults,
     `  起进程走通用启动函数 scripts/check/start-process.ts；调 git 走 git 入口 scripts/check/git-entry.ts（只答它表里列的那几问，要问新的先往表里加一行）—— 登记表在 ${REGISTRY_PATH}。`,
     '  「待挪」只许减：挪走了就删掉那一行；新文件要碰，只能进「登记」并写清理由，由评审判（ADR-217）。',
-    '  只给测试用的模块（git 夹具、自检记当前目录那一处）只许「测试文件」里的文件提到；要加一个文件，由评审判它是不是只有测试用得着（ADR-222）。']
+    `  只给测试用的模块（${TEST_ONLY_MODULES.join('、')}）只许「测试文件」里的文件提到；要加一个文件，由评审判它是不是只有测试用得着（ADR-222、ADR-223）。`]
   return { ok: false, out, err }
 }

@@ -30278,6 +30278,174 @@
       "kills": [
         "短开关粘着值写（config -f路径）：抛错"
       ]
+    },
+    {
+      "id": "M-H223-a",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "跑完不换回：替身漏到后面的组，后面起进程的全被替身吞掉",
+      "find": "    for (const [n, f] of kept) live[n] = f; syncBuiltinESMExports()\n",
+      "replace": "    syncBuiltinESMExports()\n",
+      "by": "test",
+      "kills": [
+        "换替身：body 正常还了以后换回原函数"
+      ]
+    },
+    {
+      "id": "M-H223-b",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "body 是 Promise 时不等它了结就换回：body 里 await 之后起的进程不经替身、真起",
+      "find": "      later = true\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "换替身：body 是 Promise 时等它了结才换回，交回它的结果"
+      ]
+    },
+    {
+      "id": "M-H223-c",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "body 抛错时不换回：替身漏到后面的组",
+      "find": "    return result\n  } finally { if (!later) restore() }",
+      "replace": "    restore(); return result\n  } finally { /* 只在正常还时换回 */ }",
+      "by": "test",
+      "kills": [
+        "换替身：body 抛错原样抛出，也换回了原函数"
+      ]
+    },
+    {
+      "id": "M-H223-d",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "Promise 失败时不换回：替身漏到后面的组",
+      "find": "      return Promise.resolve(result).finally(restore) as T",
+      "replace": "      return Promise.resolve(result).then(r => { restore(); return r }) as T",
+      "by": "test",
+      "kills": [
+        "换替身：Promise 失败也换回，原样抛出"
+      ]
+    },
+    {
+      "id": "M-H223-e",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "名字不查：模块对象上别的口（如 execve）也能被换掉",
+      "find": "  if (bad.length) throw",
+      "replace": "  if (bad.length < 0) throw",
+      "by": "test",
+      "kills": [
+        "换替身：名字不在起进程的七个里当场抛错，事后仍是原函数"
+      ]
+    },
+    {
+      "id": "M-H223-f",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "替身拿得到原函数：测试文件能把它存下来随便起进程",
+      "find": "  return swapped(names, () => { for (const n of names) live[n] = standIns[n] }, body)",
+      "replace": "  return swapped(names, kept => { for (const n of names) live[n] = (...a: unknown[]) => standIns[n]!(...a, kept.get(n)) }, body)",
+      "by": "test",
+      "kills": [
+        "换替身：body 里经通用启动函数调的是替身，替身收到的就是调用的那几个参数（不多给原函数），交回 body 的结果"
+      ]
+    },
+    {
+      "id": "M-H223-g",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "探子不转给原函数：被测的看不到 Node 真起、真报错",
+      "find": "heard.push([n, [...args]]); return original.apply(this, args) }",
+      "replace": "heard.push([n, [...args]]); return undefined }",
+      "by": "test",
+      "kills": [
+        "探子：原样转给原函数（真起了），记下哪个函数、收到的参数"
+      ]
+    },
+    {
+      "id": "M-H223-h",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "探子不记参数：测试看不到交了什么",
+      "find": "heard.push([n, [...args]]); return original",
+      "replace": "return original",
+      "by": "test",
+      "kills": [
+        "探子：原样转给原函数（真起了），记下哪个函数、收到的参数"
+      ]
+    },
+    {
+      "id": "M-H223-i",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "没换时也交出模块上的函数：测试文件拿得到原函数",
+      "find": "    return kept.has(name) && now !== kept.get(name) ? now : undefined",
+      "replace": "    return kept.has(name) ? now : undefined",
+      "by": "test",
+      "kills": [
+        "记下原样再换回：没换时问出 undefined，换了问得到换上的那个"
+      ]
+    },
+    {
+      "id": "M-H223-j",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "没记下的名字也问得出：拿得到 body 没打算换回的函数",
+      "find": "    return kept.has(name) && now !== kept.get(name) ? now : undefined",
+      "replace": "    return now !== kept.get(name) ? now : undefined",
+      "by": "test",
+      "kills": [
+        "记下原样再换回：没记下的名字问出 undefined"
+      ]
+    },
+    {
+      "id": "M-H223-k",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "起进程的替身不算只给测试用的模块：别的脚本能引它换掉起进程的函数",
+      "find": "['child-process-stand-in', 'git-fixture', 'selfcheck-spawn-notes']",
+      "replace": "['git-fixture', 'selfcheck-spawn-notes']",
+      "by": "test",
+      "kills": [
+        "只给测试用的三个模块都认：git 夹具、自检记当前目录那一处、起进程的替身"
+      ]
+    },
+    {
+      "id": "M-H223-l",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "两段交叠时不拦：先了结的那段换回拆掉后一段的替身，后一段再把替身装回去、漏到后面的组",
+      "find": "    if (open.at(-1) !== me) {",
+      "replace": "    if (open.at(-1) !== me && false) {",
+      "by": "test",
+      "kills": [
+        "换替身：两段交叠时先了结的那段换回当场抛错，不悄悄拆掉后一段的替身"
+      ]
+    },
+    {
+      "id": "M-H223-m",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "替身不是函数也装上：被测代码报「不是函数」，指不到原因",
+      "find": "  if (notFn.length) throw",
+      "replace": "  if (notFn.length < 0) throw",
+      "by": "test",
+      "kills": [
+        "换替身：替身不是函数当场抛错，事后仍是原函数"
+      ]
+    },
+    {
+      "id": "M-H223-n",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "探子也探自带 promisify 版本的那两个函数：promisify 出来的形状悄悄变了",
+      "find": "  if (custom.length) throw",
+      "replace": "  if (custom.length < 0) throw",
+      "by": "test",
+      "kills": [
+        "探子不探 execFile、exec：它们自带的 promisify 版本带不过去，当场抛错"
+      ]
     }
   ],
   "exemptions": [
