@@ -12,7 +12,7 @@
  */
 import cp from 'node:child_process'
 
-import { GIT_CONFIG } from './size-rule.js'
+import { GIT_CONFIG } from './git-config.js'
 
 const REV = '<修订>', VALUE = '<值>', PATHS = '<路径…>'
 
@@ -22,6 +22,8 @@ export const QUESTIONS: readonly (readonly string[])[] = [
   ['rev-parse', 'HEAD'],
   ['rev-parse', '--is-shallow-repository'],
   ['rev-parse', '--show-toplevel'],
+  // 变异派工：worker 副本要带哪些文件（与下面列文件那几行一起交给 `workerCopyList`）
+  ['rev-parse', '--show-prefix'],
   ['rev-parse', '--verify', REV],
   ['rev-parse', REV],
   ['merge-base', REV, REV],
@@ -39,10 +41,13 @@ export const QUESTIONS: readonly (readonly string[])[] = [
   ['ls-files', '-z'],
   ['ls-files', '-s', '-z', '--', PATHS],
   ['ls-files', '-z', '--full-name', '--cached', '--others', '--exclude-standard', '--', ':(top)'],
+  ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
   // 变异锚点一次读暂存区与 HEAD 上的一组对象（从标准输入读）
   ['cat-file', '--batch'],
   // 打包时核输入有没有没提交的改动
   ['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', PATHS],
+  // 观察器认证：被测的树干不干净（只判输出空不空）
+  ['status', '--porcelain'],
   // 外部工单号：工作区与基线树上各数一遍
   ['grep', '--no-color', '-o', '-z', '-I', '-i', '--full-name', '-E', VALUE, '--', ':(top)'],
   ['grep', '--no-color', '-o', '-z', '-I', '-i', '--full-name', '-E', VALUE, REV, '--', ':(top)'],
@@ -80,14 +85,45 @@ export interface GitOptions {
 /** git 真跑一遍的结果：退出码、标准输出的原始字节、标准错误、起不来时的错误 */
 export interface GitAnswer { status: number | null; stdout: Buffer; stderr: string; error?: Error }
 
+/** 同步、异步两版共用：先查表（不在表里抛错），再拼出交给 git 的整串参数 */
+const argvFor = (args: readonly string[]): string[] => {
+  questionOf(args)
+  return ['--no-optional-locks', ...GIT_CONFIG, ...args]
+}
+/** 同步、异步两版共用：没给标准输入就不接 */
+const stdioFor = (input: string | undefined): ['ignore' | 'pipe', 'pipe', 'pipe'] => [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']
+
 /** 问一次，原样交回 git 怎么答的。参数不是表里的一问就抛错、不起 git */
 export function runGit(args: readonly string[], options: GitOptions = {}): GitAnswer {
-  questionOf(args)
+  const argv = argvFor(args)
   const { cwd, env, input } = options
-  const r = cp.spawnSync('git', ['--no-optional-locks', ...GIT_CONFIG, ...args], {
-    cwd, env, input, maxBuffer: 1 << 30, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-  })
+  const r = cp.spawnSync('git', argv, { cwd, env, input, maxBuffer: 1 << 30, stdio: stdioFor(input) })
   return { status: r.status, stdout: r.stdout ?? Buffer.alloc(0), stderr: r.stderr?.toString('utf8') ?? '', error: r.error }
+}
+
+/**
+ * 异步问一次，交回的形状与 `runGit` 一样：`error` 只表示起不来，非 0 退出、被信号杀都看 `status`（被杀是 `null`），
+ * 标准输出不设上限。给接管了信号、不能同步等子进程的入口用（变异派工，ADR-221）。
+ * 用 `spawn` 不用 `execFile`：后者不认 `stdio`，标准输入是一根开着的管道，从标准输入读的那一问会一直等下去；
+ * 它还把起不来、非 0、被杀、超上限都放进同一个错误里，与同步版对不上。
+ */
+export function runGitAsync(args: readonly string[], options: GitOptions = {}): Promise<GitAnswer> {
+  const argv = argvFor(args)
+  const { cwd, env, input } = options
+  return new Promise(done => {
+    const kid = cp.spawn('git', argv, { cwd, env, stdio: stdioFor(input) })
+    const out: Buffer[] = [], err: Buffer[] = []
+    let failed: Error | undefined
+    kid.stdout?.on('data', (b: Buffer) => out.push(b))
+    kid.stderr?.on('data', (b: Buffer) => err.push(b))
+    const answer = (status: number | null): GitAnswer =>
+      ({ status, stdout: Buffer.concat(out), stderr: Buffer.concat(err).toString('utf8'), error: failed })
+    // 起不来时有的只发 `error` 不发 `close`（没有 pid）；起得来的以 `close` 收尾，那时两股都读完了
+    kid.on('error', e => { failed ??= e; if (kid.pid === undefined) done(answer(null)) })
+    kid.on('close', status => done(answer(status)))
+    // git 没读完就退出时写标准输入会报管道断了；那时答案看退出码，这一错不另算
+    if (input !== undefined) { kid.stdin?.on('error', () => {}); kid.stdin?.end(input) }
+  })
 }
 
 /** 问一次：git 以 0 退出交回标准输出（不去首尾空白），起不来或非 0 退出交回 `null` */

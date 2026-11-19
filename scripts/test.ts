@@ -45,7 +45,7 @@ import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, na
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
 import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
-import { QUESTIONS as gitQuestions, askGit, gitOrThrow, gitText, questionOf, runGit } from './check/git-entry.js'
+import { QUESTIONS as gitQuestions, askGit, gitOrThrow, gitText, questionOf, runGit, runGitAsync } from './check/git-entry.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -64,7 +64,7 @@ import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShar
 import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
 import { DEPTH, addedLines, fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, markSite, type Field as UseField } from './check/field-use-rule.js'
 import {
-  beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
+  beginMutation, blockingWait, syncGitImports, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
@@ -9306,6 +9306,12 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   eq('异步等法不算，光提名字也不算', blockingWait("spawn(cmd) // 别写 execSync 那种"), undefined)
   eq('接管了信号的那个入口：没有一处同步等子进程',
     blockingWait(rf('scripts/check/mutate.ts', 'utf8')), undefined)
+  // 经 git 入口问 git 时，上面按字面找的那条看不穿：入口里除了 runGitAsync 都是同步等（ADR-221）
+  eq('从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算',
+    syncGitImports("import { runGitAsync, gitText as t, type GitAnswer } from './git-entry.js'\nimport * as g from './git-entry'\nimport e from './git-entry.ts'\nimport type { GitOptions } from './git-entry.js'\nimport { runGit } from './other.js'"),
+    ['gitText', '*', '*'])
+  eq('接管了信号的那个入口：从 git 入口只引异步那一个',
+    syncGitImports(rf('scripts/check/mutate.ts', 'utf8')), [])
 
   // 最后才拆：处理函数里有退出，留在测试进程里会把后面任何一次打断变成静默退出
   for (const s of sigs) process.off(s, onInterrupt)
@@ -23640,6 +23646,7 @@ await group('h-git-entry', async () => {
     ['ls-files', '-z', '--full-name', '--cached', '--others', '--exclude-standard', '--', ':(top)'], ['cat-file', '--batch'],
     ['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', 'a', 'b', 'c'], refsArgs(), refsArgs('abc'),
     ['log', '--first-parent', '--diff-filter=A', '--format=%H', 'abc', '--', 'docs/x.md'], ['blame', '--first-parent', '--porcelain', '-L', '3,3', 'abc', '--', 'docs/x.md'],
+    ['rev-parse', '--show-prefix'], ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], ['status', '--porcelain'],
   ]
   const verdict = (args: unknown): string => { try { questionOf(args as string[]); return '答' } catch (e) { return (e as Error).message.includes('没有这一问') ? '没有这一问' : (e as Error).message.includes('一组字符串') ? '不是字符串' : (e as Error).message } }
   eq('已挪过来的检查脚本真问的那几串，表里都有', asked.map(verdict), asked.map(() => '答'))
@@ -23673,6 +23680,23 @@ await group('h-git-entry', async () => {
   } finally { module.spawnSync = kept }
   eq('表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接', seen,
     [['git', ['--no-optional-locks', ...GIT_CONFIG, 'cat-file', '--batch'], '/某处', '1', 'x\n', 'pipe'], ['git', ['--no-optional-locks', ...GIT_CONFIG, 'rev-parse', 'HEAD'], undefined, undefined, undefined, 'ignore']])
+  // 异步那一版（变异派工用，ADR-221）：同一张表、同样的参数，交给模块上的 spawn（调用时才取）
+  let asyncThrown: unknown, asyncCalls = 0
+  const keptSpawn = module.spawn
+  try { module.spawn = () => { asyncCalls++; throw new Error('不该起') }; await runGitAsync(['commit', '-m', 'x']) } catch (e) { asyncThrown = e } finally { module.spawn = keptSpawn }
+  eq('异步版：不在表里的当场抛错，一次也没交给 Node', [asyncThrown instanceof Error && asyncThrown.message.includes('没有这一问'), asyncCalls], [true, 0])
+  const asyncSeen: unknown[] = []
+  try {
+    module.spawn = (file: unknown, args: unknown, options: Record<string, unknown>) => {
+      asyncSeen.push([file, args, options.cwd, (options.env as Record<string, string> | undefined)?.A, (options.stdio as unknown[])[0]])
+      throw new Error('只看交了什么')
+    }
+    for (const call of [() => runGitAsync(['rev-parse', 'HEAD'], { cwd: '/某处', env: { A: '1' } }), () => runGitAsync(['cat-file', '--batch'], { input: 'x\n' })]) {
+      try { await call() } catch { /* 替身抛的，只看交了什么 */ }
+    }
+  } finally { module.spawn = keptSpawn }
+  eq('异步版交给模块上的 spawn：起的是 git，参数前带不写索引的开关与固定配置，cwd、env 照传，没给标准输入就不接', asyncSeen,
+    [['git', ['--no-optional-locks', ...GIT_CONFIG, 'rev-parse', 'HEAD'], '/某处', '1', 'ignore'], ['git', ['--no-optional-locks', ...GIT_CONFIG, 'cat-file', '--batch'], undefined, undefined, 'pipe']])
 })
 
 await group('h-git-entry-run', async () => {
@@ -23720,6 +23744,16 @@ await group('h-git-entry-run', async () => {
     // git 的原话（标准错误）另问一遍拿来比：错里光有参数里那个文件名不算带了原话
     const own = runGit(['show', 'HEAD:没有这个文件'], at).stderr.trim()
     eq('答不上来的：gitOrThrow 抛错，错里带退出码与 git 的原话', [said.includes('退出码 128'), own !== '' && said.includes(own)], [true, true])
+    // 异步版真起：答得上来、标准输入照传、非 0 退出、起不来、超过 1 MB，形状与同步版一一对上
+    const fine = await runGitAsync(['rev-parse', 'HEAD'], at)
+    eq('异步版答得上来：退出码 0、标准输出原样（不去空白）、没有错误', [fine.status, fine.stdout.toString('utf8'), fine.error], [0, g('rev-parse', 'HEAD').stdout, undefined])
+    const fed = await runGitAsync(['cat-file', '--batch'], { ...at, input: 'HEAD:挪了.md\n' })
+    eq('异步版标准输入照传：cat-file --batch 读得到交进去的那一行、读完就退出', [fed.status, /^[0-9a-f]{40} blob \d+\n第 0 行/.test(fed.stdout.toString('utf8'))], [0, true])
+    const missing = await runGitAsync(['show', 'HEAD:没有这个文件'], at)
+    eq('异步版非 0 退出：看退出码、带 git 的原话，error 留空（与同步版一样，error 只表示起不来）', [missing.status, missing.stderr.trim() === own, missing.error], [128, true, undefined])
+    const noStart = await runGitAsync(['rev-parse', 'HEAD'], { cwd: join(repo, '没有这个目录'), env })
+    eq('异步版起不来：error 有、退出码是 null', [noStart.error instanceof Error, noStart.status], [true, null])
+    eq('异步版输出超过 1 MB 照样读全', (await runGitAsync(['cat-file', 'blob', 'HEAD:大.txt'], at)).stdout.length, big.length)
   } finally { rmSync(repo, { recursive: true, force: true }) }
 })
 

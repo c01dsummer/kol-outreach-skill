@@ -22,6 +22,8 @@
  */
 import { writeFileSync } from 'node:fs'
 import type { ChildProcess } from 'node:child_process'
+import { createRequire } from 'node:module'
+import type * as Ts from 'typescript'
 
 /**
  * 完整需求测试认领的原字节恢复动作。相同原件保留；原件缺失或字节被改写才恢复；
@@ -238,4 +240,34 @@ const BLOCKING_WAIT = /\b(execSync|execFileSync|spawnSync)\s*\(/
 export function blockingWait(src: string): string | undefined {
   const hit = BLOCKING_WAIT.exec(src)
   return hit === null ? undefined : hit[1]
+}
+
+let compiler: typeof Ts | undefined
+/**
+ * 接管了信号的那个入口从 git 入口引了哪些不该引的名字（ADR-221）。git 入口只有 `runGitAsync` 是异步等的，
+ * 其余几个（`runGit`、`gitText`、`gitOrThrow`、`askGit`）都同步等子进程 —— 上面那条按字面找
+ * `spawnSync(` 的判据看不穿这一层。读的是编译器的语法树：说明符是 `./git-entry.js`（或 `.ts`、不带后缀）的
+ * 静态导入里，除 `runGitAsync` 以外的每个名字原样交回；整份导入（`* as`、缺省导入）交回 `*`，因为认不出用了哪个。
+ * 纯类型导入不算。认不出的：动态 `import()` 与经别的文件转手。
+ */
+export function syncGitImports(src: string): string[] {
+  const ts = compiler ??= createRequire(import.meta.url)('typescript') as typeof Ts
+  const file = ts.createSourceFile('entry.ts', src, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
+  const out: string[] = []
+  for (const st of file.statements) {
+    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue
+    if (!/^\.\/git-entry(\.js|\.ts)?$/.test(st.moduleSpecifier.text)) continue
+    const clause = st.importClause
+    if (clause === undefined || clause.isTypeOnly) continue
+    if (clause.name !== undefined) out.push('*')
+    const named = clause.namedBindings
+    if (named === undefined) continue
+    if (ts.isNamespaceImport(named)) { out.push('*'); continue }
+    for (const el of named.elements) {
+      if (el.isTypeOnly) continue
+      const name = (el.propertyName ?? el.name).text
+      if (name !== 'runGitAsync') out.push(name)
+    }
+  }
+  return out
 }

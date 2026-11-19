@@ -8,7 +8,7 @@
  * 每次运行一个新的证据目录：脚本原字节、参数表、事件文件、两股输出与退出码都落在那里，判的结果也写进去。
  * 入口按 kol-test-observer/v1 写的测试观察记录也落在这个目录（`CONTRACT_RECORDS`），环境变量每一跑都给（ADR-186 末尾「第二片」）。
  */
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from './start-process.js'
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -238,7 +238,9 @@ export function runFaultControl(o: { isolation: Isolation; cwd: string; evidence
 /** 设施各文件的路径（仓库根起算）与 SHA256：认证记录与汇总都照它记 */
 export const facilityFiles = (): { path: string; sha256: string }[] =>
   ['scripts/check/observer-rule.ts', 'scripts/check/observer-preload.ts', 'scripts/check/observer-run.ts', 'scripts/check/observer-cert.ts',
-    'scripts/check/observer-cert.sh', 'package-lock.json'].map(p => ({ path: p, sha256: existsSync(join(REPO, p)) ? sha(readFileSync(join(REPO, p))) : '（不存在）' }))
+    'scripts/check/observer-cert.sh', 'package-lock.json',
+    // 设施起进程、问 git 都经这几份（ADR-221）：起进程的通用函数与它认 git 的那一句、git 入口与它钉死的配置。任一改了都要重新认证
+    'scripts/check/start-process.ts', 'scripts/check/launch-count.ts', 'scripts/check/git-entry.ts', 'scripts/check/git-config.ts'].map(p => ({ path: p, sha256: existsSync(join(REPO, p)) ? sha(readFileSync(join(REPO, p))) : '（不存在）' }))
 /** 一个目录下每个文件的相对路径与 SHA256（按路径排），整张表再取一次 SHA256 */
 const treeSha = (root: string): string => {
   const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)])
