@@ -30562,8 +30562,8 @@
       "req": "harness",
       "file": "scripts/check/adr-fact-table.ts",
       "why": "表后隔着空行的行也算表里的行：渲染出来那几行不在表里",
-      "find": "  for (let i = body[1].i + 1; i < end && lines[i].trim().startsWith('|'); i++) {",
-      "replace": "  for (let i = body[1].i + 1; i < end && (lines[i].trim().startsWith('|') || !lines[i].trim()); i++) {",
+      "find": "  for (let i = body[1].i + 1; i < end && lines[i].trim(); i++) {",
+      "replace": "  for (let i = body[1].i + 1; i < end; i++) {",
       "by": "test",
       "kills": [
         "找谁要那一节：隔了空行的不算表里的行"
@@ -30706,12 +30706,12 @@
       "id": "M-H224-v",
       "req": "harness",
       "file": "scripts/check/adr-fact-table.ts",
-      "why": "表后紧接的正文也当表里的行：正文按竖线拆不出三格，齐的表也报红",
-      "find": "i < end && lines[i].trim().startsWith('|'); i++) {",
-      "replace": "i < end && lines[i].trim() !== ''; i++) {",
+      "why": "紧跟表格、没以竖线开头的行悄悄放过：GFM 里它仍是表里的一行，格子空着也没人查",
+      "find": "    else if (!lines[i].trim().startsWith('|')) faults.push(",
+      "replace": "    else if (false) faults.push(",
       "by": "test",
       "kills": [
-        "找谁要那一节：表后面紧接一行正文，正文不算表里的行"
+        "找谁要那一节：紧跟表格、没以竖线开头的行报红，不当成表的结尾"
       ]
     },
     {

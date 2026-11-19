@@ -81,10 +81,12 @@ export function factTableFaults(file: string, num: number, text: string): string
 
   const rows: Array<{ l: string; i: number }> = []
   const faults: string[] = []
-  // 表从分隔行的下一行起，到第一个不以竖线开头的行为止（空行也算结束：Markdown 里表格不能断开）。
-  // 按原文逐行走、不跳引文：表里夹着一行被当成引文的（比如格里写了 `<!--`），不让它悄悄把表截断，报红
-  for (let i = body[1].i + 1; i < end && lines[i].trim().startsWith('|'); i++) {
+  // 表从分隔行的下一行起，到空行或节尾为止（GFM：紧跟表格、没空行隔开的那一行，哪怕没有竖线也算表里的一行）。
+  // 按原文逐行走、不跳引文：表里夹着一行被当成引文的（比如格里写了 `<!--`），不让它悄悄把表截断，报红；
+  // 不以竖线开头的行本仓库不认，也报红，不当成表的结尾
+  for (let i = body[1].i + 1; i < end && lines[i].trim(); i++) {
     if (!live(i)) faults.push(`${file} 第 ${i + 1} 行：${name}表里这一行被当成了引文（多半是格里写了 \`<!--\`），后面的行查不到`)
+    else if (!lines[i].trim().startsWith('|')) faults.push(`${file} 第 ${i + 1} 行：${name}表里这一行没以竖线开头（紧跟表格、没空一行的正文也算表里的一行；表后要空一行再写正文）`)
     else rows.push({ l: lines[i], i })
   }
   if (rows.length === 0 && faults.length === 0) return [`${file} 的${name}表里一行都没有`]
