@@ -30163,8 +30163,8 @@
       "req": "harness",
       "file": "scripts/check/git-fixture.ts",
       "why": "带等号的写法认不出：指别处的开关换个写法就过",
-      "find": " || (s.startsWith('--') && a.startsWith(`${s}=`))",
-      "replace": "",
+      "find": "  const name = a.split('=')[0]",
+      "replace": "  const name = a",
       "by": "test",
       "kills": [
         "config 带指别处的开关（--global、--system、--worktree、--file、-f、--file=）：抛错；不带的放行",
@@ -30188,8 +30188,8 @@
       "req": "harness",
       "file": "scripts/check/git-fixture.ts",
       "why": "在哪起只按字面比、不解软链：临时目录里一个指到别处的软链就把夹具带出去",
-      "find": "const real = (p: string): string => { try { return realpathSync(p) } catch { return resolve(p) } }",
-      "replace": "const real = (p: string): string => resolve(p)",
+      "find": "    try { return join(realpathSync(at), ...missing) } catch {",
+      "replace": "    try { return join(resolve(at), ...missing) } catch {",
       "by": "test",
       "kills": [
         "cwd 是临时目录里指到别处的软链：按真实路径判，抛错"
@@ -30253,6 +30253,30 @@
       "by": "test",
       "kills": [
         "认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入、不带插值的反引号串；认不出：注释、拆开拼的名字"
+      ]
+    },
+    {
+      "id": "M-H222-ak",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "指别处的长开关写成缩写认不出：git 认缩写，换个写法就写到玩具仓库以外",
+      "find": "  return a.startsWith('--') && name.length > 2 && s.startsWith(name)",
+      "replace": "  return a.startsWith('--') && name.length > 2 && s === name",
+      "by": "test",
+      "kills": [
+        "指别处的开关写成 git 认的缩写（config --glo、init --sep=）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-al",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "短开关粘着值写认不出：把要写的文件直接接在开关后面就过",
+      "find": "  if (!s.startsWith('--')) return a.startsWith(s) && !a.startsWith('--')",
+      "replace": "  if (!s.startsWith('--')) return a === s",
+      "by": "test",
+      "kills": [
+        "短开关粘着值写（config -f路径）：抛错"
       ]
     }
   ],

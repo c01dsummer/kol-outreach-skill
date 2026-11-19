@@ -23838,6 +23838,8 @@ await group('h-git-fixture', () => {
       [...[['--global'], ['--system'], ['--worktree'], ['--file', 'x'], ['-f', 'x'], ['--file=x']].map(sw => refused(['config', ...sw, 'a.b', 'c'], { cwd: toy }).includes('指别处的开关')),
         refused(['config', 'user.name', 't'], { cwd: toy })],
       [true, true, true, true, true, true, 'ok'])
+    eq('指别处的开关写成 git 认的缩写（config --glo、init --sep=）：抛错', [refused(['config', '--glo', 'a.b', 'c'], { cwd: toy }), refused(['init', '-q', '--sep=/x'], { cwd: toy })].map(m => m.includes('指别处的开关')), [true, true])
+    ok('短开关粘着值写（config -f路径）：抛错', refused(['config', '-fx', 'a.b', 'c'], { cwd: toy }).includes('指别处的开关'))
     eq('init 带指别处的开关（--separate-git-dir=、--template=）：抛错',
       ['--separate-git-dir=/x', '--template=/x'].map(sw => refused(['init', '-q', sw], { cwd: toy }).includes('指别处的开关')), [true, true])
     eq('子命令不在白名单里（push、rev-list、裸的 -C）：抛错', ['push', 'rev-list', '-C'].map(sub => refused([sub, 'x'], { cwd: toy }).includes('不认这个子命令')), [true, true, true])

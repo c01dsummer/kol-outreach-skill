@@ -22,8 +22,8 @@
 
 1. **git 夹具模块（`git-fixture.ts`，登记）。** `fixtureGit(参数, { cwd, env?, input? })` 起一次 git，交回退出码、标准输出、标准错误、起不来时的错误；`fixtureGitOrThrow` 以 0 退出交回去掉首尾空白的输出，否则抛错、带 git 的原话。起之前查三样，不合就抛错、不起 git：
    - **在哪起。** `cwd` 必填；真实路径要在系统临时目录底下（不能就是它本身），且不在本仓库里、也不是本仓库的上级目录。本仓库根由模块自己的位置算出。
-   - **起什么。** 子命令只许 `add`、`checkout`、`commit`、`config`、`init`、`rev-parse`、`switch`、`update-ref`（自检里用到的全部）；子命令前只许 `-c 键=值`，键只许 `commit.gpgsign`、`core.quotePath`、`user.email`、`user.name`；`init` 不带目录参数（`-b` 后面的分支名不算）。`config` 不带 `--global`、`--system`、`--worktree`、`--file`、`-f`，`init` 不带 `--separate-git-dir`、`--template`（带等号的写法一样拦）：这几样让 git 写到玩具仓库以外；root 下经夹具写 `--global`，git 会把指向 `/dev/null` 的用户配置换成一个普通文件（独立复核实测到过，十几秒后恢复）。
-   - **带什么环境。** 从本进程的环境起，去掉全部 `GIT_` 开头的；调用方经 `env` 只许给提交身份与日期、往上找仓库的天花板（`ENV_KEYS`），值为 `undefined` 的当没给。再设 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_SYSTEM` 与 `GIT_CONFIG_GLOBAL` 指向 `/dev/null`，天花板加上系统临时目录。挡的是本机的系统、用户配置文件；用户级的忽略、属性文件是另一路，仍会读（老写法也一样）。
+   - **起什么。** 子命令只许 `add`、`checkout`、`commit`、`config`、`init`、`rev-parse`、`switch`、`update-ref`（自检里用到的全部）；子命令前只许 `-c 键=值`，键只许 `commit.gpgsign`、`core.quotePath`、`user.email`、`user.name`；`init` 不带目录参数（`-b` 后面的分支名不算）。`config` 不带 `--global`、`--system`、`--worktree`、`--file`、`-f`，`init` 不带 `--separate-git-dir`、`--template`（带等号的、git 认的缩写、短开关粘着值的写法一样拦）：这几样让 git 写到玩具仓库以外；root 下经夹具写 `--global`，git 会把指向 `/dev/null` 的用户配置换成一个普通文件（独立复核实测到过，十几秒后恢复）。
+   - **带什么环境。** 从本进程的环境起，去掉全部 `GIT_` 开头的；调用方经 `env` 只许给提交身份与日期、往上找仓库的天花板（`ENV_KEYS`），值为 `undefined` 的当没给。再设 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_SYSTEM` 与 `GIT_CONFIG_GLOBAL` 指向 `/dev/null`，天花板加上系统临时目录。挡的是本机的系统、用户配置文件，要 git 2.32 起才认后两个变量；更老的 git 只挡系统那份、仍读用户配置。用户级的忽略、属性文件是另一路，仍会读（老写法也一样）。
    故意不带 git 入口钉死的那组配置：夹具有时要造出与入口相反的配置，去验被测的入口自己带没带。起 git 的函数调用时从模块上取：自检记当前目录、计数预加载换掉模块上的函数后照样记得到、数得到。原先各组自己删的继承变量是六项或九项、有的组一项不删，现在一律全删。只有一处是「原先删、现在留」：成本入口那一组原先还删了 `GITHUB_` 开头的、`CI` 与 `NODE_OPTIONS`，现在只删 `GIT_` 开头的。git 自己不读这几样，玩具仓库也没有钩子，留着无害。
 2. **自检记当前目录那一处（`selfcheck-spawn-notes.ts`，登记）。** 原先写在自检开头的那段包装原样挪出来：`noteSpawns(onLaunch)` 换掉七个起进程的函数，名字照旧、`exec`/`execFile` 自带的 promisify 版本一并带过来，交回原函数的返回值。记哪一笔（在不在某一组里、目录在不在自检的临时目录底下）仍在自检里判。
 3. **自检脚本。** 十三处建玩具仓库改经 git 夹具；一处问本仓库的提交号（观察器认证入口那一组核汇总里记的提交）改经 git 入口；起 node、sh、bwrap、mkfifo 改经通用启动函数。三组原先自己从模块上取起进程的函数（变异维护入口、认领恢复入口两组经 `createRequire`，成本入口那组经 `getBuiltinModule`），也改了。写在字符串里、运行时落盘再跑的代码原样留着（ADR-219 第四节第三条）。
@@ -52,7 +52,7 @@
 
 响了、只记核过的：
 
-- ADR-89 第 92 行（加变异时看一眼盖的是不是没人盖过的地方）：本条新加的 36 条（`M-H222-a`～`aj`）全落在本条新写的代码上：夹具、记当前目录那一处、闸门判定与入口各自的新行。有断言没变异的：夹具里 `GIT_CONFIG_SYSTEM` 指向 `/dev/null` 那一行、「要给 cwd」「参数要是一组字符串」两句、调用方给的环境变量照带那一行；闸门里「测试文件列了却不在仓库里」那一处；第四节写过的 `syncBuiltinESMExports`。
+- ADR-89 第 92 行（加变异时看一眼盖的是不是没人盖过的地方）：本条新加的 38 条（`M-H222-a`～`al`）全落在本条新写的代码上：夹具、记当前目录那一处、闸门判定与入口各自的新行。有断言没变异的：夹具里 `GIT_CONFIG_SYSTEM` 指向 `/dev/null` 那一行、「要给 cwd」「参数要是一组字符串」两句、调用方给的环境变量照带那一行；闸门里「测试文件列了却不在仓库里」那一处；第四节写过的 `syncBuiltinESMExports`。
 - ADR-211 第 212 行（架构文档接续那段指向与基线说法没改）：本条改了 `docs/ARCHITECTURE.md`，字面响；实质已在 ADR-221 那条 PR 还了（ADR-221 第六节），只是原处后面没有状态行，补在下面。
 
 > ⚠️ 已还：ADR-211 第 212 行 · 还在 ADR-221 那条 PR：`docs/ARCHITECTURE.md`「2026-10-28接续」那段两句照欠条说的改了（基线与重放的说法、指向 ADR-158 历史文件那一节）；本条只补这一行状态

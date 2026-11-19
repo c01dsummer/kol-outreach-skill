@@ -18,7 +18,7 @@
 import cp from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** 夹具能用的子命令。新加一个由评审看：它是不是只在玩具仓库里用得着 */
@@ -31,7 +31,7 @@ export const ENV_KEYS: readonly string[] = [
   'GIT_COMMITTER_DATE', 'GIT_COMMITTER_EMAIL', 'GIT_COMMITTER_NAME',
 ]
 
-/** 子命令后不许带的开关：它们让 git 写到玩具仓库以外。`--x` 也拦 `--x=值` 写法 */
+/** 子命令后不许带的开关：它们让 git 写到玩具仓库以外。长开关也拦缩写与 `--x=值` 写法，短开关也拦粘着值的写法 */
 export const ELSEWHERE_SWITCHES: Readonly<Record<string, readonly string[]>> = {
   config: ['--global', '--system', '--worktree', '--file', '-f'],
   init: ['--separate-git-dir', '--template'],
@@ -52,7 +52,24 @@ export interface FixtureOptions {
 /** git 真跑一遍的结果：退出码、标准输出（utf8）、标准错误、起不来时的错误 */
 export interface FixtureAnswer { status: number | null; stdout: string; stderr: string; error?: Error }
 
-const real = (p: string): string => { try { return realpathSync(p) } catch { return resolve(p) } }
+/** 真实路径；路径还不存在时解最近一层存在的上级、再接上没有的那几段（临时目录本身是软链的系统上也比得对） */
+const real = (p: string): string => {
+  const missing: string[] = []
+  let at = resolve(p)
+  for (;;) {
+    try { return join(realpathSync(at), ...missing) } catch {
+      const up = dirname(at)
+      if (up === at) return resolve(p)
+      missing.unshift(basename(at)); at = up
+    }
+  }
+}
+/** 参数 a 是不是在说开关 s：长开关认 git 认的缩写（`--glo`）与带等号的写法，短开关认粘着值的写法（`-f路径`） */
+const says = (a: string, s: string): boolean => {
+  if (!s.startsWith('--')) return a.startsWith(s) && !a.startsWith('--')
+  const name = a.split('=')[0]
+  return a.startsWith('--') && name.length > 2 && s.startsWith(name)
+}
 const inside = (child: string, parent: string): boolean => child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep)
 
 /** 这一次起 git 合不合规矩；不合就抛错，说出原样的参数与目录。交回整份环境 */
@@ -74,7 +91,7 @@ export function fixtureCheck(args: readonly string[], options: FixtureOptions): 
   if (sub === 'init' && args.slice(i + 1).some((a, j, rest) => !a.startsWith('-') && rest[j - 1] !== '-b')) throw new Error(`git 夹具的 init 不带目录参数，建在 cwd：git ${JSON.stringify(args)}（ADR-222）`)
   // 指别处的开关：写到玩具仓库以外的文件或目录（root 下写 `--global` 会把 `/dev/null` 换成普通文件）
   const elsewhere = ELSEWHERE_SWITCHES[sub]
-  const hit = elsewhere === undefined ? undefined : args.slice(i + 1).find(a => elsewhere.some(s => a === s || (s.startsWith('--') && a.startsWith(`${s}=`))))
+  const hit = elsewhere === undefined ? undefined : args.slice(i + 1).find(a => elsewhere.some(s => says(a, s)))
   if (hit !== undefined) throw new Error(`git 夹具的 ${sub} 不带指别处的开关 ${hit}：只写玩具仓库自己（ADR-222）`)
   const env: NodeJS.ProcessEnv = {}
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v
