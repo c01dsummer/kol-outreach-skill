@@ -30476,8 +30476,8 @@
       "req": "harness",
       "file": "scripts/check/adr-fact-table.ts",
       "why": "整节没写也放行：这道闸门要管的头一件事就没了",
-      "find": "  if (heads.length === 0) return [`${file} 缺",
-      "replace": "  if (heads.length === 0) return []; if (false) return [`${file} 缺",
+      "find": "  if (heads.length === 0) {",
+      "replace": "  if (heads.length === 0 && false) {",
       "by": "test",
       "kills": [
         "找谁要那一节：缺这一节报红",
@@ -30562,8 +30562,8 @@
       "req": "harness",
       "file": "scripts/check/adr-fact-table.ts",
       "why": "表后隔着空行的行也算表里的行：渲染出来那几行不在表里",
-      "find": "startsWith('|') && body[k].i === body[k - 1].i + 1;",
-      "replace": "startsWith('|');",
+      "find": "  for (let i = body[1].i + 1; i < end && lines[i].trim().startsWith('|'); i++) {",
+      "replace": "  for (let i = body[1].i + 1; i < end && (lines[i].trim().startsWith('|') || !lines[i].trim()); i++) {",
       "by": "test",
       "kills": [
         "找谁要那一节：隔了空行的不算表里的行"
@@ -30574,8 +30574,8 @@
       "req": "harness",
       "file": "scripts/check/adr-fact-table.ts",
       "why": "只有表头和分隔行、一行事实都没列也放行",
-      "find": "  if (rows.length === 0) return [`${file} 的${name}表里一行都没有`]",
-      "replace": "  if (rows.length === 0) return []",
+      "find": "  if (rows.length === 0 && faults.length === 0) return [`${file} 的${name}表里一行都没有`]",
+      "replace": "  if (rows.length === 0 && faults.length === 0) return []",
       "by": "test",
       "kills": [
         "找谁要那一节：表里一行都没有报红"
@@ -30651,6 +30651,127 @@
       "by": "test",
       "kills": [
         "找谁要那一节：npm run adr 里查得到，缺了就红"
+      ]
+    }
+,
+    {
+      "id": "M-H224-r",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "编号 0 当成旧记录放行：0 既不是旧记录也不在空号表里，写成 ADR-00 就绕开了检查",
+      "find": "  if (num < 1) return [",
+      "replace": "  if (num < 0) return [",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：编号 0 不算旧记录，报红"
+      ]
+    },
+    {
+      "id": "M-H224-s",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "表里一行被当成引文时悄悄跳过：格里写了 `<!--` 的那一行之后，空格子都没人查",
+      "find": "    if (!live(i)) faults.push(",
+      "replace": "    if (!live(i)) [].push(",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：表里一行被当成引文时报红，不让它悄悄截断表"
+      ]
+    },
+    {
+      "id": "M-H224-t",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "表头下面那一行不是分隔行也放行：没有分隔行的那几行在 Markdown 里不是表",
+      "find": "body[1].i !== body[0].i + 1 || !DIVIDER_RE.test(body[1].l.trim())",
+      "replace": "body[1].i !== body[0].i + 1",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：缺分隔行报红"
+      ]
+    },
+    {
+      "id": "M-H224-u",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "节标题后面接什么字都认：「各找谁要吧」这种另一回事的标题也算这一节",
+      "find": "各找谁要(?:[（(].*)?\\s*$/",
+      "replace": "各找谁要/",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：标题后面多接了字不算"
+      ]
+    },
+    {
+      "id": "M-H224-v",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "表后紧接的正文也当表里的行：正文按竖线拆不出三格，齐的表也报红",
+      "find": "i < end && lines[i].trim().startsWith('|'); i++) {",
+      "replace": "i < end && lines[i].trim() !== ''; i++) {",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：表后面紧接一行正文，正文不算表里的行"
+      ]
+    },
+    {
+      "id": "M-H224-w",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "多一格的行也放行：多出来那一格说明这行写歪了，三格的意思对不上",
+      "find": "    if (cells.length !== 3)",
+      "replace": "    if (cells.length < 3)",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：一行四格报红"
+      ]
+    },
+    {
+      "id": "M-H224-x",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "分隔行只认三个以上的横线：一个横线、带对齐冒号的合法分隔行被误报",
+      "find": "(?:\\s*:?-+:?\\s*\\|){3}",
+      "replace": "(?:\\s*-{3,}\\s*\\|){3}",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：分隔行用一个横线、带对齐冒号也认"
+      ]
+    },
+    {
+      "id": "M-H224-y",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "空号表少抄一个：那个旧空号新记录拿去用就不查了",
+      "find": ", 178, 179])",
+      "replace": ", 178])",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：空号表与 docs/adr/ 目录里 224 以下的空号一致"
+      ]
+    },
+    {
+      "id": "M-H224-z",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "起算号挪后：从本条到新起算号之间的新记录都不查了",
+      "find": "export const FACT_TABLE_FROM = 224",
+      "replace": "export const FACT_TABLE_FROM = 300",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：起算号是 224"
+      ]
+    },
+    {
+      "id": "M-H224-aa",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "标题写差一点时不再指出是哪一行：只说缺，写的人不知道差在哪",
+      "find": "    return [`${file} 缺${name}一节（ADR-${num} 不小于 ${FACT_TABLE_FROM}，要带；不写代码的写一句「${SKIP_PREFIX}理由」）`\n      + (near.length ?",
+      "replace": "    return [`${file} 缺${name}一节（ADR-${num} 不小于 ${FACT_TABLE_FROM}，要带；不写代码的写一句「${SKIP_PREFIX}理由」）`\n      + (false ?",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：标题写差一点的，指出是哪一行"
       ]
     }
   ],

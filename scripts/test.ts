@@ -24031,6 +24031,20 @@ await group('h-adr-fact-table', () => {
   eq('找谁要那一节：转义的竖线留在格里，不拆', cellsOf('| a \\| b | 乙 | 丙 |'), ['a \\| b', '乙', '丙'])
   eq('找谁要那一节：没以竖线收尾的行，尾巴也算一格', cellsOf('| 甲 | 乙 | 丙 | 丁'), ['甲', '乙', '丙', '丁'])
   eq('找谁要那一节：节到下一个二级标题为止，后面节里的表不算', faults(head + '## 一、要用到的事实，各找谁要\n\n## 二、别的\n\n' + FACT_TABLE_HEAD + '\n|---|---|---|\n| 甲 | 乙 | 丙 |\n')[0]?.includes('是空的'), true)
+  eq('找谁要那一节：编号 0 不算旧记录，报红', faults('# ADR-00 丁\n\n正文\n', 0)[0]?.includes('不是正数'), true)
+  eq('找谁要那一节：标题后面多接了字不算', faults(head + '## 要用到的事实，各找谁要吧\n\n' + FACT_TABLE_HEAD + '\n|---|---|---|\n| 甲 | 乙 | 丙 |\n')[0]?.includes('缺'), true)
+  eq('找谁要那一节：标题写差一点的，指出是哪一行', faults(head + '## 要用到的事实,各找谁要\n\n正文\n')[0]?.includes('第 5 行像是这一节'), true)
+  eq('找谁要那一节：分隔行用一个横线、带对齐冒号也认', faults(head + `## 要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n|-|:-:|--:|\n| 甲 | 乙 | 丙 |\n`), [])
+  eq('找谁要那一节：表后面紧接一行正文，正文不算表里的行', faults(head + `## 要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n|---|---|---|\n| 甲 | 乙 | 丙 |\n正文接着写\n`), [])
+  eq('找谁要那一节：一行四格报红', faults(head + table('| 甲 | 乙 | 丙 | 丁 |'))[0]?.includes('这一行 4 格'), true)
+  const comment = faults(head + `## 要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n|---|---|---|\n| 甲 <!-- 注 | 乙 | 丙 |\n| 丁 |  | 戊 |\n`)
+  eq('找谁要那一节：表里一行被当成引文时报红，不让它悄悄截断表', comment.some(f => f.includes('被当成了引文')), true)
+  // 钉住约定本身：起算号、表头一字不差（照 process/3-BUILD.md 第 8 条那张表）、空号表与 docs/adr/ 目录实数一致（记录不删，这件事一直成立）
+  eq('找谁要那一节：起算号是 224', FACT_TABLE_FROM, 224)
+  eq('找谁要那一节：表头与第 8 条那张表一字不差', [FACT_TABLE_HEAD === '| 要用到的事实 | 找谁要 | 给机器读的还是给人看的 |', rf('process/3-BUILD.md', 'utf8').split('\n').includes(FACT_TABLE_HEAD)], [true, true])
+  const held = new Set(readdirSync('docs/adr').flatMap(f => { const m = /^ADR-(\d+)-/.exec(f); return m ? [Number(m[1])] : [] }))
+  const gapsNow = Array.from({ length: 223 }, (_, k) => k + 1).filter(n => !held.has(n))
+  eq('找谁要那一节：空号表与 docs/adr/ 目录里 224 以下的空号一致', [...OLD_GAPS].sort((a, b) => a - b), gapsNow)
   // 接线：npm run adr 逐份读记录时调到它
   const root = mkdtempSync(join(tmpdir(), 'kol-adr-fact-'))
   try {

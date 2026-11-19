@@ -26,7 +26,7 @@ export const OLD_GAPS: ReadonlySet<number> = new Set([27, 29, 48, 51, 52, 53, 57
 export const FACT_HEADING_RE = /^## (?:[一二三四五六七八九十]+、)?要用到的事实，各找谁要(?:[（(].*)?\s*$/
 /** 表头一字不差 */
 export const FACT_TABLE_HEAD = '| 要用到的事实 | 找谁要 | 给机器读的还是给人看的 |'
-const DIVIDER_RE = /^\|(?:\s*:?-{3,}:?\s*\|){3}\s*$/
+const DIVIDER_RE = /^\|(?:\s*:?-+:?\s*\|){3}\s*$/
 /** 不列时这一节的第一行：「不列：」后面要有理由 */
 export const SKIP_PREFIX = '不列：'
 
@@ -49,13 +49,19 @@ export function cellsOf(row: string): string[] {
 /** 这份记录缺什么；空数组就是齐了。编号小于起算号的不查 */
 export function factTableFaults(file: string, num: number, text: string): string[] {
   if (OLD_GAPS.has(num)) return [`${file} 用了 ${FACT_TABLE_FROM} 以下的旧空号 ${num}：新记录从 ${FACT_TABLE_FROM} 往后编，否则绕开了「要用到的事实，各找谁要」那一节的检查（ADR-224）`]
+  if (num < 1) return [`${file} 的编号 ${num} 不是正数：新记录从 ${FACT_TABLE_FROM} 往后编（ADR-224）`]
   if (num < FACT_TABLE_FROM) return []
   const lines = text.split('\n')
   const mask = quotedMask(text)
   const live = (i: number) => !mask[i]
   const heads = lines.flatMap((l, i) => live(i) && FACT_HEADING_RE.test(l) ? [i] : [])
   const name = '「要用到的事实，各找谁要」'
-  if (heads.length === 0) return [`${file} 缺${name}一节（ADR-${num} 不小于 ${FACT_TABLE_FROM}，要带；不写代码的写一句「${SKIP_PREFIX}理由」）`]
+  if (heads.length === 0) {
+    // 标题写得差一点（半角逗号、少个字、级别不对）的，指给他看是哪一行
+    const near = lines.flatMap((l, i) => live(i) && /^#/.test(l) && l.includes('找谁要') ? [`第 ${i + 1} 行`] : [])
+    return [`${file} 缺${name}一节（ADR-${num} 不小于 ${FACT_TABLE_FROM}，要带；不写代码的写一句「${SKIP_PREFIX}理由」）`
+      + (near.length ? `；${near.join('、')}像是这一节，标题要一字不差写成 \`## 要用到的事实，各找谁要\`` : '')]
+  }
   if (heads.length > 1) return [`${file} 有 ${heads.length} 节${name}，只许一节`]
 
   // 节的范围：到下一个一级或二级标题为止
@@ -74,10 +80,14 @@ export function factTableFaults(file: string, num: number, text: string): string
   if (!body[1] || body[1].i !== body[0].i + 1 || !DIVIDER_RE.test(body[1].l.trim())) return [`${file} 的${name}表头下面缺分隔行 \`|---|---|---|\``]
 
   const rows: Array<{ l: string; i: number }> = []
-  // 表在第一个不以竖线开头的行处结束；中间夹着空行或引文也算结束（Markdown 里表格不能断开）
-  for (let k = 2; k < body.length && body[k].l.trim().startsWith('|') && body[k].i === body[k - 1].i + 1; k++) rows.push(body[k])
-  if (rows.length === 0) return [`${file} 的${name}表里一行都没有`]
   const faults: string[] = []
+  // 表从分隔行的下一行起，到第一个不以竖线开头的行为止（空行也算结束：Markdown 里表格不能断开）。
+  // 按原文逐行走、不跳引文：表里夹着一行被当成引文的（比如格里写了 `<!--`），不让它悄悄把表截断，报红
+  for (let i = body[1].i + 1; i < end && lines[i].trim().startsWith('|'); i++) {
+    if (!live(i)) faults.push(`${file} 第 ${i + 1} 行：${name}表里这一行被当成了引文（多半是格里写了 \`<!--\`），后面的行查不到`)
+    else rows.push({ l: lines[i], i })
+  }
+  if (rows.length === 0 && faults.length === 0) return [`${file} 的${name}表里一行都没有`]
   for (const r of rows) {
     const cells = cellsOf(r.l)
     if (cells.length !== 3) faults.push(`${file} 第 ${r.i + 1} 行：${name}表要三格，这一行 ${cells.length} 格`)
