@@ -6,9 +6,11 @@
  *
  * 每次起 git 前查三样，不对就当场抛错、不起 git（防的是误伤，不是存心绕，绕得开的写在 ADR-222 第四节）：
  * 1. 在哪起：`cwd` 必填，真实路径要在系统临时目录（`os.tmpdir()` 的真实路径）底下，且不在本仓库里（本仓库根由本文件的位置算出）。
- * 2. 起什么：子命令在 `SUBCOMMANDS` 里；子命令前只许 `-c 键=值`，键在 `CONFIG_KEYS` 里。`init` 不带目录参数（建在 `cwd`；`-b` 后面的分支名不算）。
+ * 2. 起什么：子命令在 `SUBCOMMANDS` 里；子命令前只许 `-c 键=值`，键在 `CONFIG_KEYS` 里。`init` 不带目录参数（建在 `cwd`；`-b` 后面的分支名不算，
+ *    分开写的 `--initial-branch 名字` 会被当成目录拒掉，写成 `-b` 或带等号）。`config`、`init` 不带 `ELSEWHERE_SWITCHES` 里那几个指别处的开关。
  * 3. 带什么环境：从本进程的环境起，先去掉全部 `GIT_` 开头的；调用方的 `env` 只许给 `ENV_KEYS` 里那几样（提交身份与日期、往上找仓库的天花板），
- *    值为 `undefined` 的当没给。再设 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_SYSTEM`、`GIT_CONFIG_GLOBAL` 指向 `/dev/null`（不读本机的系统、用户配置），
+ *    值为 `undefined` 的当没给。再设 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_SYSTEM`、`GIT_CONFIG_GLOBAL` 指向 `/dev/null`（不读本机的系统、用户配置文件；
+ *    用户级的忽略、属性文件是另一路，仍会读），
  *    `GIT_CEILING_DIRECTORIES` 加上系统临时目录（往上找仓库找不出临时目录），与调用方给的用 `:` 拼。
  *
  * 起 git 用的函数在调用时从模块上取：自检记当前目录、计数预加载换掉模块上的函数后照样记得到、数得到。
@@ -28,6 +30,12 @@ export const ENV_KEYS: readonly string[] = [
   'GIT_AUTHOR_DATE', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_NAME', 'GIT_CEILING_DIRECTORIES',
   'GIT_COMMITTER_DATE', 'GIT_COMMITTER_EMAIL', 'GIT_COMMITTER_NAME',
 ]
+
+/** 子命令后不许带的开关：它们让 git 写到玩具仓库以外。`--x` 也拦 `--x=值` 写法 */
+export const ELSEWHERE_SWITCHES: Readonly<Record<string, readonly string[]>> = {
+  config: ['--global', '--system', '--worktree', '--file', '-f'],
+  init: ['--separate-git-dir', '--template'],
+}
 
 /** 本仓库根：本文件在 `scripts/check/` 下 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -64,6 +72,10 @@ export function fixtureCheck(args: readonly string[], options: FixtureOptions): 
   if (sub === undefined || !SUBCOMMANDS.includes(sub)) throw new Error(`git 夹具不认这个子命令：git ${JSON.stringify(args)}。能用的：${SUBCOMMANDS.join('、')}（ADR-222）`)
   // `-b` 后面那一个是分支名，不是目录
   if (sub === 'init' && args.slice(i + 1).some((a, j, rest) => !a.startsWith('-') && rest[j - 1] !== '-b')) throw new Error(`git 夹具的 init 不带目录参数，建在 cwd：git ${JSON.stringify(args)}（ADR-222）`)
+  // 指别处的开关：写到玩具仓库以外的文件或目录（root 下写 `--global` 会把 `/dev/null` 换成普通文件）
+  const elsewhere = ELSEWHERE_SWITCHES[sub]
+  const hit = elsewhere === undefined ? undefined : args.slice(i + 1).find(a => elsewhere.some(s => a === s || (s.startsWith('--') && a.startsWith(`${s}=`))))
+  if (hit !== undefined) throw new Error(`git 夹具的 ${sub} 不带指别处的开关 ${hit}：只写玩具仓库自己（ADR-222）`)
   const env: NodeJS.ProcessEnv = {}
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v
   const given = options.env ?? {}

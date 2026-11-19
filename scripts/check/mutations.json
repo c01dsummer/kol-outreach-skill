@@ -29982,7 +29982,7 @@
       "id": "M-H222-n",
       "req": "harness",
       "file": "scripts/check/git-fixture.ts",
-      "why": "fixtureGitOrThrow 不去首尾空白：拿提交号去比的调用方都对不上",
+      "why": "夹具「不成就抛错」那一版交回的输出不去首尾空白：拿提交号去比的调用方都对不上",
       "find": "  if (r.error === undefined && r.status === 0) return r.stdout.trim()",
       "replace": "  if (r.error === undefined && r.status === 0) return r.stdout",
       "by": "test",
@@ -30030,7 +30030,7 @@
       "id": "M-H222-r",
       "req": "harness",
       "file": "scripts/check/selfcheck-spawn-notes.ts",
-      "why": "exec、execFile 自带的 promisify 版本没带过来：promisify(execFile) 交回的形状变了",
+      "why": "带回调的那两个起进程函数自带的承诺版没带过来：按承诺用它的调用方拿到的结果形状变了",
       "find": "    if (typeof custom === 'function') Object.defineProperty(wrapped, promisify.custom, { value: noted(custom) })\n",
       "replace": "",
       "by": "test",
@@ -30071,7 +30071,7 @@
       "replace": ": []",
       "by": "test",
       "kills": [
-        "认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入；认不出：注释、拆开拼的名字"
+        "认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入、不带插值的反引号串；认不出：注释、拆开拼的名字"
       ]
     },
     {
@@ -30144,6 +30144,115 @@
       "by": "test",
       "kills": [
         "入口：不在「测试文件」里的文件导入了 git 夹具，以 1 退出、点出文件与行号（基线上还没有这一节）"
+      ]
+    },
+    {
+      "id": "M-H222-ab",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "夹具放行写到玩具仓库以外的配置开关：root 下写本机用户配置会把空设备换成普通文件",
+      "find": "  config: ['--global', '--system', '--worktree', '--file', '-f'],",
+      "replace": "  config: [],",
+      "by": "test",
+      "kills": [
+        "config 带指别处的开关（--global、--system、--worktree、--file、-f、--file=）：抛错；不带的放行"
+      ]
+    },
+    {
+      "id": "M-H222-ac",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "带等号的写法认不出：指别处的开关换个写法就过",
+      "find": " || (s.startsWith('--') && a.startsWith(`${s}=`))",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "config 带指别处的开关（--global、--system、--worktree、--file、-f、--file=）：抛错；不带的放行",
+        "init 带指别处的开关（--separate-git-dir=、--template=）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-ad",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "建仓库时放行把仓库数据放到别处、从别处拷模板的开关",
+      "find": "  init: ['--separate-git-dir', '--template'],",
+      "replace": "  init: [],",
+      "by": "test",
+      "kills": [
+        "init 带指别处的开关（--separate-git-dir=、--template=）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-ae",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "在哪起只按字面比、不解软链：临时目录里一个指到别处的软链就把夹具带出去",
+      "find": "const real = (p: string): string => { try { return realpathSync(p) } catch { return resolve(p) } }",
+      "replace": "const real = (p: string): string => resolve(p)",
+      "by": "test",
+      "kills": [
+        "cwd 是临时目录里指到别处的软链：按真实路径判，抛错"
+      ]
+    },
+    {
+      "id": "M-H222-af",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "只查在不在本仓库里、不查是不是它的上级目录：在上级目录起的 git 照样能找到本仓库",
+      "find": "  if (inside(at, repo) || inside(repo, at)) throw",
+      "replace": "  if (inside(at, repo)) throw",
+      "by": "test",
+      "kills": [
+        "cwd 是本仓库的上级目录（它恰好在临时目录底下时）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-ag",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "继承来的环境只删仓库指向那几项：往配置里注入键值的、别的 git 变量照样带进夹具起的 git",
+      "find": "if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "if (!['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'].includes(k)) env[k] = v",
+      "by": "test",
+      "kills": [
+        "环境：本进程里不是仓库指向的 GIT_* 也一律不带（往配置里注入键值的、随便起名的）"
+      ]
+    },
+    {
+      "id": "M-H222-ah",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "只换了起进程函数里的几个：经没换的那几个起的进程，自检记不到在哪个目录起",
+      "find": "export const NOTED_APIS = ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork'] as const",
+      "replace": "export const NOTED_APIS = ['spawn', 'spawnSync', 'execFile', 'execFileSync'] as const",
+      "by": "test",
+      "kills": [
+        "换掉的是起进程的七个函数，个个换上的不是原函数"
+      ]
+    },
+    {
+      "id": "M-H222-ai",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "夹具起不来时抛的错不说为什么起不来，只说退出码是空的",
+      "find": "（${r.error?.message ?? `退出码 ${r.status}`}）",
+      "replace": "（退出码 ${r.status}）",
+      "by": "test",
+      "kills": [
+        "起不来的（cwd 不存在）：fixtureGitOrThrow 抛错，错里带起不来的原因"
+      ]
+    },
+    {
+      "id": "M-H222-aj",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "不带插值的反引号串里写模块名认不出：那样导入只给测试用的模块不红",
+      "find": "    const pieces = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? [node.text]",
+      "replace": "    const pieces = ts.isStringLiteral(node) ? [node.text]",
+      "by": "test",
+      "kills": [
+        "认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入、不带插值的反引号串；认不出：注释、拆开拼的名字"
       ]
     }
   ],

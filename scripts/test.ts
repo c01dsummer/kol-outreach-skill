@@ -23451,11 +23451,11 @@ await group('h-child-process-judge', () => {
   const tok = useLines(judgeUse(files, reg({ 'a.ts': '理由' }, [], ['o.ts', 't.ts']), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, [], ['o.ts', 't.ts']) }, mentions), false, 's', false)
   ok('提到的都在「测试文件」里、清单没多时不红，也不列', tok.ok && !tok.out.some(l => l.includes('测试文件')))
   const said2 = (src: string) => testOnlyMentions('x.ts', src).map(m => m.line)
-  eq('认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入；认不出：注释、拆开拼的名字',
+  eq('认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入、不带插值的反引号串；认不出：注释、拆开拼的名字',
     [said2(`import { a } from './check/git-fixture.js'\n`), said2(`await import('./selfcheck-spawn-notes.js')\n`), said2(`const p = 'scripts/check/git-fixture.ts'\n`),
       said2('const p = `git-fixture${x}`\n'), said2('const p = `${x}/git-fixture.js`\n'), said2(`import type { A } from './git-fixture.js'\n`),
-      said2('// git-fixture\nconst a = 1\n'), said2(`const p = 'git-' + 'fixture'\n`), said2(`const p = 'git-entry'\n`)],
-    [[1], [1], [1], [1], [1], [1], [], [], []])
+      said2('// git-fixture\nconst a = 1\n'), said2(`const p = 'git-' + 'fixture'\n`), said2(`const p = 'git-entry'\n`), said2('await import(`./git-fixture.js`)\n')],
+    [[1], [1], [1], [1], [1], [1], [], [], [], [1]])
 })
 
 await group('h-child-process-entry-test-files', () => {
@@ -23827,22 +23827,36 @@ await group('h-git-fixture', () => {
     let inRepo = ''
     try { process.env.TMPDIR = dirname(process.cwd()); inRepo = refused(['rev-parse', 'HEAD'], { cwd: join(process.cwd(), 'scripts') }) } finally { if (keptTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = keptTmp }
     ok('cwd 在本仓库里（本仓库恰好在临时目录底下时）：抛错', inRepo.includes('不在本仓库'))
+    // 上级目录那一半：临时目录暂指到本仓库上两级，cwd 给本仓库的上一级
+    let above = ''
+    try { process.env.TMPDIR = dirname(dirname(process.cwd())); above = refused(['rev-parse', 'HEAD'], { cwd: dirname(process.cwd()) }) } finally { if (keptTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = keptTmp }
+    ok('cwd 是本仓库的上级目录（它恰好在临时目录底下时）：抛错', above.includes('不在本仓库'))
+    // 按真实路径比：临时目录里的软链指到根目录，字面上在临时目录底下，真实路径不在
+    symlinkSync(resolve('/'), join(toy, '指到根目录'))
+    ok('cwd 是临时目录里指到别处的软链：按真实路径判，抛错', refused(['rev-parse', 'HEAD'], { cwd: join(toy, '指到根目录') }).includes('只在系统临时目录'))
+    eq('config 带指别处的开关（--global、--system、--worktree、--file、-f、--file=）：抛错；不带的放行',
+      [...[['--global'], ['--system'], ['--worktree'], ['--file', 'x'], ['-f', 'x'], ['--file=x']].map(sw => refused(['config', ...sw, 'a.b', 'c'], { cwd: toy }).includes('指别处的开关')),
+        refused(['config', 'user.name', 't'], { cwd: toy })],
+      [true, true, true, true, true, true, 'ok'])
+    eq('init 带指别处的开关（--separate-git-dir=、--template=）：抛错',
+      ['--separate-git-dir=/x', '--template=/x'].map(sw => refused(['init', '-q', sw], { cwd: toy }).includes('指别处的开关')), [true, true])
     eq('子命令不在白名单里（push、rev-list、裸的 -C）：抛错', ['push', 'rev-list', '-C'].map(sub => refused([sub, 'x'], { cwd: toy }).includes('不认这个子命令')), [true, true, true])
     eq('-c 的键不在白名单里、没有等号：抛错', [refused(['-c', 'core.worktree=/', 'add', '.'], { cwd: toy }), refused(['-c', 'user.name', 'add', '.'], { cwd: toy })].map(m => m.includes('不认这一项配置')), [true, true])
     eq('init 带目录参数：抛错；-b 后面的分支名不算', [refused(['init', '-q', 'elsewhere'], { cwd: toy }).includes('不带目录参数'), refused(['init', '-b', 'main', '-q'], { cwd: toy })], [true, 'ok'])
     eq('调用方给的环境变量不在白名单里：抛错；值是 undefined 的当没给', [refused(['add', '.'], { cwd: toy, env: { GIT_DIR: '/x' } }).includes('不认这个环境变量'), refused(['add', '.'], { cwd: toy, env: { GIT_DIR: undefined } })], [true, 'ok'])
-    const keptDir = process.env.GIT_DIR, keptIndex = process.env.GIT_INDEX_FILE
+    const decoys: Record<string, string> = { GIT_DIR: '/decoy', GIT_INDEX_FILE: '/decoy/index', GIT_CONFIG_PARAMETERS: "'core.bare=true'", GIT_ZZ_ANY: '1' }
+    const keptDecoys = Object.keys(decoys).map(k => [k, process.env[k]] as const)
     let env: NodeJS.ProcessEnv = {}
     try {
-      process.env.GIT_DIR = '/decoy'; process.env.GIT_INDEX_FILE = '/decoy/index'
+      Object.assign(process.env, decoys)
       env = fixtureCheck(['commit', '-qm', 'x'], { cwd: toy, env: { GIT_AUTHOR_NAME: 'A', GIT_CEILING_DIRECTORIES: '/given' } })
     } finally {
-      if (keptDir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = keptDir
-      if (keptIndex === undefined) delete process.env.GIT_INDEX_FILE; else process.env.GIT_INDEX_FILE = keptIndex
+      for (const [k, v] of keptDecoys) if (v === undefined) delete process.env[k]; else process.env[k] = v
     }
     eq('环境：本进程的 GIT_* 一个不带；调用方给的提交身份带上；本机系统、用户配置不读；往上找仓库的天花板是给的那个加上系统临时目录',
       [env.GIT_DIR, env.GIT_INDEX_FILE, env.GIT_AUTHOR_NAME, env.GIT_CONFIG_NOSYSTEM, env.GIT_CONFIG_SYSTEM, env.GIT_CONFIG_GLOBAL, env.GIT_CEILING_DIRECTORIES, env.PATH === process.env.PATH],
       [undefined, undefined, 'A', '1', '/dev/null', '/dev/null', `/given:${tmpRoot}`, true])
+    eq('环境：本进程里不是仓库指向的 GIT_* 也一律不带（往配置里注入键值的、随便起名的）', [env.GIT_CONFIG_PARAMETERS, env.GIT_ZZ_ANY], [undefined, undefined])
     // 起 git 的函数调用时才从模块上取：模块上的 spawnSync 换成替身，夹具用的是替身；不合规矩的一次也不交给它
     const module = childProcessModule as unknown as Record<string, unknown>, kept = module.spawnSync
     const seen: unknown[][] = []
@@ -23873,8 +23887,10 @@ await group('h-git-fixture-run', () => {
     fixtureGitOrThrow(['add', 'a.txt'], at)
     const fed = fixtureGit([...id, 'commit', '-q', '-F', '-'], { ...at, input: '从标准输入来的说明\n' })
     eq('建得出玩具仓库：init、add、从标准输入读说明的 commit 都以 0 退出', fed.status, 0)
-    eq('提交落在玩具仓库里，说明照传', fixtureGitOrThrow(['rev-parse', '--show-toplevel'], at) === realpathSync(toy)
-      && /^[0-9a-f]{40}$/.test(fixtureGitOrThrow(['rev-parse', 'HEAD'], at)), true)
+    // 上一步没成时这里答不上来：记成空串让断言红，不让异常把整组带崩
+    const quiet = (args: string[]): string => { try { return fixtureGitOrThrow(args, at) } catch { return '' } }
+    eq('提交落在玩具仓库里，说明照传', quiet(['rev-parse', '--show-toplevel']) === realpathSync(toy)
+      && /^[0-9a-f]{40}$/.test(quiet(['rev-parse', 'HEAD'])), true)
     eq('继承来的 GIT_DIR、GIT_WORK_TREE、GIT_INDEX_FILE 指着的诱饵仓库一个文件都没多', [readdirSync(join(decoy, '.git')).sort().join() === decoyBefore, existsSync(join(decoy, '.git', 'index'))], [true, false])
     let said = ''
     try { fixtureGitOrThrow(['rev-parse', '--verify', '没有这个'], at) } catch (e) { said = (e as Error).message }
@@ -23882,7 +23898,10 @@ await group('h-git-fixture-run', () => {
     eq('答不上来的：fixtureGitOrThrow 抛错，错里带退出码与 git 的原话', [said.includes('退出码 128'), own !== '' && said.includes(own)], [true, true])
     // 往上找仓库找不出临时目录：玩具目录底下没有 .git 的子目录里问，答「不是仓库」，不会找到临时目录上面的别的仓库
     mkdirSync(join(home, 'bare'))
-    eq('没有 .git 的目录里问：不是仓库（往上找停在系统临时目录）', fixtureGit(['rev-parse', '--show-toplevel'], { cwd: join(home, 'bare') }).status, 128)
+    eq('没有 .git 的目录里问：答「不是仓库」，以 128 退出', fixtureGit(['rev-parse', '--show-toplevel'], { cwd: join(home, 'bare') }).status, 128)
+    let noStart = ''
+    try { fixtureGitOrThrow(['rev-parse', 'HEAD'], { cwd: join(home, '没有这个目录') }) } catch (e) { noStart = (e as Error).message }
+    ok('起不来的（cwd 不存在）：fixtureGitOrThrow 抛错，错里带起不来的原因', noStart.includes('（夹具）') && noStart.includes('ENOENT'))
   } finally {
     for (const [k, v] of kept) if (v === undefined) delete process.env[k]; else process.env[k] = v
     rmSync(home, { recursive: true, force: true })
@@ -23896,7 +23915,9 @@ await group('h-selfcheck-spawn-notes', async () => {
   const heard: unknown[][] = []
   try {
     noteSpawns(a => heard.push(a))
-    eq('换上的七个函数名字照旧', NOTED_APIS.map(name => (module[name] as { name: string }).name), [...NOTED_APIS])
+    const seven = ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']
+    eq('换掉的是起进程的七个函数，个个换上的不是原函数', [[...NOTED_APIS], seven.map(name => module[name] !== kept[NOTED_APIS.indexOf(name as typeof NOTED_APIS[number])])], [seven, seven.map(() => true)])
+    eq('换上的七个函数名字照旧', seven.map(name => (module[name] as { name: string }).name), seven)
     const r: { status?: number | null; stdout?: string } | undefined = childProcessModule.spawnSync(process.execPath, ['-e', 'process.stdout.write("原样")'], { encoding: 'utf8' })
     eq('返回值原样交回，参数一个不少告诉了自检', [r?.status, r?.stdout, heard.at(-1)?.[0], heard.at(-1)?.[1]], [0, '原样', process.execPath, ['-e', 'process.stdout.write("原样")']])
     const viaPromise: { stdout?: unknown } = await promisify(childProcessModule.execFile)(process.execPath, ['-e', 'process.stdout.write("承诺")'])
