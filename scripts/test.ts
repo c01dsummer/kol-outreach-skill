@@ -103,6 +103,7 @@ import {
   trunkPinsText,
   renderIndex, slugify,
 } from './check/adr-rule.js'
+import { FACT_TABLE_FROM, FACT_TABLE_HEAD, OLD_GAPS, cellsOf, factTableFaults } from './check/adr-fact-table.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { compileCacheDir, tsxCommand } from './check/tsx-cmd.js'
 import {
@@ -358,6 +359,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-selfcheck-spawn-notes', needs: [] },
   { id: 'h-child-process-stand-in', needs: [] },
   { id: 'h-child-process-stand-in-spies', needs: [] },
+  { id: 'h-adr-fact-table', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -23999,6 +24001,61 @@ await group('h-child-process-stand-in-spies', async () => {
   // 只记下一个名字时，别的名字换了也问不出（外面再包一层把七个都换回）
   const narrow = withRestore([...NOTED_APIS], () => withRestore(['spawnSync'], replaced => { noteSpawns(() => {}); return [typeof replaced('spawnSync'), typeof replaced('fork')] }))
   eq('记下原样再换回：没记下的名字问出 undefined', narrow, ['function', 'undefined'])
+})
+
+await group('h-adr-fact-table', () => {
+  harness('新的决策记录必须带「要用到的事实，各找谁要」那一节：在不在、填没填（ADR-224）')
+  const head = '# ADR-300 甲\n\n- 日期 · 2026-11-19\n\n'
+  const table = (rows: string) => `## 一、要用到的事实，各找谁要（第 8 条）\n\n${FACT_TABLE_HEAD}\n|---|---|---|\n${rows}\n\n## 二、别的\n\n正文\n`
+  const faults = (text: string, num = 300) => factTableFaults('ADR-300-甲.md', num, text)
+  eq('找谁要那一节：齐的不报', faults(head + table('| 改了哪些行 | git diff -U0 | 机器 |\n| 名字指哪个声明 | 语言服务 | 机器 |')), [])
+  eq('找谁要那一节：起算号以下的旧记录不查', faults('# ADR-223 乙\n\n正文\n', FACT_TABLE_FROM - 1), [])
+  eq('找谁要那一节：起算号本身要查', faults('# ADR-224 乙\n\n正文\n', FACT_TABLE_FROM).length, 1)
+  const gap = faults('# ADR-27 丙\n\n正文\n', 27)
+  eq('找谁要那一节：起算号以下的旧空号不许再用，用了就红', [OLD_GAPS.has(27), gap.length, gap[0]?.includes('旧空号')], [true, 1, true])
+  eq('找谁要那一节：缺这一节报红', faults(head + '## 二、别的\n\n正文\n')[0]?.includes('缺「要用到的事实，各找谁要」一节'), true)
+  eq('找谁要那一节：两节报红', faults(head + table('| 甲 | 乙 | 机器 |') + table('| 甲 | 乙 | 机器 |'))[0]?.includes('2 节'), true)
+  eq('找谁要那一节：只写在围栏代码块里的不算', faults(head + '```\n' + table('| 甲 | 乙 | 机器 |') + '```\n')[0]?.includes('缺'), true)
+  eq('找谁要那一节：节是空的报红', faults(head + '## 要用到的事实，各找谁要\n\n## 二、别的\n')[0]?.includes('是空的'), true)
+  eq('找谁要那一节：「不列：」后写了理由就过', faults(head + '## 一、要用到的事实，各找谁要\n\n不列：只记需求所有者的裁定，不写代码。\n'), [])
+  eq('找谁要那一节：「不列：」后面没理由报红', faults(head + '## 一、要用到的事实，各找谁要\n\n不列：  \n')[0]?.includes('没写理由'), true)
+  eq('找谁要那一节：表头差一个字报红', faults(head + '## 一、要用到的事实，各找谁要\n\n| 要用到的事实 | 找谁 | 给机器读的还是给人看的 |\n|---|---|---|\n| 甲 | 乙 | 丙 |\n')[0]?.includes('第一行既不是表头'), true)
+  eq('找谁要那一节：缺分隔行报红', faults(head + `## 一、要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n| 甲 | 乙 | 丙 |\n`)[0]?.includes('缺分隔行'), true)
+  eq('找谁要那一节：分隔行与表头隔了空行报红', faults(head + `## 一、要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n\n|---|---|---|\n| 甲 | 乙 | 丙 |\n`)[0]?.includes('缺分隔行'), true)
+  eq('找谁要那一节：表里一行都没有报红', faults(head + table('').replace('\n\n\n## 二', '\n\n## 二'))[0]?.includes('一行都没有'), true)
+  eq('找谁要那一节：隔了空行的不算表里的行', faults(head + `## 一、要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n|---|---|---|\n\n| 甲 | 乙 | 丙 |\n`)[0]?.includes('一行都没有'), true)
+  const empty = faults(head + table('| 甲 |  | 机器 |\n| 丙 | 丁 | 机器 |'))
+  eq('找谁要那一节：找谁要那一格空着报红，只报那一行', [empty.length, empty[0]?.includes('有空格子'), empty[0]?.includes('第 9 行')], [1, true, true])
+  eq('找谁要那一节：第一格、第三格空着也报红', [faults(head + table('|  | 乙 | 机器 |')).length, faults(head + table('| 甲 | 乙 |  |')).length], [1, 1])
+  eq('找谁要那一节：格数不对报红', faults(head + table('| 甲 | 乙 |'))[0]?.includes('这一行 2 格'), true)
+  eq('找谁要那一节：转义的竖线留在格里，不拆', cellsOf('| a \\| b | 乙 | 丙 |'), ['a \\| b', '乙', '丙'])
+  eq('找谁要那一节：没以竖线收尾的行，尾巴也算一格', cellsOf('| 甲 | 乙 | 丙 | 丁'), ['甲', '乙', '丙', '丁'])
+  eq('找谁要那一节：节到下一个二级标题为止，后面节里的表不算', faults(head + '## 一、要用到的事实，各找谁要\n\n## 二、别的\n\n' + FACT_TABLE_HEAD + '\n|---|---|---|\n| 甲 | 乙 | 丙 |\n')[0]?.includes('是空的'), true)
+  eq('找谁要那一节：编号 0 不算旧记录，报红', faults('# ADR-00 丁\n\n正文\n', 0)[0]?.includes('不是正数'), true)
+  eq('找谁要那一节：标题后面多接了字不算', faults(head + '## 要用到的事实，各找谁要吧\n\n' + FACT_TABLE_HEAD + '\n|---|---|---|\n| 甲 | 乙 | 丙 |\n')[0]?.includes('缺'), true)
+  eq('找谁要那一节：标题写差一点的，指出是哪一行', faults(head + '## 要用到的事实,各找谁要\n\n正文\n')[0]?.includes('第 5 行像是这一节'), true)
+  eq('找谁要那一节：分隔行用一个横线、带对齐冒号也认', faults(head + `## 要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n|-|:-:|--:|\n| 甲 | 乙 | 丙 |\n`), [])
+  eq('找谁要那一节：表后空一行再写正文，正文不算表里的行', faults(head + `## 要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n|---|---|---|\n| 甲 | 乙 | 丙 |\n\n正文接着写\n`), [])
+  const noPipe = faults(head + `## 要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n|---|---|---|\n| 甲 | 乙 | 丙 |\n丁 |  | 机器\n`)
+  eq('找谁要那一节：紧跟表格、没以竖线开头的行报红，不当成表的结尾', [noPipe.length, noPipe[0]?.includes('第 10 行') && noPipe[0]?.includes('没以竖线开头')], [1, true])
+  eq('找谁要那一节：一行四格报红', faults(head + table('| 甲 | 乙 | 丙 | 丁 |'))[0]?.includes('这一行 4 格'), true)
+  const comment = faults(head + `## 要用到的事实，各找谁要\n\n${FACT_TABLE_HEAD}\n|---|---|---|\n| 甲 <!-- 注 | 乙 | 丙 |\n| 丁 |  | 戊 |\n`)
+  eq('找谁要那一节：表里一行被当成引文时报红，不让它悄悄截断表', comment.some(f => f.includes('被当成了引文')), true)
+  // 钉住约定本身：起算号、表头一字不差（照 process/3-BUILD.md 第 8 条那张表）、空号表与 docs/adr/ 目录实数一致（记录不删，这件事一直成立）
+  eq('找谁要那一节：起算号是 224', FACT_TABLE_FROM, 224)
+  eq('找谁要那一节：表头与第 8 条那张表一字不差', [FACT_TABLE_HEAD === '| 要用到的事实 | 找谁要 | 给机器读的还是给人看的 |', rf('process/3-BUILD.md', 'utf8').split('\n').includes(FACT_TABLE_HEAD)], [true, true])
+  const held = new Set(readdirSync('docs/adr').flatMap(f => { const m = /^ADR-(\d+)-/.exec(f); return m ? [Number(m[1])] : [] }))
+  const gapsNow = Array.from({ length: 223 }, (_, k) => k + 1).filter(n => !held.has(n))
+  eq('找谁要那一节：空号表与 docs/adr/ 目录里 224 以下的空号一致', [...OLD_GAPS].sort((a, b) => a - b), gapsNow)
+  // 接线：npm run adr 逐份读记录时调到它
+  const root = mkdtempSync(join(tmpdir(), 'kol-adr-fact-'))
+  try {
+    mkdirSync(join(root, 'docs', 'adr'), { recursive: true })
+    writeFileSync(join(root, 'docs', 'adr', 'README.md'), '# 索引\n\n<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->\n<!-- END:GENERATED -->\n')
+    writeFileSync(join(root, 'docs', 'adr', 'ADR-300-甲.md'), head + '## 二、别的\n')
+    const r = adrSync(root, false)
+    eq('找谁要那一节：npm run adr 里查得到，缺了就红', [r.ok, r.err.some(e => e.includes('缺「要用到的事实，各找谁要」一节'))], [false, true])
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 await group('d19-config-known-gap', () => {
