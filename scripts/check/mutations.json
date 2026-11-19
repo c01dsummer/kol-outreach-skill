@@ -2518,7 +2518,7 @@
     {
       "id": "M-H9-k",
       "req": "harness",
-      "file": "scripts/check/size-rule.ts",
+      "file": "scripts/check/git-config.ts",
       "why": "改名检测不再钉死 —— 一台把 diff.renames=false 写进全局配置的机器上,一个 400 行文件挪个位置就顶掉整个源码预算,而这行注释正说它不该发生",
       "find": "  '-c', 'diff.renames=true',",
       "replace": "  // '-c', 'diff.renames=true',",
@@ -11013,7 +11013,7 @@
     {
       "id": "M-H9-l",
       "req": "harness",
-      "file": "scripts/check/size-rule.ts",
+      "file": "scripts/check/git-config.ts",
       "why": "中文路径转义那一项又被注掉 —— 不走 -z 的调用把中文路径转义成八进制串，分类判据匹配不上，整批掉进「其他」",
       "find": "  '-c', 'core.quotePath=false',",
       "replace": "  // '-c', 'core.quotePath=false',",
@@ -29375,8 +29375,8 @@
       "req": "harness",
       "file": "scripts/check/git-entry.ts",
       "why": "问 git 不先查表：不在表里的问法照样起 git，要写的子命令也照起",
-      "find": "  questionOf(args)\n  const { cwd, env, input } = options",
-      "replace": "  const { cwd, env, input } = options",
+      "find": "  questionOf(args)\n  return ['--no-optional-locks'",
+      "replace": "  return ['--no-optional-locks'",
       "by": "test",
       "kills": [
         "不在表里的当场抛错，一次也没交给 Node"
@@ -29459,8 +29459,8 @@
       "req": "harness",
       "file": "scripts/check/git-entry.ts",
       "why": "起 git 不带固定配置：中文路径被转义、改名检测随机器配置变",
-      "find": "cp.spawnSync('git', ['--no-optional-locks', ...GIT_CONFIG, ...args], {",
-      "replace": "cp.spawnSync('git', ['--no-optional-locks', ...args], {",
+      "find": "...GIT_CONFIG, ...args]",
+      "replace": "...args]",
       "by": "test",
       "kills": [
         "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
@@ -29485,8 +29485,8 @@
       "req": "harness",
       "file": "scripts/check/git-entry.ts",
       "why": "不传仓库目录：问的是当前目录那个仓库",
-      "find": "    cwd, env, input, maxBuffer",
-      "replace": "    env, input, maxBuffer",
+      "find": "{ cwd, env, input, maxBuffer",
+      "replace": "{ env, input, maxBuffer",
       "by": "test",
       "kills": [
         "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
@@ -29498,8 +29498,8 @@
       "req": "harness",
       "file": "scripts/check/git-entry.ts",
       "why": "不传环境：调用方挡掉的全局配置、仓库指向变量又回来了",
-      "find": "    cwd, env, input, maxBuffer",
-      "replace": "    cwd, input, maxBuffer",
+      "find": "{ cwd, env, input, maxBuffer",
+      "replace": "{ cwd, input, maxBuffer",
       "by": "test",
       "kills": [
         "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接"
@@ -29510,8 +29510,8 @@
       "req": "harness",
       "file": "scripts/check/git-entry.ts",
       "why": "不传标准输入：cat-file --batch 读不到要读的那几样",
-      "find": "    cwd, env, input, maxBuffer",
-      "replace": "    cwd, env, maxBuffer",
+      "find": "{ cwd, env, input, maxBuffer",
+      "replace": "{ cwd, env, maxBuffer",
       "by": "test",
       "kills": [
         "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
@@ -29523,8 +29523,8 @@
       "req": "harness",
       "file": "scripts/check/git-entry.ts",
       "why": "没给标准输入时也接着：等标准输入的 git 一直等下去",
-      "find": "stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']",
-      "replace": "stdio: ['pipe', 'pipe', 'pipe']",
+      "find": "[input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']",
+      "replace": "['pipe', 'pipe', 'pipe']",
       "by": "test",
       "kills": [
         "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接"
@@ -29699,6 +29699,126 @@
       "by": "test",
       "kills": [
         "输出超过 1 MB 照样读全"
+      ]
+    },
+    {
+      "id": "M-H221-a",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版不传 cwd：变异派工问 git 时问到别的目录去",
+      "find": "{ cwd, env, stdio: stdioFor(input) }",
+      "replace": "{ env, stdio: stdioFor(input) }",
+      "by": "test",
+      "kills": [
+        "异步版交给模块上的 spawn：起的是 git，参数前带不写索引的开关与固定配置，cwd、env 照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H221-b",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版不传 env：调用方给的环境丢了，继承本进程的",
+      "find": "{ cwd, env, stdio: stdioFor(input) }",
+      "replace": "{ cwd, stdio: stdioFor(input) }",
+      "by": "test",
+      "kills": [
+        "异步版交给模块上的 spawn：起的是 git，参数前带不写索引的开关与固定配置，cwd、env 照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H221-c",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版标准输入一律开着：从标准输入读的那一问会一直等下去",
+      "find": "{ cwd, env, stdio: stdioFor(input) }",
+      "replace": "{ cwd, env, stdio: ['pipe', 'pipe', 'pipe'] }",
+      "by": "test",
+      "kills": [
+        "异步版交给模块上的 spawn：起的是 git，参数前带不写索引的开关与固定配置，cwd、env 照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H221-d",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版起不来时不记错误：调用方把起不来当成「答了空话」",
+      "find": "kid.on('error', e => { failed ??= e; if",
+      "replace": "kid.on('error', e => { if",
+      "by": "test",
+      "kills": [
+        "异步版起不来：error 有、退出码是 null"
+      ]
+    },
+    {
+      "id": "M-H221-e",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版给了标准输入却没写进去：cat-file --batch 什么也读不到",
+      "find": "kid.stdin?.end(input)",
+      "replace": "kid.stdin?.end()",
+      "by": "test",
+      "kills": [
+        "异步版标准输入照传：cat-file --batch 读得到交进去的那一行、读完就退出"
+      ]
+    },
+    {
+      "id": "M-H221-f",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版只留最后一块输出：大输出读到的是残片",
+      "find": "kid.stdout?.on('data', (b: Buffer) => out.push(b))",
+      "replace": "kid.stdout?.on('data', (b: Buffer) => { out.length = 0; out.push(b) })",
+      "by": "test",
+      "kills": [
+        "异步版输出超过 1 MB 照样读全"
+      ]
+    },
+    {
+      "id": "M-H221-g",
+      "req": "harness",
+      "file": "scripts/check/mutate.ts",
+      "why": "接管了信号的入口从 git 入口多引一个同步问的函数：上面按字面找同步等的那条看不穿",
+      "find": "import { runGitAsync } from './git-entry.js'",
+      "replace": "import { runGitAsync, gitText } from './git-entry.js'",
+      "by": "test",
+      "kills": [
+        "接管了信号的那个入口：从 git 入口只引异步那一个"
+      ]
+    },
+    {
+      "id": "M-H221-h",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "why": "从 git 入口引的名字一个都不报：同步等悄悄写回入口也看不出",
+      "find": "if (name !== 'runGitAsync') out.push(name)",
+      "replace": "if (name === '') out.push(name)",
+      "by": "test",
+      "kills": [
+        "从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算"
+      ]
+    },
+    {
+      "id": "M-H221-i",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "why": "整份导入（* as）不报：拿到整个入口也看不出",
+      "find": "if (ts.isNamespaceImport(named)) { out.push('*'); continue }",
+      "replace": "if (ts.isNamespaceImport(named)) continue",
+      "by": "test",
+      "kills": [
+        "从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算"
+      ]
+    },
+    {
+      "id": "M-H221-j",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "why": "只认同一目录、不带查询串的说明符：从上一级目录引、带查询串的就漏了",
+      "find": "/(^|\\/)git-entry(\\.[cm]?[jt]s)?(\\?.*)?$/",
+      "replace": "/^\\.\\/git-entry(\\.[cm]?[jt]s)?$/",
+      "by": "test",
+      "kills": [
+        "从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算"
       ]
     }
   ],
