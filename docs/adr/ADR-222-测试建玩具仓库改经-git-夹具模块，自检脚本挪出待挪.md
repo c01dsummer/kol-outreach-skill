@@ -88,3 +88,7 @@
 > ⚠️ 欠条「observer-cert-entry 在那台机器上为什么红」：承接 ADR-221 第 95 行原样 —— 自检组 `observer-cert-entry` 在 PR #426 作者的本机上红、红在哪一条、为什么，没人核；本条把那组里问本仓库提交号那一句改经 git 入口，本机这一组是绿的 · 来源：ADR-221 第 95 行（本条清点重挂） · 档：登记 · 重启条件：下次有改动碰到 `selfcheck.ts` 的 `observer-cert-entry` 组、`observer-cert.ts`、`observer-run.ts` 的 `certifyIsolation` 或 `observer-rule.ts` 的 `sandboxArgs`，或同一缺口再被点名，先到为准
 
 > ⚠️ 欠条「只给测试用的模块按名字认」：同类第 5 次（ADR-71、ADR-77、ADR-180、ADR-192、ADR-222），通用句未进 process/ · 来源：PR #516 CodeRabbit 第二轮同类候选 · 档：登记 · 重启条件：需求所有者定了要搬，或下一条同类合入
+
+## 后来
+
+- 需求测试挪走了：建玩具仓库改经 git 夹具，三张白名单一项没加（`git mv`、`git rm` 改成文件接口加 `git add -A`）；换替身另起只给测试用的模块 `child-process-stand-in.ts`，`TEST_ONLY_MODULES` 加到三个名字；「待挪」清空。见 ADR-223。

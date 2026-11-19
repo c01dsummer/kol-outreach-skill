@@ -7,7 +7,7 @@ import { join as cxJoin, dirname as cxDirname, relative as cxRelative, isAbsolut
 import { tmpdir as cxTmpdir } from 'node:os';
 import { createHash as cxCreateHash } from 'node:crypto';
 import { pathToFileURL as cxPathToFileURL } from 'node:url';
-import { spawnSync as cxSpawnSync } from 'node:child_process';
+import { spawnSync as cxSpawnSync } from './check/start-process.js';
 import { prebuildTree as cxPrebuildTree, fixtureLoader as cxFixtureLoader, prebuiltCommand as cxPrebuiltCommand, isBare as cxIsBare } from './check/prebuilt.js';
 import { mkdtempSync as scMkdtempSync, realpathSync as scRealpathSync, mkdirSync as scMkdirSync, writeFileSync as scWriteFileSync, existsSync as scExistsSync, rmSync as scRmSync } from 'node:fs';
 import { join as scJoin, dirname as scDirname } from 'node:path';
@@ -48,6 +48,7 @@ import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as st
 import { QUESTIONS as gitQuestions, askGit, gitOrThrow, gitText, questionOf, runGit, runGitAsync } from './check/git-entry.js'
 import { fixtureCheck, fixtureGit, fixtureGitOrThrow } from './check/git-fixture.js'
 import { NOTED_APIS, noteSpawns } from './check/selfcheck-spawn-notes.js'
+import { withRestore, withSpies, withStandIns } from './check/child-process-stand-in.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -147,8 +148,8 @@ import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import * as reviewRowsApi from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
-import { readFileSync as rf, unlinkSync as ul, renameSync } from 'node:fs'
-import childProcessModule, { spawnSync, type ChildProcess } from 'node:child_process'
+import { readFileSync as rf, unlinkSync as ul, renameSync, accessSync, constants as fsConstants } from 'node:fs'
+import { spawnSync, type ChildProcess } from './check/start-process.js'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual, promisify } from 'node:util'
 import { runInNewContext } from 'node:vm'
@@ -355,6 +356,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-git-fixture', needs: [] },
   { id: 'h-git-fixture-run', needs: [] },
   { id: 'h-selfcheck-spawn-notes', needs: [] },
+  { id: 'h-child-process-stand-in', needs: [] },
+  { id: 'h-child-process-stand-in-spies', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -9387,14 +9390,14 @@ if (typeof resolveMutationBaseline === 'function' && typeof executionRoutes === 
 const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
 const { join } = await import('node:path');
 const { tmpdir } = await import('node:os');
-const { spawnSync: maintenanceSpawn } = await import('node:child_process');
 const maintenanceMutation = (patch: Partial<MaintenanceMutation> = {}): MaintenanceMutation => ({
   id: 'M-contract', req: 'H-mutate', file: 'scripts/lib/fixture.ts', find: 'safe', replace: 'unsafe', ...patch,
 });
 const maintenanceReason = { reason: 'Cross-group fixture initialization must be observed.', recheck_when: 'When initialization gets a selectable group.' };
 const maintenanceFixtureDir = mkdtempSync(join(tmpdir(), 'kol-maintenance-contract-'));
+// 建玩具仓库经 git 夹具；派工问基线的那几问经 git 入口（与 mutate.ts 真问的同一张表）
 const maintenanceGit = (cwd: string, ...args: string[]): string | null => {
-  const result = maintenanceSpawn('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } });
+  const result = fixtureGit(args, { cwd });
   return result.status === 0 ? result.stdout.trim() : null;
 };
 try {
@@ -9408,7 +9411,7 @@ try {
   maintenanceGit(repository, 'commit', '--quiet', '--allow-empty', '-m', 'head');
   const head = maintenanceGit(repository, 'rev-parse', 'HEAD');
   if (!base || !head) throw new Error('Maintenance Git fixture could not create commits.');
-  const ask = (...args: string[]) => maintenanceGit(repository, ...args);
+  const ask = (...args: string[]) => gitText(args, { cwd: repository })?.trim() ?? null;
   const comparison = resolveMutationBaseline(ask, base);
   eq('维护-显式基线取真实祖先与HEAD', JSON.stringify(comparison), JSON.stringify({ kind: 'compare', base, head }));
   // 短 SHA 每跑不同，标签里写成固定的名字：同一配置两次正常基线的打印要逐字相同（ADR-145 第一节「限定」第 3 条）
@@ -9435,7 +9438,7 @@ try {
   const emptyRepository = join(maintenanceFixtureDir, 'empty');
   mkdirSync(emptyRepository);
   maintenanceGit(emptyRepository, 'init', '--quiet', '-b', 'main');
-  eq('维护-HEAD不存在时无从比较', resolveMutationBaseline((...args) => maintenanceGit(emptyRepository, ...args), base).kind, 'cannot-answer');
+  eq('维护-HEAD不存在时无从比较', resolveMutationBaseline((...args) => gitText(args, { cwd: emptyRepository })?.trim() ?? null, base).kind, 'cannot-answer');
   // A real Git shallow boundary keeps both commits resolvable, so this cannot pass merely because base is missing.
   writeFileSync(join(repository, '.git', 'shallow'), `${base}\n`);
   eq('维护-浅历史即使提交都存在也无从比较', resolveMutationBaseline(ask, base).kind, 'cannot-answer');
@@ -11221,7 +11224,7 @@ await group('h-prebuilt-observer-child-cwd', async () => {
 harness('观察器真实子cwd：独立公开契约v4，先验接线与双向字段语义')
 // v4字段oracle/标签保留；v5仅补独立冻结的主线程观测资格，worker诊断另域保留。
 const reportEq = eq;
-const { spawnSync } = await import('node:child_process');
+const { spawnSync } = await import('./check/start-process.js');
 const { createHash, randomUUID } = await import('node:crypto');
 const { mkdirSync, writeFileSync, readFileSync, symlinkSync, existsSync, rmSync, mkdtempSync, realpathSync } = await import('node:fs');
 const path = await import('node:path');
@@ -14669,9 +14672,10 @@ const clean: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT
 for (const key of keys) delete clean[key]
 delete clean.NODE_OPTIONS
 delete clean.MUTATING // 两轮都跑普通真实子集，不借施变运行跳过夹具准备或认领约束。
-const git = (cwd: string, args: string[], input?: string) => {
-  const r = spawnSync('git', args, { cwd, env: clean, input, encoding: 'utf8' })
-  if (r.error || r.signal || r.status !== 0) throw new Error(`Git 隔离测试未造好夹具：${r.error?.message ?? r.stderr}`)
+// 造诱饵仓库经 git 夹具：它自己去掉继承来的 GIT_*、不读本机配置
+const git = (cwd: string, args: string[]) => {
+  const r = fixtureGit(args, { cwd })
+  if (r.error || r.status !== 0) throw new Error(`Git 隔离测试未造好夹具：${r.error?.message ?? r.stderr}`)
   return r.stdout.trim()
 }
 const repo = (name: string) => {
@@ -15378,7 +15382,8 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
      * 一、把全局与系统配置挡在外面:否则一台设了 `core.autocrlf=true` 的机器上,
      * 下面那条 CRLF 断言会恒真 —— 假绿。
      *
-     * 二、**把继承来的仓库指向变量删掉。** `git -C <目录>` 压不住 `GIT_DIR` ——
+     * 二、**把继承来的仓库指向变量删掉。** 建仓库、提交经 git 夹具，它自己删；量改动经 git 入口，交给它的是下面这份删过的环境。
+     * `git -C <目录>` 压不住 `GIT_DIR` ——
      * 实测导出 `GIT_DIR`／`GIT_WORK_TREE` 指向另一个仓库之后,
      * `git -C 夹具 rev-parse --show-toplevel` 交回的是**那个**仓库。
      * 而这条夹具会 `init`、`commit`、`mv`,落在别人的仓库上就是真破坏;
@@ -15393,14 +15398,15 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     }
     for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
       'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete gitEnv[k]
-    /** 在夹具仓库里跑一条 git */
-    const g = (...args: string[]) =>
-      spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: gitEnv })
+    /** 在夹具仓库里建仓库、提交：经 git 夹具 */
+    const g = (...args: string[]) => fixtureGit(args, { cwd: repo })
+    /** 在夹具仓库里量改动：经 git 入口（与体量闸门真问的同一张表，钉死的配置由入口带） */
+    const ask = (args: readonly string[]) => gitText(args, { cwd: repo, env: gitEnv }) ?? ''
     const w = (rel: string, body: string) => {
       mkdirSync(join(repo, dirname(rel)), { recursive: true })
       writeFileSync(join(repo, rel), body, 'utf8')
     }
-    g('init', '-q', '.')
+    g('init', '-q')
     // 上面那个诱饵的第三拍就在这里:没把 `GIT_DIR` 删掉的话,`init` 会跑到诱饵那边,
     // 这个目录里不会有 `.git`。**先断言、再 mkdir 兜住** —— 不兜的话下一句
     // 写配置会 ENOENT 当场崩,而崩了不算被抓到(ADR-70),后面的断言一句话都说不上
@@ -15430,7 +15436,7 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     // ② `.md` 只给一行加前导空白:`.md` 不在白名单里,两边都照实数 → 1。
     w('docs/adr/文档.md', '# 标题\n\n1. 甲\n   2. 乙\n')
     // ③ 跨类改名、零内容变化:纯改名记录是 `0\t0\t`,与文件多长无关 → 两边都 0。
-    g('mv', 'docs/挪走的.md', 'scripts/lib/挪来的.ts')
+    renameSync(join(repo, 'docs/挪走的.md'), join(repo, 'scripts/lib/挪来的.ts'))
     // ④ 行尾翻转:两行各多一个 \r。照实数两行都算新增 → 2;`.ts` 吃折扣 → 0。
     //    **这是这条改动明写的代价,不是漏掉的情形** —— 钉住两边的数,
     //    它哪天变了(比如有人给照实数那一份 numstat 加上 --ignore-cr-at-eol)这条会红,而不是静默改口径。
@@ -15440,8 +15446,7 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     g('add', '-A'); g('commit', '-qm', '改')
 
     const numstat = (args: readonly string[]) => {
-      const r = g(...GIT_CONFIG, ...args, 'HEAD~1', 'HEAD')
-      return parseNumstat((r.stdout ?? '').trim())
+      return parseNumstat(ask([...args, 'HEAD~1', 'HEAD']).trim())
     }
     const plainFiles = numstat(NUMSTAT)
     const mergedFiles = merge(plainFiles, numstat(NUMSTAT_IGNORING_SPACE))
@@ -15453,9 +15458,9 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     eq('中文路径原样进分类判据 —— 靠的是 `-z`,不是 quotePath',
       plainFiles.map(f => f.path).includes('docs/adr/文档.md'), true)
     // `core.quotePath=false` 那一项要靠一次**不走 `-z`** 的调用才验得到:仓库本地把转义打开了,
-    // 压得住它的只有 `GIT_CONFIG`。列一遍改过的文件名,中文路径必须原样出来,
+    // 压得住它的只有 `GIT_CONFIG`。经入口列一遍那个文件名（表里不走 -z 的那一问是 ls-tree）,中文路径必须原样出来,
     // 不能是 `"docs/adr/\346\226\207..."` 那种转义串(ADR-98 末尾:它曾被注掉,没人发现,因为之前量不到)
-    const names = (g(...GIT_CONFIG, 'diff', '--name-only', 'HEAD~1', 'HEAD').stdout ?? '').split('\n')
+    const names = ask(['ls-tree', '--name-only', 'HEAD', '--', 'docs/adr/文档.md']).split('\n')
     eq('不走 -z 的调用:中文路径照样原样出来 —— 仓库本地打开了转义,钉死的 core.quotePath=false 压住了它',
       names.includes('docs/adr/文档.md'), true)
     eq('① 包进回调:照实数三行重排 + 两行新代码',
@@ -16222,8 +16227,8 @@ harness('周回访定期清点：欠条哪天登记、按什么名字认、列�
   const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-'))
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
-  const g = (date: string | null, ...a: string[]) => spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
-    { encoding: 'utf8', env: date ? { ...env, GIT_AUTHOR_DATE: day(date), GIT_COMMITTER_DATE: day(date) } : env })
+  const g = (date: string | null, ...a: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
+    { cwd: repo, env: date ? { GIT_AUTHOR_DATE: day(date), GIT_COMMITTER_DATE: day(date) } : {} })
   const put = (rel: string, body: string) => { mkdirSync(join(repo, dirname(rel)), { recursive: true }); writeFileSync(join(repo, rel), body, 'utf8') }
   const commit = (date: string) => { g(null, 'add', '-A'); g(date, 'commit', '-q', '-m', date) }
   const sha = () => g(null, 'rev-parse', 'HEAD').stdout.trim()
@@ -18616,7 +18621,7 @@ await group('d24-manual-template', () => {
   try {
     for (const key of ['readFileSync', 'readFile', 'writeFileSync', 'writeFile', 'appendFileSync', 'appendFile', 'openSync', 'open', 'statSync', 'stat', 'lstatSync', 'lstat', 'existsSync', 'renameSync', 'rename', 'unlinkSync', 'unlink', 'mkdirSync', 'mkdir', 'rmSync', 'rm', 'copyFileSync', 'copyFile', 'createReadStream', 'createWriteStream']) intercept(fsApi, key, 'file')
     for (const key of ['readFile', 'writeFile', 'appendFile', 'open', 'stat', 'lstat', 'rename', 'unlink', 'mkdir', 'rm', 'copyFile']) intercept(promiseApi, key, 'file')
-    for (const module of ['node:http', 'node:https']) for (const key of ['request', 'get']) intercept(requireForTemplate(module) as Record<string, unknown>, key, 'request')
+    for (const api of [requireForTemplate('node:http'), requireForTemplate('node:https')]) for (const key of ['request', 'get']) intercept(api as Record<string, unknown>, key, 'request')
     intercept(globalThis as unknown as Record<string, unknown>, 'fetch', 'request')
     syncBuiltinESMExports()
     try { rf(join(process.cwd(), 'package.json'), 'utf8') } catch {}
@@ -20201,7 +20206,7 @@ await group('u10-report-entry', async () => {
   const pathBlind = await import('node:path');
   const osBlind = await import('node:os');
   const { fileURLToPath: filePathBlind } = await import('node:url');
-  const { spawnSync: spawnBlind } = await import('node:child_process');
+  const { spawnSync: spawnBlind } = await import('./check/start-process.js');
   const rootBlind = await fsBlind.mkdtemp(pathBlind.join(osBlind.tmpdir(), 'kol-u10-entry-'));
   try {
     const taskDir = pathBlind.join(rootBlind, 'task'), cwdBlind = pathBlind.join(rootBlind, 'cwd');
@@ -20645,7 +20650,7 @@ await group('u11-keyword-report-entry', async () => {
   const { join } = await import('node:path')
   const { tmpdir } = await import('node:os')
   const { fileURLToPath } = await import('node:url')
-  const { spawnSync } = await import('node:child_process')
+  const { spawnSync } = await import('./check/start-process.js')
   const textCell = (s: string) => s.replace(/<[^>]*>/g, '').replace(/&(?:lt|gt|amp|quot|apos|nbsp);|&#(?:x[\da-f]+|\d+);/gi, e => {
     const named: Record<string, string> = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ' }
     return named[e.toLowerCase()] ?? String.fromCodePoint(e[2].toLowerCase() === 'x' ? parseInt(e.slice(3), 16) : parseInt(e.slice(2), 10))
@@ -22562,7 +22567,7 @@ await group('h-worker-output-interrupt', async () => {
 await group('h-worker-output-reclaim', async () => {
   harness('worker夹具只在本次起的进程组都停了之后才删自己的临时根；确认不了就不删')
   const { reclaimOwned, recordedGroups, liveGroups } = await import('./worker-output-contract-test.js')
-  const { spawn: spawnChild } = await import('node:child_process')
+  const { spawn: spawnChild } = await import('./check/start-process.js')
   const fsx = await import('node:fs'), osx = await import('node:os'), px = await import('node:path')
   const base = fsx.mkdtempSync(px.join(osx.tmpdir(), 'wrc-'))
   const started: number[] = []
@@ -22622,7 +22627,7 @@ await group('h-worker-output-reclaim', async () => {
     const unknown = px.join(base, 'unknown'); fsx.mkdirSync(unknown)
     const third = reclaimOwned([unknown], null)
     eq('worker夹具回收：组列不出来时不删，说明原因', [typeof third === 'string' && third.includes('cannot be listed'), fsx.existsSync(unknown)], [true, true])
-    const { spawnSync: spawnSyncChild } = await import('node:child_process')
+    const { spawnSync: spawnSyncChild } = await import('./check/start-process.js')
     const ownGroup = Number(spawnSyncChild('/bin/ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).stdout.trim())
     eq('worker夹具回收：看进程表读得出本进程自己那一组', [Number.isSafeInteger(ownGroup) && ownGroup > 0, liveGroups([ownGroup])], [true, [ownGroup]])
   } finally {
@@ -23112,7 +23117,7 @@ await group('h-iou-file-reminder', () => {
   // 真仓库：不钉某一张（哪张会被补上状态行说不准）。开着的欠条里还有正文写着 selfcheck.ts 的，就要列得出；
   // 全还清了就一条不列 —— 还清不该让测试红。列出的每一条正文里都要真写着它
   const realDocs = adrDocs()
-  const tracked = cxSpawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], { encoding: 'utf8' }).stdout.split('\0').filter(Boolean)
+  const tracked = (gitText(['ls-files', '-z']) ?? '').split('\0').filter(Boolean)
   const real = touchReport(realDocs, tracked, ['scripts/check/selfcheck.ts'])
   const realText = new Map(entryTexts(realDocs).map(t => [`${t.entry.file}:${t.entry.line}`, t.text]))
   // 独立数：完整路径，加上只属于它一个受控文件的尾段（`check/selfcheck.ts`、`selfcheck.ts`），两头都不能再连路径字符
@@ -23140,8 +23145,8 @@ await group('h-revisit-entry', () => {
   const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-entry-'))
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
-  const g = (date: string | null, ...a: string[]) => spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
-    { encoding: 'utf8', env: date ? { ...env, GIT_AUTHOR_DATE: `${date}T04:00:00+00:00`, GIT_COMMITTER_DATE: `${date}T04:00:00+00:00` } : env })
+  const g = (date: string | null, ...a: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
+    { cwd: repo, env: date ? { GIT_AUTHOR_DATE: `${date}T04:00:00+00:00`, GIT_COMMITTER_DATE: `${date}T04:00:00+00:00` } : {} })
   const put = (rel: string, body: string) => { mkdirSync(join(repo, dirname(rel)), { recursive: true }); writeFileSync(join(repo, rel), body, 'utf8') }
   g(null, 'init', '-q', '-b', 'main')
   const a8 = 'docs/adr/ADR-8-甲.md', a9 = 'docs/adr/ADR-9-乙.md'
@@ -23171,7 +23176,7 @@ await group('h-iou-file-reminder-entry', () => {
     const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GITHUB_ACTIONS: '' }
     for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete gitEnv[k]
     const run = (cwd: string, extra: NodeJS.ProcessEnv = {}) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, ...extra } })
-    const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+    const g = (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root })
     cxMkdirSync(cxJoin(root, 'docs/adr'), { recursive: true }); cxMkdirSync(cxJoin(root, 'scripts'))
     cxWriteFileSync(cxJoin(root, 'docs/adr/ADR-1-x.md'), '# ADR-1 x\n\n> ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR\n')
     const aBody = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n') + '\n'
@@ -23196,7 +23201,7 @@ await group('h-iou-file-reminder-entry', () => {
       summaryText.startsWith('### 欠条点名提醒\n'), summaryText.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts')], [0, true, true, true])
     cxRmSync(summary, { force: true })
     // 改名：欠条写的是旧路径，改名之后旧路径那一侧也算改到（内容大半没变，git 认得出这是改名）
-    g('add', '.'); g('commit', '-qm', 'a'); g('mv', 'scripts/a.ts', 'scripts/c.ts'); g('commit', '-qm', 'mv')
+    g('add', '.'); g('commit', '-qm', 'a'); renameSync(cxJoin(root, 'scripts/a.ts'), cxJoin(root, 'scripts/c.ts')); g('add', '-A'); g('commit', '-qm', 'mv')
     const moved = run(root)
     ok('入口：被点名的文件改了名，照样列出点了旧路径的那条', moved.stdout.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts'))
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
@@ -23252,7 +23257,7 @@ await group('h-ticket-refs', () => {
 })
 
 // 入口在玩具仓库里真起：每组各起几次，和判定那组的变异分开放、入口自己也拆成两组，启动乘条数才不过上限（ADR-145）
-type TicketToy = { root: string; run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => ReturnType<typeof cxSpawnSync>; g: (...args: string[]) => ReturnType<typeof cxSpawnSync> }
+type TicketToy = { root: string; run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => ReturnType<typeof cxSpawnSync>; g: (...args: string[]) => ReturnType<typeof fixtureGit> }
 /**
  * 玩具仓库：主干上一个提交（基线），一份旧记录里两个号、一条卡片链接（链接连同末尾的号算一处，共三处）；
  * 一份只有项目页链接与一个不带数字的词；根上一份带一个号的（在子目录里跑时它也得数到）。总共四处。
@@ -23267,7 +23272,7 @@ function ticketToy(root: string, branch: boolean, beforeBranch?: (t: TicketToy) 
   const t: TicketToy = {
     root,
     run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, ...extraEnv } }),
-    g: (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv }),
+    g: (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root }),
   }
   cxMkdirSync(cxJoin(root, 'docs'))
   cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}\n`)
@@ -23339,7 +23344,9 @@ await group('h-ticket-refs-entry-edges', () => {
     eq('入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出',
       [glued.status, String(glued.stderr).includes('docs/old.md  3 → 4')], [1, true])
     // git grep 照常退出、却在 stderr 说了话（有文件没读成）：在 PATH 最前面放一个包一层的 git，只在 grep 时往 stderr 写一句
-    const realGit = String(cxSpawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout).trim()
+    // PATH 上头一个能执行的 git（不起 shell 去问 command -v）
+    const realGit = (process.env.PATH ?? '').split(':').map(d => cxJoin(d || '.', 'git')).find(f => { try { accessSync(f, fsConstants.X_OK); return statSync(f).isFile() } catch { return false } })
+    if (realGit === undefined) throw new Error('PATH 上找不到能执行的 git：假 git 那一层没东西可转')
     cxMkdirSync(cxJoin(root, 'fakebin'))
     cxWriteFileSync(cxJoin(root, 'fakebin/git'),
       `#!/bin/sh\nfor a in "$@"; do [ "$a" = grep ] && echo 'error: 假装有个文件读不了' >&2 && break; done\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 })
@@ -23456,6 +23463,9 @@ await group('h-child-process-judge', () => {
       said2('const p = `git-fixture${x}`\n'), said2('const p = `${x}/git-fixture.js`\n'), said2(`import type { A } from './git-fixture.js'\n`),
       said2('// git-fixture\nconst a = 1\n'), said2(`const p = 'git-' + 'fixture'\n`), said2(`const p = 'git-entry'\n`), said2('await import(`./git-fixture.js`)\n')],
     [[1], [1], [1], [1], [1], [1], [], [], [], [1]])
+  // 名单手抄一份，不读常量：漏加、删掉一个都红
+  eq('只给测试用的三个模块都认：git 夹具、自检记当前目录那一处、起进程的替身',
+    ['git-fixture', 'selfcheck-spawn-notes', 'child-process-stand-in'].map(name => said2(`import { a } from './check/${name}.js'\n`)), [[1], [1], [1]])
 })
 
 await group('h-child-process-entry-test-files', () => {
@@ -23466,7 +23476,7 @@ await group('h-child-process-entry-test-files', () => {
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
     'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
   const run = () => cxSpawnSync(...tsxCommand([entry]), { cwd: root, encoding: 'utf8', timeout: 60_000, env: gitEnv })
-  const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+  const g = (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root })
   const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
   const registry = (tests?: string[]) => put('scripts/check/child-process-registry.json', JSON.stringify({ '说明': 'x', '登记': { 'scripts/check/child-process-use-rule.ts': '判定' }, '待挪': [],
     ...(tests === undefined ? {} : { '测试文件': tests }) }))
@@ -23491,7 +23501,7 @@ await group('h-child-process-entry', () => {
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
     'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
   const run = (cwd = root) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: gitEnv })
-  const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+  const g = (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root })
   const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
   const registry = (toMove: string[]) => put('scripts/check/child-process-registry.json', JSON.stringify({ '说明': 'x', '登记': { 'scripts/check/child-process-use-rule.ts': '判定' }, '待挪': toMove }))
   const CP = 'node:child' + '_process'
@@ -23534,7 +23544,7 @@ await group('h-child-process-entry', () => {
     const brokenBase = run()
     eq('入口：基线那份登记表解析不了时说无从判断、以 1 结束', [brokenBase.status, String(brokenBase.stderr).includes('基线那份登记表解析不了')], [1, true])
     // 基线上有这道闸门却没有登记表：无从判断
-    g('checkout', '-q', '-f', 'main'); g('rm', '-q', 'scripts/check/child-process-registry.json'); g('commit', '-q', '-m', 'drop')
+    g('checkout', '-q', '-f', 'main'); cxRmSync(cxJoin(root, 'scripts/check/child-process-registry.json')); g('add', '-A'); g('commit', '-q', '-m', 'drop')
     g('checkout', '-q', '-b', 'work2'); g('commit', '-q', '--allow-empty', '-m', 'w'); registry([])
     const noBase = run()
     eq('入口：基线上有闸门却没有登记表时说无从判断、以 1 结束', [noBase.status, String(noBase.stderr).includes('先合主干')], [1, true])
@@ -23553,7 +23563,7 @@ await group('h-child-process-entry-edges', () => {
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
     'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
   const run = () => cxSpawnSync(...tsxCommand([entry]), { cwd: root, encoding: 'utf8', timeout: 60_000, env: gitEnv })
-  const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+  const g = (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root })
   const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
   const registry = (toMove: string[]) => put('scripts/check/child-process-registry.json', JSON.stringify({ '说明': 'x', '登记': { 'scripts/check/child-process-use-rule.ts': '判定' }, '待挪': toMove }))
   const CP = 'node:child' + '_process'
@@ -23576,11 +23586,10 @@ await group('h-child-process-entry-edges', () => {
 const startNames = ['spawn', 'spawnSync', 'execFileSync'] as const
 const startFunctions = { spawn: startSpawn, spawnSync: startSpawnSync, execFileSync: startExecFileSync }
 const withStubs = <T>(f: () => T): [T | Error, number] => {
-  const module = childProcessModule as unknown as Record<string, unknown>
-  const kept = startNames.map(name => module[name])
   let calls = 0
-  for (const name of startNames) module[name] = () => { calls++; return { status: 0, on: () => {} } }
-  try { return [f(), calls] } catch (e) { return [e as Error, calls] } finally { startNames.forEach((name, i) => { module[name] = kept[i] }) }
+  const stub = () => { calls++; return { status: 0, on: () => {} } }
+  const result = withStandIns(Object.fromEntries(startNames.map(name => [name, stub])), () => { try { return f() } catch (e) { return e as Error } })
+  return [result, calls]
 }
 
 await group('h-start-process', async () => {
@@ -23598,12 +23607,8 @@ await group('h-start-process', async () => {
       refused(() => startSpawn('git.exe', ['--version'])), refused(() => startExecFileSync('C:\\Git\\cmd\\git.exe', ['--version']))],
     Array.from({ length: 6 }, () => ['抛了', 0]))
   // 模块上的函数换掉以后，经通用启动函数起的也走换上的那个：计数、观察器两份预加载就是这样数到、拦到的。换上的不真起进程
-  const original = childProcessModule.spawnSync
   let seen = ''
-  try {
-    childProcessModule.spawnSync = ((file: string) => { seen = file; return { status: 0 } }) as unknown as typeof original
-    startSpawnSync('换上的那个看见了', [])
-  } finally { childProcessModule.spawnSync = original }
+  withStandIns({ spawnSync: (file: string) => { seen = file; return { status: 0 } } }, () => startSpawnSync('换上的那个看见了', []))
   eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
   // 过了检查的就原样交给 Node，Node 还什么就还什么、抛什么就抛什么。三个函数各换一次替身，替身一次正常还、一次抛。
   // 不去一样样列「改了哪里」：交出去的全冻住（连给选项提供 stdio 的原型也冻住），程序名、参数数组、选项对象（自己的键里套一层对象，stdio 从原型上继承来）、替身还的东西都改不动，
@@ -23612,23 +23617,23 @@ await group('h-start-process', async () => {
   // 替身没接上（比如函数在载入时就抄下来了）而真去起这个不存在的程序时，抛的错与异步的 error 事件都接住，替身没被叫，断言照样红
   const program = './a/../不存在的程序 '
   const forwarded = startNames.flatMap(name => ['还', '抛'].map(mode => {
-    const module = childProcessModule as unknown as Record<string, unknown>
-    const kept = module[name]
     const args = Object.freeze(['  -e ', '1', '']), env = Object.freeze({ A: ' 1 ' })
     const options = Object.freeze(Object.assign(Object.create(Object.freeze({ stdio: 'pipe' })), { env, shell: false }))
     const fromStub = Object.freeze({ 替身的: Object.freeze([name, mode]) })
     const dispatched: unknown[] = []
     let outcome: unknown
-    try {
-      module[name] = (...a: unknown[]) => {
-        dispatched.push([a.length, a[0] === program, a[1] === args, a[2] === options])
-        if (mode === '抛') throw fromStub
-        return fromStub
-      }
-      const returned = (startFunctions[name] as (...a: unknown[]) => unknown)(program, args, options)
-      outcome = returned === fromStub ? '还了替身的' : '还了别的'
-      if (returned !== fromStub) (returned as { on?: (e: string, h: () => void) => void } | undefined)?.on?.('error', () => {})
-    } catch (error) { outcome = error === fromStub ? '抛了替身的' : '抛了别的' } finally { module[name] = kept }
+    const stub = (...a: unknown[]) => {
+      dispatched.push([a.length, a[0] === program, a[1] === args, a[2] === options])
+      if (mode === '抛') throw fromStub
+      return fromStub
+    }
+    withStandIns({ [name]: stub }, () => {
+      try {
+        const returned = (startFunctions[name] as (...a: unknown[]) => unknown)(program, args, options)
+        outcome = returned === fromStub ? '还了替身的' : '还了别的'
+        if (returned !== fromStub) (returned as { on?: (e: string, h: () => void) => void } | undefined)?.on?.('error', () => {})
+      } catch (error) { outcome = error === fromStub ? '抛了替身的' : '抛了别的' }
+    })
     return [dispatched, outcome]
   }))
   eq('过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出',
@@ -23656,15 +23661,12 @@ await group('h-start-process-shell', async () => {
     Array.from({ length: 8 }, () => Array.from({ length: 3 }, () => ['写法不对', 0])))
   // 程序名不是字符串的要真交给 Node，由它报错（不用替身）。有一条的第二个参数也不对（不是数组）：哪个先报由 Node 定，下面只认 Node 报的类型错，不认是哪个参数的错
   // 模块上的函数暂换成一个记下收到什么、再转给原函数的探子：既看 Node 收到的参数一个没改，也看报的是 Node 自己的错
-  const notString = (file: unknown, ...args: unknown[]): [string, boolean][] => startNames.map(name => {
-    const module = childProcessModule as unknown as Record<string, (...a: unknown[]) => unknown>
-    const kept = module[name]
-    let seen: unknown[] | undefined
-    module[name] = (...a: unknown[]) => { seen = a; return kept(...a) }
+  const notString = (file: unknown, ...args: unknown[]): [string, boolean][] => startNames.map(name => withSpies([name], heard => {
     let code = '没抛'
-    try { (startFunctions[name] as (...a: unknown[]) => unknown)(file, ...args) } catch (e) { code = String((e as NodeJS.ErrnoException).code ?? (e as Error).message) } finally { module[name] = kept }
-    return [code, seen !== undefined && seen.length === args.length + 1 && seen[0] === file && seen.slice(1).every((a, i) => a === args[i])]
-  })
+    try { (startFunctions[name] as (...a: unknown[]) => unknown)(file, ...args) } catch (e) { code = String((e as NodeJS.ErrnoException).code ?? (e as Error).message) }
+    const seen = heard.at(-1)?.[1]
+    return [code, heard.length === 1 && seen !== undefined && seen.length === args.length + 1 && seen[0] === file && seen.slice(1).every((a, i) => a === args[i])]
+  }))
   eq('程序名不是字符串的三个函数都原样交给 Node（参数一个没改），由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）',
     [notString(undefined, ['-e', '1']), notString(undefined, 'x'), notString(1)],
     Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => ['ERR_INVALID_ARG_TYPE', true])))
@@ -23723,34 +23725,35 @@ await group('h-git-entry', async () => {
   const [thrown, calls] = withStubs(() => runGit(['commit', '-m', 'x']))
   eq('不在表里的当场抛错，一次也没交给 Node', [thrown instanceof Error && thrown.message.includes('没有这一问'), calls], [true, 0])
   // 表里的交给模块上的 spawnSync（调用时才取）：程序是 git，参数前面先带固定配置，cwd、env、标准输入照传；没给标准输入就不接
-  const module = childProcessModule as unknown as Record<string, unknown>
-  const kept = module.spawnSync
   const seen: unknown[] = []
-  try {
-    module.spawnSync = (file: unknown, args: unknown, options: Record<string, unknown>) => {
+  withStandIns({
+    spawnSync: (file: unknown, args: unknown, options: Record<string, unknown>) => {
       seen.push([file, args, options.cwd, (options.env as Record<string, string> | undefined)?.A, options.input, (options.stdio as unknown[])[0]])
       return { status: 0, stdout: Buffer.from('答'), stderr: Buffer.from('') }
-    }
+    },
+  }, () => {
     runGit(['cat-file', '--batch'], { cwd: '/某处', env: { A: '1' }, input: 'x\n' })
     runGit(['rev-parse', 'HEAD'])
-  } finally { module.spawnSync = kept }
+  })
   eq('表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接', seen,
     [['git', ['--no-optional-locks', ...GIT_CONFIG, 'cat-file', '--batch'], '/某处', '1', 'x\n', 'pipe'], ['git', ['--no-optional-locks', ...GIT_CONFIG, 'rev-parse', 'HEAD'], undefined, undefined, undefined, 'ignore']])
   // 异步那一版（变异派工用，ADR-221）：同一张表、同样的参数，交给模块上的 spawn（调用时才取）
   let asyncThrown: unknown, asyncCalls = 0
-  const keptSpawn = module.spawn
-  try { module.spawn = () => { asyncCalls++; throw new Error('不该起') }; await runGitAsync(['commit', '-m', 'x']) } catch (e) { asyncThrown = e } finally { module.spawn = keptSpawn }
+  await withStandIns({ spawn: () => { asyncCalls++; throw new Error('不该起') } }, async () => {
+    try { await runGitAsync(['commit', '-m', 'x']) } catch (e) { asyncThrown = e }
+  })
   eq('异步版：不在表里的当场抛错，一次也没交给 Node', [asyncThrown instanceof Error && asyncThrown.message.includes('没有这一问'), asyncCalls], [true, 0])
   const asyncSeen: unknown[] = []
-  try {
-    module.spawn = (file: unknown, args: unknown, options: Record<string, unknown>) => {
+  await withStandIns({
+    spawn: (file: unknown, args: unknown, options: Record<string, unknown>) => {
       asyncSeen.push([file, args, options.cwd, (options.env as Record<string, string> | undefined)?.A, (options.stdio as unknown[])[0]])
       throw new Error('只看交了什么')
-    }
+    },
+  }, async () => {
     for (const call of [() => runGitAsync(['rev-parse', 'HEAD'], { cwd: '/某处', env: { A: '1' } }), () => runGitAsync(['cat-file', '--batch'], { input: 'x\n' })]) {
       try { await call() } catch { /* 替身抛的，只看交了什么 */ }
     }
-  } finally { module.spawn = keptSpawn }
+  })
   eq('异步版交给模块上的 spawn：起的是 git，参数前带不写索引的开关与固定配置，cwd、env 照传，没给标准输入就不接', asyncSeen,
     [['git', ['--no-optional-locks', ...GIT_CONFIG, 'rev-parse', 'HEAD'], '/某处', '1', 'ignore'], ['git', ['--no-optional-locks', ...GIT_CONFIG, 'cat-file', '--batch'], undefined, undefined, 'pipe']])
 })
@@ -23761,15 +23764,16 @@ await group('h-git-entry-run', async () => {
   // 全局与系统配置挡在外面，继承来的仓库指向变量删掉（同体量闸门的真 git 夹具）
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
-  const g = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env })
+  // 建夹具仓库经 git 夹具；被测的是 git 入口，问的那几问都经入口
+  const g = (...args: string[]) => fixtureGit(args, { cwd: repo })
   try {
-    g('init', '-q', '.')
+    g('init', '-q')
     // 仓库本地配置故意设成反的：中文路径转义打开、改名检测关掉。git 入口带的固定配置要压住它们
     g('config', 'core.quotePath', 'true'); g('config', 'diff.renames', 'false')
     g('config', 'user.name', 't'); g('config', 'user.email', 't@t')
     writeFileSync(join(repo, '中文.md'), Array.from({ length: 20 }, (_, i) => `第 ${i} 行`).join('\n') + '\n')
     g('add', '.'); g('commit', '-qm', '一')
-    g('mv', '中文.md', '挪了.md'); g('commit', '-qm', '二')
+    renameSync(join(repo, '中文.md'), join(repo, '挪了.md')); g('add', '-A'); g('commit', '-qm', '二')
     const at = { cwd: repo, env }
     eq('不走 -z 的一问：中文路径原样出来（仓库里打开了转义，固定配置压住了它）',
       gitText(['ls-tree', '--name-only', 'HEAD', '--', '挪了.md'], at), '挪了.md\n')
@@ -23780,14 +23784,12 @@ await group('h-git-entry-run', async () => {
     eq('cwd 照用：在夹具仓库里问 HEAD，答的是夹具仓库的提交', head === g('rev-parse', 'HEAD').stdout.trim() && /^[0-9a-f]{40}$/.test(head), true)
     eq('答不上来的（没有这个修订）：gitText 交回 null', gitText(['rev-parse', '--verify', '没有这个^{commit}'], at), null)
     // askGit 不收 cwd、env（决策记录同步、体量闸门的起点判法都吃它），不在夹具仓库里真问：模块上的 spawnSync 换成替身，看它只去首尾空白、答不上来交 null
-    const module = childProcessModule as unknown as Record<string, unknown>, kept = module.spawnSync
     const replies = [{ status: 0, stdout: Buffer.from(' abc\n'), stderr: Buffer.from('') }, { status: 128, stdout: Buffer.from('半句'), stderr: Buffer.from('x') }]
-    let trimmed: unknown
-    try { module.spawnSync = () => replies.shift(); trimmed = [askGit('rev-parse', 'HEAD'), askGit('rev-parse', 'HEAD')] } finally { module.spawnSync = kept }
+    const trimmed = withStandIns({ spawnSync: () => replies.shift() }, () => [askGit('rev-parse', 'HEAD'), askGit('rev-parse', 'HEAD')])
     eq('askGit：答得上来的去掉首尾空白，答不上来的交 null', trimmed, ['abc', null])
     eq('gitOrThrow 不去首尾空白（-z 输出首尾的路径可能以空白开头或结尾）', gitOrThrow(['rev-parse', 'HEAD'], at), `${head}\n`)
     // 工作区文件的时间戳变了，问 status 不回写索引（对工作区的 diff 照样会刷新索引里的时间戳缓存，带了开关也一样，见 ADR-220 第四节）
-    const indexBytes = () => rf(join(repo, '.git', 'index')).toString('hex'); g('status', '--porcelain'); const before = indexBytes()
+    const indexBytes = () => rf(join(repo, '.git', 'index')).toString('hex'); gitText(['status', '--porcelain'], at); const before = indexBytes()
     const later = new Date(Date.now() + 60_000); utimesSync(join(repo, '挪了.md'), later, later)
     const status = gitText(['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', '挪了.md'], at)
     eq('问 status 不回写索引（文件时间戳变了也一样）', [status !== null, indexBytes() === before], [true, true])
@@ -23860,15 +23862,13 @@ await group('h-git-fixture', () => {
       [undefined, undefined, 'A', '1', '/dev/null', '/dev/null', `/given:${tmpRoot}`, true])
     eq('环境：本进程里不是仓库指向的 GIT_* 也一律不带（往配置里注入键值的、随便起名的）', [env.GIT_CONFIG_PARAMETERS, env.GIT_ZZ_ANY], [undefined, undefined])
     // 起 git 的函数调用时才从模块上取：模块上的 spawnSync 换成替身，夹具用的是替身；不合规矩的一次也不交给它
-    const module = childProcessModule as unknown as Record<string, unknown>, kept = module.spawnSync
     const seen: unknown[][] = []
-    try {
-      module.spawnSync = (...a: unknown[]) => { seen.push(a); return { status: 0, stdout: ' abc\n', stderr: '' } }
+    withStandIns({ spawnSync: (...a: unknown[]) => { seen.push(a); return { status: 0, stdout: ' abc\n', stderr: '' } } }, () => {
       let got: unknown
       try { got = fixtureGitOrThrow(['rev-parse', 'HEAD'], { cwd: toy }) } catch (e) { got = (e as Error).message }
       eq('调用时才取模块上的函数：拿到的是替身的答复（fixtureGitOrThrow 去掉首尾空白）', got, 'abc')
       try { fixtureGit(['push'], { cwd: toy }) } catch { /* 下面看替身被叫了几次 */ }
-    } finally { module.spawnSync = kept }
+    })
     eq('交给替身的：程序是 git、参数原样、cwd 照给；不合规矩的那一次没交过去', [seen.length, seen[0]?.[0], seen[0]?.[1], (seen[0]?.[2] as { cwd?: string } | undefined)?.cwd], [1, 'git', ['rev-parse', 'HEAD'], toy])
   } finally { rmSync(toy, { recursive: true, force: true }) }
 })
@@ -23912,22 +23912,93 @@ await group('h-git-fixture-run', () => {
 
 await group('h-selfcheck-spawn-notes', async () => {
   harness('自检记当前目录那一处：换上的函数先把参数告诉自检，名字照旧、自带的 promisify 版本照旧、返回值原样')
-  const module = childProcessModule as unknown as Record<string, unknown>
-  const kept = NOTED_APIS.map(name => module[name])
   const heard: unknown[][] = []
-  try {
+  // 七个都先记下原样、跑完换回（替身模块的 withRestore）；body 只问得到「现在换成了什么」，没换的问出 undefined
+  const seven = ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork'] as const
+  await withRestore(seven, async replaced => {
     noteSpawns(a => heard.push(a))
-    const seven = ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']
-    eq('换掉的是起进程的七个函数，个个换上的不是原函数', [[...NOTED_APIS], seven.map(name => module[name] !== kept[NOTED_APIS.indexOf(name as typeof NOTED_APIS[number])])], [seven, seven.map(() => true)])
-    eq('换上的七个函数名字照旧', seven.map(name => (module[name] as { name: string }).name), seven)
-    const r: { status?: number | null; stdout?: string } | undefined = childProcessModule.spawnSync(process.execPath, ['-e', 'process.stdout.write("原样")'], { encoding: 'utf8' })
+    eq('换掉的是起进程的七个函数，个个换上的不是原函数', [[...NOTED_APIS], seven.map(name => replaced(name) !== undefined)], [[...seven], seven.map(() => true)])
+    eq('换上的七个函数名字照旧', seven.map(name => replaced(name)?.name), [...seven])
+    const r: { status?: number | null; stdout?: string } | undefined = replaced('spawnSync')?.(process.execPath, ['-e', 'process.stdout.write("原样")'], { encoding: 'utf8' })
     eq('返回值原样交回，参数一个不少告诉了自检', [r?.status, r?.stdout, heard.at(-1)?.[0], heard.at(-1)?.[1]], [0, '原样', process.execPath, ['-e', 'process.stdout.write("原样")']])
-    const viaPromise: { stdout?: unknown } = await promisify(childProcessModule.execFile)(process.execPath, ['-e', 'process.stdout.write("承诺")'])
+    const execFile = replaced('execFile')
+    const viaPromise: { stdout?: unknown } | undefined = execFile === undefined ? undefined : await promisify(execFile)(process.execPath, ['-e', 'process.stdout.write("承诺")'])
     eq('execFile 自带的 promisify 版本带过来了：交回 { stdout, stderr }，也告诉了自检', [viaPromise?.stdout, heard.at(-1)?.[1]], ['承诺', ['-e', 'process.stdout.write("承诺")']])
-  } finally {
-    NOTED_APIS.forEach((name, i) => { module[name] = kept[i] })
-    syncBuiltinESMExports()
-  }
+  })
+})
+
+await group('h-child-process-stand-in', async () => {
+  harness('起进程的替身：换上的只在 body 里，跑完（正常还、抛错、Promise 了结）一定换回，交叠当场抛错')
+  // 换没换回只认一件真事：经通用启动函数真起一次 node，打得出那个字就是原函数回来了（替身不会真起进程）
+  const real = () => attemptText(() => startSpawnSync(process.execPath, ['-e', 'process.stdout.write("真")'], { encoding: 'utf8' }).stdout)
+  function attemptText(f: () => unknown): string { try { return String(f()) } catch (e) { return `抛了：${(e as Error).message}` } }
+  const got: unknown[][] = []
+  const stub = (...a: unknown[]) => { got.push(a); return { status: 0, stdout: '替身' } }
+  const inside = withStandIns({ spawnSync: stub }, () => startSpawnSync('不存在的程序', ['甲'], { cwd: '/' }).stdout)
+  eq('换替身：body 里经通用启动函数调的是替身，替身收到的就是调用的那几个参数（不多给原函数），交回 body 的结果',
+    [inside, got.length, got[0]?.length, got[0]?.[0], got[0]?.[1], (got[0]?.[2] as { cwd?: string } | undefined)?.cwd], ['替身', 1, 3, '不存在的程序', ['甲'], '/'])
+  eq('换替身：body 正常还了以后换回原函数', real(), '真')
+  const boom = new Error('body 抛的')
+  let caught: unknown
+  try { withStandIns({ spawnSync: stub }, () => { throw boom }) } catch (e) { caught = e }
+  eq('换替身：body 抛错原样抛出，也换回了原函数', [caught === boom, real()], [true, '真'])
+  // Promise 的 body：等它了结才换回 —— 了结之前还是替身，了结之后是原函数
+  let release: () => void = () => {}
+  const gate = new Promise<void>(done => { release = done })
+  const pending = withStandIns({ spawnSync: stub }, async () => { await gate; return startSpawnSync('不存在的程序', []).stdout })
+  const whileWaiting = attemptText(() => startSpawnSync('不存在的程序', []).stdout)
+  release()
+  eq('换替身：body 是 Promise 时等它了结才换回，交回它的结果', [whileWaiting, await pending.catch((e: Error) => `抛了：${e.message}`), real()], ['替身', '替身', '真'])
+  let rejected: unknown
+  try { await withStandIns({ spawnSync: stub }, async () => { await null; throw boom }) } catch (e) { rejected = e }
+  eq('换替身：Promise 失败也换回，原样抛出', [rejected === boom, real()], [true, '真'])
+  let unknownName = ''
+  try { withStandIns({ spawnSync: stub, spawnAll: stub } as never, () => startSpawnSync('不存在的程序', [])) } catch (e) { unknownName = (e as Error).message }
+  eq('换替身：名字不在起进程的七个里当场抛错，事后仍是原函数', [unknownName.includes('不认 spawnAll'), real()], [true, '真'])
+  let notFunction = ''
+  try { withStandIns({ spawnSync: undefined } as never, () => startSpawnSync('不存在的程序', [])) } catch (e) { notFunction = (e as Error).message }
+  eq('换替身：替身不是函数当场抛错，事后仍是原函数', [notFunction.includes('替身要是函数'), real()], [true, '真'])
+  // 两段交叠：先进的先了结。两段的替身交回不同的字，后一段等手动放行：前一段抛错以后、后一段放行之前，模块上还得是后一段的替身；两段都了结后回到原函数
+  let overlap = '', between = ''
+  let releaseFirst: () => void = () => {}, releaseSecond: () => void = () => {}
+  const first = withStandIns({ spawnSync: () => ({ stdout: '前一段' }) }, () => new Promise<void>(done => { releaseFirst = done }))
+  const second = withStandIns({ spawnSync: () => ({ stdout: '后一段' }) }, () => new Promise<void>(done => { releaseSecond = done }))
+  releaseFirst()
+  try { await first } catch (e) { overlap = (e as Error).message }
+  between = attemptText(() => startSpawnSync('不存在的程序', []).stdout)
+  releaseSecond()
+  try { await second } catch (e) { between += `；后一段了结时抛了：${(e as Error).message}` }
+  eq('换替身：两段交叠时先了结的那段抛错，不拆掉后一段的替身；两段都了结后回到原函数', [overlap.includes('两段替身交叠'), between, real()], [true, '后一段', '真'])
+})
+
+// 与上一组分开（ADR-131）：两组各自真起几次 node，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
+await group('h-child-process-stand-in-spies', async () => {
+  harness('起进程的替身：探子转给原函数、只交出参数；记下原样再换回只问得到换成了什么')
+  const real = () => attemptText(() => startSpawnSync(process.execPath, ['-e', 'process.stdout.write("真")'], { encoding: 'utf8' }).stdout)
+  function attemptText(f: () => unknown): string { try { return String(f()) } catch (e) { return `抛了：${(e as Error).message}` } }
+  let customSpy = ''
+  try { withSpies(['execFile'], () => undefined) } catch (e) { customSpy = (e as Error).message }
+  eq('探子不探 execFile、exec：它们自带的 promisify 版本带不过去，当场抛错', customSpy.includes('探子不探 execFile'), true)
+  // 探子：记下参数，原样转给原函数（真起），记录只交出参数
+  const spied = withSpies(['spawnSync'], heard => {
+    const r: { stdout?: string } | undefined = startSpawnSync(process.execPath, ['-e', 'process.stdout.write("探")'], { encoding: 'utf8' })
+    return [r?.stdout, heard.length, heard[0]?.[0], heard[0]?.[1][0], heard[0]?.[1][1]]
+  })
+  eq('探子：原样转给原函数（真起了），记下哪个函数、收到的参数', spied, ['探', 1, 'spawnSync', process.execPath, ['-e', 'process.stdout.write("探")']])
+  eq('探子：跑完换回原函数', real(), '真')
+  // 记下原样再换回：body 里被测的代码自己换；body 只问得到换成了什么，没换的问出 undefined
+  const noted: unknown[][] = []
+  const view = withRestore([...NOTED_APIS], replaced => {
+    const before = replaced('spawnSync')
+    noteSpawns(a => noted.push(a))
+    return [typeof before, typeof replaced('spawnSync'), replaced('spawnSync')?.name]
+  })
+  eq('记下原样再换回：没换时问出 undefined，换了问得到换上的那个', view, ['undefined', 'function', 'spawnSync'])
+  const heardBefore = noted.length
+  eq('记下原样再换回：跑完换回，再起进程不经 body 里换上的那个', [real(), noted.length === heardBefore], ['真', true])
+  // 只记下一个名字时，别的名字换了也问不出（外面再包一层把七个都换回）
+  const narrow = withRestore([...NOTED_APIS], () => withRestore(['spawnSync'], replaced => { noteSpawns(() => {}); return [typeof replaced('spawnSync'), typeof replaced('fork')] }))
+  eq('记下原样再换回：没记下的名字问出 undefined', narrow, ['function', 'undefined'])
 })
 
 await group('d19-config-known-gap', () => {
