@@ -13,7 +13,7 @@ import { jobsWanted } from './jobs-rule.js'
 export interface Group { id: string; needs: readonly string[] }
 
 /**
- * 自指与成环当场抛（ADR-99 第 327 行那一串）。下面两处都按记忆化走闭包、按并查集连族，
+ * 自指与成环当场抛（ADR-99「2026-11-14：登记的组图有了校验」一节）。下面两处都按记忆化走闭包、按并查集连族，
  * 这两种写错在那里都被悄悄咽下；而按登记顺序跑时，环上总有一组排在它的前置组前头，
  * 读到的是初始值。调用前 id 唯一、依赖都在（`byId` 是全图）。
  *
