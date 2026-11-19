@@ -13,7 +13,7 @@
  *
  * 三种都是进入时记下原函数、在 `finally` 里换回，再 `syncBuiltinESMExports`（被测的代码若让按名字导入的绑定一起换了，换回后也一起回来）。
  * body 还的是 Promise（或别的带 then 的对象）时，等它了结（成或败）再换回，交回一个了结得一样的新 Promise；不是 Promise 的，交回的就是 body 的结果。
- * 只许一段套一段地用：两段交叠（先进的先了结）时，先了结的那段换回当场抛错，不悄悄拆掉别的段的替身。
+ * 只许一段套一段地用：两段交叠（先进的先了结）时，先了结的那段抛错，它的换回推到后一段了结时一起做，不拆掉后一段的替身；两段都了结后回到原样。
  * 名字只认下面七个起进程的函数，别的当场抛错；替身要是函数；探子不探 `exec`、`execFile`（它们自带的 promisify 版本带不过去）。
  */
 import cp from 'node:child_process'
@@ -32,21 +32,25 @@ function known(names: readonly string[]): readonly StandInName[] {
   return names as readonly StandInName[]
 }
 
-/** 正在换着的几段，先进的在前。换回只许最后进的那一段换：两段交叠（例如 Promise.all 里并排两段）时，先了结的那段换回会把后一段的替身拆掉、后一段再换回会把前一段的替身装回去 */
-const open: object[] = []
+/**
+ * 正在换着的几段，先进的在前，各带「换回」与「已了结」。换回只从最后进的那一段往回做：两段交叠（例如 Promise.all 里并排两段）、
+ * 先进的那段先了结时，它若当场换回，会拆掉后一段的替身，后一段再换回又把前一段的替身装回去。所以先了结的那段只记「已了结」并抛错，
+ * 它的换回推到后一段了结时一起做（从后往前），两段都了结后模块上回到原样
+ */
+const open: { undo: () => void; done: boolean }[] = []
 
 /** 记下原样 → install → 跑 body → 换回（body 还 Promise 的，等它了结再换回） */
 function swapped<T>(names: readonly StandInName[], install: (kept: ReadonlyMap<StandInName, Fn>) => void, body: () => T): T {
   const kept = new Map(names.map(n => [n, live[n] as Fn] as const))
-  const me = {}
+  const me = { undo: () => { for (const [n, f] of kept) live[n] = f }, done: false }
   const restore = () => {
+    if (!open.includes(me)) return
+    me.done = true
     if (open.at(-1) !== me) {
-      const at = open.indexOf(me)
-      if (at >= 0) open.splice(at, 1)
-      throw new Error('两段替身交叠：先了结的这一段不是最后换上的那一段，换回会拆掉别的段的替身；只许一段套一段地用（ADR-223）')
+      throw new Error('两段替身交叠：先了结的这一段不是最后换上的那一段，它的换回推到后一段了结时再做；只许一段套一段地用（ADR-223）')
     }
-    open.pop()
-    for (const [n, f] of kept) live[n] = f; syncBuiltinESMExports()
+    while (open.at(-1)?.done) open.pop()?.undo()
+    syncBuiltinESMExports()
   }
   open.push(me)
   let later = false

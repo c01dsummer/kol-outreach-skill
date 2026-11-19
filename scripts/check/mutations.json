@@ -30284,8 +30284,8 @@
       "req": "harness",
       "file": "scripts/check/child-process-stand-in.ts",
       "why": "跑完不换回：替身漏到后面的组，后面起进程的全被替身吞掉",
-      "find": "    for (const [n, f] of kept) live[n] = f; syncBuiltinESMExports()\n",
-      "replace": "    syncBuiltinESMExports()\n",
+      "find": "    while (open.at(-1)?.done) open.pop()?.undo()\n",
+      "replace": "    while (open.at(-1)?.done) open.pop()\n",
       "by": "test",
       "kills": [
         "换替身：body 正常还了以后换回原函数"
@@ -30415,12 +30415,12 @@
       "id": "M-H223-l",
       "req": "harness",
       "file": "scripts/check/child-process-stand-in.ts",
-      "why": "两段交叠时不拦：先了结的那段换回拆掉后一段的替身，后一段再把替身装回去、漏到后面的组",
+      "why": "两段交叠时不认：先了结的那段不抛错，也没人替它换回，替身漏到后面的组",
       "find": "    if (open.at(-1) !== me) {",
       "replace": "    if (open.at(-1) !== me && false) {",
       "by": "test",
       "kills": [
-        "换替身：两段交叠时先了结的那段换回当场抛错，不悄悄拆掉后一段的替身"
+        "换替身：两段交叠时先了结的那段抛错，不拆掉后一段的替身；两段都了结后回到原函数"
       ]
     },
     {

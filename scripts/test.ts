@@ -23958,17 +23958,17 @@ await group('h-child-process-stand-in', async () => {
   let notFunction = ''
   try { withStandIns({ spawnSync: undefined } as never, () => startSpawnSync('不存在的程序', [])) } catch (e) { notFunction = (e as Error).message }
   eq('换替身：替身不是函数当场抛错，事后仍是原函数', [notFunction.includes('替身要是函数'), real()], [true, '真'])
-  // 两段交叠：先进的先了结。外面包一层只记下原样的，最后由它换回原函数
-  let overlap = ''
-  await withRestore(['spawnSync'], async () => {
-    let releaseFirst: () => void = () => {}
-    const first = withStandIns({ spawnSync: stub }, () => new Promise<void>(done => { releaseFirst = done }))
-    const second = withStandIns({ spawnSync: stub }, () => new Promise<void>(done => setTimeout(done, 0)))
-    releaseFirst()
-    try { await first } catch (e) { overlap = (e as Error).message }
-    try { await second } catch { /* 后一段的换回照常 */ }
-  }).catch(() => { /* 换回本身出错（上面几条断言已经红了）时不让整组崩 */ })
-  eq('换替身：两段交叠时先了结的那段换回当场抛错，不悄悄拆掉后一段的替身', [overlap.includes('两段替身交叠'), real()], [true, '真'])
+  // 两段交叠：先进的先了结。两段的替身交回不同的字，后一段等手动放行：前一段抛错以后、后一段放行之前，模块上还得是后一段的替身；两段都了结后回到原函数
+  let overlap = '', between = ''
+  let releaseFirst: () => void = () => {}, releaseSecond: () => void = () => {}
+  const first = withStandIns({ spawnSync: () => ({ stdout: '前一段' }) }, () => new Promise<void>(done => { releaseFirst = done }))
+  const second = withStandIns({ spawnSync: () => ({ stdout: '后一段' }) }, () => new Promise<void>(done => { releaseSecond = done }))
+  releaseFirst()
+  try { await first } catch (e) { overlap = (e as Error).message }
+  between = attemptText(() => startSpawnSync('不存在的程序', []).stdout)
+  releaseSecond()
+  try { await second } catch (e) { between += `；后一段了结时抛了：${(e as Error).message}` }
+  eq('换替身：两段交叠时先了结的那段抛错，不拆掉后一段的替身；两段都了结后回到原函数', [overlap.includes('两段替身交叠'), between, real()], [true, '后一段', '真'])
 })
 
 // 与上一组分开（ADR-131）：两组各自真起几次 node，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
