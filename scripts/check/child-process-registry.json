@@ -1,14 +1,20 @@
 {
-  "说明": "起子进程的那个内建模块（child_process）只许这里列出的文件碰（ADR-217）。「登记」：可以一直碰的文件与理由，新加一行由评审判理由对不对。「待挪」：现在碰着、等挪去通用启动函数（start-process.ts）或 git 入口（git-entry.ts）的文件，只许减不许加；挪走了就删掉那一行。",
+  "说明": "起子进程的那个内建模块（child_process）只许这里列出的文件碰（ADR-217）。「登记」：可以一直碰的文件与理由，新加一行由评审判理由对不对。「待挪」：现在碰着、等挪去通用启动函数（start-process.ts）或 git 入口（git-entry.ts）的文件，只许减不许加；挪走了就删掉那一行。「测试文件」：能提到只给测试用的模块（git 夹具、自检记当前目录那一处）的文件，新加一行由评审判它是不是只有测试用得着（ADR-222）。",
   "登记": {
     "scripts/check/child-process-use-rule.ts": "这道闸门的判定：要认的模块名写在常量里，本身不起进程，也不加载那个模块",
     "scripts/check/git-entry.ts": "git 入口：调 git 只许经这里，只答它表里列出的那几问（每一行由评审看过是只读的、输出能给机器读；对工作区的 diff 会刷新索引缓存，见 ADR-220 第四节），每次都带同一组固定配置（ADR-220）；同步、异步各一版，异步那版给接管了信号的变异派工（ADR-221）",
     "scripts/check/launch-preload.ts": "计数预加载：要包住起进程的那几个函数数次数，只能直接拿到那个模块（ADR-145）",
     "scripts/check/observer-preload.ts": "零请求观察器：要把起进程的那几个函数与 process.execve 换成「一起就叫停」，只能直接拿到它们",
+    "scripts/check/git-fixture.ts": "git 夹具：测试在系统临时目录里建玩具仓库要写（init、add、commit……），git 入口不答这些；只在临时目录底下、不在本仓库里起，子命令、-c 的键、环境变量各一张白名单，只许「测试文件」提到（ADR-222）",
     "scripts/check/prebuilt-parent.ts": "缓存入口的父进程：唯一的活就是起那一个子进程、转发信号（ADR-158）；只引 node: 内建模块，与起进程的通用函数分开也不减风险",
+    "scripts/check/selfcheck-spawn-notes.ts": "自检记当前目录（ADR-212）：要把起进程的那几个函数换成先告诉自检这一次的参数再原样起，只能直接拿到那个模块（理由同计数预加载）；只许「测试文件」提到（ADR-222）",
     "scripts/check/start-process.ts": "通用启动函数：挪过来的文件经它起进程，它起 git、经 shell、写法不对都当场抛错（ADR-219）"
   },
   "待挪": [
+    "scripts/test.ts"
+  ],
+  "测试文件": [
+    "scripts/check/child-process-use-rule.ts",
     "scripts/check/selfcheck.ts",
     "scripts/test.ts"
   ]

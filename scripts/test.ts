@@ -43,9 +43,11 @@ import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, led
 import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
-import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
+import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, testOnlyMentions, useLines } from './check/child-process-use-rule.js'
 import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
 import { QUESTIONS as gitQuestions, askGit, gitOrThrow, gitText, questionOf, runGit, runGitAsync } from './check/git-entry.js'
+import { fixtureCheck, fixtureGit, fixtureGitOrThrow } from './check/git-fixture.js'
+import { NOTED_APIS, noteSpawns } from './check/selfcheck-spawn-notes.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -148,7 +150,7 @@ import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul, renameSync } from 'node:fs'
 import childProcessModule, { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { isDeepStrictEqual } from 'node:util'
+import { isDeepStrictEqual, promisify } from 'node:util'
 import { runInNewContext } from 'node:vm'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { request as templateHttpsRequest } from 'node:https'
@@ -343,12 +345,16 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ticket-refs-entry-edges', needs: [] },
   { id: 'h-child-process-sites', needs: [] },
   { id: 'h-child-process-judge', needs: [] },
+  { id: 'h-child-process-entry-test-files', needs: [] },
   { id: 'h-child-process-entry', needs: [] },
   { id: 'h-child-process-entry-edges', needs: [] },
   { id: 'h-start-process', needs: [] },
   { id: 'h-start-process-shell', needs: [] },
   { id: 'h-git-entry', needs: [] },
   { id: 'h-git-entry-run', needs: [] },
+  { id: 'h-git-fixture', needs: [] },
+  { id: 'h-git-fixture-run', needs: [] },
+  { id: 'h-selfcheck-spawn-notes', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -23384,11 +23390,16 @@ await group('h-child-process-sites', () => {
 
 await group('h-child-process-judge', () => {
   harness('起子进程接口闸门的判法：不在登记表里碰了就红，待挪只许减，清掉了还挂着也红，主干上只报不判')
-  const reg = (registered: Record<string, string>, toMove: string[]): LaunchRegistry => ({ registered: new Map(Object.entries(registered)), toMove })
+  const reg = (registered: Record<string, string>, toMove: string[], testFiles: string[] = []): LaunchRegistry =>
+    ({ registered: new Map(Object.entries(registered)), toMove, testFiles })
   const text = (o: unknown) => JSON.stringify(o)
   const good = { '说明': 'x', '登记': { 'a.ts': '理由' }, '待挪': ['b.ts', 'c.ts'] }
   const parsed = parseRegistry(text(good))
-  eq('读登记表：两节原样读出', [[...parsed.registered], parsed.toMove], [[['a.ts', '理由']], ['b.ts', 'c.ts']])
+  eq('读登记表：两节原样读出，没有「测试文件」一节当空', [[...parsed.registered], parsed.toMove, parsed.testFiles], [[['a.ts', '理由']], ['b.ts', 'c.ts'], []])
+  const withTests = (() => { try { return parseRegistry(text({ ...good, '测试文件': ['t.ts', 'u.ts'] })).testFiles } catch (e) { return (e as Error).message } })()
+  eq('读登记表：「测试文件」一节原样读出', withTests, ['t.ts', 'u.ts'])
+  const badTests = [{ ...good, '测试文件': ['u.ts', 't.ts'] }, { ...good, '测试文件': ['t.ts', 't.ts'] }, { ...good, '测试文件': 't.ts' }, { ...good, '测试文件': [1] }]
+  eq('「测试文件」没排序、重复、不是列表、有不是字的项都抛错', badTests.map(b => { try { parseRegistry(text(b)); return 'ok' } catch { return 'throw' } }), badTests.map(() => 'throw'))
   const bad = [
     { ...good, '多的': 1 }, { '说明': 'x', '登记': { 'a.ts': '理由' } }, { ...good, '登记': { 'a.ts': '  ' } }, { ...good, '登记': ['a.ts'] },
     { ...good, '待挪': ['c.ts', 'b.ts'] }, { ...good, '待挪': ['b.ts', 'b.ts'] }, { ...good, '待挪': ['a.ts'] }, { ...good, '说明': 1 }, [],
@@ -23426,6 +23437,50 @@ await group('h-child-process-judge', () => {
   ok('主干上只报不判：不红，不对的照样列出', trunk.ok && trunk.err.length === 0 && trunk.out.some(l => l.includes('d.ts 碰了')) && trunk.out.some(l => l.includes('只报不判定')))
   const clean = useLines(judgeUse(new Map([['a.ts', site]]), reg({ 'a.ts': '理由' }, []), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, ['g.ts']) }), false, 's', false)
   ok('都对时不红，挪走的文件列出', clean.ok && clean.out.some(l => l.includes('挪走了 g.ts')))
+  // 只给测试用的模块：只许「测试文件」里的文件提到（ADR-222）
+  const said = [{ line: 2, kind: '只给测试用的模块' as const }]
+  const files = new Map([['a.ts', site], ['t.ts', []], ['u.ts', []], ['o.ts', []]])
+  const mentions = new Map([['t.ts', said], ['o.ts', said], ['u.ts', []]])
+  const tr = judgeUse(files, reg({ 'a.ts': '理由' }, [], ['m.ts', 't.ts']), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, [], ['t.ts']) }, mentions)
+  eq('不在「测试文件」里却提到只给测试用的模块的记下；在里面的、没提到的不记', tr.outsideTestFiles, [{ path: 'o.ts', sites: said }])
+  eq('「测试文件」比基线多出的单列；列了却不在仓库里的算不在仓库里', [tr.newTestFiles, tr.missing], [['m.ts'], ['m.ts']])
+  eq('基线上还没有「测试文件」一节时整节都算多出的', judgeUse(files, reg({ 'a.ts': '理由' }, [], ['t.ts']), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, []) }, mentions).newTestFiles, ['t.ts'])
+  const tl = useLines(tr, false, 's', false)
+  ok('提到了却不在「测试文件」里就红，点出文件与行号；多出的测试文件列给评审看',
+    !tl.ok && tl.err.some(l => l.includes('o.ts 提到了只给测试用的模块') && l.includes('第 2 行')) && tl.out.some(l => l.includes('「测试文件」比基线多了')) && tl.out.includes('    + m.ts'))
+  const tok = useLines(judgeUse(files, reg({ 'a.ts': '理由' }, [], ['o.ts', 't.ts']), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, [], ['o.ts', 't.ts']) }, mentions), false, 's', false)
+  ok('提到的都在「测试文件」里、清单没多时不红，也不列', tok.ok && !tok.out.some(l => l.includes('测试文件')))
+  const said2 = (src: string) => testOnlyMentions('x.ts', src).map(m => m.line)
+  eq('认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入；认不出：注释、拆开拼的名字',
+    [said2(`import { a } from './check/git-fixture.js'\n`), said2(`await import('./selfcheck-spawn-notes.js')\n`), said2(`const p = 'scripts/check/git-fixture.ts'\n`),
+      said2('const p = `git-fixture${x}`\n'), said2('const p = `${x}/git-fixture.js`\n'), said2(`import type { A } from './git-fixture.js'\n`),
+      said2('// git-fixture\nconst a = 1\n'), said2(`const p = 'git-' + 'fixture'\n`), said2(`const p = 'git-entry'\n`)],
+    [[1], [1], [1], [1], [1], [1], [], [], []])
+})
+
+await group('h-child-process-entry-test-files', () => {
+  harness('起子进程接口闸门的入口：只给测试用的模块只许「测试文件」里的文件提到')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-child-process-tests-'))
+  const entry = cxJoin(process.cwd(), 'scripts/check/child-process-use.ts')
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
+  const run = () => cxSpawnSync(...tsxCommand([entry]), { cwd: root, encoding: 'utf8', timeout: 60_000, env: gitEnv })
+  const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+  const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
+  const registry = (tests?: string[]) => put('scripts/check/child-process-registry.json', JSON.stringify({ '说明': 'x', '登记': { 'scripts/check/child-process-use-rule.ts': '判定' }, '待挪': [],
+    ...(tests === undefined ? {} : { '测试文件': tests }) }))
+  try {
+    put('scripts/check/child-process-use-rule.ts', `export const N = 'node:child' + '_process'\n`); registry()
+    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base'); g('checkout', '-q', '-b', 'work'); g('commit', '-q', '--allow-empty', '-m', 'w')
+    put('t.ts', `import { fixtureGit } from './scripts/check/git-fixture.js'\n`)
+    const outside = run()
+    eq('入口：不在「测试文件」里的文件导入了 git 夹具，以 1 退出、点出文件与行号（基线上还没有这一节）',
+      [outside.status, String(outside.stderr).includes('t.ts 提到了只给测试用的模块') && String(outside.stderr).includes('第 1 行')], [1, true])
+    registry(['t.ts'])
+    const listed = run()
+    eq('入口：列进「测试文件」后以 0 退出，多出的那一行列给评审看', [listed.status, String(listed.stdout).includes('「测试文件」比基线多了') && String(listed.stdout).includes('    + t.ts')], [0, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 
 await group('h-child-process-entry', () => {
@@ -23756,6 +23811,100 @@ await group('h-git-entry-run', async () => {
     eq('异步版起不来：error 有、退出码是 null', [noStart.error instanceof Error, noStart.status], [true, null])
     eq('异步版输出超过 1 MB 照样读全', (await runGitAsync(['cat-file', 'blob', 'HEAD:大.txt'], at)).stdout.length, big.length)
   } finally { rmSync(repo, { recursive: true, force: true }) }
+})
+
+await group('h-git-fixture', () => {
+  harness('git 夹具：只在系统临时目录底下、不在本仓库里起，子命令、-c 的键、环境变量各一张白名单，不合就抛错、不起 git')
+  const tmpRoot = realpathSync(tmpdir()), toy = mkdtempSync(join(tmpdir(), 'kol-git-fixture-'))
+  const refused = (args: string[], options: Parameters<typeof fixtureCheck>[1]): string => { try { fixtureCheck(args, options); return 'ok' } catch (e) { return (e as Error).message } }
+  try {
+    eq('在临时目录底下、白名单里的子命令与 -c 键：放行', [refused(['init', '-q', '-b', 'main'], { cwd: toy }), refused(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x'], { cwd: toy })], ['ok', 'ok'])
+    ok('没给 cwd：抛错', refused(['rev-parse', 'HEAD'], { cwd: '' }).includes('要给 cwd'))
+    ok('cwd 不在系统临时目录底下：抛错', refused(['rev-parse', 'HEAD'], { cwd: resolve('/') }).includes('只在系统临时目录'))
+    ok('cwd 就是系统临时目录本身：抛错（那里往下一层才是一个夹具自己的目录）', refused(['rev-parse', 'HEAD'], { cwd: tmpRoot }).includes('只在系统临时目录'))
+    // 本仓库要在临时目录底下才走得到第二道：把临时目录暂指到本仓库的上一级
+    const keptTmp = process.env.TMPDIR
+    let inRepo = ''
+    try { process.env.TMPDIR = dirname(process.cwd()); inRepo = refused(['rev-parse', 'HEAD'], { cwd: join(process.cwd(), 'scripts') }) } finally { if (keptTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = keptTmp }
+    ok('cwd 在本仓库里（本仓库恰好在临时目录底下时）：抛错', inRepo.includes('不在本仓库'))
+    eq('子命令不在白名单里（push、rev-list、裸的 -C）：抛错', ['push', 'rev-list', '-C'].map(sub => refused([sub, 'x'], { cwd: toy }).includes('不认这个子命令')), [true, true, true])
+    eq('-c 的键不在白名单里、没有等号：抛错', [refused(['-c', 'core.worktree=/', 'add', '.'], { cwd: toy }), refused(['-c', 'user.name', 'add', '.'], { cwd: toy })].map(m => m.includes('不认这一项配置')), [true, true])
+    eq('init 带目录参数：抛错；-b 后面的分支名不算', [refused(['init', '-q', 'elsewhere'], { cwd: toy }).includes('不带目录参数'), refused(['init', '-b', 'main', '-q'], { cwd: toy })], [true, 'ok'])
+    eq('调用方给的环境变量不在白名单里：抛错；值是 undefined 的当没给', [refused(['add', '.'], { cwd: toy, env: { GIT_DIR: '/x' } }).includes('不认这个环境变量'), refused(['add', '.'], { cwd: toy, env: { GIT_DIR: undefined } })], [true, 'ok'])
+    const keptDir = process.env.GIT_DIR, keptIndex = process.env.GIT_INDEX_FILE
+    let env: NodeJS.ProcessEnv = {}
+    try {
+      process.env.GIT_DIR = '/decoy'; process.env.GIT_INDEX_FILE = '/decoy/index'
+      env = fixtureCheck(['commit', '-qm', 'x'], { cwd: toy, env: { GIT_AUTHOR_NAME: 'A', GIT_CEILING_DIRECTORIES: '/given' } })
+    } finally {
+      if (keptDir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = keptDir
+      if (keptIndex === undefined) delete process.env.GIT_INDEX_FILE; else process.env.GIT_INDEX_FILE = keptIndex
+    }
+    eq('环境：本进程的 GIT_* 一个不带；调用方给的提交身份带上；本机系统、用户配置不读；往上找仓库的天花板是给的那个加上系统临时目录',
+      [env.GIT_DIR, env.GIT_INDEX_FILE, env.GIT_AUTHOR_NAME, env.GIT_CONFIG_NOSYSTEM, env.GIT_CONFIG_SYSTEM, env.GIT_CONFIG_GLOBAL, env.GIT_CEILING_DIRECTORIES, env.PATH === process.env.PATH],
+      [undefined, undefined, 'A', '1', '/dev/null', '/dev/null', `/given:${tmpRoot}`, true])
+    // 起 git 的函数调用时才从模块上取：模块上的 spawnSync 换成替身，夹具用的是替身；不合规矩的一次也不交给它
+    const module = childProcessModule as unknown as Record<string, unknown>, kept = module.spawnSync
+    const seen: unknown[][] = []
+    try {
+      module.spawnSync = (...a: unknown[]) => { seen.push(a); return { status: 0, stdout: ' abc\n', stderr: '' } }
+      let got: unknown
+      try { got = fixtureGitOrThrow(['rev-parse', 'HEAD'], { cwd: toy }) } catch (e) { got = (e as Error).message }
+      eq('调用时才取模块上的函数：拿到的是替身的答复（fixtureGitOrThrow 去掉首尾空白）', got, 'abc')
+      try { fixtureGit(['push'], { cwd: toy }) } catch { /* 下面看替身被叫了几次 */ }
+    } finally { module.spawnSync = kept }
+    eq('交给替身的：程序是 git、参数原样、cwd 照给；不合规矩的那一次没交过去', [seen.length, seen[0]?.[0], seen[0]?.[1], (seen[0]?.[2] as { cwd?: string } | undefined)?.cwd], [1, 'git', ['rev-parse', 'HEAD'], toy])
+  } finally { rmSync(toy, { recursive: true, force: true }) }
+})
+
+await group('h-git-fixture-run', () => {
+  harness('git 夹具：真起 git，建得出玩具仓库，继承来的仓库指向碰不到别的仓库，答不上来的抛错带 git 的原话')
+  const home = mkdtempSync(join(tmpdir(), 'kol-git-fixture-run-')), toy = join(home, 'toy'), decoy = join(home, 'decoy')
+  mkdirSync(toy); mkdirSync(decoy)
+  const kept = new Map(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'].map(k => [k, process.env[k]] as const))
+  try {
+    const at = { cwd: toy }, id = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
+    fixtureGitOrThrow(['init', '-q', '-b', 'main'], { cwd: decoy })
+    const decoyBefore = readdirSync(join(decoy, '.git')).sort().join()
+    // 本进程带着指向诱饵仓库的三项：夹具起的 git 不认它们
+    process.env.GIT_DIR = join(decoy, '.git'); process.env.GIT_WORK_TREE = decoy; process.env.GIT_INDEX_FILE = join(decoy, '.git', 'index')
+    fixtureGitOrThrow(['init', '-q', '-b', 'main'], at)
+    writeFileSync(join(toy, 'a.txt'), 'a\n')
+    fixtureGitOrThrow(['add', 'a.txt'], at)
+    const fed = fixtureGit([...id, 'commit', '-q', '-F', '-'], { ...at, input: '从标准输入来的说明\n' })
+    eq('建得出玩具仓库：init、add、从标准输入读说明的 commit 都以 0 退出', fed.status, 0)
+    eq('提交落在玩具仓库里，说明照传', fixtureGitOrThrow(['rev-parse', '--show-toplevel'], at) === realpathSync(toy)
+      && /^[0-9a-f]{40}$/.test(fixtureGitOrThrow(['rev-parse', 'HEAD'], at)), true)
+    eq('继承来的 GIT_DIR、GIT_WORK_TREE、GIT_INDEX_FILE 指着的诱饵仓库一个文件都没多', [readdirSync(join(decoy, '.git')).sort().join() === decoyBefore, existsSync(join(decoy, '.git', 'index'))], [true, false])
+    let said = ''
+    try { fixtureGitOrThrow(['rev-parse', '--verify', '没有这个'], at) } catch (e) { said = (e as Error).message }
+    const own = fixtureGit(['rev-parse', '--verify', '没有这个'], at).stderr.trim()
+    eq('答不上来的：fixtureGitOrThrow 抛错，错里带退出码与 git 的原话', [said.includes('退出码 128'), own !== '' && said.includes(own)], [true, true])
+    // 往上找仓库找不出临时目录：玩具目录底下没有 .git 的子目录里问，答「不是仓库」，不会找到临时目录上面的别的仓库
+    mkdirSync(join(home, 'bare'))
+    eq('没有 .git 的目录里问：不是仓库（往上找停在系统临时目录）', fixtureGit(['rev-parse', '--show-toplevel'], { cwd: join(home, 'bare') }).status, 128)
+  } finally {
+    for (const [k, v] of kept) if (v === undefined) delete process.env[k]; else process.env[k] = v
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+await group('h-selfcheck-spawn-notes', async () => {
+  harness('自检记当前目录那一处：换上的函数先把参数告诉自检，名字照旧、自带的 promisify 版本照旧、返回值原样')
+  const module = childProcessModule as unknown as Record<string, unknown>
+  const kept = NOTED_APIS.map(name => module[name])
+  const heard: unknown[][] = []
+  try {
+    noteSpawns(a => heard.push(a))
+    eq('换上的七个函数名字照旧', NOTED_APIS.map(name => (module[name] as { name: string }).name), [...NOTED_APIS])
+    const r: { status?: number | null; stdout?: string } | undefined = childProcessModule.spawnSync(process.execPath, ['-e', 'process.stdout.write("原样")'], { encoding: 'utf8' })
+    eq('返回值原样交回，参数一个不少告诉了自检', [r?.status, r?.stdout, heard.at(-1)?.[0], heard.at(-1)?.[1]], [0, '原样', process.execPath, ['-e', 'process.stdout.write("原样")']])
+    const viaPromise: { stdout?: unknown } = await promisify(childProcessModule.execFile)(process.execPath, ['-e', 'process.stdout.write("承诺")'])
+    eq('execFile 自带的 promisify 版本带过来了：交回 { stdout, stderr }，也告诉了自检', [viaPromise?.stdout, heard.at(-1)?.[1]], ['承诺', ['-e', 'process.stdout.write("承诺")']])
+  } finally {
+    NOTED_APIS.forEach((name, i) => { module[name] = kept[i] })
+    syncBuiltinESMExports()
+  }
 })
 
 await group('d19-config-known-gap', () => {

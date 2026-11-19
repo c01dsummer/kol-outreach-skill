@@ -93,3 +93,7 @@ ADR-186 那张表里 `observer-cert.ts` 的 SHA256 在本条以前就已经和�
 > ⚠️ 欠条「观察器运行器起进程那一半没有变异」：承接 ADR-186 第 160 行原样 —— `observer-run.ts` 起进程的那一半（认证时起受控目标与两个探针、起入口时拼沙箱参数与环境、收证据）没有变异守着；本条把起进程换成通用启动函数并重新认证，认证是实跑不是负片 · 来源：ADR-186 第 160 行（本条清点重挂） · 档：登记 · 重启条件：下一条改 `certifyIsolation` 或起入口那几行逻辑的 PR（只改名字或只换起进程的来路不算），或 CI 上确认起不来 bwrap 时，先到为准
 
 > ⚠️ 欠条「observer-cert-entry 在那台机器上为什么红」：承接 ADR-186 第 162 行原样 —— 自检组 `observer-cert-entry` 在 PR #426 作者的本机上红、红在哪一条、为什么，没人核；本条改了认证入口 `observer-cert.ts`，本机这一组是绿的 · 来源：ADR-186 第 162 行（本条清点重挂） · 档：登记 · 重启条件：下次有改动碰到 `selfcheck.ts` 的 `observer-cert-entry` 组、`observer-cert.ts`、`observer-run.ts` 的 `certifyIsolation` 或 `observer-rule.ts` 的 `sandboxArgs`，或同一缺口再被点名，先到为准
+
+## 后来
+
+- 自检脚本挪走了：建玩具仓库改经新的 git 夹具模块，记当前目录那一处单独登记；「待挪」只剩 `scripts/test.ts`。没碰第三节设施清单里的文件。见 ADR-222。

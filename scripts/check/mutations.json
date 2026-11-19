@@ -23968,10 +23968,10 @@
     {
       "id": "M-H64-a",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_DIR，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_DIR，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_DIR') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_DIR"
@@ -23980,10 +23980,10 @@
     {
       "id": "M-H64-b",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_WORK_TREE，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_WORK_TREE，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_WORK_TREE') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_WORK_TREE"
@@ -23992,10 +23992,10 @@
     {
       "id": "M-H64-c",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_INDEX_FILE，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_INDEX_FILE，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_INDEX_FILE') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_INDEX_FILE"
@@ -24004,10 +24004,10 @@
     {
       "id": "M-H64-d",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_OBJECT_DIRECTORY，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_OBJECT_DIRECTORY，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_OBJECT_DIRECTORY') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_OBJECT_DIRECTORY"
@@ -24016,10 +24016,10 @@
     {
       "id": "M-H64-e",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_ALTERNATE_OBJECT_DIRECTORIES，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_ALTERNATE_OBJECT_DIRECTORIES，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_ALTERNATE_OBJECT_DIRECTORIES') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_ALTERNATE_OBJECT_DIRECTORIES"
@@ -24028,10 +24028,10 @@
     {
       "id": "M-H64-f",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_COMMON_DIR，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_COMMON_DIR，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_COMMON_DIR') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_COMMON_DIR"
@@ -28905,8 +28905,8 @@
       "req": "harness",
       "file": "scripts/check/child-process-use-rule.ts",
       "why": "待挪里重复的名字不报 —— 同一个文件写两遍，删掉一遍看着像挪走了一个",
-      "find": "    if (toMove[i - 1] >= toMove[i]) throw",
-      "replace": "    if (toMove[i - 1] > toMove[i]) throw",
+      "find": "      if (list[i - 1] >= list[i]) throw",
+      "replace": "      if (list[i - 1] > list[i]) throw",
       "by": "test",
       "kills": ["形状不对一律抛错，不当成空表：多键、少键、理由空、登记不是对象、待挪没排序或重复、两节都在、说明不是字、根不是对象"]
     },
@@ -28965,7 +28965,7 @@
       "req": "harness",
       "file": "scripts/check/child-process-use-rule.ts",
       "why": "登记了不存在的文件也不报 —— 文件改名后旧名字留着，新名字靠别的路混进来",
-      "find": "  const missing = [...now.registered.keys(), ...now.toMove].filter(p => !sites.has(p)).sort()",
+      "find": "  const missing = [...now.registered.keys(), ...now.toMove, ...now.testFiles].filter(p => !sites.has(p)).sort()",
       "replace": "  const missing: string[] = []",
       "by": "test",
       "kills": ["待挪比基线多出来的、已经一处不碰还挂着的、登记了却不在仓库里的，各记各的"]
@@ -29819,6 +29819,331 @@
       "by": "test",
       "kills": [
         "从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算"
+      ]
+    },
+    {
+      "id": "M-H222-a",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "cwd 不查在不在系统临时目录底下：夹具能在任何地方起 git、写别处的仓库",
+      "find": "  if (!inside(at, tmp) || at === tmp) throw",
+      "replace": "  if (at === tmp) throw",
+      "by": "test",
+      "kills": [
+        "cwd 不在系统临时目录底下：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-b",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "cwd 就是系统临时目录本身也放行：夹具会在别的夹具共用的那一层建仓库",
+      "find": "  if (!inside(at, tmp) || at === tmp) throw",
+      "replace": "  if (!inside(at, tmp)) throw",
+      "by": "test",
+      "kills": [
+        "cwd 就是系统临时目录本身：抛错（那里往下一层才是一个夹具自己的目录）"
+      ]
+    },
+    {
+      "id": "M-H222-c",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "不查在不在本仓库里：仓库克隆在临时目录底下时，夹具能往本仓库里写",
+      "find": "  if (inside(at, repo) || inside(repo, at)) throw",
+      "replace": "  if (false) throw",
+      "by": "test",
+      "kills": [
+        "cwd 在本仓库里（本仓库恰好在临时目录底下时）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-d",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "-c 的键不查白名单：夹具能经 -c 设 core.worktree 之类指到别处",
+      "find": "if (!pair.includes('=') || !CONFIG_KEYS.includes(key)) throw",
+      "replace": "if (!pair.includes('=')) throw",
+      "by": "test",
+      "kills": [
+        "-c 的键不在白名单里、没有等号：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-e",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "子命令不查白名单：夹具能起 push 之类、或用 -C 换目录",
+      "find": "  if (sub === undefined || !SUBCOMMANDS.includes(sub)) throw",
+      "replace": "  if (sub === undefined) throw",
+      "by": "test",
+      "kills": [
+        "子命令不在白名单里（push、rev-list、裸的 -C）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-f",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "init 带目录参数也放行：仓库建到 cwd 以外",
+      "find": "  if (sub === 'init' && args.slice(i + 1).some(",
+      "replace": "  if (false && args.slice(i + 1).some(",
+      "by": "test",
+      "kills": [
+        "init 带目录参数：抛错；-b 后面的分支名不算"
+      ]
+    },
+    {
+      "id": "M-H222-g",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "把 -b 后面的分支名也当成目录参数：init -b main 被误拒",
+      "find": "rest[j - 1] !== '-b')) throw",
+      "replace": "true)) throw",
+      "by": "test",
+      "kills": [
+        "init 带目录参数：抛错；-b 后面的分支名不算",
+        "在临时目录底下、白名单里的子命令与 -c 键：放行"
+      ]
+    },
+    {
+      "id": "M-H222-h",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "调用方给的环境变量不查白名单：能经 env 把 GIT_DIR 递进去",
+      "find": "    if (!ENV_KEYS.includes(k)) throw",
+      "replace": "    if (false) throw",
+      "by": "test",
+      "kills": [
+        "调用方给的环境变量不在白名单里：抛错；值是 undefined 的当没给"
+      ]
+    },
+    {
+      "id": "M-H222-i",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "值是 undefined 的也查：写 undefined 表示「没有这一项」的调用方被误拒",
+      "find": "    if (v === undefined) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "调用方给的环境变量不在白名单里：抛错；值是 undefined 的当没给"
+      ]
+    },
+    {
+      "id": "M-H222-j",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "不设 GIT_CONFIG_NOSYSTEM：夹具读本机系统配置",
+      "find": "  env.GIT_CONFIG_NOSYSTEM = '1'\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "环境：本进程的 GIT_* 一个不带；调用方给的提交身份带上；本机系统、用户配置不读；往上找仓库的天花板是给的那个加上系统临时目录"
+      ]
+    },
+    {
+      "id": "M-H222-k",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "不设 GIT_CONFIG_GLOBAL：夹具读本机用户配置（签名、钩子目录……）",
+      "find": "  env.GIT_CONFIG_GLOBAL = '/dev/null'\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "环境：本进程的 GIT_* 一个不带；调用方给的提交身份带上；本机系统、用户配置不读；往上找仓库的天花板是给的那个加上系统临时目录"
+      ]
+    },
+    {
+      "id": "M-H222-l",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "天花板不加系统临时目录：往上找仓库能找出临时目录、找到上面的仓库",
+      "find": "[given.GIT_CEILING_DIRECTORIES, tmp]",
+      "replace": "[given.GIT_CEILING_DIRECTORIES]",
+      "by": "test",
+      "kills": [
+        "环境：本进程的 GIT_* 一个不带；调用方给的提交身份带上；本机系统、用户配置不读；往上找仓库的天花板是给的那个加上系统临时目录"
+      ]
+    },
+    {
+      "id": "M-H222-m",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "起 git 的函数在加载时就抓下：自检记当前目录、计数预加载换掉模块上的函数后记不到、数不到",
+      "find": "import cp from 'node:child_process'\n",
+      "replace": "import * as cpNs from 'node:child_process'\nconst cp = { ...cpNs.default }\n",
+      "by": "test",
+      "kills": [
+        "调用时才取模块上的函数：拿到的是替身的答复（fixtureGitOrThrow 去掉首尾空白）"
+      ]
+    },
+    {
+      "id": "M-H222-n",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "fixtureGitOrThrow 不去首尾空白：拿提交号去比的调用方都对不上",
+      "find": "  if (r.error === undefined && r.status === 0) return r.stdout.trim()",
+      "replace": "  if (r.error === undefined && r.status === 0) return r.stdout",
+      "by": "test",
+      "kills": [
+        "调用时才取模块上的函数：拿到的是替身的答复（fixtureGitOrThrow 去掉首尾空白）"
+      ]
+    },
+    {
+      "id": "M-H222-o",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "给了标准输入也不接：commit -F - 读不到说明",
+      "find": "stdio: [input === undefined ? 'ignore' : 'pipe'",
+      "replace": "stdio: ['ignore'",
+      "by": "test",
+      "kills": [
+        "建得出玩具仓库：init、add、从标准输入读说明的 commit 都以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H222-p",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "抛的错里不带 git 的原话：夹具坏了只看得到退出码",
+      "find": "${r.stderr.trim() === '' ? '' : `：${r.stderr.trim()}`}`)\n}",
+      "replace": "`)\n}",
+      "by": "test",
+      "kills": [
+        "答不上来的：fixtureGitOrThrow 抛错，错里带退出码与 git 的原话"
+      ]
+    },
+    {
+      "id": "M-H222-q",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "换上的函数名字丢了：按名字认函数的（报错、调试）对不上",
+      "find": "    Object.defineProperty(wrapped, 'name', { value: original.name })\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "换上的七个函数名字照旧"
+      ]
+    },
+    {
+      "id": "M-H222-r",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "exec、execFile 自带的 promisify 版本没带过来：promisify(execFile) 交回的形状变了",
+      "find": "    if (typeof custom === 'function') Object.defineProperty(wrapped, promisify.custom, { value: noted(custom) })\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "execFile 自带的 promisify 版本带过来了：交回 { stdout, stderr }，也告诉了自检"
+      ]
+    },
+    {
+      "id": "M-H222-s",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "换上的函数不交回原函数的返回值：自检里每一处起进程都拿不到结果",
+      "find": "{ onLaunch(a); return f.apply(this, a) }",
+      "replace": "{ onLaunch(a); f.apply(this, a); return undefined }",
+      "by": "test",
+      "kills": [
+        "返回值原样交回，参数一个不少告诉了自检"
+      ]
+    },
+    {
+      "id": "M-H222-t",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "换上的函数不告诉自检：每组在哪个目录起进程一笔都记不下",
+      "find": "{ onLaunch(a); return f.apply(this, a) }",
+      "replace": "{ return f.apply(this, a) }",
+      "by": "test",
+      "kills": [
+        "返回值原样交回，参数一个不少告诉了自检"
+      ]
+    },
+    {
+      "id": "M-H222-u",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "模板串只看没有插值的那种：带插值的模板串里提到夹具模块认不出",
+      "find": ": ts.isTemplateExpression(node) ? [node.head.text, ...node.templateSpans.map(s => s.literal.text)] : []",
+      "replace": ": []",
+      "by": "test",
+      "kills": [
+        "认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入；认不出：注释、拆开拼的名字"
+      ]
+    },
+    {
+      "id": "M-H222-v",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "列在「测试文件」里的也当成越界：清单形同虚设，提到就红",
+      "find": "s.length > 0 && !now.testFiles.includes(p)).map(([path, s])",
+      "replace": "s.length > 0).map(([path, s])",
+      "by": "test",
+      "kills": [
+        "不在「测试文件」里却提到只给测试用的模块的记下；在里面的、没提到的不记"
+      ]
+    },
+    {
+      "id": "M-H222-w",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "「测试文件」多出的行不列：新加的测试文件没人看",
+      "find": "  const newTestFiles = now.testFiles.filter(p => !baseTests.includes(p))",
+      "replace": "  const newTestFiles: string[] = []",
+      "by": "test",
+      "kills": [
+        "「测试文件」比基线多出的单列；列了却不在仓库里的算不在仓库里"
+      ]
+    },
+    {
+      "id": "M-H222-x",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "越界提到只给测试用的模块不红：夹具模块谁都能用",
+      "find": "  for (const u of report.outsideTestFiles) {\n    faults.push(",
+      "replace": "  for (const u of report.outsideTestFiles) {\n    out.push(",
+      "by": "test",
+      "kills": [
+        "提到了却不在「测试文件」里就红，点出文件与行号；多出的测试文件列给评审看"
+      ]
+    },
+    {
+      "id": "M-H222-y",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "读登记表时丢掉「测试文件」一节：清单永远是空的",
+      "find": "  const testFiles = '测试文件' in r ? names('测试文件', r['测试文件']) : []",
+      "replace": "  const testFiles: string[] = []",
+      "by": "test",
+      "kills": [
+        "读登记表：「测试文件」一节原样读出"
+      ]
+    },
+    {
+      "id": "M-H222-z",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "「测试文件」当成认不得的键：有这一节的登记表读不出",
+      "find": "  const keys = Object.keys(raw).filter(k => k !== '测试文件').sort()",
+      "replace": "  const keys = Object.keys(raw).sort()",
+      "by": "test",
+      "kills": [
+        "读登记表：「测试文件」一节原样读出"
+      ]
+    },
+    {
+      "id": "M-H222-aa",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "入口不扫只给测试用的模块：判定写对了也用不上",
+      "find": "    mentions.set(path, testOnlyMentions(path, text))\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "入口：不在「测试文件」里的文件导入了 git 夹具，以 1 退出、点出文件与行号（基线上还没有这一节）"
       ]
     }
   ],
