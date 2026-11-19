@@ -30446,6 +30446,212 @@
       "kills": [
         "探子不探 execFile、exec：它们自带的 promisify 版本带不过去，当场抛错"
       ]
+    },
+    {
+      "id": "M-H224-a",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "起算号那一份本身不查了：本条自己就是第一份要带这一节的记录，边界差一就漏一份",
+      "find": "  if (num < FACT_TABLE_FROM) return []",
+      "replace": "  if (num <= FACT_TABLE_FROM) return []",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：起算号本身要查"
+      ]
+    },
+    {
+      "id": "M-H224-b",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "新记录写成起算号以下的旧空号也放行：编号允许空号，挑一个旧空号就绕开了「新的才查」",
+      "find": "  if (OLD_GAPS.has(num)) return [",
+      "replace": "  if (OLD_GAPS.has(num) && false) return [",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：起算号以下的旧空号不许再用，用了就红"
+      ]
+    },
+    {
+      "id": "M-H224-c",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "整节没写也放行：这道闸门要管的头一件事就没了",
+      "find": "  if (heads.length === 0) return [`${file} 缺",
+      "replace": "  if (heads.length === 0) return []; if (false) return [`${file} 缺",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：缺这一节报红",
+        "找谁要那一节：只写在围栏代码块里的不算",
+        "找谁要那一节：npm run adr 里查得到，缺了就红"
+      ]
+    },
+    {
+      "id": "M-H224-d",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "写了两节也放行：只看第一节，第二节里的空格子没人查",
+      "find": "  if (heads.length > 1) return",
+      "replace": "  if (heads.length > 2) return",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：两节报红"
+      ]
+    },
+    {
+      "id": "M-H224-e",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "围栏代码块里举例写的节标题也当真：只在例子里写了这一节就算带了",
+      "find": "live(i) && FACT_HEADING_RE.test(l)",
+      "replace": "FACT_HEADING_RE.test(l)",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：只写在围栏代码块里的不算"
+      ]
+    },
+    {
+      "id": "M-H224-f",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "节标题底下什么都没写也放行",
+      "find": "  if (body.length === 0) return [`${file} 的${name}一节是空的`]",
+      "replace": "  if (body.length === 0) return []",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：节是空的报红"
+      ]
+    },
+    {
+      "id": "M-H224-g",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "「不列：」后面不写理由也放行：理由站不站得住要评审读，连理由都没有就没得读",
+      "find": "    return first.slice(SKIP_PREFIX.length).trim() ? [] : [",
+      "replace": "    return true ? [] : [",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：「不列：」后面没理由报红"
+      ]
+    },
+    {
+      "id": "M-H224-h",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "表头写成别的样子也放行：表头是这道检查认表的唯一凭据",
+      "find": "  if (first !== FACT_TABLE_HEAD) {",
+      "replace": "  if (first !== FACT_TABLE_HEAD && false) {",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：表头差一个字报红"
+      ]
+    },
+    {
+      "id": "M-H224-i",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "表头和分隔行之间隔着空行也当成一张表：Markdown 里那已经不是表了",
+      "find": "body[1].i !== body[0].i + 1 || ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：分隔行与表头隔了空行报红"
+      ]
+    },
+    {
+      "id": "M-H224-j",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "表后隔着空行的行也算表里的行：渲染出来那几行不在表里",
+      "find": "startsWith('|') && body[k].i === body[k - 1].i + 1;",
+      "replace": "startsWith('|');",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：隔了空行的不算表里的行"
+      ]
+    },
+    {
+      "id": "M-H224-k",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "只有表头和分隔行、一行事实都没列也放行",
+      "find": "  if (rows.length === 0) return [`${file} 的${name}表里一行都没有`]",
+      "replace": "  if (rows.length === 0) return []",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：表里一行都没有报红"
+      ]
+    },
+    {
+      "id": "M-H224-l",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "只查「找谁要」那一格，另两格空着也放行",
+      "find": "    else if (cells.some(c => !c))",
+      "replace": "    else if (cells[1] === '')",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：第一格、第三格空着也报红"
+      ]
+    },
+    {
+      "id": "M-H224-m",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "少一格的行也放行：少的那一格是空的，等于没填",
+      "find": "    if (cells.length !== 3)",
+      "replace": "    if (cells.length < 2)",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：格数不对报红"
+      ]
+    },
+    {
+      "id": "M-H224-n",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "转义的竖线也当分格：格里写了 `a \\| b` 的行格数就错了，误报",
+      "find": "    if (c === '\\\\' && i + 1 < t.length) { cur += c + t[i + 1]; i++; continue }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：转义的竖线留在格里，不拆"
+      ]
+    },
+    {
+      "id": "M-H224-o",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "没以竖线收尾的行把尾巴丢掉：多出来的那一格看不见，格数照样对",
+      "find": "  if (cur.trim()) cells.push(cur.trim())\n  return cells",
+      "replace": "  return cells",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：没以竖线收尾的行，尾巴也算一格"
+      ]
+    },
+    {
+      "id": "M-H224-p",
+      "req": "harness",
+      "file": "scripts/check/adr-fact-table.ts",
+      "why": "节不在下一个二级标题处结束：后面别的节里有张同样的表，也算这一节填了",
+      "find": "/^#{1,2} /.test(lines[i])) { end = i; break }",
+      "replace": "/^#{1,2} /.test(lines[i])) { break }",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：节到下一个二级标题为止，后面节里的表不算"
+      ]
+    },
+    {
+      "id": "M-H224-q",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "判定写好了却没接进 npm run adr：检查链里什么也不查",
+      "find": "    errors.push(...factTableFaults(file, Number(h[1]), text))\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "找谁要那一节：npm run adr 里查得到，缺了就红"
+      ]
     }
   ],
   "exemptions": [

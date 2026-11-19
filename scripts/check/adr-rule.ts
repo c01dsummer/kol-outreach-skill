@@ -20,6 +20,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { factTableFaults } from './adr-fact-table.js'
 import { quotedMask } from './quoted.js'
 import { TRUNK_CANDIDATES, type GitAsk } from './size-rule.js'
 
@@ -298,10 +299,12 @@ export function adrSync(root: string, write: boolean, ask?: GitAsk): { ok: boole
     if (file === HISTORY_DIR && statSync(join(dir, file)).isDirectory()) continue
     const m = FILE_RE.exec(file)
     if (!m) { errors.push(`${file} 文件名不合格式，应为 ADR-<编号>-<标题>.md`); continue }
-    const first = readFileSync(join(dir, file), 'utf8').split('\n')[0]
-    const h = HEAD_RE.exec(first)
+    const text = readFileSync(join(dir, file), 'utf8')
+    const h = HEAD_RE.exec(text.split('\n')[0])
     if (!h) { errors.push(`${file} 第一行不是 \`# ADR-<编号> <标题>\``); continue }
     adrs.push({ file, num: Number(h[1]), title: h[2] })
+    // 新记录要带「要用到的事实，各找谁要」那一节（ADR-224）；旧的不查
+    errors.push(...factTableFaults(file, Number(h[1]), text))
   }
   errors.push(...checkAll(adrs))
 
