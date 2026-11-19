@@ -21,13 +21,12 @@
  */
 import type * as Ts from 'typescript'
 import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { briefSheet, declarationFindings, entryScripts, entrySheet, insideRoot, requirementSheet } from './admission-rule.js'
 import { duplicateIds } from './attribution-rule.js'
-import { GIT_CONFIG } from './size-rule.js'
+import { askGit } from './git-entry.js'
 import { adrIdsIn, rootProblems, validateRegistry } from './spec-rule.js'
 
 /** 出签名的两处：产品逻辑与数据源适配（ADR-202 第二节第 2 份） */
@@ -184,10 +183,7 @@ function main(): number {
     ['04-变异集-违反了什么.md', Buffer.from(brief.text)],
   ])
 
-  const git = (...a: string[]): string | undefined => {
-    try { return execFileSync('git', [...GIT_CONFIG, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() }
-    catch { return undefined }
-  }
+  const git = (...a: string[]): string | undefined => askGit(...a) ?? undefined
   const head = git('rev-parse', 'HEAD')
   // 只问进包的那几样输入（含 package.json 与入口脚本：入口那一份从它们抄，#489 上 CodeRabbit），未跟踪的逐个列、被忽略的也列：用户配置里 status.showUntrackedFiles=no、或输入被 .gitignore 挡着时，
   // 光一句 git status 会说「干净」而包里装着没提交的东西（#484 上 CodeRabbit 第一轮）

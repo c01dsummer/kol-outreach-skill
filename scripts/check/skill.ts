@@ -10,10 +10,9 @@
  * 交一个空清单，就是把「没读到」说成「读到了、一个也没有」—— 第 4、5 样会照着它把每处命令、
  * 每个脚本都报成不在，第 2 样会说两个软链都没有，指的都不是真正的毛病。
  */
-import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { type IndexEntry, type SkillDoc, skillFaults } from './skill-rule.js'
-import { GIT_CONFIG } from './size-rule.js'
+import { gitOrThrow } from './git-entry.js'
 
 /** 一个目录下（含子目录）不是目录的条目，路径用 `/` 接；只往真目录里走，软链指着的目录不进。任何一层列不出来就抛 */
 const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true })
@@ -32,7 +31,7 @@ const commands = ((): string[] | undefined => {
 
 const scriptFiles = listed('scripts')
 
-const git = (...args: string[]): string => execFileSync('git', [...GIT_CONFIG, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+const git = (...args: string[]): string => gitOrThrow(args)
 /** `git ls-files -s -z` 的一条：`<mode> <blob> <stage>`，一个制表符，再接路径 */
 const ENTRY = /^(\d{6}) ([0-9a-f]+) \d\t(.+)$/s
 const links = ((): IndexEntry[] | undefined => {

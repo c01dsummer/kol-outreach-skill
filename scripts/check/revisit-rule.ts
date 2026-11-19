@@ -7,9 +7,9 @@
  *
  * 只读，不写任何文件。git 由调用方传进来（`Git`），测试与入口用同一份判定。
  */
-import { execFileSync } from 'node:child_process'
 import { basename } from 'node:path'
 import { CONDITION, IOU_NAME, iouBlocks } from './debt-rule.js'
+import { gitText } from './git-entry.js'
 import { quotedMask } from './quoted.js'
 
 /** 判定要问 git 的三件事。答不上来（文件不在、行号越界）给 undefined，判定按「取不到」办 */
@@ -24,12 +24,8 @@ export interface Git {
 
 /** 用命令行 git 答那三件事；`cwd` 是仓库目录。入口与需求测试用的都是这一份 */
 export function cliGit(cwd = '.', env: NodeJS.ProcessEnv = process.env): Git {
-  const git = (...a: string[]): string | undefined => {
-    try {
-      return execFileSync('git', ['-c', 'core.quotePath=false', ...a],
-        { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 28 })
-    } catch { return undefined }
-  }
+  // 经 git 入口问（ADR-220）：它带的固定几项里除了中文路径不转义，还有改名检测开着 —— git 2.9 起这本来就是缺省值，钉住了不随机器配置变
+  const git = (...a: string[]): string | undefined => gitText(a, { cwd, env }) ?? undefined
   return {
     firstAdded: (rev, path) => git('log', '--first-parent', '--diff-filter=A', '--format=%H', rev, '--', path)?.split('\n').filter(Boolean).at(-1),
     show: (rev, path) => git('show', `${rev}:${path}`),

@@ -245,7 +245,7 @@ export function useLines(report: UseReport, onTrunk: boolean, scope: string, fir
     return { ok: true, out, err: [] }
   }
   const err = [`✗ 起子进程的接口：${faults.length} 处不对`, ...faults,
-    `  起进程走通用启动函数 scripts/check/start-process.ts；调 git 走 git 入口（后面一片建），还没有的时候新代码也不许直接碰 —— 登记表在 ${REGISTRY_PATH}。`,
+    `  起进程走通用启动函数 scripts/check/start-process.ts；调 git 走 git 入口 scripts/check/git-entry.ts（只答它表里列的那几问，要问新的先往表里加一行）—— 登记表在 ${REGISTRY_PATH}。`,
     '  「待挪」只许减：挪走了就删掉那一行；新文件要碰，只能进「登记」并写清理由，由评审判（ADR-217）。']
   return { ok: false, out, err }
 }

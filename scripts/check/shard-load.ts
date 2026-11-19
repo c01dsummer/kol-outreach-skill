@@ -9,20 +9,18 @@
  *
  * 「哪些提交算这条分支自己的、基线是哪一个」与体量闸门同一个判法（`size-rule.ts` 的 `resolveBaseline`，同样钉死 `GIT_CONFIG`）。
  */
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { shardKey, shardPlan } from './jobs-rule.js'
 import { executionRoutes } from './mutate-rule.js'
 import { SHARD_COUNT, SHARD_WEIGHTS_FILE, growthWaivers, pileWeigher, readWeights, shardLoadGate, workflowWiringFaults, type ShardLoadInput, type ShardWeights } from './shard-load-rule.js'
-import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
+import { askGit } from './git-entry.js'
+import { resolveBaseline } from './size-rule.js'
 import { trailerLines } from './trailer.js'
 
 const MUTATIONS = 'scripts/check/mutations.json'
 const WORKFLOW = '.github/workflows/check.yml'
 
-const tryGit = (...args: string[]): string | null => {
-  try { return execFileSync('git', [...GIT_CONFIG, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).trim() } catch { return null }
-}
+const tryGit = askGit
 type Mut = { id: string; by?: string }
 const listOf = (text: string): Mut[] => (JSON.parse(text) as { mutations: Mut[] }).mutations
 

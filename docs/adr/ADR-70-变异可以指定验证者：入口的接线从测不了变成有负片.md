@@ -355,6 +355,8 @@ G3-09 的判法改成数运行前后新出现的 `task.json` 个数，分三种�
 
 > ⚠️ 欠条「anchors.ts 拆 cat-file 回话那几行留在入口」：`anchors.ts` 里拆 `git cat-file --batch` 回话的那几行（认头一行、只收 blob、按长度切）是判定，照 `docs/CONVENTIONS.md` 第 10 条该挪进规则模块、拿手写的回话直接测；现在只有自检组 `anchor-staged-entry` 间接碰到 · 来源：历史文件第 4098 行（#460 上 CodeRabbit 第三轮） · 档：本改动(第 3 轮,不阻塞) · 重启条件：下次有改动碰到 `anchors.ts` 的 `catBatch`，或这几行出过一次错，或定期清点
 
+> ⚠️ 已还：ADR-70「anchors.ts 拆 cat-file 回话那几行留在入口」 · 还在 ADR-220 那条 PR：那几行挪进 `mutate-rule.ts` 的 `batchBlobs`，拿手写的回话直接测（变异 `M-H220-s`～`v`），回话半截断了改成交 `undefined`
+
 > ⚠️ 欠条「硬退出收口只到 mutate.ts」：硬退出收口只到 `mutate.ts`：检查链别的入口（`audit.ts`、`size.ts`、`adr-sync.ts`、`spec-sync.ts` 共 17 处）照旧先 `console.error` 再硬退出，`mutate-restore.ts` 的 `onInterrupt` 也是一处；`exitFaults` 认不出的写法、`exitWith` 与 `hardStop` 自己写没写没有断言、`--brief` 不设上限没有断言，都在已知边界里。⚠️ `adr-sync.ts` 后来改成设退出码、自然退出（ADR-211），名单里那一处已不成立，以代码为准 · 来源：历史文件第 4153 行 · 档：登记 · 重启条件：下一条碰这几个入口里任一处硬退出的改动；或有人在检查链的输出里撞见一句被掐掉的诊断
 
 > ⚠️ 欠条「TypeScript 取得时机与 ADR-126 原验收不符」：ADR-126 原验收要求 TypeScript 缺失在验证者启动时失败；#391 把取得时机移到首次同步 AST 调用，ADR-158 与架构说明没区分传播方式与抛出时机。硬退出收口又加了两个同步取 TypeScript 的调用点（`exitRace`、`exitFaults`），缺 TypeScript 时在调用处抛 · 来源：历史文件第 4165 行（重挂 ADR-126 第 50 行） · 档：登记 · 重启条件：下一条触及 `mutate-rule.ts`／`share-rule.ts` 的 TypeScript 取得时机或异常契约的改动，或同缺口再被点名
