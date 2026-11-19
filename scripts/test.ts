@@ -9308,8 +9308,8 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
     blockingWait(rf('scripts/check/mutate.ts', 'utf8')), undefined)
   // 经 git 入口问 git 时，上面按字面找的那条看不穿：入口里除了 runGitAsync 都是同步等（ADR-221）
   eq('从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算',
-    syncGitImports("import { runGitAsync, gitText as t, type GitAnswer } from './git-entry.js'\nimport * as g from './git-entry'\nimport e from './git-entry.ts'\nimport type { GitOptions } from './git-entry.js'\nimport { runGit } from './other.js'"),
-    ['gitText', '*', '*'])
+    syncGitImports("import { runGitAsync, gitText as t, type GitAnswer } from './git-entry.js'\nimport * as g from './git-entry'\nimport e from './git-entry.ts'\nimport type { GitOptions } from './git-entry.js'\nimport { runGit } from './other.js'\nimport { gitOrThrow } from '../check/git-entry.mjs?x'\nimport { askGit } from './not-git-entry.js'"),
+    ['gitText', '*', '*', 'gitOrThrow'])
   eq('接管了信号的那个入口：从 git 入口只引异步那一个',
     syncGitImports(rf('scripts/check/mutate.ts', 'utf8')), [])
 

@@ -246,8 +246,8 @@ let compiler: typeof Ts | undefined
 /**
  * 接管了信号的那个入口从 git 入口引了哪些不该引的名字（ADR-221）。git 入口只有 `runGitAsync` 是异步等的，
  * 其余几个（`runGit`、`gitText`、`gitOrThrow`、`askGit`）都同步等子进程 —— 上面那条按字面找
- * `spawnSync(` 的判据看不穿这一层。读的是编译器的语法树：说明符是 `./git-entry.js`（或 `.ts`、不带后缀）的
- * 静态导入里，除 `runGitAsync` 以外的每个名字原样交回；整份导入（`* as`、缺省导入）交回 `*`，因为认不出用了哪个。
+ * `spawnSync(` 的判据看不穿这一层。读的是编译器的语法树：说明符最后一段是 `git-entry`（带不带 `.js`、`.ts`、`.mjs`
+ * 这类后缀、带不带查询串，前面是哪一级目录都算，宁可多报）的静态导入里，除 `runGitAsync` 以外的每个名字原样交回；整份导入（`* as`、缺省导入）交回 `*`，因为认不出用了哪个。
  * 纯类型导入不算。认不出的：动态 `import()` 与经别的文件转手。
  */
 export function syncGitImports(src: string): string[] {
@@ -256,7 +256,7 @@ export function syncGitImports(src: string): string[] {
   const out: string[] = []
   for (const st of file.statements) {
     if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue
-    if (!/^\.\/git-entry(\.js|\.ts)?$/.test(st.moduleSpecifier.text)) continue
+    if (!/(^|\/)git-entry(\.[cm]?[jt]s)?(\?.*)?$/.test(st.moduleSpecifier.text)) continue
     const clause = st.importClause
     if (clause === undefined || clause.isTypeOnly) continue
     if (clause.name !== undefined) out.push('*')

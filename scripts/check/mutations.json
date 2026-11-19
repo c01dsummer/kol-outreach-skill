@@ -29813,9 +29813,9 @@
       "id": "M-H221-j",
       "req": "harness",
       "file": "scripts/check/mutate-restore.ts",
-      "why": "只认带 .js 的说明符：写成不带后缀的就漏了",
-      "find": "/^\\.\\/git-entry(\\.js|\\.ts)?$/",
-      "replace": "/^\\.\\/git-entry\\.js$/",
+      "why": "只认同一目录、不带查询串的说明符：从上一级目录引、带查询串的就漏了",
+      "find": "/(^|\\/)git-entry(\\.[cm]?[jt]s)?(\\?.*)?$/",
+      "replace": "/^\\.\\/git-entry(\\.[cm]?[jt]s)?$/",
       "by": "test",
       "kills": [
         "从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算"
