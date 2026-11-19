@@ -22843,7 +22843,8 @@ await group('h-observer-run', async () => {
     // 自己的 node_modules 是不是软链。沙箱照搬的是树根下的 node_modules，软链的目标不在沙箱里
     const linked = join(dir, 'linked')
     mkdirSync(join(linked, 'scripts', 'check'), { recursive: true })
-    for (const f of ['observer-run.ts', 'observer-rule.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
+    // 运行器起进程、问 git 经的那几份（ADR-221）连同它们引的也搬过来
+    for (const f of ['observer-run.ts', 'observer-rule.ts', 'start-process.ts', 'launch-count.ts', 'launch-rule.ts', 'git-entry.ts', 'git-config.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
     writeFileSync(join(linked, 'package.json'), '{ "type": "module" }\n')
     symlinkSync(realpathSync('node_modules'), join(linked, 'node_modules'))
     // 另起一个带 tsx 加载器的进程导入那棵树里的运行器：本进程可能跑在预编的 JS 上（`npm run compile` 之后的变异），仓库外的 .ts 它认不全
