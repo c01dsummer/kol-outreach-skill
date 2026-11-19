@@ -85,35 +85,45 @@ export function codeSpots(path: string, text: string, a: number, b: number): str
   loadCompiler()
   const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true)
   const lineOf = (pos: number) => file.getLineAndCharacterOfPosition(pos).line + 1
-  // 语句前面的注释与空行算这条语句的（从 getFullStart 起），所以一行总落在某条语句上，除非在最后一条语句之后。
-  // getFullStart 落在上一条语句收尾那一行的换行符前，跳过那一段行尾，从下一行算起
-  const startLine = (n: Ts.Node) => {
-    let p = n.getFullStart()
-    // 上一条语句行尾的注释（`const x = 1 // 说明`）是上一条的，先跳过它；文件开头那一处不算行尾
-    const trailing = p > 0 ? ts.getTrailingCommentRanges(text, p) : undefined
-    if (trailing?.length) p = trailing[trailing.length - 1].end
-    while (p < text.length && (text[p] === ' ' || text[p] === '\t' || text[p] === '\r')) p++
-    if (text[p] === '\n') p++
-    return lineOf(Math.min(p, n.getStart(file)))
+  const hit = ([lo, hi]: Span) => lo <= b && hi >= a
+  // 把一串相邻节点切成一段段连续的行，不漏不叠：每个节点从上一个占到的最后一行的下一行起（所以前面的注释与空行归它），
+  // 到它自己结尾那一行；结尾后面同一行起头的注释（行尾注释，跨几行的也算）归它，由编译器的 getTrailingCommentRanges 量出，
+  // 不自己数换行。同一行挤着两个节点时，后一个从它自己那一行起，那一行两个都算
+  const spans = (nodes: readonly Ts.Node[], from: number): [Ts.Node, Span][] => {
+    let next = from
+    return nodes.map(n => {
+      const tail = ts.getTrailingCommentRanges(text, n.getEnd())
+      const end = lineOf(tail?.length ? tail[tail.length - 1].end : n.getEnd())
+      const span: Span = [Math.min(next, lineOf(n.getStart(file))), end]
+      next = end + 1
+      return [n, span]
+    })
   }
-  const overlaps = (n: Ts.Node) => startLine(n) <= b && lineOf(n.getEnd()) >= a
+  const pick = {
+    // 类成员从类的左花括号下一行切起；类名那一行、右花括号那一行不归哪个成员
+    members: (c: Ts.ClassDeclaration) => spans(c.members, lineOf(c.members.pos) + 1).filter(([, sp]) => hit(sp)).map(([m]) => m as Ts.ClassElement),
+    own: (n: Ts.Node) => hit([lineOf(n.getStart(file)), lineOf(n.getEnd())]),
+  }
   const names: string[] = []
-  for (const s of file.statements) if (overlaps(s)) names.push(...statementNames(s, file, overlaps))
+  for (const [s, span] of spans(file.statements, 1)) if (hit(span)) names.push(...statementNames(s as Ts.Statement, file, pick))
   if (names.length === 0) names.push('（文件末尾）')
   return [...new Set(names)]
 }
 
-function statementNames(s: Ts.Statement, file: Ts.SourceFile, overlaps: (n: Ts.Node) => boolean): string[] {
+type Span = [number, number]
+interface Pickers { members: (c: Ts.ClassDeclaration) => Ts.ClassElement[]; own: (n: Ts.Node) => boolean }
+
+function statementNames(s: Ts.Statement, file: Ts.SourceFile, pick: Pickers): string[] {
   const named = s as { name?: Ts.Node }
   if (ts.isClassDeclaration(s) && s.name) {
-    const inner = s.members.filter(overlaps).map(m => `${s.name!.text}.${m.name ? m.name.getText(file) : '（构造或索引）'}`)
+    const inner = pick.members(s).map(m => `${s.name!.text}.${m.name ? m.name.getText(file) : '（构造或索引）'}`)
     return inner.length ? inner : [s.name.text]
   }
   if ((ts.isFunctionDeclaration(s) || ts.isInterfaceDeclaration(s) || ts.isTypeAliasDeclaration(s)
     || ts.isEnumDeclaration(s) || ts.isModuleDeclaration(s)) && named.name) return [named.name.getText(file)]
   if (ts.isVariableStatement(s)) {
     // 落在语句前面的注释上、没落到哪个名字的，整条语句的名字都算
-    const all = s.declarationList.declarations, hit = all.filter(overlaps)
+    const all = s.declarationList.declarations, hit = all.filter(pick.own)
     return (hit.length ? hit : all).map(d => d.name.getText(file))
   }
   if (ts.isExpressionStatement(s)) {

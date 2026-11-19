@@ -30790,21 +30790,21 @@
       "id": "M-H225-b",
       "req": "harness",
       "file": "scripts/check/same-spot-rule.ts",
-      "why": "语句的起点不跳过上一条语句收尾那一行的换行，上一条语句的最后一行也算进下一条",
-      "find": "    if (text[p] === '\\n') p++",
-      "replace": "    p += 0",
+      "why": "上一条占到的最后一行也算进下一条，行尾注释那一行同时落在两处",
+      "find": "      next = end + 1",
+      "replace": "      next = end",
       "by": "test",
       "kills": [
-        "同一处：类里算到成员"
+        "同一处：上一条语句行尾的注释算上一条，不算下一条"
       ]
     },
     {
       "id": "M-H225-c",
       "req": "harness",
       "file": "scripts/check/same-spot-rule.ts",
-      "why": "只看语句从哪一行开始、不看到哪一行结束，前面所有语句都算落到了",
-      "find": "  const overlaps = (n: Ts.Node) => startLine(n) <= b && lineOf(n.getEnd()) >= a",
-      "replace": "  const overlaps = (n: Ts.Node) => startLine(n) <= b",
+      "why": "只看起点不看终点，前面所有语句都算落到",
+      "find": "  const hit = ([lo, hi]: Span) => lo <= b && hi >= a",
+      "replace": "  const hit = ([lo, hi]: Span) => lo <= b",
       "by": "test",
       "kills": [
         "同一处：函数里的内层函数算外层那个顶层声明"
@@ -30826,9 +30826,9 @@
       "id": "M-H225-e",
       "req": "harness",
       "file": "scripts/check/same-spot-rule.ts",
-      "why": "类里不看落到哪个成员，整个类每个成员都算",
-      "find": "    const inner = s.members.filter(overlaps).map(",
-      "replace": "    const inner = s.members.map(",
+      "why": "类里不按行挑成员，所有成员都算",
+      "find": "spans(c.members, lineOf(c.members.pos) + 1).filter(([, sp]) => hit(sp)).map(",
+      "replace": "spans(c.members, lineOf(c.members.pos) + 1).map(",
       "by": "test",
       "kills": [
         "同一处：类里算到成员"
@@ -31318,24 +31318,48 @@
       "id": "M-H225-au",
       "req": "harness",
       "file": "scripts/check/same-spot-rule.ts",
-      "why": "上一条语句行尾的注释被算进下一条语句，那一行同时落在两处",
-      "find": "    if (trailing?.length) p = trailing[trailing.length - 1].end\n",
-      "replace": "",
+      "why": "不量行尾注释，跨几行的行尾注释后几行落到下一条",
+      "find": "      const end = lineOf(tail?.length ? tail[tail.length - 1].end : n.getEnd())",
+      "replace": "      const end = lineOf(n.getEnd())",
       "by": "test",
       "kills": [
-        "同一处：上一条语句行尾的注释算上一条，不算下一条"
+        "同一处：跨几行的行尾注释整段算上一条，下一条从注释之后起"
       ]
     },
     {
       "id": "M-H225-av",
       "req": "harness",
       "file": "scripts/check/same-spot-rule.ts",
-      "why": "文件开头的注释也当成上一条语句的行尾跳过，第一条语句的头一行一处都不算",
-      "find": "    const trailing = p > 0 ? ts.getTrailingCommentRanges(text, p) : undefined",
-      "replace": "    const trailing = p >= 0 ? ts.getTrailingCommentRanges(text, p) : undefined",
+      "why": "同一行挤着的后一条语句从下一行才起，那一行只算前一条",
+      "find": "      const span: Span = [Math.min(next, lineOf(n.getStart(file))), end]",
+      "replace": "      const span: Span = [next, end]",
       "by": "test",
       "kills": [
-        "同一处：上一条语句行尾的注释算上一条，不算下一条"
+        "同一处：一行挤着两条语句，那一行两条都算"
+      ]
+    },
+    {
+      "id": "M-H225-aw",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "类成员从左花括号那一行就切起，类名那一行落到第一个成员",
+      "find": "lineOf(c.members.pos) + 1)",
+      "replace": "lineOf(c.members.pos) + 0)",
+      "by": "test",
+      "kills": [
+        "同一处：类名那一行与右花括号那一行算类名，不算哪个成员"
+      ]
+    },
+    {
+      "id": "M-H225-ax",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "多行变量声明不按行挑名字，落到哪一行都算全部名字",
+      "find": "    own: (n: Ts.Node) => hit([lineOf(n.getStart(file)), lineOf(n.getEnd())]),",
+      "replace": "    own: (n: Ts.Node) => true,",
+      "by": "test",
+      "kills": [
+        "同一处：多行变量声明只算落到的那个名字"
       ]
     }
   ],

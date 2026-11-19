@@ -24096,6 +24096,9 @@ await group('h-same-spot', () => {
   eq('同一处：上一条语句行尾的注释算上一条，不算下一条', [codeSpots('x.ts', 'const x = 1 // 说明\nexport const foo = 2\n', 1, 1), codeSpots('x.ts', '// 文件头\nconst y = 1\n', 1, 1)], [['x'], ['y']])
   eq('同一处：多行变量声明只算落到的那个名字', codeSpots('x.ts', 'const p = 1,\n  q = 2\n', 2, 2), ['q'])
   eq('同一处：最后一条语句之后算文件末尾', codeSpots('x.ts', 'const a = 1\n\n\n', 3, 3), ['（文件末尾）'])
+  eq('同一处：跨几行的行尾注释整段算上一条，下一条从注释之后起', [codeSpots('x.ts', 'const a = 1 /* 说明\n  续 */\nconst b = 2\n', 2, 2), codeSpots('x.ts', 'const a = 1 /* 说明\n  续 */\nconst b = 2\n', 3, 3)], [['a'], ['b']])
+  eq('同一处：一行挤着两条语句，那一行两条都算', codeSpots('x.ts', 'const a = 1; const b = 2\n', 1, 1), ['a', 'b'])
+  eq('同一处：类名那一行与右花括号那一行算类名，不算哪个成员', [codeSpots('x.ts', 'class K {\n  m() {}\n}\n', 1, 1), codeSpots('x.ts', 'class K {\n  m() {}\n}\n', 3, 3)], [['K'], ['K']])
   const doc = '开头\n# 甲\n正文\n```\n## 假的\n```\n## 乙\n正文\n'
   eq('同一处：Markdown 算最近一个标题，围栏里的不算', [docSpots(doc, 5, 5), docSpots(doc, 8, 8)], [['# 甲'], ['## 乙']])
   eq('同一处：Markdown 第一个标题之前算文首；跨节两节都算', [docSpots(doc, 1, 1), docSpots(doc, 3, 8)], [['（文首）'], ['# 甲', '## 乙']])
