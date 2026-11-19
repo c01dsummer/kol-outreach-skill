@@ -33,7 +33,24 @@
 
 重新认证照 ADR-186 的做法：在本条最后一个碰设施文件的提交的干净克隆里，照冻结命令原样跑。
 
-（结果待填：提交、19 项结论、设施各文件 SHA256。）
+在 `90a8fbe`（本条最后一个碰设施文件的提交）的全新干净克隆里原样跑两条：`npm ci --prefer-offline --no-audit` 以 0 退出；`sh scripts/check/observer-cert.sh` 以 0 退出，19/19 项成立，被测提交 `90a8fbe340ae581e35f82b6be6940d057924ad31`、工作区干净。环境：Linux 6.18、Node v22.23.4（node 二进制 SHA256 `2286ce921a47349726b0e8b037ccbb6627043d24d1fc3c8f22c2dc53c4a1f7ff`）、tsx 4.23.12（`loader_sha256` `49fb4673…10c2`、`dist_sha256` `5af56f52…dd52`，与 ADR-186 那次相同）。证据的 `summary.json` SHA256 `1a05200ca3b99473a6075e6a38ed6b9a3bea70cf3ebb068906b30820c486c7f3`（证据不进仓库）。
+
+设施各文件（`90a8fbe` 的树）：
+
+| 文件 | SHA256 |
+|---|---|
+| `scripts/check/observer-rule.ts` | `967dc388d8c9dfbffd5e4b27876845e57cc3e86f97ded6e3a9c8401f055d2944`（没变） |
+| `scripts/check/observer-preload.ts` | `b73c2c19fb2e04fc1a92c20b256290591860509ff126340c8abc5c5f94c242d7`（没变） |
+| `scripts/check/observer-run.ts` | `faa47a5c3f919e4367071eefaf15a9e9378be5ecbcafbd5b71d9a04420b9c25d` |
+| `scripts/check/observer-cert.ts` | `ea9b196448a511854b8d6af337ba24e0d4537b84ecbadf718d9c0f557e346d2e` |
+| `scripts/check/observer-cert.sh` | `fff95dc7a5a72d209ac6f4a204aa4b66a6319a30494154b92a262388b7ce027f`（没变） |
+| `package-lock.json` | `6fc97367b7c757beca5c6d3dc3e3af77880f6c4954599178900fab3d0e6b0543`（没变） |
+| `scripts/check/start-process.ts` | `bc2be950e531e63f8a53afb9d815308a499340e7f4149ea2b3c818061edecec7`（新进清单） |
+| `scripts/check/launch-count.ts` | `6b69560f583c364b3b3f10a8c602f3a08225f4753da443bca7caa610eab32b31`（新进清单） |
+| `scripts/check/git-entry.ts` | `fdf874adb1771fd9fb4a781d28b924ec5f9042372ad266ad4ca8ca7845d2b3af`（新进清单） |
+| `scripts/check/git-config.ts` | `1a61c2eadcd745d969f3568faf809ece9d8585194b2d857b493a1862281c32f2`（新进清单） |
+
+ADR-186 那张表里 `observer-cert.ts` 的 SHA256 在本条以前就已经和树上对不上（什么时候改的没查），本条这张表替代它。合入前若又改了清单里的文件，在最终 head 的干净克隆里再跑一遍，结果写在 PR 正文里。
 
 ## 四、拦不住的
 
