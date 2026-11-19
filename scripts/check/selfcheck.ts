@@ -31,14 +31,17 @@ import * as asHashtagCliUrl from 'node:url';
 import {
   chmodSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, lstatSync, symlinkSync, utimesSync, realpathSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync, openSync,
 } from 'node:fs'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from './start-process.js'
+import { fixtureGit, fixtureGitOrThrow } from './git-fixture.js'
+import { askGit } from './git-entry.js'
+import { noteSpawns } from './selfcheck-spawn-notes.js'
 import { availableParallelism, tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { createRequire as entrySelfcheckCreateRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
-import { isDeepStrictEqual, promisify } from 'node:util'
+import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import { asTsx, brandObserverEnv, fixtureLoader, prebuiltCommand } from './prebuilt.js'
 import {
@@ -119,11 +122,11 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
  * 「看不见的」第一条，ADR-134 第二节）。看得见的是它在哪个目录里起：完整跑收尾时把这几笔合进扫描的读写，
  * 与别族碰到的 `tmp` 路径对照（`judgeCwds`），一处是另一处的上级目录或相同就红。
  *
- * 记在 `node:child_process` 这一处，不记在 `runBoth` 里：组里直接 `spawnSync('git', …)`、
- * 经 `createRequire` 拿到的 `execFileSync` 也都从这里过。绕得开的有四种，都记不下：换之前就抓下的函数引用、
+ * 记在 `node:child_process` 这一处，不记在 `runBoth` 里：组里经通用启动函数、git 夹具、git 入口起的，
+ * 都是调用时才从那个模块上取函数，也都从这里过。绕得开的有四种，都记不下：换之前就抓下的函数引用、
  * `execSync('cd … && …')` 在命令里换目录、组跑完之后才触发的回调里起的、子进程再起的孙进程
- * （ADR-212 第六节）。换掉的是那个模块对象上的
- * 几个函数，再 `syncBuiltinESMExports` 让 `import { spawnSync }` 那些绑定一起换。不在任何一组里起的
+ * （ADR-212 第六节）。换掉模块对象上那几个函数的包装在单独登记的 `selfcheck-spawn-notes.ts` 里（ADR-222），
+ * 这里只交给它「记哪一笔」。不在任何一组里起的
  * （顶层与收尾段、拆进程派的子进程）不记：它们不属于哪一组。不在 `tmp` 底下的（仓库根、系统临时目录里
  * 另建的）不记：别族碰不到。
  *
@@ -132,32 +135,15 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
  */
 const cwds = new Map<string, Set<string>>()
 let runningGroup: string | undefined
-{
-  const req = createRequire(import.meta.url)
-  type Fn = (...a: unknown[]) => unknown
-  const cp = req('node:child_process') as Record<string, Fn & { [promisify.custom]?: Fn }>
-  const note = (a: unknown[]): void => {
-    if (runningGroup === undefined) return
-    // 选项是第一个既不是数组也不是 URL 的对象：`fork(new URL(…), args, { cwd })` 的模块路径可以是 URL
-    const options = a.find(x => typeof x === 'object' && x !== null && !Array.isArray(x) && !(x instanceof URL)) as { cwd?: unknown } | undefined
-    const raw = options?.cwd
-    const at = cwdUnder(tmp, raw === undefined || raw === null ? process.cwd()
-      : raw instanceof URL ? fileURLToPath(raw) : String(raw), realpathSync)
-    if (at !== undefined) cwds.set(runningGroup, (cwds.get(runningGroup) ?? new Set()).add(at))
-  }
-  const noted = (f: Fn): Fn => function (this: unknown, ...a: unknown[]) { note(a); return f.apply(this, a) }
-  for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']) {
-    const original = cp[name]
-    const wrapped = noted(original)
-    Object.defineProperty(wrapped, 'name', { value: original.name })
-    // `exec`、`execFile` 带着自己的 promisify 版本（交回 `{ stdout, stderr }`）：一并带过来，也记一笔，
-    // 否则 `promisify(execFile)` 拿到的结果形状会变（与 `launch-preload.ts` 同一个做法）
-    const custom = original[promisify.custom]
-    if (typeof custom === 'function') Object.defineProperty(wrapped, promisify.custom, { value: noted(custom) })
-    cp[name] = wrapped
-  }
-  ;(req('node:module') as typeof import('node:module')).syncBuiltinESMExports()
-}
+noteSpawns((a: unknown[]): void => {
+  if (runningGroup === undefined) return
+  // 选项是第一个既不是数组也不是 URL 的对象：`fork(new URL(…), args, { cwd })` 的模块路径可以是 URL
+  const options = a.find(x => typeof x === 'object' && x !== null && !Array.isArray(x) && !(x instanceof URL)) as { cwd?: unknown } | undefined
+  const raw = options?.cwd
+  const at = cwdUnder(tmp, raw === undefined || raw === null ? process.cwd()
+    : raw instanceof URL ? fileURLToPath(raw) : String(raw), realpathSync)
+  if (at !== undefined) cwds.set(runningGroup, (cwds.get(runningGroup) ?? new Set()).add(at))
+})
 const env = {
   ...process.env,
   TIKHUB_API_KEY: 'fake-key-for-selfcheck',
@@ -302,11 +288,9 @@ const mutationFixtureEnv = (tool: keyof typeof SELFCHECK_TOOLS, rest: readonly s
   // 往上找不到仓库 —— 清单该写「无从确认」（ADR-202 第二节第 0 份）
   if (tool === 'admission') return { ...GIT_ISOLATED, GIT_CEILING_DIRECTORIES: dirname(resolve(cwd)) }
   if (tool !== 'mutate' || rest.includes('--brief') || cwd === process.cwd()) return {}
-  const fixtureGitEnv: NodeJS.ProcessEnv = { ...process.env,
-    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
-  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]
+  // 夹具的 git 经 git 夹具模块起：不读本机配置、不认继承来的 GIT_* 由它管（ADR-222）
   const git = (...args: string[]): string => {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: fixtureGitEnv })
+    const r = fixtureGit(args, { cwd })
     if (r.status !== 0) {
       console.error(`  ✗ 变异历史夹具${SELFCHECK_FIXTURE_MARK}：${r.stderr || r.error}`)
       throw new Error('无法建立变异夹具的真实历史')
@@ -7764,8 +7748,7 @@ group('admission-entry', [], () => {
   const gitTree = join(tmp, 'admission-git')
   toy(gitTree, { mutations, exemptions })
   const gitOk = (...args: string[]): string | undefined => {
-    const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args],
-      { cwd: gitTree, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    const r = fixtureGit(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd: gitTree })
     if (r.status === 0) return r.stdout.trim()
     failed++; console.error(`  ✗ admission 有 git 的玩具树${SELFCHECK_FIXTURE_MARK}：git ${args.join(' ')}：${r.error ?? r.stderr}`)
     return undefined
@@ -7892,9 +7875,9 @@ group('admission-entry', [], () => {
 group('anchor-staged-entry', [], () => {
   // 判定是纯函数 stagedResidue 与 notARepo，由需求测试 h-mutate 断言、M-H45-ah…an 守着；剩下的那一半是**入口真的
   // 读了暂存区与 HEAD、交给判定、点名、照它退出，git 读不到时分得开不是仓库与坏了**。不配负片的理由同 anchor-residue-entry。
-  // 夹具与入口的 git 都用 GIT_ISOLATED（见 mutationFixtureEnv 上面那段）：入口经 runToolBoth 起，自动带上
+  // 夹具的 git 经 git 夹具模块起（ADR-222），入口的 git 用 GIT_ISOLATED（见 mutationFixtureEnv 上面那段）：入口经 runToolBoth 起，自动带上
   const git = (cwd: string, ...args: string[]): boolean => {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    const r = fixtureGit(args, { cwd })
     if (r.status === 0) return true
     failed++; console.error(`  ✗ 暂存区夹具${SELFCHECK_FIXTURE_MARK}：${cwd} 里 git ${args.join(' ')}：${r.error ?? r.stderr}`)
     return false
@@ -7995,7 +7978,7 @@ group('shard-load-entry', [], () => {
   // 玩具仓库：三组需求测试各一条断言，秒数文件只给默认值（一摞 = 1 + 条数），主干上三组各 10 条 —— 三份各 11 秒。
   // 期望从这几个数手推：PR 上第 1 组加 1 条 → 12 / 11 / 11，总 34 比 33 涨 3.0%；三组各加 1 条 → 36 比 33 涨 9.1%。
   const git = (cwd: string, ...args: string[]): boolean => {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    const r = fixtureGit(args, { cwd })
     if (r.status === 0) return true
     failed++; console.error(`  ✗ 负载闸门夹具${SELFCHECK_FIXTURE_MARK}：${cwd} 里 git ${args.join(' ')}：${r.error ?? r.stderr}`)
     return false
@@ -8465,9 +8448,7 @@ group('skill-entry', [], () => {
   // 环境里带着 GIT_DIR、GIT_INDEX_FILE 这几项时（比如从 git 钩子里起检查），不删的话 init 与 add 落到它们指的那个仓库，
   // 把玩具软链暂存进别人的索引。起不来或非 0 退出就是夹具没造对
   const git = (cwd: string, ...args: string[]): boolean => {
-    const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
-    for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete gitEnv[key]
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: gitEnv })
+    const r = fixtureGit(args, { cwd })
     if (r.status === 0) return true
     broken(`${cwd} 里 git ${args.join(' ')}`, r.error ?? r.stderr)
     return false
@@ -9043,8 +9024,7 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   // head 是维护比较的那个 head 提交（第十三节第 2 小节第 3 条）。玩具树由 mutationFixtureEnv 建成两个提交、把 HEAD^1 交给
   // MUTATE_BASE_SHA 当比较基线，所以 head 是玩具仓库的 HEAD（mutation-cost-entry 也把成本报告的 headSha 钉在 rev-parse HEAD 上）；
   // HEAD^1 一并取出来：写成比较基线那一个的话，两者不同，这条红
-  const revs = spawnSync('git', ['rev-parse', 'HEAD', 'HEAD^1'], { cwd: root, encoding: 'utf8',
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+  const revs = fixtureGit(['rev-parse', 'HEAD', 'HEAD^1'], { cwd: root })
   const [toyHead, toyBase] = revs.status === 0 ? revs.stdout.trim().split('\n') : []
   if (!toyHead || !toyBase || toyHead === toyBase) { failed++; console.error(`  ✗ 启动数入口玩具仓库的提交${SELFCHECK_FIXTURE_MARK}：${revs.stderr || revs.error || revs.stdout}`) }
   else named('启动数入口：机器段与计数文件的 head 都是玩具仓库当前的 HEAD 提交，不是比较基线那一个',
@@ -9066,8 +9046,7 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   // 闸门打的报告行 = 上面标题下那几行去掉四格缩进（同一个 launchReport，第 3 小节「原样、不加缩进」）；
   // again 两项都不是 null（上一条），不打「重跑那次没拿到计数」那种行。退出码就是判据，所以写 soft、由具名断言判
   const rep = body.map(l => l.slice(4)), gateOut = (r: { stdout: string }) => r.stdout.split('\n').filter(l => l.trim() !== '')
-  const gitToy = (...a: string[]) => spawnSync('git', a, { cwd: root, encoding: 'utf8',
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+  const gitToy = (...a: string[]) => fixtureGit(a, { cwd: root })
   // 闸门那几行之前先打第七节末第二行、不缩进，读到什么都不改退出码（第三十一节第 3 小节）。下面四条读整段输出的断言跑时，
   // 玩具树上没有按族计数的文件 → 第 4 小节第 1 句打在最前；数据不过时那两行跟在它后面（同小节「这一行之后只打这两行」）
   const NO_IDLE = '有启动但没有变异的组：没有自检整跑的按族启动计数（只报数）', prGate = [...rep, '✗ 启动数闸门：4 条发现，不设豁免（ADR-145）']
@@ -9565,7 +9544,7 @@ group('mutate-copy-list', [], () => {
   seedJobs(copyTmp, [jobMut('M-J-g', 'keep', 'gone'), jobMut('M-J-h', 'hold', 'lost')], copyMark)
   const q = "'"
   const git = (...args: string[]): void => {
-    const r = spawnSync('git', args, { cwd: copyTmp, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    const r = fixtureGit(args, { cwd: copyTmp })
     if (r.status !== 0) throw new Error(`git ${args.join(' ')}：${r.stderr || r.error}`)
   }
   try {
@@ -9598,7 +9577,7 @@ group('mutate-copy-list', [], () => {
     writeFileSync(join(copyTmp, '.env.production'), 'SECRET=x\n')
     mkdirSync(join(copyTmp, 'nested'))
     writeFileSync(join(copyTmp, 'nested', 'x.txt'), 'x')
-    const inner = spawnSync('git', ['init', '--quiet'], { cwd: join(copyTmp, 'nested'), encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    const inner = fixtureGit(['init', '--quiet'], { cwd: join(copyTmp, 'nested') })
     if (inner.status !== 0) throw new Error(`git init（嵌套仓库）：${inner.stderr || inner.error}`)
     rmSync(copyMark, { force: true })
   } catch (e) {
@@ -10487,7 +10466,7 @@ group('mutation-maintenance-entry', [], () => {
   const { join: entryJoin } = entryRequire('node:path') as typeof import('node:path');
   const { tmpdir: entryTmpdir } = entryRequire('node:os') as typeof import('node:os');
   const { fileURLToPath: entryUrlPath } = entryRequire('node:url') as typeof import('node:url');
-  const { spawnSync: entrySpawn } = entryRequire('node:child_process') as typeof import('node:child_process');
+  const entrySpawn = spawnSync;
   const entryTsx = tsxCommand;
   const entryEnvironment = (extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv => {
     const childEnv: NodeJS.ProcessEnv = { ...process.env, ...extra };
@@ -10517,7 +10496,7 @@ await group('b', () => { eq('夹具第二组保留已确认值', value(), 'keep'
 console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执行 2 条断言；覆盖 0 条需求）\\n');
 `;
   const entryGit = (cwd: string, ...args: string[]) => {
-    const result = entrySpawn('git', args, { cwd, encoding: 'utf8', env: entryEnvironment({ GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }) });
+    const result = fixtureGit(args, { cwd });
     if (result.status !== 0) throw new Error('[fixture-error] Entry Git fixture failed: ' + String(result.stderr));
     return result.stdout.trim();
   };
@@ -10635,7 +10614,6 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
 group('claims-restoration-entry', [], () => {
   const fixtureRequire = createRequire(import.meta.url);
   const { realpathSync, statSync, symlinkSync } = fixtureRequire('node:fs') as typeof import('node:fs');
-  const { execFileSync } = fixtureRequire('node:child_process') as typeof import('node:child_process');
   const { createHash } = fixtureRequire('node:crypto') as typeof import('node:crypto');
   type RestoreFixture = { repo: string; trace: string; preload: string; base: string; head: string };
   const sourceRoot = realpathSync(process.cwd()), homes: string[] = [];
@@ -10656,7 +10634,7 @@ group('claims-restoration-entry', [], () => {
     writeFileSync(join(repo, 'docs/requirements.json'), JSON.stringify({ requirements: [] }) + '\n');
     // 真的 docs/ 里那张表点名的变异，玩具目录里一条也没有：换成最小的那份（ADR-148 第十四节第 2 条）
     writeFileSync(join(repo, 'docs/ARCHITECTURE.md'), ORDER_TABLE_STUB);
-    execFileSync('git', ['init', '-q'], { cwd: repo, encoding: 'utf8', env: fixtureEnv() });
+    fixtureGitOrThrow(['init', '-q'], { cwd: repo });
     const trace = join(home, 'trace.jsonl'), preload = join(home, 'preload.cjs');
     writeFileSync(trace, ''); writeFileSync(preload, '');
     return { repo, trace, preload, base: '', head: '' };
@@ -10952,7 +10930,7 @@ note({ kind: 'restore-actor-done', targetPid: coordinator.pid, verifierPid });
       why: '自有声明值变坏时点名断言应红', file: target, find: 'restoreValue = 7', replace: 'restoreValue = 8', by: 'test',
       kills: ['认领恢复夹具声明值保持原值'] }], exemptions: [] }) + '\n');
     writeFileSync(fixture.preload, entryObserver + ownedProcessObserver + fileObserver);
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', env: fixtureEnv() }).trim();
+    const git = (...args: string[]) => fixtureGitOrThrow(args, { cwd: root });
     git('add', '-f', 'scripts', 'docs', 'process', 'package.json', 'package-lock.json', '.gitignore');
     git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','claim restore B');
     fixture.base = git('rev-parse','HEAD'); writeFileSync(join(root,'fixture-head.txt'),'claim restore H\n'); git('add','fixture-head.txt');
@@ -11108,7 +11086,6 @@ group('mutation-cost-entry', [], () => {
   const path = process.getBuiltinModule('node:path') as typeof import('node:path');
   const os = process.getBuiltinModule('node:os') as typeof import('node:os');
   const crypto = process.getBuiltinModule('node:crypto') as typeof import('node:crypto');
-  const cp = process.getBuiltinModule('node:child_process') as typeof import('node:child_process');
   const mod = process.getBuiltinModule('node:module') as typeof import('node:module');
   let outer: string | undefined, unknownTree = false;
   const sha = (b: string | Buffer) => crypto.createHash('sha256').update(b).digest('hex');
@@ -11206,7 +11183,7 @@ else console.log('全部通过（执行 '+count+' 条断言；覆盖 0 条需求
     fs.writeFileSync(path.join(root,'docs/ARCHITECTURE.md'),ORDER_TABLE_STUB);
     fs.writeFileSync(path.join(root,'.gitignore'),'node_modules/\n.check-cache/\noutput/\n');
     fs.symlinkSync(path.join(source,'node_modules'),path.join(root,'node_modules'),'dir');
-    const git=(args:string[])=>{const r=cp.spawnSync('git',args,{cwd:root,env:cleanEnv,encoding:'utf8'});if(r.status!==0||r.error)throw Error('（夹具）git: '+r.stderr);return r.stdout.trim();};
+    const git=(args:string[])=>fixtureGitOrThrow(args,{cwd:root});
     git(['init','-q']);git(['config','user.name','Independent Toy']);git(['config','user.email','toy@example.invalid']);
     git(['add','.']);git(['commit','-qm','toy public baseline']);const base=git(['rev-parse','HEAD']);
     fs.writeFileSync(path.join(root,'fixture-head.txt'),'different descendant\n');git(['add','fixture-head.txt']);git(['commit','-qm','toy head']);
@@ -11231,7 +11208,7 @@ else console.log('全部通过（执行 '+count+' 条断言；覆盖 0 条需求
       out:prefix+'.out',err:prefix+'.err',obs:prefix+'.obs',fault:prefix+'.fault',result:prefix+'.result',
       started:prefix+'.started',
       env:{...cleanEnv,MUTATE_BASE_SHA:base,MUTATE_JOBS:'3',COST_OBSERVER_LOG:prefix+'.obs',COST_OBSERVER_FAULT:prefix+'.fault',COST_TOY_TRACE:prefix+'.toy',NODE_OPTIONS:'--require='+observer}};
-    fs.writeFileSync(prefix+'.config',JSON.stringify(cfg));const d=cp.spawnSync(process.execPath,[driver,prefix+'.config'],{cwd:f.root,env:cleanEnv,encoding:'utf8',timeout:30000});
+    fs.writeFileSync(prefix+'.config',JSON.stringify(cfg));const d=spawnSync(process.execPath,[driver,prefix+'.config'],{cwd:f.root,env:cleanEnv,encoding:'utf8',timeout:30000});
     if(d.pid)owned.add(d.pid);
     if(fs.existsSync(cfg.started)){const started=JSON.parse(fs.readFileSync(cfg.started,'utf8'));if(Number.isInteger(started.pid))owned.add(started.pid);}
     if(!fs.existsSync(cfg.result)) {
@@ -12878,13 +12855,13 @@ group('observer-cert-entry', [], () => {
     netns ? summary.isolation?.certified === true && items.length === 19 && items.every(i => i.ok) && ran.length === 18
       : summary.isolation?.certified === false && items.length === 1 && ran.length === 0 && r.status === 1,
     `bwrap 断网${netns ? '起得来' : '起不来'}，认证=${summary.isolation?.certified}，不成立的项：${items.filter(i => !i.ok).map(i => i.id).join('；') || '无'}，起过的对照目录 ${ran.length} 个`)
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' })
+  const head = askGit('rev-parse', 'HEAD')
   // 按字节算（证据里有 xlsx 这样的二进制文件）；不动本文件的 import 那几行
   const bytes = createRequire(import.meta.url)('node:crypto') as typeof import('node:crypto')
   const digest = (f: string) => bytes.createHash('sha256').update(readFileSync(f)).digest('hex')
   named('观察器认证入口：退出码与汇总的结论一致，汇总记着被测提交，列出的每份证据都在、SHA256 对得上',
     (summary.result === 'certified') === (r.status === 0) && summary.exit === r.status
-      && summary.provenance?.head === (head.status === 0 ? head.stdout.trim() : '') && summary.evidence.length > 0
+      && summary.provenance?.head === (head ?? '') && summary.evidence.length > 0
       && summary.evidence.every((e: { path: string; sha256: string }) => existsSync(join(out, e.path)) && digest(join(out, e.path)) === e.sha256),
     `result=${summary.result}，退出码 ${r.status}，汇总里的提交 ${summary.provenance?.head}，证据 ${summary.evidence.length} 份`)
 })

@@ -32,10 +32,12 @@ export function countingEnv(env: Readonly<Record<string, string | undefined>>,
 
 // 直接起的是不是 git：exec、execSync 与带 shell 的，起的是 shell（第一节「sh -c 都算」）
 const DIRECT = new Set<string>(['spawn', 'spawnSync', 'execFile', 'execFileSync'])
-const isGit = (api: string, file: string, shell: boolean): boolean => {
+/** 要起的程序是不是 git：看路径末段，`/` 与 `\` 都算分隔。通用启动函数（`start-process.ts`）拦 git 也用这一个 */
+export function isGitProgram(file: string): boolean {
   const last = file.split(/[/\\]/).pop()
-  return DIRECT.has(api) && !shell && (last === 'git' || last === 'git.exe')
+  return last === 'git' || last === 'git.exe'
 }
+const isGit = (api: string, file: string, shell: boolean): boolean => DIRECT.has(api) && !shell && isGitProgram(file)
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v)
 
 /** 预加载的日志 → 一种配置一次正常基线的计数；认不得就是 undefined（规矩逐条在 ADR-145 历史文件第十三节第 3 小节） */

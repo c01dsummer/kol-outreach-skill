@@ -15,6 +15,10 @@
     "bytes": 166803,
     "sha256": "e0b8b61ccc1132bf8b32f12c890a7484d8c30a05dc9b13de3a2331ad7b0836fd"
   },
+  "ADR-215-整封开发信每一句都登记出处，约时间与电话登记成发件人自己的话就另.md": {
+    "bytes": 11958,
+    "sha256": "2bdca06f16fcd6b1acebe4cfbcbb578e73079016fd434e4f87b84f1b6f021abc"
+  },
   "ADR-70-变异可以指定验证者：入口的接线从测不了变成有负片.md": {
     "bytes": 678961,
     "sha256": "3bb4ba7e72ded72c15688d47b4ff723c417ff5f00240e99f08b5a14ec9ddf82e"

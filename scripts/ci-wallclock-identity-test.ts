@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawnSync } from './check/start-process.js'
 import { fixtureLoader } from './check/prebuilt.js'
 
 const sha256 = (body: string | Buffer): string => createHash('sha256').update(body).digest('hex')

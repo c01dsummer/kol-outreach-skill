@@ -256,9 +256,11 @@ const LINKS: readonly RegExp[] = [
   // 不带协议的网址：网址名里要有字母，后缀要小写（「$29.99.Shop now」「40 hours.Me and」是句号后漏了空格，不是网址）。
   /(?<![\w-])(?=[\w-]*[a-zA-Z])[\w-]+\.(?:[\w-]+\.)*(?:com|net|org|io|co|ly|me|app|shop|store|us|uk|ca|de|fr|tv|gg|link|bio|page)\b(?:\/\S*)?/g,
 ]
-/** 钟点整串一条：10:30、9:00-17:00、10:30 and 11:30、10:30 am PST、1:10 to 1:20（比例也是这个形状，照样列出）。 */
-const CLOCK = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|and|until|till)[ \\t]?\\d{1,2}:\\d{2})?` +
-  `(?:[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))?(?:[ \\t]?(?:${TIME_ZONES})\\b)?(?![\\w:])`, 'gi')
+/** 钟点整串一条：10:30、9:00-17:00、10:30 and 11:30、10:30 am PST、1:10 to 1:20（比例也是这个形状，照样列出）；
+ *  没有分钟的整点要带 am、pm 才算钟点（3pm、3 p.m. EST），光一个数不算；前面隔一个空白是币符或币种的（£ 10 pm、USD 10 pm）
+ *  按价格那条的口径归价格（PRICE_BEFORE 认币符、币种后隔一个空白的数），不当钟点。 */
+const CLOCK = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])(?:\\d{1,2}:\\d{2}(?:[ \\t]?(?:-|to|and|until|till)[ \\t]?\\d{1,2}:\\d{2})?` +
+  `(?:[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))?|(?<![${CURRENCY_SIGNS}][ \\t]|\\b(?:usd|eur|gbp|cad|aud|inr)\\s)\\d{1,2}[ \\t]?(?:am|pm|a\\.m\\.|p\\.m\\.))(?:[ \\t]?(?:${TIME_ZONES})\\b)?(?![\\w:])`, 'gi')
 /** 一行里用空格、点、连字符、括号隔开的几组数字，合起来至少九位：多半是电话（415 555 0199、07700 900123、+44 (0)20 7946 0958），整串一条。 */
 const DIGIT_GROUPS = new RegExp(`(?<![\\w.${CURRENCY_SIGNS}])\\+?\\(?\\d{1,5}\\)?(?:(?:[ \\t]{1,2}|[.-]|(?<=\\)))\\(?\\d{1,6}\\)?){1,}(?![\\w%]|[.,]\\d)`, 'g')
 const groupKey = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ')
@@ -470,9 +472,10 @@ function withContext(draft: string, claim: Claim): Flagged {
     const text = chars.length > 500 ? `${chars.slice(0, 360).join('')}…${chars.slice(-100).join('')}` : claim.text
     return { text, context: text }
   }
-  const lineStart = draft.lastIndexOf('\n', claim.at - 1) + 1
-  const next = draft.indexOf('\n', claim.at)
-  const lineEnd = next === -1 ? draft.length : next
+  // 行的认法与逐行出处一致：\r\n、\r、\n、\u2028、\u2029 都算一行的结尾。
+  const lineStart = draft.slice(0, claim.at).search(/[^\r\n\u2028\u2029]*$/)
+  const next = draft.slice(claim.at).search(/[\r\n\u2028\u2029]/)
+  const lineEnd = next === -1 ? draft.length : claim.at + next
   const left = /(?:\S*\s+){0,3}\S*$/.exec(draft.slice(lineStart, claim.at))?.[0] ?? ''
   const right = /^\S*(?:\s+\S+){0,3}/.exec(draft.slice(claim.at + claim.text.length, lineEnd))?.[0] ?? ''
   return { text: claim.text, context: `${left}${claim.text}${right}`.replace(/\s+/g, ' ').trim() }
@@ -481,25 +484,44 @@ function withContext(draft: string, claim: Claim): Flagged {
 /** 一条的显示写法：「12-blade（a 12-blade motor）」；前后没有别的词时只写原写法。 */
 const shown = (f: Flagged): string => f.context === f.text ? f.text : `${f.text}（${f.context}）`
 
-/** 扫完一封草稿的结果：对不上产品资料的、只在博主作品里有的，各按出现先后、同一写法只列一次。 */
-export interface DraftClaims { unsourced: Flagged[]; postsOnly: Flagged[]; unmatchedBraces: boolean }
+/** 扫完一封草稿的结果：对不上产品资料的、只在博主作品里有的、落在发件人自己的话里的，各按出现先后、同一写法只列一次。 */
+export interface DraftClaims { unsourced: Flagged[]; postsOnly: Flagged[]; senderOnly: Flagged[]; unmatchedBraces: boolean }
+
+/**
+ * 落在 Agent 明着标成约时间、联系方式的登记里时，能从「出处对不上」挪走的只有日期、钟点、
+ * 电话这类连着的一串数字这三种（需求所有者 2026-11-16 定的「约时间、电话」）。按「能挪的」列：
+ * 价钱、百分比、承诺词、普通数字、认证那一整句、数量写法、型号串、兜底整串，以及以后新加的任何种类，
+ * 标了也留在「出处对不上」。是不是约时间不由机器猜（不看后面跟没跟单位、是不是落款），只认 Agent 的标注；
+ * 标错了也是摆在「只在发件人自己的话里」那一行给人确认，不是藏起来（ADR-215 第三节）。
+ */
+const SENDER_MOVABLE = new Set(['date', 'time', 'digits'])
+const senderMovable = (claim: Claim): boolean => SENDER_MOVABLE.has(claim.key.split(':')[0])
 
 /**
  * `facts` 是任务里已证实的产品事实原文（`kind=verified_product_fact` 的 detail）；
  * `posts` 是这位博主作品的文字。都可以是空的。只有 `facts` 能让一条说法过关。
+ * `senderOwn` 回答草稿原文里某一段是不是整段落在 Agent 标成约时间、联系方式的登记里（见 draft-sources.ts）；
+ * 落在里面、又不是产品形状的那几类，从「出处对不上」移到 `senderOnly`，不是放过，人照样看得到。
  */
-export function draftClaims(draft: string, facts: readonly string[], posts: readonly string[]): DraftClaims {
+export function draftClaims(draft: string, facts: readonly string[], posts: readonly string[],
+  senderOwn: (at: number, length: number) => boolean = () => false): DraftClaims {
   const fromFacts = sourceOf(facts)
   const fromPosts = sourceOf(posts)
   const seen = new Set<string>()
-  const unsourced: Flagged[] = [], postsOnly: Flagged[] = []
+  const unsourced: Flagged[] = [], postsOnly: Flagged[] = [], senderOnly: Flagged[] = []
   for (const claim of claimsIn(draft)) {
     if (sourced(claim, fromFacts)) continue
-    if (seen.has(claim.text.toLowerCase())) continue
-    seen.add(claim.text.toLowerCase())
-    ;(sourced(claim, fromPosts) ? postsOnly : unsourced).push(withContext(draft, claim))
+    const list = senderMovable(claim) && senderOwn(claim.at, claim.text.length) ? senderOnly
+      : sourced(claim, fromPosts) ? postsOnly : unsourced
+    // 去重按「列到哪一行」分开记：同一写法先出现在发件人自己的话里，信里别处没登记的那一处照样进「出处对不上」。
+    // 「只在发件人自己的话里」那一行每一处都列、各带前后文：短标注（只标 1:30）会盖住信里每一处同样的写法，
+    // 只列一处就看不见另一处其实在说产品（Blends in 1:30 minutes）。
+    const seenKey = `${list === senderOnly ? 'sender' : 'other'}:${claim.text.toLowerCase()}`
+    if (list !== senderOnly && seen.has(seenKey)) continue
+    seen.add(seenKey)
+    list.push(withContext(draft, claim))
   }
-  return { unsourced, postsOnly, unmatchedBraces: placeholders(draft).unmatched }
+  return { unsourced, postsOnly, senderOnly, unmatchedBraces: placeholders(draft).unmatched }
 }
 
 /** 任务里一条已证实的产品事实都没有时的说明：草稿里的说法全都对不上，不是比对过的结果。 */
@@ -513,22 +535,26 @@ export const NONE_FLAGGED = '无'
 
 const CJK = /[぀-ヿ㐀-鿿가-힯]/
 
-/** 评审 HTML 草稿块里那两行的文字。`postsOnly` 一行没有可列的就缺席。 */
-export interface ClaimsLines { unsourced: string; postsOnly?: string }
+/** 评审 HTML 草稿块里那几行的文字。`postsOnly`、`senderOnly` 没有可列的就缺席。 */
+export interface ClaimsLines { unsourced: string; postsOnly?: string; senderOnly?: string }
 
 /**
- * 没有草稿或草稿全是空白 → undefined（不出这两行）。
+ * 没有草稿或草稿全是空白 → undefined（不出这几行）。
  * 「出处对不上」一行：没有就写「无」，有就用「；」连起来；任务里没有已证实的产品事实、或产品资料不是英文时前面加一句说明；
- * 草稿里有没配对的花括号时后面加一句。「只在博主作品里有」一行：有才出。
+ * 草稿里有没配对的花括号时后面加一句。「只在博主作品里有」「只在发件人自己的话里」两行：有才出。
  */
 export function claimsLines(draft: string | undefined, facts: readonly string[] | undefined,
-  posts: readonly string[]): ClaimsLines | undefined {
+  posts: readonly string[], senderOwn?: (at: number, length: number) => boolean): ClaimsLines | undefined {
   if (draft === undefined || draft.trim() === '') return undefined
-  const found = draftClaims(draft, facts ?? [], posts)
+  const found = draftClaims(draft, facts ?? [], posts, senderOwn)
   const list = found.unsourced.length === 0 ? NONE_FLAGGED : found.unsourced.map(shown).join('；')
   const prefix = !facts?.length ? `${NO_FACTS}：` : facts.some(f => CJK.test(f)) ? `${NOT_ENGLISH}：` : ''
   const suffix = found.unmatchedBraces ? `；${UNMATCHED_BRACES}` : ''
-  return { unsourced: `${prefix}${list}${suffix}`, ...(found.postsOnly.length === 0 ? {} : { postsOnly: found.postsOnly.map(shown).join('；') }) }
+  return {
+    unsourced: `${prefix}${list}${suffix}`,
+    ...(found.postsOnly.length === 0 ? {} : { postsOnly: found.postsOnly.map(shown).join('；') }),
+    ...(found.senderOnly.length === 0 ? {} : { senderOnly: found.senderOnly.map(shown).join('；') }),
+  }
 }
 
 /** 任务里已证实的产品事实原文。校准缺席或一条都没有时是空数组。 */

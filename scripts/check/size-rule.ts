@@ -58,18 +58,9 @@ export function categorize(path: string): Category {
  * 开关却留在 `size.ts` 的调用点上 —— **规则模块立了两条它自己管不到的规矩**:
  * 删掉 `-z`、或者在一台 `diff.renames=false` 的机器上跑,7 条 `M-H9-*` 一条都不会红。
  * 搬进来之后,`scripts/test.ts` 起一个真 git 仓库就能把三条一起钉住。
+ * 常量本身后来挪进 `git-config.ts`(git 入口每一问都带它,观察器设施清单要记它的字节,ADR-221),这里原样转出去。
  */
-export const GIT_CONFIG = [
-  // 中文路径不许被转义成 `"docs/adr/\346..."`。这个仓库的文件名几乎全是中文,
-  // 转义之后它们匹配不上分类判据,整批掉进「其他」—— 同一个坑栽过三次。
-  // 走 `-z` 的调用本来就不转义;不走 `-z` 的调用(比如列文件名)要靠这一项压住仓库或全局配置里
-  // 打开的转义。它只管非 ASCII 字节 —— 双引号、反斜杠、制表符、换行照样会被转义
-  '-c', 'core.quotePath=false',
-  // 改名检测必须开着,理由见 `parseNumstat`。git 2.9 起这是缺省值,
-  // **但缺省值不是保证**:把 `diff.renames=false` 写进全局配置的那台机器上,
-  // 一个 400 行文件挪个位置读出源码 400 行、当场判红(实测)。
-  '-c', 'diff.renames=true',
-]
+export { GIT_CONFIG } from './git-config.js'
 
 /** 照实数的那一遍:文件清单由它定,没吃折扣的类别也由它定 */
 export const NUMSTAT = ['diff', '--numstat', '-z']

@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { spawnSync } from './check/start-process.js'
 import { SELFCHECK_FIXTURE_MARK } from './check/verifier-rule.js'
 import {
   COMBINED_FREEZE_SHA256, CONTRACT_BUCKETS, FROZEN_CONTRACT_FILES, ORIGINAL_FIXTURE_ROOT,

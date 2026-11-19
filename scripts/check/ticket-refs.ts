@@ -6,20 +6,15 @@
  * 起点与体量闸门同一个判定（`size-rule.ts` 的 `resolveBaseline`）。无从判断时说出来、以 1 结束，
  * 不退化成「零个，通过」。退出码只设在进程上、不当场退出：多了的文件一长串时，接在管道上的输出才不会被截掉。
  */
-import { execFileSync, spawnSync } from 'node:child_process'
-import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
+import { askGit, runGit } from './git-entry.js'
+import { resolveBaseline } from './size-rule.js'
 import { grepOutput, judgeRefs, parseRefs, refsArgs, refsLines } from './ticket-refs-rule.js'
 
-function tryGit(...args: string[]): string | null {
-  try {
-    return execFileSync('git', [...GIT_CONFIG, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-  } catch { return null }
-}
 
 function count(tree?: string): Map<string, number> | null {
-  const r = spawnSync('git', [...GIT_CONFIG, ...refsArgs(tree)], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+  const r = runGit(refsArgs(tree))
   if (r.stderr) process.stderr.write(r.stderr)
-  const out = grepOutput(r.status, r.stdout ?? '', r.stderr ?? '')
+  const out = grepOutput(r.status, r.stdout.toString('utf8'), r.stderr)
   return out === null ? null : parseRefs(out, tree)
 }
 
@@ -29,7 +24,7 @@ function cannotAnswer(why: string): number {
 }
 
 function main(): number {
-  const baseline = resolveBaseline(tryGit)
+  const baseline = resolveBaseline(askGit)
   if (baseline.kind === 'cannot-answer') return cannotAnswer(`${baseline.why}（${baseline.how}）`)
   if (baseline.kind === 'not-applicable') {
     console.log(`✓ 外部工单号：不适用 —— HEAD 就是 ${baseline.trunk} 且没有父提交`)

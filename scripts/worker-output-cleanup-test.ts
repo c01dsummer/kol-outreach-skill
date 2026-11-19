@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, cpSyn
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from './check/start-process.js';
 import { createHash } from 'node:crypto';
 import { reclaimOwned, recordedGroups } from './worker-output-contract-test.js';
 

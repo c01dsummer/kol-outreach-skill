@@ -701,7 +701,7 @@
     {"id": "M-P2-c3", "req": "P2.c", "why": "品牌偏好也被当成出处 —— 品牌想给的保修、想说的卖点没在商品页证实，却不再被标出", "file": "scripts/lib/draft-claims.ts", "find": "filter(s => s.kind === 'verified_product_fact')", "replace": "filter(s => s.kind !== undefined)", "by": "test", "kills": ["P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样"]},
     {"id": "M-P2-c4", "req": "P2.c", "why": "只在博主作品里有的那一行不出 —— 运营看不到信里引用了作品里的哪些数和词，分不清是引用还是编的", "file": "scripts/lib/report.ts", "find": "    const posts = lines.postsOnly === undefined ? '' : `", "replace": "    const posts = lines.postsOnly !== null ? '' : `", "by": "test", "kills": ["P2.c 只在博主作品文字里找得到的另列一行「只在博主作品里有」，不放过也不混进对不上的那一组"]},
     {"id": "M-P2-c5", "req": "P2.c", "why": "博主作品文字又能让说法过关 —— 作品里到处是 day 5、30 day、vegan，整封编造的信显示「无」", "file": "scripts/lib/draft-claims.ts", "find": "  const fromFacts = sourceOf(facts)", "replace": "  const fromFacts = sourceOf([...facts, ...posts])", "by": "test", "kills": ["P2.c 只在博主作品文字里找得到的另列一行「只在博主作品里有」，不放过也不混进对不上的那一组", "P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
-    {"id": "M-P2-c6", "req": "P2.c", "why": "对不上产品资料的不再查作品文字 —— 引用博主作品的 3-ingredient 混进对不上的那一组，那一行变吵", "file": "scripts/lib/draft-claims.ts", "find": "    ;(sourced(claim, fromPosts) ? postsOnly : unsourced)", "replace": "    ;(false ? postsOnly : unsourced)", "by": "test", "kills": ["P2.c 只在博主作品文字里找得到的另列一行「只在博主作品里有」，不放过也不混进对不上的那一组", "P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
+    {"id": "M-P2-c6", "req": "P2.c", "why": "对不上产品资料的不再查作品文字 —— 引用博主作品的 3-ingredient 混进对不上的那一组，那一行变吵", "file": "scripts/lib/draft-claims.ts", "find": "      : sourced(claim, fromPosts) ? postsOnly : unsourced", "replace": "      : false ? postsOnly : unsourced", "by": "test", "kills": ["P2.c 只在博主作品文字里找得到的另列一行「只在博主作品里有」，不放过也不混进对不上的那一组", "P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c7", "req": "P2.c", "why": "带单位的数只比数不比单位 —— 40 dB 被资料里的 40 hours 对上", "file": "scripts/lib/draft-claims.ts", "find": "  if (kind !== 'num' || unit !== '') return false", "replace": "  if (kind !== 'num') return false", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c8", "req": "P2.c", "why": "不在别名表里的单位当成没写单位 —— 400 RPM 被资料里的 400ml 对上", "file": "scripts/lib/draft-claims.ts", "find": "        : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? foldUnit(spaced) : ''", "replace": "        : spaced !== undefined && !NOT_UNITS.has(spaced.toLowerCase()) ? (UNIT_ALIASES[spaced.toLowerCase()] ?? '') : ''", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c9", "req": "P2.c", "why": "单复数不归一 —— 资料写 3 color options、信里写 3 colors 被误标", "file": "scripts/lib/draft-claims.ts", "find": "  let f = w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w", "replace": "  let f = w", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
@@ -724,7 +724,7 @@
     {"id": "M-P2-c26", "req": "P2.c", "why": "任务里没有已证实的产品事实时不写明 —— 运营把「全都对不上」读成比对过的结果", "file": "scripts/lib/draft-claims.ts", "find": "  const prefix = !facts?.length ? `${NO_FACTS}：` :", "replace": "  const prefix = !facts?.length ? '' :", "by": "test", "kills": ["P2.c 任务里没有已证实的产品事实时，说法全列出来、前面写明没有可对的；只在作品里有的照样另列", "P2.c 那一行的写法：前后各三个词、不跨行；没有前后词时只写原写法；没事实、资料不是英文、括号没配对各加一句"]},
     {"id": "M-P2-c27", "req": "P2.c", "why": "产品资料不是英文时不提示 —— 中文资料对英文信，承诺词全列出来，运营以为是编的", "file": "scripts/lib/draft-claims.ts", "find": "facts.some(f => CJK.test(f))", "replace": "facts.some(f => CJK.test(f) && false)", "by": "test", "kills": ["P2.c 那一行的写法：前后各三个词、不跨行；没有前后词时只写原写法；没事实、资料不是英文、括号没配对各加一句"]},
     {"id": "M-P2-c28", "req": "P2.c", "why": "扫完没有对不上的写成空 —— 和没有草稿分不开，运营不知道这封查过没有", "file": "scripts/lib/draft-claims.ts", "find": "  const list = found.unsourced.length === 0 ? NONE_FLAGGED :", "replace": "  const list = found.unsourced.length === 0 ? '' :", "by": "test", "kills": ["P2.c 有草稿、扫完没有对不上的写「无」，没有只在作品里的不出那一行；没草稿或草稿全是空白的卡片两行都不出", "P2.c 那一行的写法：前后各三个词、不跨行；没有前后词时只写原写法；没事实、资料不是英文、括号没配对各加一句"]},
-    {"id": "M-P2-c29", "req": "P2.c", "why": "同一写法分大小写重复列 —— 那一行被重复项撑长", "file": "scripts/lib/draft-claims.ts", "find": "    if (seen.has(claim.text.toLowerCase())) continue", "replace": "    if (seen.has(claim.text)) continue", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
+    {"id": "M-P2-c29", "req": "P2.c", "why": "同一写法分大小写重复列 —— 那一行被重复项撑长", "file": "scripts/lib/draft-claims.ts", "find": "${claim.text.toLowerCase()}`", "replace": "${claim.text}`", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c30", "req": "P2.c", "why": "千分位不按三位一组认 —— 数后面跟的逗号吃进说法，1,000 与 1000 对不上", "file": "scripts/lib/draft-claims.ts", "find": "const DIGITS = '(?:(?:\\\\d{1,3}(?:,\\\\d{3})+|\\\\d+)(?:\\\\.\\\\d+)?|\\\\.\\\\d+)'", "replace": "const DIGITS = '(?:(?:\\\\d[\\\\d,]*|\\\\d+)(?:\\\\.\\\\d+)?|\\\\.\\\\d+)'", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c31", "req": "P2.c", "why": "负号不算数的一部分 —— 信里写 -20、资料写 20，编反了的数对上了", "file": "scripts/lib/draft-claims.ts", "find": "(?<![\\\\w.${CURRENCY_SIGNS}])(-?${DIGITS})", "replace": "(?<![\\\\w.${CURRENCY_SIGNS}])-?(${DIGITS})", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
     {"id": "M-P2-c32", "req": "P2.c", "why": "型号串不去连字符 —— IPX-7 与 IPX7 对不上，有出处的型号被误标", "file": "scripts/lib/draft-claims.ts", "find": "key: `alnum:${m[0].toLowerCase().replace(/-/g, '')}`", "replace": "key: `alnum:${m[0].toLowerCase()}`", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
@@ -826,7 +826,7 @@
     {"id": "M-P2-c128", "req": "P2.c", "why": "超长句按码元截 —— 表情切成半个，那一行出现乱码", "file": "scripts/lib/draft-claims.ts", "find": "const chars = Array.from(claim.text)", "replace": "const chars = claim.text.split('')", "by": "test", "kills": ["P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处"]},
     {"id": "M-P2-c129", "req": "P2.c", "why": "草稿只在分号后有空白时才分句 —— 资料原样写的 NSF certified;FDA registered 对不上，整句被列", "file": "scripts/lib/draft-claims.ts", "find": "[.;!?]+(?=\\\\s|$)|;|\\\\n`, 'giu')", "replace": "[.;!?]+(?=\\\\s|$)|\\\\n`, 'giu')", "by": "test", "kills": ["P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处"]},
     {"id": "M-P2-c130", "req": "P2.c", "why": "拼写数后面单个字母的单位不扫 —— 信里 five L、资料 1 L 对不上被放过", "file": "scripts/lib/draft-claims.ts", "find": "filter(u => u !== '%'))", "replace": "filter(u => u !== '%' && u.length > 1))", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
-    {"id": "M-P2-c131", "req": "P2.c", "why": "作品记录缺文案字段时原样传下去 —— 评审页生成时抛错", "file": "scripts/lib/report.ts", "find": "map(p => typeof p.desc === 'string' ? p.desc : ''))", "replace": "map(p => p.desc as string))", "by": "test", "kills": ["P2.c 作品记录缺文案字段时评审页照常出两行"]},
+    {"id": "M-P2-c131", "req": "P2.c", "why": "作品记录缺文案字段时原样传下去 —— 评审页生成时抛错", "file": "scripts/lib/report.ts", "find": "map(p => typeof p.desc === 'string' ? p.desc : ''),", "replace": "map(p => p.desc as string),", "by": "test", "kills": ["P2.c 作品记录缺文案字段时评审页照常出两行"]},
     {"id": "M-P2-c132", "req": "P2.c", "why": "草稿分句时缩写分大小写 —— 信里 Tested by DR. Jones 只核到 DR，被资料 Tested by Dr. Smith 的开头作保", "file": "scripts/lib/draft-claims.ts", "find": "|;|\\\\n`, 'giu')", "replace": "|;|\\\\n`, 'gu')", "by": "test", "kills": ["P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处"]},
     {"id": "M-P2-c133", "req": "P2.c", "why": "资料分句时缩写分大小写 —— 资料 Approved by DR. Smith 被切成两半，照抄的那句对不上", "file": "scripts/lib/draft-claims.ts", "find": "|[;!?\\\\n]`, 'iu')", "replace": "|[;!?\\\\n]`, 'u')", "by": "test", "kills": ["P2.c 认证类说法核整句：带认证词的那一句要在资料某一句里原样出现；资料里否定、问句、还没拿到、说别家的不算出处"]},
     {"id": "M-P2-c134", "req": "P2.c", "why": "a 开头的拼写数读到 hundred 就停 —— 信里 a hundred and five hours 被拆成两条，资料 105 hours 对不上", "file": "scripts/lib/draft-claims.ts", "find": "(?:(?:(?:a|an)[\\\\s-]+(?:dozen|hundred|thousand|million)|(?:${NUM_WORDS}))(?:", "replace": "(?:(?:a|an)[\\\\s-]+(?:dozen|hundred|thousand|million)|(?:(?:${NUM_WORDS}))(?:", "by": "test", "kills": ["P2.c 比对口径：只认产品资料、单位按字面比、价钱只认价钱、拼写数量、承诺词表、整词与否定、噪音、日期、占位符、型号串、负数、去重"]},
@@ -2518,7 +2518,7 @@
     {
       "id": "M-H9-k",
       "req": "harness",
-      "file": "scripts/check/size-rule.ts",
+      "file": "scripts/check/git-config.ts",
       "why": "改名检测不再钉死 —— 一台把 diff.renames=false 写进全局配置的机器上,一个 400 行文件挪个位置就顶掉整个源码预算,而这行注释正说它不该发生",
       "find": "  '-c', 'diff.renames=true',",
       "replace": "  // '-c', 'diff.renames=true',",
@@ -11013,7 +11013,7 @@
     {
       "id": "M-H9-l",
       "req": "harness",
-      "file": "scripts/check/size-rule.ts",
+      "file": "scripts/check/git-config.ts",
       "why": "中文路径转义那一项又被注掉 —— 不走 -z 的调用把中文路径转义成八进制串，分类判据匹配不上，整批掉进「其他」",
       "find": "  '-c', 'core.quotePath=false',",
       "replace": "  // '-c', 'core.quotePath=false',",
@@ -14418,8 +14418,8 @@
       "req": "harness",
       "why": "命令正好是裸 git、经 shell 起的那次也当 git 不算：真起的是一个 shell，那次启动从账上消失",
       "file": "scripts/check/launch-count.ts",
-      "find": "return DIRECT.has(api) && !shell &&",
-      "replace": "return !shell &&",
+      "find": "=> DIRECT.has(api) && !shell &&",
+      "replace": "=> !shell &&",
       "by": "test",
       "kills": ["git 口径：exec、execSync 起的是 shell、fork 起的是 node，命令写 git 也算"]
     },
@@ -22401,9 +22401,9 @@
     {
       "id": "M-P2-s1",
       "req": "P2.e",
-      "why": "正本里 creator_sources 写坏了（不是数组、项不是对象、键不认得、缺原文）也照收，不指出问题",
+      "why": "正本里 draft_sources 写坏了（不是数组、项不是对象、键不认得、缺原文）也照收，不指出问题",
       "file": "scripts/lib/review.ts",
-      "find": "    if (review.creator_sources !== undefined) problems.push(...creatorSourceProblems(review.creator_sources, `${at}.creator_sources`))\n",
+      "find": "    if (review.draft_sources !== undefined) problems.push(...draftSourceProblems(review.draft_sources, `${at}.draft_sources`))\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -22414,8 +22414,8 @@
       "id": "M-P2-s2",
       "req": "P2.e",
       "why": "登记里多出不认得的键照收",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (!['draft', 'from', 'quote'].includes(key)) problems.push",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "      if (!['draft', 'from', 'quote', 'purpose'].includes(key)) problems.push",
       "replace": "      if (false) problems.push",
       "by": "test",
       "kills": [
@@ -22426,7 +22426,7 @@
       "id": "M-P2-s3",
       "req": "P2.e",
       "why": "发件人自己的话（self）写了原文也照收",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "      if (record.quote !== undefined) problems.push",
       "replace": "      if (false) problems.push",
       "by": "test",
@@ -22474,60 +22474,60 @@
       "id": "M-P2-s7",
       "req": "P2.f",
       "why": "比对前不统一大小写，大小写不同的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    .toLowerCase().replace(/\\s+/g, ' ').trim()",
-      "replace": "    .replace(/\\s+/g, ' ').trim()",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    .toLowerCase()\n}",
+      "replace": "\n}",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s8",
       "req": "P2.f",
       "why": "比对前不合并空白，多一个空格的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    .toLowerCase().replace(/\\s+/g, ' ').trim()",
-      "replace": "    .toLowerCase().trim()",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "      if (/\\s/u.test(ch)) { if (space < 0) space = start; continue }",
+      "replace": "      if (false) { if (space < 0) space = start; continue }",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s9",
       "req": "P2.f",
       "why": "弯双引号不归一成直引号，引号写法不同的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": ".replace(/[“”]/g, '\"')",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s10",
       "req": "P2.f",
       "why": "作品文案只对第一条，后面几条里的原文都说对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "fields = creator.posts.flatMap(",
-      "replace": "fields = creator.posts.slice(0, 1).flatMap(",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "fields = given.posts.flatMap(",
+      "replace": "fields = given.posts.slice(0, 1).flatMap(",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s11",
       "req": "P2.f",
       "why": "不核对原文，登记了什么都算对得上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "status: quoteVerdict(source, creator),",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "status: quoteVerdict({ ...source, from: source.from }, given),",
       "replace": "status: 'matched' as const,",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算",
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记",
         "P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对"
       ]
     },
@@ -22535,104 +22535,67 @@
       "id": "M-P2-s12",
       "req": "P2.f",
       "why": "作品文案查过了也不拿来对，一律对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "fields = creator.posts.flatMap(post => { const desc = text(post); return desc === undefined ? [] : [desc] })",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "fields = given.posts.flatMap(post => { const desc = text(post); return desc === undefined ? [] : [desc] })",
       "replace": "fields = []",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
-      ]
-    },
-    {
-      "id": "M-P2-s13",
-      "req": "P2.f",
-      "why": "信里用 you、your 跟博主说话却没登记出处的句子不列出来",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  return YOU.test(normalized) || names.some(name => name.test(sentence))",
-      "replace": "  return names.some(name => name.test(sentence))",
-      "by": "test",
-      "kills": [
-        "P2.f 这一行在输出处转义"
-      ]
-    },
-    {
-      "id": "M-P2-s14",
-      "req": "P2.f",
-      "why": "信里提到博主的名字或账号却没登记出处的句子不列出来",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  return YOU.test(normalized) || names.some(name => name.test(sentence))",
-      "replace": "  return YOU.test(normalized)",
-      "by": "test",
-      "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算",
-        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
-      ]
-    },
-    {
-      "id": "M-P2-s15",
-      "req": "P2.f",
-      "why": "问候行（Hi Mei,）也当成提到博主的句子列出来，报告里全是噪音",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (greetingSlot && isGreeting(line, salutation)) continue",
-      "replace": "      if (false) continue",
-      "by": "test",
-      "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s16",
       "req": "P2.f",
       "why": "登记的那句在信里已经找不到时不说，悄悄丢掉",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    if (at < 0) { missing.push({ status: 'not_in_draft', draft: source.draft }); continue }",
       "replace": "    if (at < 0) continue",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s17",
       "req": "P2.f",
       "why": "登记成发件人自己的话的句子混进「要看」里，不单列",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  const look = items.filter(item => item.status !== 'matched' && item.status !== 'self')",
       "replace": "  const look = items.filter(item => item.status !== 'matched')",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s18",
       "req": "P2.f",
       "why": "有草稿、什么都没有时这一行是空的，看不出是查过没问题",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  return line.length ? line.join('　｜　') : '无'",
-      "replace": "  return line.join('　｜　')",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "  if (line.length === 0) return '无'\n",
+      "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 有草稿、没提到博主也没登记的写「无」"
+        "P2.f 有草稿、没有一个字要登记（只有标点）时写「无」"
       ]
     },
     {
       "id": "M-P2-s19",
       "req": "P2.f",
       "why": "不按在信里出现的先后排，按登记的先后排",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  placed.sort((a, b) => a.at - b.at)\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s20",
       "req": "P2.g",
       "why": "草稿只有空白的卡片也出这一行",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  if (draft === undefined || draft.trim() === '') return undefined",
       "replace": "  if (draft === undefined) return undefined",
       "by": "test",
@@ -22645,8 +22608,8 @@
       "req": "P2.g",
       "why": "默认模式（给发信人看的那版）也出这一行",
       "file": "scripts/lib/report.ts",
-      "find": "    const line = options.mode === 'review'\n      ? creatorSourceLine(",
-      "replace": "    const line = true\n      ? creatorSourceLine(",
+      "find": "    const line = options.mode === 'review'\n      ? draftSourceLine(",
+      "replace": "    const line = true\n      ? draftSourceLine(",
       "by": "test",
       "kills": [
         "P2.g 默认模式 HTML 不出这一行（U9.a）"
@@ -22657,8 +22620,8 @@
       "req": "P2.f",
       "why": "这一行不转义，草稿里的尖括号会变成网页标签",
       "file": "scripts/lib/report.ts",
-      "find": "写博主的话出处：${esc(line)}",
-      "replace": "写博主的话出处：${line}",
+      "find": "逐行出处：${esc(line)}",
+      "replace": "逐行出处：${line}",
       "by": "test",
       "kills": [
         "P2.f 这一行在输出处转义"
@@ -22668,9 +22631,9 @@
       "id": "M-P2-s23",
       "req": "P2.f",
       "why": "简介没查过也说成「他的简介里没有这段」，把没查过说成没有",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "if (creator.bio === undefined) return 'not_queried'",
-      "replace": "if (creator.bio === undefined) return 'quote_missing'",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "if (given.bio === undefined) return 'not_queried'",
+      "replace": "if (given.bio === undefined) return 'quote_missing'",
       "by": "test",
       "kills": [
         "P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对"
@@ -22680,9 +22643,9 @@
       "id": "M-P2-s24",
       "req": "P2.f",
       "why": "作品是空数组（没查过）时说成「他的作品文案里没有这段」",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "if (creator.posts === undefined || creator.posts.length === 0) return 'not_queried'",
-      "replace": "if (creator.posts === undefined) return 'not_queried'",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "if (given.posts === undefined || given.posts.length === 0) return 'not_queried'",
+      "replace": "if (given.posts === undefined) return 'not_queried'",
       "by": "test",
       "kills": [
         "P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对"
@@ -22691,153 +22654,94 @@
     {
       "id": "M-P2-s25",
       "req": "P2.f",
-      "why": "正文里任何一行以 Subject: 开头都被当成主题行单独切出，和拆主题列的规则不一致",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      const subject = first && SUBJECT.test(line)",
-      "replace": "      const subject = SUBJECT.test(line)",
+      "why": "正文里任何一行以 Subject: 开头都把标签去掉不核，和拆主题列的规则不一致",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    if (first) { first = false; start +=",
+      "replace": "    if (true) { first = false; start +=",
       "by": "test",
       "kills": [
-        "P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文切句"
+        "P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文核，标签也要登记"
       ]
     },
     {
       "id": "M-P2-s26",
       "req": "P2.f",
-      "why": "一句里只登记了一小段，整句就算有出处了，没登记的半句不印出来",
-      "file": "scripts/lib/creator-sources.ts",
+      "why": "一行里只登记了一小段，整行就算有出处了，没登记的那几段不印出来",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    if (touched && rest) placed.push(",
       "replace": "    if (false) placed.push(",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后",
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s27",
       "req": "P2.f",
-      "why": "一句里有字被登记盖住也不算碰过，只登记了一部分的句子不列剩下的话",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    if (covered[i]) { touched = true; if (piece)",
-      "replace": "    if (covered[i]) { if (piece)",
+      "why": "一行里有字被登记盖住也不算碰过：全登记的行也报成整行没登记，只登记了一部分的行看不出没登记的是哪几段",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    if (i < end) touched = true\n",
+      "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后",
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s28",
       "req": "P2.f",
-      "why": "列表行不各自成句，和上一行接在一起，一个登记盖住两行",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (LIST_ITEM.test(line)) { flush(); out.push(...splitSentences(line)); continue }\n",
-      "replace": "",
+      "why": "只认 \\n 换行，回车、U+2028、U+2029 分开的几行被并成一行",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "const LINE_BREAK = /\\r\\n|\\r|\\n|\\u2028|\\u2029/g",
+      "replace": "const LINE_BREAK = /\\n/g",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s29",
       "req": "P2.f",
-      "why": "在 Dr.、U.S. 这类缩写处切句，一句话被切成几段",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (before !== undefined && (before.length === 1 || ABBREVIATIONS.has(before))) continue\n",
-      "replace": "",
+      "why": "主题行的「Subject:」标签不去掉，标签本身也被当成要登记的字",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "start += SUBJECT.exec(draft.slice(start, end))?.[0].length ?? 0 }",
+      "replace": "}",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一",
+        "P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列"
       ]
     },
     {
       "id": "M-P2-s30",
       "req": "P2.f",
-      "why": "句号后没空格（series.You）不切句，后半句跟着前半句的登记算盖住",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    if (next !== '' && !/^\\s/.test(next) && !/^\\p{Lu}/u.test(next)) continue",
-      "replace": "    if (next !== '' && !/^\\s/.test(next)) continue",
+      "why": "每一行都把到信末的字算进来，后面几行的字全算到第一行头上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    while (i < from.length && from[i] < line.end) i++",
+      "replace": "    while (i < from.length) i++",
       "by": "test",
       "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
-      ]
-    },
-    {
-      "id": "M-P2-s31",
-      "req": "P2.f",
-      "why": "句号后跟收尾引号时不切句",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  const re = /[.!?…]+[\"'”’)\\]]*/g",
-      "replace": "  const re = /[.!?…]+/g",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后"
       ]
     },
     {
       "id": "M-P2-s32",
       "req": "P2.f",
       "why": "弯单引号不归一成直引号，资料里写直撇号、登记写弯撇号就对不上",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": ".replace(/[‘’ʼ]/g, \"'\")",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
-      ]
-    },
-    {
-      "id": "M-P2-s33",
-      "req": "P2.f",
-      "why": "名字不按整词认，Meiko 也当成提到了 Mei",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "new RegExp(`(?<![\\\\p{L}\\\\p{N}_.])${escapeRegExp(word)}(?![\\\\p{L}\\\\p{N}_])`, 'iu')",
-      "replace": "new RegExp(escapeRegExp(word), 'iu')",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
-      ]
-    },
-    {
-      "id": "M-P2-s34",
-      "req": "P2.f",
-      "why": "同一句在信里出现两次就列两次",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    if (!s || seen.has(s)) continue",
-      "replace": "    if (!s) continue",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
-      ]
-    },
-    {
-      "id": "M-P2-s35",
-      "req": "P2.f",
-      "why": "驼峰昵称（TechWithSarah）不拆开，认不出 Sarah",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "const split = source.normalize('NFKC').replace(/(\\p{Ll})(\\p{Lu})/gu, '$1 $2')",
-      "replace": "const split = source.normalize('NFKC')",
-      "by": "test",
-      "kills": [
-        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
-      ]
-    },
-    {
-      "id": "M-P2-s36",
-      "req": "P2.f",
-      "why": "昵称里的 the、with、official 这类普通词也当名字，带这些词的句子全被列出来",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (!NAME_STOPWORDS.has(lower)) words.add(lower)",
-      "replace": "      words.add(lower)",
-      "by": "test",
-      "kills": [
-        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s37",
       "req": "P2.g",
       "why": "名单里昵称、简介、作品文案不是字符串时照当字符串用，render 抛错",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "const text = (value: unknown): string | undefined => typeof value === 'string' ? value : undefined",
       "replace": "const text = (value: unknown): string | undefined => value as string | undefined",
       "by": "test",
@@ -22849,229 +22753,681 @@
       "id": "M-P2-s38",
       "req": "P2.f",
       "why": "登记了出处、信里已没有的句子排在最前，盖过要先看的问题",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "  return [...placed.map(p => p.item), ...missing]",
       "replace": "  return [...missing, ...placed.map(p => p.item)]",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s39",
       "req": "P2.f",
       "why": "长短破折号不归一成连字符，资料与登记里破折号写法不同就对不上",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    .replace(/[–—]/g, '-')\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算"
-      ]
-    },
-    {
-      "id": "M-P2-s40",
-      "req": "P2.f",
-      "why": "句末标点后空白再接小写也切句，引号里的感叹号、a.m. 把一句切开，后半句编的话漏列",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    if (/^\\s+[\\p{Ll}—–(（]/u.test(next)) continue\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s41",
-      "req": "P2.f",
-      "why": "整个账号名、整个昵称不当名字认，sarah_bakes、mei123 这种写出来认不出",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "    if (lower !== undefined && lower.length >= 3 && !NAME_STOPWORDS.has(lower)) words.add(lower)\n",
-      "replace": "",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记"
       ]
     },
     {
       "id": "M-P2-s42",
       "req": "P2.f",
-      "why": "主题行整行不核，主题里写博主的话没人看",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "if (rest) out.push(rest); continue }",
-      "replace": "continue }",
+      "why": "第一个非空行整行不核，主题里写博主的话没人看",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "if (first) { first = false; start += SUBJECT.exec(draft.slice(start, end))?.[0].length ?? 0 }",
+      "replace": "if (first) { first = false; return }",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一",
+        "P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列"
       ]
     },
     {
       "id": "M-P2-s43",
       "req": "P2.f",
       "why": "比对前不做 NFKC，全角字母的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  return text.normalize('NFKC')\n",
-      "replace": "  return text\n",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "  return piece.normalize('NFKC')\n",
+      "replace": "  return piece\n",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s44",
       "req": "P2.f",
       "why": "只把短破折号归一成连字符，长破折号的原文就对不上",
-      "file": "scripts/lib/creator-sources.ts",
+      "file": "scripts/lib/draft-sources.ts",
       "find": ".replace(/[–—]/g, '-')",
       "replace": ".replace(/[–]/g, '-')",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s45",
-      "req": "P2.f",
-      "why": "称呼不限于博主的名字，「Hey Mei your marathons rock!」这种整行当问候跳过",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  return words.every(word => word !== '' && (salutation.has(word) || GENERIC_SALUTATIONS.has(word)))",
-      "replace": "  return true",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后",
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s46",
-      "req": "P2.f",
-      "why": "问候收尾的逗号、感叹号不认，每封的 Dear Mei, 都被当正文列出",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "const GREETING = /^(?:hi|hello|hey|dear)\\b\\s*(.*?)\\s*[,!.\\-–—]?$/i",
-      "replace": "const GREETING = /^(?:hi|hello|hey|dear)\\b\\s*(.*?)\\s*$/i",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
-      ]
-    },
-    {
-      "id": "M-P2-s47",
-      "req": "P2.f",
-      "why": "每一段的问候样式行都跳过，信后面另起一段的「Hey Mei …」没人看",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "      if (greetingSlot && isGreeting(line, salutation)) continue",
-      "replace": "      if (isGreeting(line, salutation)) continue",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s48",
-      "req": "P2.f",
-      "why": "问候不限词数，长长一行称呼也跳过",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  if (m === null || line.split(/\\s+/).length > 5) return false",
-      "replace": "  if (m === null) return false",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s49",
-      "req": "P2.f",
-      "why": "there、team 这类泛称不认，Hello team Mei! 被当正文列出",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "(salutation.has(word) || GENERIC_SALUTATIONS.has(word))",
-      "replace": "salutation.has(word)",
-      "by": "test",
-      "kills": [
-        "P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后"
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s50",
       "req": "P2.f",
       "why": "没登记的部分只剩表情时当没有，Your smoothie series 🔥🔥 只登记前半也算盖住",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "filter(p => /[^\\s\\p{P}]/u.test(p))",
-      "replace": "filter(p => /[\\p{L}\\p{N}]/u.test(p))",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "const hasWords = (text: string): boolean => /[^\\s\\p{P}]|[{}]/u.test(text)",
+      "replace": "const hasWords = (text: string): boolean => /[\\p{L}\\p{N}]|[{}]/u.test(text)",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
-      ]
-    },
-    {
-      "id": "M-P2-s51",
-      "req": "P2.f",
-      "why": "整个昵称不当名字认，mei_lin 这种写出来认不出",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "[text(creator.handle)?.replace(/^@/, ''), text(creator.nickname)]",
-      "replace": "[text(creator.handle)?.replace(/^@/, '')]",
-      "by": "test",
-      "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
       "id": "M-P2-s52",
       "req": "P2.f",
-      "why": "登记只标在信里第一次出现的地方，同一段话第二次出现后面接的编造不列",
-      "file": "scripts/lib/creator-sources.ts",
+      "why": "登记只标在信里第一次出现的地方：同一段话第二次出现时那一处算没登记，那一行当一个字都没登记列出，不再指出后面接的「is the best.」才是没登记的部分",
+      "file": "scripts/lib/draft-sources.ts",
       "find": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = normalizedDraft.indexOf(key, at + 1)) {",
       "replace": "    for (let at = normalizedDraft.indexOf(key); at >= 0; at = -1) {",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
-      "id": "M-P2-s53",
+      "id": "M-P2-s57",
       "req": "P2.f",
-      "why": "正文开头的称呼不是纯问候时，不带名字就不列，「Hey sourdough queen!」这种编的称号没人看",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "else if (!touched && (addressed.has(sentence) || mentionsCreator(sentence, names)))",
-      "replace": "else if (!touched && mentionsCreator(sentence, names))",
+      "why": "登记成产品事实的原文不拿任务里已证实的产品事实来对，一律说对不上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "fields = (given.facts ?? []).filter(fact => typeof fact === 'string')",
+      "replace": "fields = []",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记",
+        "P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上"
       ]
     },
     {
-      "id": "M-P2-s54",
+      "id": "M-P2-s58",
       "req": "P2.f",
-      "why": "Hi there, 不当问候，每封都被列",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "const GENERIC_SALUTATIONS = new Set(['there', ",
-      "replace": "const GENERIC_SALUTATIONS = new Set([",
+      "why": "产品事实只对第一条，后面几条里的原文都说对不上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "(given.facts ?? []).filter(",
+      "replace": "(given.facts ?? []).slice(0, 1).filter(",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上"
       ]
     },
     {
-      "id": "M-P2-s55",
+      "id": "M-P2-s59",
       "req": "P2.f",
-      "why": "只有 Hi, 没有称呼时不当问候，后面整封当在说他",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "  if (m[1] === '') return true\n",
+      "why": "一个字都没登记的行不列出来，没登记的话没人看",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    else if (!touched && hasWords(normalizedDraft.slice(begin, i))) placed.push",
+      "replace": "    else if (false) placed.push",
+      "by": "test",
+      "kills": [
+        "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后",
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s60",
+      "req": "P2.f",
+      "why": "只有标点、破折号的一行也当没登记的话列出来，报告里全是噪音",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    else if (!touched && hasWords(normalizedDraft.slice(begin, i))) placed.push",
+      "replace": "    else if (!touched) placed.push",
+      "by": "test",
+      "kills": [
+        "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s61",
+      "req": "P2.f",
+      "why": "产品事实对不上时说成「他的产品事实里没有」，把任务里的产品资料说成博主的",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "case 'quote_missing': return item.from === 'product'",
+      "replace": "case 'quote_missing': return false",
+      "by": "test",
+      "kills": [
+        "P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记",
+        "P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上"
+      ]
+    },
+    {
+      "id": "M-P2-s62",
+      "req": "P2.e",
+      "why": "登记里写 product（产品事实）当成不认得的来处拒收",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "['bio', 'post', 'nickname', 'product', 'self'] as const",
+      "replace": "['bio', 'post', 'nickname', 'self'] as const",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节",
+        "P2.e 合规的 draft_sources 读写往返不丢"
+      ]
+    },
+    {
+      "id": "M-P2-s63",
+      "req": "P2.e",
+      "why": "旧名单当种子时出处登记不清掉，上一轮的登记带进新一轮的采集原件",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "'outreach_draft', 'draft_sources', 'eligibility'",
+      "replace": "'outreach_draft', 'eligibility'",
+      "by": "test",
+      "kills": [
+        "P2.e 旧名单当种子时出处登记跟草稿一起清掉"
+      ]
+    },
+    {
+      "id": "M-P2-c-own1",
+      "req": "P2.c",
+      "why": "登记成产品事实却挂着约时间标注（手改名单绕过正本校验）也把句里的数字移出「出处对不上」",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "(sources ?? []).filter(source => source.from === 'self' && (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose))",
+      "replace": "(sources ?? []).filter(source => (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose))",
+      "by": "test",
+      "kills": [
+        "P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算"
+      ]
+    },
+    {
+      "id": "M-P2-c-own2",
+      "req": "P2.c",
+      "why": "一条说法只要有一部分落在发件人自己的话里就移走，登记半个日期也能让整个日期离开「出处对不上」",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "=> start <= at && at + length <= end)",
+      "replace": "=> start < at + length && at < end)",
+      "by": "test",
+      "kills": [
+        "P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算"
+      ]
+    },
+    {
+      "id": "M-P2-c-own4",
+      "req": "P2.c",
+      "why": "价钱标成约时间、联系方式也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'price'])",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own5",
+      "req": "P2.c",
+      "why": "承诺词标成约时间、联系方式也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'word'])",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own6",
+      "req": "P2.c",
+      "why": "普通数量（带单位的数、倍数）标成约时间、联系方式也移出「出处对不上」，产品规格躲过检查",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'num'])",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own7",
+      "req": "P2.c",
+      "why": "half off 这类数量写法标成约时间、联系方式也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'phrase'])",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own8",
+      "req": "P2.c",
+      "why": "型号串标成约时间、联系方式也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'alnum'])",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own9",
+      "req": "P2.c",
+      "why": "同一写法先出现在发件人自己的话里，信里别处没登记的那一处就不列了",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "const seenKey = `${list === senderOnly ? 'sender' : 'other'}:",
+      "replace": "const seenKey = `${'any'}:",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own10",
+      "req": "P2.c",
+      "why": "移出来的数字不另列一行，人看不到",
+      "file": "scripts/lib/report.ts",
+      "find": "${posts}${sender}",
+      "replace": "${posts}",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own11",
+      "req": "P2.c",
+      "why": "报告不把发件人自己的话交给数字扫描，登记了约时间也照列在「出处对不上」",
+      "file": "scripts/lib/report.ts",
+      "find": "c.outreach_draft === undefined ? undefined : senderOwnSpans(c.outreach_draft, c.draft_sources)",
+      "replace": "undefined",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列",
+        "P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算"
+      ]
+    },
+    {
+      "id": "M-P2-c-own12",
+      "req": "P2.c",
+      "why": "认证、批准这类说法的那一整句标成约时间、联系方式也移出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'endorsed'])",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own13",
+      "req": "P2.c",
+      "why": "标成约时间、联系方式的电话这类连着的一串数字不移，约时间、联系方式照样挤在「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'time'])",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列",
+        "P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算"
+      ]
+    },
+    {
+      "id": "M-P2-c-own14",
+      "req": "P2.c",
+      "why": "标成约时间、联系方式的日期不移，约时间照样挤在「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['time', 'digits'])",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own15",
+      "req": "P2.c",
+      "why": "「只在发件人自己的话里」这一行不转义，草稿里的尖括号会变成网页标签",
+      "file": "scripts/lib/report.ts",
+      "find": "只在发件人自己的话里：${esc(lines.senderOnly)}",
+      "replace": "只在发件人自己的话里：${lines.senderOnly}",
+      "by": "test",
+      "kills": [
+        "P2.c 「只在发件人自己的话里」一行在输出处转义"
+      ]
+    },
+    {
+      "id": "M-P2-s67",
+      "req": "P2.f",
+      "why": "一行开头之前的字（主题行去掉的「Subject:」标签）算进这一行，主题只登记了标签后的字也被列成只登记了一部分",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    while (i < from.length && to[i] <= line.start) i++\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算"
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
       ]
     },
     {
-      "id": "M-P2-s56",
+      "id": "M-P2-s68",
       "req": "P2.f",
-      "why": "引文后空白再接破折号或括号时切句，「— 评价」那半截不带 you 就不列",
-      "file": "scripts/lib/creator-sources.ts",
-      "find": "if (/^\\s+[\\p{Ll}—–(（]/u.test(next)) continue",
-      "replace": "if (/^\\s+\\p{Ll}/u.test(next)) continue",
+      "why": "没填的占位符 {...} 整段是标点，当没有要登记的话放过：主题行的 {...} 不再列成没登记出处，正文那句也不再指出 {...} 是没登记的部分（这个夹具里其余的字都登记了，「要看」一段就成了「无」）",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "/[^\\s\\p{P}]|[{}]/u.test(text)",
+      "replace": "/[^\\s\\p{P}]/u.test(text)",
       "by": "test",
       "kills": [
-        "P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一"
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s69",
+      "req": "P2.f",
+      "why": "没盖住的那段按原文判要不要列：全角花括号 ｛...｝ 原文是标点，占位符没登记也不列",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "  const keep = (start: number, end: number) => hasWords(normalizedDraft.slice(start, end))",
+      "replace": "  const keep = (start: number, end: number) => hasWords(show(start, end))",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s70",
+      "req": "P2.f",
+      "why": "信开头的空行也算第一行：后面真正的主题行不去掉「Subject:」标签，只登记了标签后的字也被列成只登记了一部分",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "    if (draft.slice(start, end).trim() === '') return\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s72",
+      "req": "P2.g",
+      "why": "只有一层（B 层）的工作表多出出处列：别的表里有表头、拼起来找词的检查照绿",
+      "file": "scripts/lib/rows.ts",
+      "find": "headers: [...REVIEW_HEADERS],",
+      "replace": "headers: t === 'B' ? [...REVIEW_HEADERS, 'draft_sources'] : [...REVIEW_HEADERS],",
+      "by": "test",
+      "kills": [
+        "P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列"
+      ]
+    },
+    {
+      "id": "M-P2-s73",
+      "req": "P2.g",
+      "why": "工作簿里第二张表的关系指到不存在的文件：只数读得到的那几张的检查照绿",
+      "file": "scripts/lib/xlsx.ts",
+      "find": "Target=\"worksheets/sheet${i + 1}.xml\"",
+      "replace": "Target=\"worksheets/sheet${i === 1 ? 9 : i + 1}.xml\"",
+      "by": "test",
+      "kills": [
+        "P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列"
+      ]
+    },
+    {
+      "id": "M-P2-c-own19",
+      "req": "P2.c",
+      "why": "币符后隔一个空白的整点（£ 10 pm）当成钟点，登记成自己的话时价格被挪到「只在发件人自己的话里」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "(?<![${CURRENCY_SIGNS}][ \\\\t]|\\\\b(?:usd|eur|gbp|cad|aud|inr)\\\\s)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点"
+      ]
+    },
+    {
+      "id": "M-P2-c-own21",
+      "req": "P2.c",
+      "why": "提示的前后文只认 \\n 当行尾：\\r、U+2028 换行的信里，下一行的落款混进约时间的提示",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "const next = draft.slice(claim.at).search(/[\\r\\n\\u2028\\u2029]/)",
+      "replace": "const next = draft.slice(claim.at).search(/\\n/)",
+      "by": "test",
+      "kills": [
+        "P2.c 挪不挪只看约时间、联系方式的标注，不看后面跟的字；提示的前后文只取这一行"
+      ]
+    },
+    {
+      "id": "M-P2-c-own22",
+      "req": "P2.c",
+      "why": "没标用途的发件人自己的话也算约时间：整句登记成 self 就把句里的日期、钟点、电话挪出「出处对不上」，回到按长相猜",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "source.from === 'self' && (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose)",
+      "replace": "source.from === 'self'",
+      "by": "test",
+      "kills": [
+        "P2.c 没标约时间、联系方式时一个都不挪：没登记、或整句登记成发件人自己的话，约时间、电话都照列在「出处对不上」，不出另一行"
+      ]
+    },
+    {
+      "id": "M-P2-s74",
+      "req": "P2.f",
+      "why": "逐行出处里标了约时间、联系方式的登记不印用途，运营看不出这一段是 Agent 标的",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "item.purpose === undefined || !(item.purpose in PURPOSE_LABEL) ? `「${item.draft}」` : `「${item.draft}」（${PURPOSE_LABEL[item.purpose]}）`",
+      "replace": "`「${item.draft}」`",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s75",
+      "req": "P2.e",
+      "why": "用途写成认不得的值也收进正本",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "if (record.purpose !== undefined && !(DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(record.purpose)) {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节"
+      ]
+    },
+    {
+      "id": "M-P2-s76",
+      "req": "P2.e",
+      "why": "不是发件人自己的话也能写用途：产品事实登记上挂约时间标注",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "} else if (record.purpose !== undefined) {",
+      "replace": "} else if (false) {",
+      "by": "test",
+      "kills": [
+        "P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节"
+      ]
+    },
+    {
+      "id": "M-P2-c-own23",
+      "req": "P2.c",
+      "why": "提示前后文的行首只认 \\n：回车、U+2028、U+2029 分开的上一行混进提示",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "draft.slice(0, claim.at).search(/[^\\r\\n\\u2028\\u2029]*$/)",
+      "replace": "draft.slice(0, claim.at).search(/[^\\n]*$/)",
+      "by": "test",
+      "kills": [
+        "P2.c 挪不挪只看约时间、联系方式的标注，不看后面跟的字；提示的前后文只取这一行"
+      ]
+    },
+    {
+      "id": "M-P2-c-own24",
+      "req": "P2.c",
+      "why": "提示前后文的行尾不认 U+2028、U+2029：下一行的落款混进约时间的提示",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "const next = draft.slice(claim.at).search(/[\\r\\n\\u2028\\u2029]/)",
+      "replace": "const next = draft.slice(claim.at).search(/[\\r\\n]/)",
+      "by": "test",
+      "kills": [
+        "P2.c 挪不挪只看约时间、联系方式的标注，不看后面跟的字；提示的前后文只取这一行"
+      ]
+    },
+    {
+      "id": "M-P2-c-own25",
+      "req": "P2.c",
+      "why": "兜底整串也算能挪的：标了约时间的整句里，认不出种类的带数字串跟着挪出「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "const SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "const SENDER_MOVABLE = new Set(['date', 'time', 'digits', 'raw'])",
+      "by": "test",
+      "kills": [
+        "P2.c 「只在发件人自己的话里」每一处都列；标了的整句里兜底整串照列；认不得的用途不算标注"
+      ]
+    },
+    {
+      "id": "M-P2-c-own26",
+      "req": "P2.c",
+      "why": "「只在发件人自己的话里」同一写法只列一处：短标注盖住的另一处其实在说产品，人看不见",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "if (list !== senderOnly && seen.has(seenKey)) continue",
+      "replace": "if (seen.has(seenKey)) continue",
+      "by": "test",
+      "kills": [
+        "P2.c 「只在发件人自己的话里」每一处都列；标了的整句里兜底整串照列；认不得的用途不算标注"
+      ]
+    },
+    {
+      "id": "M-P2-c-own27",
+      "req": "P2.c",
+      "why": "认不得的用途（手改名单写了 banana）也算标注，句里的约时间被挪走",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "source.from === 'self' && (DRAFT_SOURCE_PURPOSES as readonly unknown[]).includes(source.purpose)",
+      "replace": "source.from === 'self' && source.purpose !== undefined",
+      "by": "test",
+      "kills": [
+        "P2.c 「只在发件人自己的话里」每一处都列；标了的整句里兜底整串照列；认不得的用途不算标注"
+      ]
+    },
+    {
+      "id": "M-P2-s78",
+      "req": "P2.f",
+      "why": "认不得的用途照印：逐行出处里印出「（undefined）」",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "item.purpose === undefined || !(item.purpose in PURPOSE_LABEL) ?",
+      "replace": "item.purpose === undefined ?",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-c-own28",
+      "req": "P2.c",
+      "why": "两条标注各盖住日期的一截，拼起来就算整段落在标注里，日期被挪走",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "spans.some(([start, end]) => start <= at && at + length <= end)",
+      "replace": "spans.some(([start]) => start <= at) && spans.some(([, end]) => at + length <= end)",
+      "by": "test",
+      "kills": [
+        "P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算"
+      ]
+    },
+    {
+      "id": "M-P2-s79",
+      "req": "P2.f",
+      "why": "登记只在开头 Subject: 字样里找得到也算在信里：旧主题改了以后不报信里已经没有",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "at + key.length <= label",
+      "replace": "at + key.length < 0",
+      "by": "test",
+      "kills": [
+        "P2.f 登记只在开头 Subject: 字样里找得到时算信里已经没有；主题内容与正文里有的照常认"
+      ]
+    },
+    {
+      "id": "M-P2-s80",
+      "req": "P2.g",
+      "why": "工作簿里第二张表的关系指到第一张表的文件：两张读到的表头一样，逐张对表头照绿",
+      "file": "scripts/lib/xlsx.ts",
+      "find": "Target=\"worksheets/sheet${i + 1}.xml\"",
+      "replace": "Target=\"worksheets/sheet${i === 1 ? 1 : i + 1}.xml\"",
+      "by": "test",
+      "kills": [
+        "P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列"
+      ]
+    },
+    {
+      "id": "M-P2-s81",
+      "req": "P2.f",
+      "why": "分字改回本仓库自己列的规则（附加符号只跟字母、符号）：半角浊点 ﾞ 不是附加符号，ｶﾞ 和 ガ 对不上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "GRAPHEMES.segment(raw)",
+      "replace": "[...raw.matchAll(/[\\p{L}\\p{S}]\\p{M}*|[^]/gsu)].map(m => ({ segment: m[0], index: m.index ?? 0 }))",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-s82",
+      "req": "P2.f",
+      "why": "一个字按它开头的位置归行：冒号加附加符号那个字开头在「Subject:」字样里，整个跟着标签跳过",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "to[i] <= line.start",
+      "replace": "from[i] < line.start",
+      "by": "test",
+      "kills": [
+        "P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一"
+      ]
+    },
+    {
+      "id": "M-P2-c-own16",
+      "req": "P2.c",
+      "why": "标成约时间、联系方式的钟点不再移走，约时间照列在「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "SENDER_MOVABLE = new Set(['date', 'time', 'digits'])",
+      "replace": "SENDER_MOVABLE = new Set(['date', 'digits'])",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列",
+        "P2.c 标成约时间也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点"
+      ]
+    },
+    {
+      "id": "M-P2-c-own17",
+      "req": "P2.c",
+      "why": "没有分钟的整点（3pm）不算钟点，登记成自己的话的约时间照列在「出处对不上」",
+      "file": "scripts/lib/draft-claims.ts",
+      "find": "|(?<![${CURRENCY_SIGNS}][ \\\\t]|\\\\b(?:usd|eur|gbp|cad|aud|inr)\\\\s)\\\\d{1,2}[ \\\\t]?(?:am|pm|a\\\\.m\\\\.|p\\\\.m\\\\.))(?:[ \\\\t]?(?:${TIME_ZONES})",
+      "replace": ")(?:[ \\\\t]?(?:${TIME_ZONES})",
+      "by": "test",
+      "kills": [
+        "P2.c 标成约时间也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点"
+      ]
+    },
+    {
+      "id": "M-P2-s64",
+      "req": "P2.f",
+      "why": "同一行在信里出现两处只列一处，后一处没登记的被去重吃掉",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "  for (const line of bodyLines) {\n",
+      "replace": "  const seen = new Set<string>()\n  for (const line of bodyLines) {\n    if (seen.has(line.text)) continue\n    seen.add(line.text)\n",
+      "by": "test",
+      "kills": [
+        "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后"
+      ]
+    },
+    {
+      "id": "M-P2-s65",
+      "req": "P2.f",
+      "why": "「要看」那一段空着时不写「要看：无」，运营要从下一段开头去推断",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "return (look.length ? line : ['要看：无', ...line]).join('　｜　')",
+      "replace": "return line.join('　｜　')",
+      "by": "test",
+      "kills": [
+        "P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后",
+        "P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上"
+      ]
+    },
+    {
+      "id": "M-P2-s66",
+      "req": "P2.f",
+      "why": "产品事实拼成一整段再找，两条事实各一半的原文也算对得上",
+      "file": "scripts/lib/draft-sources.ts",
+      "find": "fields = (given.facts ?? []).filter(fact => typeof fact === 'string')",
+      "replace": "fields = [(given.facts ?? []).filter(fact => typeof fact === 'string').join(' ')]",
+      "by": "test",
+      "kills": [
+        "P2.f 产品事实：原文要整段落在同一条事实里，跨两条拼起来的对不上"
       ]
     },
     {
@@ -23612,10 +23968,10 @@
     {
       "id": "M-H64-a",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_DIR，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_DIR，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_DIR') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_DIR"
@@ -23624,10 +23980,10 @@
     {
       "id": "M-H64-b",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_WORK_TREE，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_WORK_TREE，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_WORK_TREE') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_WORK_TREE"
@@ -23636,10 +23992,10 @@
     {
       "id": "M-H64-c",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_INDEX_FILE，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_INDEX_FILE，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_INDEX_FILE') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_INDEX_FILE"
@@ -23648,10 +24004,10 @@
     {
       "id": "M-H64-d",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_OBJECT_DIRECTORY，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_OBJECT_DIRECTORY，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_OBJECT_DIRECTORY') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_OBJECT_DIRECTORY"
@@ -23660,10 +24016,10 @@
     {
       "id": "M-H64-e",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_ALTERNATE_OBJECT_DIRECTORIES，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_ALTERNATE_OBJECT_DIRECTORIES，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_ALTERNATE_OBJECT_DIRECTORIES') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_ALTERNATE_OBJECT_DIRECTORIES"
@@ -23672,10 +24028,10 @@
     {
       "id": "M-H64-f",
       "req": "harness",
-      "why": "建立临时变异历史时继承 GIT_COMMON_DIR，调用可写到夹具以外的 Git 位置",
-      "file": "scripts/check/selfcheck.ts",
-      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
-      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete fixtureGitEnv[key]",
+      "why": "git 夹具起 git 时继承 GIT_COMMON_DIR，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_') || k === 'GIT_COMMON_DIR') env[k] = v",
       "by": "test",
       "kills": [
         "Git 建历史隔离：不继承 GIT_COMMON_DIR"
@@ -28429,8 +28785,8 @@
       "req": "harness",
       "file": "scripts/check/ticket-refs.ts",
       "why": "入口不把 git grep 的 stderr 交给判定 —— 有文件读不了时照样当成数全了，少数的那几处悄悄放过",
-      "find": "  const out = grepOutput(r.status, r.stdout ?? '', r.stderr ?? '')",
-      "replace": "  const out = grepOutput(r.status, r.stdout ?? '', '')",
+      "find": "  const out = grepOutput(r.status, r.stdout.toString('utf8'), r.stderr)",
+      "replace": "  const out = grepOutput(r.status, r.stdout.toString('utf8'), '')",
       "by": "test",
       "kills": ["入口：git grep 退出码正常却在 stderr 说了话时，说无从判断、以 1 结束，git 的那句原样转出"]
     },
@@ -28549,8 +28905,8 @@
       "req": "harness",
       "file": "scripts/check/child-process-use-rule.ts",
       "why": "待挪里重复的名字不报 —— 同一个文件写两遍，删掉一遍看着像挪走了一个",
-      "find": "    if (toMove[i - 1] >= toMove[i]) throw",
-      "replace": "    if (toMove[i - 1] > toMove[i]) throw",
+      "find": "      if (list[i - 1] >= list[i]) throw",
+      "replace": "      if (list[i - 1] > list[i]) throw",
       "by": "test",
       "kills": ["形状不对一律抛错，不当成空表：多键、少键、理由空、登记不是对象、待挪没排序或重复、两节都在、说明不是字、根不是对象"]
     },
@@ -28609,7 +28965,7 @@
       "req": "harness",
       "file": "scripts/check/child-process-use-rule.ts",
       "why": "登记了不存在的文件也不报 —— 文件改名后旧名字留着，新名字靠别的路混进来",
-      "find": "  const missing = [...now.registered.keys(), ...now.toMove].filter(p => !sites.has(p)).sort()",
+      "find": "  const missing = [...now.registered.keys(), ...now.toMove, ...now.testFiles].filter(p => !sites.has(p)).sort()",
       "replace": "  const missing: string[] = []",
       "by": "test",
       "kills": ["待挪比基线多出来的、已经一处不碰还挂着的、登记了却不在仓库里的，各记各的"]
@@ -28803,6 +29159,1293 @@
       "replace": "      if (false) continue",
       "by": "test",
       "kills": ["入口：受控文件从工作区删掉了照常跳过，不算读不了"]
+    },
+    {
+      "id": "M-H219-a",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "异步起进程的那个包装不经检查直接起：git、经 shell 的照起",
+      "find": "(cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...checked(file, rest))",
+      "replace": "(cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...rest)",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-b",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程、拿回结果对象的那个包装不经检查直接起：git、经 shell 的照起",
+      "find": "(cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))",
+      "replace": "(cp.spawnSync as (...a: unknown[]) => unknown)(file, ...rest)",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-c",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程、直接拿回输出的那个包装不经检查直接起：git、经 shell 的照起",
+      "find": "(cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))",
+      "replace": "(cp.execFileSync as (...a: unknown[]) => unknown)(file, ...rest)",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-d",
+      "req": "harness",
+      "file": "scripts/check/launch-count.ts",
+      "why": "认不出裸名 git：起 git 不抛错",
+      "find": "return last === 'git' ||",
+      "replace": "return false ||",
+      "by": "test",
+      "kills": ["认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算", "三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-e",
+      "req": "harness",
+      "file": "scripts/check/launch-count.ts",
+      "why": "认不出 git.exe",
+      "find": "|| last === 'git.exe'",
+      "replace": "|| false",
+      "by": "test",
+      "kills": ["认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算"]
+    },
+    {
+      "id": "M-H219-f",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "要经 shell 的照起：命令串里起什么这里看不到",
+      "find": "if ((options as { shell?: unknown } | undefined)?.shell) throw",
+      "replace": "if (false) throw",
+      "by": "test",
+      "kills": ["选项要经 shell 的三个函数都当场抛错，一次也没交给 Node（shell 写 true 或写一个 shell 的路径都算）"]
+    },
+    {
+      "id": "M-H219-g",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "多出第四个参数也照起：写错的调用不报",
+      "find": "if (rest.length > 2 || !Array.isArray(args))",
+      "replace": "if (!Array.isArray(args))",
+      "by": "test",
+      "kills": ["写法不是（程序, 参数数组, 选项）的三个函数都当场抛错，一次也没交给 Node：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象或是空值、多出第四个参数"]
+    },
+    {
+      "id": "M-H219-h",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "参数数组省了、选项挪到第二个位置也照起：选项里的 shell 就会漏过去",
+      "find": "if (rest.length > 2 || !Array.isArray(args))",
+      "replace": "if (rest.length > 2)",
+      "by": "test",
+      "kills": ["写法不是（程序, 参数数组, 选项）的三个函数都当场抛错，一次也没交给 Node：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象或是空值、多出第四个参数"]
+    },
+    {
+      "id": "M-H219-i",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项位置不是对象也照转：写成空值时有的函数当成没给选项，程序与参数数组都对就真起了进程；写成别的由 Node 报，不说该怎么写",
+      "find": "if (options !== undefined && (typeof options !== 'object' || options === null || Array.isArray(options))) throw",
+      "replace": "if (false) throw",
+      "by": "test",
+      "kills": ["写法不是（程序, 参数数组, 选项）的三个函数都当场抛错，一次也没交给 Node：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象或是空值、多出第四个参数"]
+    },
+    {
+      "id": "M-H219-j",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "程序名不是字符串时也拿去认是不是 git：当字符串切的那一下先抛出别的错，盖住 Node 自己的参数类型错",
+      "find": "  if (typeof file !== 'string') return rest\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["程序名不是字符串的三个函数都原样交给 Node（参数一个没改），由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）"]
+    },
+    {
+      "id": "M-H219-k",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "起进程的函数在载入时就抄下来：之后换掉模块上的函数，经它起的进程两份预加载都数不到、拦不到",
+      "find": "import cp from 'node:child_process'\n",
+      "replace": "import cpLive from 'node:child_process'\nconst cp = { ...cpLive }\n",
+      "by": "test",
+      "kills": ["起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个"]
+    },
+    {
+      "id": "M-H219-l",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "过了检查的参数抄一份再交出去：选项从原型上继承来的值丢了，调用方看到的和直接调 Node 不一样",
+      "find": "  return rest\n}",
+      "replace": "  return rest.map(item => Array.isArray(item) ? [...item] : typeof item === 'object' && item !== null ? { ...item } : item)\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-m",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项里没有自己写的 stdio 时，就地往参数数组里塞一个：还是同一个数组，内容却变了，调用方手里的数组也跟着变",
+      "find": "  return rest\n}",
+      "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio')) (args as unknown[]).push('--')\n  return rest\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-n",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程的那个过了检查后交给 Node 两次、返回第二次的结果：参数和结果都对，子进程却起了两回",
+      "find": "  (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as SpawnSync",
+      "replace": "  ((cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)), (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...rest))) as SpawnSync",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-o",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项的 stdio 是继承来的时，往选项对象自己身上补一个同样的值：还是同一个对象、读到的值也一样，调用方的对象却多了一个自己的键",
+      "find": "  return rest\n}",
+      "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio')) (options as { stdio?: unknown }).stdio = (options as { stdio?: unknown }).stdio\n  return rest\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-p",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "同步起进程拿输出的那个交给 Node 以后不把结果还回来、而是抛错：参数都对，调用方却拿不到 Node 的结果",
+      "find": "  (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as ExecFileSync",
+      "replace": "  { (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)); throw new Error('交完不还') }) as ExecFileSync",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-q",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "交给 Node 以后顺手在 Node 还回的结果上补一个记号：还的是同一个东西，里面却被改过",
+      "find": "  (cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as SpawnSync",
+      "replace": "  Object.assign((cp.spawnSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)) as object, { 经过: true })) as SpawnSync",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-r",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "Node 抛的错被接住，改成还回错里带的输出：调用方以为起成功了",
+      "find": "  (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest))) as ExecFileSync",
+      "replace": "  { try { return (cp.execFileSync as (...a: unknown[]) => unknown)(file, ...checked(file, rest)) } catch (error) { return (error as { stdout?: unknown }).stdout } }) as ExecFileSync",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-s",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "交出去之前把程序名去掉首尾空白：程序名对 Node 来说变了",
+      "find": "  (cp.spawn as (...a: unknown[]) => cp.ChildProcess)(file, ...checked(file, rest))) as Spawn",
+      "replace": "  (cp.spawn as (...a: unknown[]) => cp.ChildProcess)(typeof file === 'string' ? file.trim() : file, ...checked(file, rest))) as Spawn",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H219-t",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "自己认 git 而不用共用的判断：裸名 git 与 git.exe 都认，路径却只按正斜杠切，反斜杠路径漏过去",
+      "find": "  if (isGitProgram(file)) throw",
+      "replace": "  if (['git', 'git.exe'].includes(file.split('/').pop() ?? '')) throw",
+      "by": "test",
+      "kills": ["三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）"]
+    },
+    {
+      "id": "M-H219-u",
+      "req": "harness",
+      "file": "scripts/check/start-process.ts",
+      "why": "选项的 stdio 是继承来的时，去改提供它的那个原型：选项对象还是原来那个，Node 读到的 stdio 却变了",
+      "find": "  return rest\n}",
+      "replace": "  if (options !== undefined && !Object.hasOwn(options as object, 'stdio') && Object.getPrototypeOf(options) !== Object.prototype) Object.getPrototypeOf(options).stdio = 'ignore'\n  return rest\n}",
+      "by": "test",
+      "kills": ["过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出"]
+    },
+    {
+      "id": "M-H220-a",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "问 git 不先查表：不在表里的问法照样起 git，要写的子命令也照起",
+      "find": "  questionOf(args)\n  return ['--no-optional-locks'",
+      "replace": "  return ['--no-optional-locks'",
+      "by": "test",
+      "kills": [
+        "不在表里的当场抛错，一次也没交给 Node"
+      ]
+    },
+    {
+      "id": "M-H220-b",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "空位里能填开关：以 - 开头的修订、值照样认，调用方借空位塞进别的开关",
+      "find": "    if (want === REV || want === VALUE) return !arg.startsWith('-')",
+      "replace": "    if (want === REV || want === VALUE) return true",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-c",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "末尾的路径一个不给也认：问的范围悄悄变成整个仓库",
+      "find": "  if (tail ? args.length < shape.length : args.length !== shape.length) return false",
+      "replace": "  if (tail ? args.length < shape.length - 1 : args.length !== shape.length) return false",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-d",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "写死的字面量不比：同样长的任何一串都认",
+      "find": "    return arg === want\n",
+      "replace": "    return true\n",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-e",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "所有形状末尾都能多带几个：表里每一问都能再加开关",
+      "find": "  if (tail ? args.length < shape.length : args.length !== shape.length) return false",
+      "replace": "  if (args.length < shape.length) return false",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-f",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "不检查是不是一组字符串：数字、整串命令交进来时报的是别的错，说不清哪里不对",
+      "find": "  if (!Array.isArray(args) || args.some(a => typeof a !== 'string')) throw new Error('git 入口的参数要是一组字符串（ADR-220）')\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说"
+      ]
+    },
+    {
+      "id": "M-H220-g",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "表里混进一问要写的：往仓库里提交",
+      "find": "  ['rev-parse', 'HEAD'],\n",
+      "replace": "  ['rev-parse', 'HEAD'],\n  ['commit', '-m', VALUE],\n",
+      "by": "test",
+      "kills": [
+        "表里每一问的子命令都是只读的那几个"
+      ]
+    },
+    {
+      "id": "M-H220-h",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "起 git 不带固定配置：中文路径被转义、改名检测随机器配置变",
+      "find": "...GIT_CONFIG, ...args]",
+      "replace": "...args]",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "不走 -z 的一问：中文路径原样出来（仓库里打开了转义，固定配置压住了它）",
+        "改名检测开着（仓库里关掉了，固定配置压住了它）：挪个位置是改名，不是删 20 行加 20 行"
+      ]
+    },
+    {
+      "id": "M-H220-i",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "起 git 的函数在载入时就抄下来：计数预加载、观察器预加载换掉模块上的函数后，经 git 入口起的数不到、拦不到",
+      "find": "import cp from 'node:child_process'\n",
+      "replace": "import childProcess from 'node:child_process'\nconst cp = { ...childProcess }\n",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H220-j",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "不传仓库目录：问的是当前目录那个仓库",
+      "find": "{ cwd, env, input, maxBuffer",
+      "replace": "{ env, input, maxBuffer",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "cwd 照用：在夹具仓库里问 HEAD，答的是夹具仓库的提交"
+      ]
+    },
+    {
+      "id": "M-H220-k",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "不传环境：调用方挡掉的全局配置、仓库指向变量又回来了",
+      "find": "{ cwd, env, input, maxBuffer",
+      "replace": "{ cwd, input, maxBuffer",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H220-l",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "不传标准输入：cat-file --batch 读不到要读的那几样",
+      "find": "{ cwd, env, input, maxBuffer",
+      "replace": "{ cwd, env, maxBuffer",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "标准输入照传：cat-file --batch 读得到交进去的那一行"
+      ]
+    },
+    {
+      "id": "M-H220-m",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "没给标准输入时也接着：等标准输入的 git 一直等下去",
+      "find": "[input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']",
+      "replace": "['pipe', 'pipe', 'pipe']",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H220-n",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "答不上来的也交回输出：非 0 退出被当成答了个空",
+      "find": "  return r.error === undefined && r.status === 0 ? r.stdout.toString('utf8') : null",
+      "replace": "  return r.error === undefined ? r.stdout.toString('utf8') : null",
+      "by": "test",
+      "kills": [
+        "答不上来的（没有这个修订）：gitText 交回 null"
+      ]
+    },
+    {
+      "id": "M-H220-o",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "答不上来时抛的错不带 git 的原话：读的人不知道 git 为什么答不上来",
+      "find": "${r.stderr.trim() === '' ? '' : `：${r.stderr.trim()}`}",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "答不上来的：gitOrThrow 抛错，错里带退出码与 git 的原话"
+      ]
+    },
+    {
+      "id": "M-H220-p",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "列文件那一问答不上来时以 0 退出：git 出错被当成通过",
+      "find": "  if (root === null || listed === null) return cannotAnswer('`git ls-files` 出错了')",
+      "replace": "  if (root === null || listed === null) return 0",
+      "by": "test",
+      "kills": [
+        "入口：git ls-files 出错时说无从判断、以 1 结束"
+      ]
+    },
+    {
+      "id": "M-H220-q",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "HEAD 在主干上也照判：主干上的推送一来就红",
+      "find": "  const onTrunk = baseline.kind === 'not-applicable' || baseline.onTrunk",
+      "replace": "  const onTrunk = baseline.kind === 'not-applicable'",
+      "by": "test",
+      "kills": [
+        "入口：HEAD 就在主干上时，待挪多了照样列出、只报不判，以 0 退出"
+      ]
+    }
+,
+    {
+      "id": "M-H220-r",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "答一行的那种不去掉末尾换行：拿它当提交号去比，永远对不上",
+      "find": "export const askGit = (...args: string[]): string | null => gitText(args)?.trim() ?? null",
+      "replace": "export const askGit = (...args: string[]): string | null => gitText(args) ?? null",
+      "by": "test",
+      "kills": [
+        "askGit：答得上来的去掉首尾空白，答不上来的交 null"
+      ]
+    },
+    {
+      "id": "M-H220-s",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "回话少了换行时从头再读：后面那几样读成前面的正文",
+      "find": "    if (eol < 0) break\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "cat-file 回话：半截断了（缺头一行的换行、正文不够字节数），这一样和后面的都交 undefined，不当成读到了"
+      ]
+    },
+    {
+      "id": "M-H220-t",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "正文不够字节数也照收：读了半截的文件被当成读全了",
+      "find": "    if (at + size > out.length) break\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "cat-file 回话：半截断了（缺头一行的换行、正文不够字节数），这一样和后面的都交 undefined，不当成读到了"
+      ]
+    },
+    {
+      "id": "M-H220-u",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "不是 blob 的也收：一个目录的列表被当成文件正文",
+      "find": "    blobs.push(head[1] === 'blob' ? out.toString('utf8', at, at + size) : undefined)",
+      "replace": "    blobs.push(out.toString('utf8', at, at + size))",
+      "by": "test",
+      "kills": [
+        "cat-file 回话：不是 blob 的交 undefined，跳过它的正文"
+      ]
+    },
+    {
+      "id": "M-H220-v",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "问不到的那一样不跳过：后面每一样都错位一格",
+      "find": "    if (head === null) { blobs.push(undefined); continue }",
+      "replace": "    if (head === null) continue",
+      "by": "test",
+      "kills": [
+        "cat-file 回话：问不到的只回一行、没有正文，交 undefined，后面那一样照常读"
+      ]
+    }
+,
+    {
+      "id": "M-H220-w",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "起 git 不带不写索引的开关：问 status 会顺手改写索引",
+      "find": "['--no-optional-locks', ...GIT_CONFIG, ...args]",
+      "replace": "[...GIT_CONFIG, ...args]",
+      "by": "test",
+      "kills": [
+        "表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接",
+        "问 status 不回写索引（文件时间戳变了也一样）"
+      ]
+    },
+    {
+      "id": "M-H220-x",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "表里少了一问：已挪过来的脚本问到它时当场抛错",
+      "find": "  ['ls-files', '-s', '-z', '--', PATHS],\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "已挪过来的检查脚本真问的那几串，表里都有"
+      ]
+    },
+    {
+      "id": "M-H220-y",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "路径空位挪到中间：那一位什么都认，开关也塞得进去",
+      "find": "  ['ls-files', '-s', '-z', '--', PATHS],\n",
+      "replace": "  ['ls-files', '-s', '-z', '--', PATHS],\n  ['log', PATHS, '--', REV],\n",
+      "by": "test",
+      "kills": [
+        "表里的路径空位只在末尾，前一个是 --"
+      ]
+    },
+    {
+      "id": "M-H220-z",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "抛错那一种也去首尾空白：-z 输出首尾以空白开头或结尾的路径被削掉",
+      "find": "  if (r.error === undefined && r.status === 0) return r.stdout.toString('utf8')\n",
+      "replace": "  if (r.error === undefined && r.status === 0) return r.stdout.toString('utf8').trim()\n",
+      "by": "test",
+      "kills": [
+        "gitOrThrow 不去首尾空白（-z 输出首尾的路径可能以空白开头或结尾）"
+      ]
+    },
+    {
+      "id": "M-H220-aa",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "输出上限用 Node 缺省的 1 MB：大文件、大改动读到一半就当成出错",
+      "find": "cwd, env, input, maxBuffer: 1 << 30,",
+      "replace": "cwd, env, input,",
+      "by": "test",
+      "kills": [
+        "输出超过 1 MB 照样读全"
+      ]
+    },
+    {
+      "id": "M-H221-a",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版不传 cwd：变异派工问 git 时问到别的目录去",
+      "find": "{ cwd, env, stdio: stdioFor(input) }",
+      "replace": "{ env, stdio: stdioFor(input) }",
+      "by": "test",
+      "kills": [
+        "异步版交给模块上的 spawn：起的是 git，参数前带不写索引的开关与固定配置，cwd、env 照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H221-b",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版不传 env：调用方给的环境丢了，继承本进程的",
+      "find": "{ cwd, env, stdio: stdioFor(input) }",
+      "replace": "{ cwd, stdio: stdioFor(input) }",
+      "by": "test",
+      "kills": [
+        "异步版交给模块上的 spawn：起的是 git，参数前带不写索引的开关与固定配置，cwd、env 照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H221-c",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版标准输入一律开着：从标准输入读的那一问会一直等下去",
+      "find": "{ cwd, env, stdio: stdioFor(input) }",
+      "replace": "{ cwd, env, stdio: ['pipe', 'pipe', 'pipe'] }",
+      "by": "test",
+      "kills": [
+        "异步版交给模块上的 spawn：起的是 git，参数前带不写索引的开关与固定配置，cwd、env 照传，没给标准输入就不接"
+      ]
+    },
+    {
+      "id": "M-H221-d",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版起不来时不记错误：调用方把起不来当成「答了空话」",
+      "find": "kid.on('error', e => { failed ??= e; if",
+      "replace": "kid.on('error', e => { if",
+      "by": "test",
+      "kills": [
+        "异步版起不来：error 有、退出码是 null"
+      ]
+    },
+    {
+      "id": "M-H221-e",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版给了标准输入却没写进去：cat-file --batch 什么也读不到",
+      "find": "kid.stdin?.end(input)",
+      "replace": "kid.stdin?.end()",
+      "by": "test",
+      "kills": [
+        "异步版标准输入照传：cat-file --batch 读得到交进去的那一行、读完就退出"
+      ]
+    },
+    {
+      "id": "M-H221-f",
+      "req": "harness",
+      "file": "scripts/check/git-entry.ts",
+      "why": "异步版只留最后一块输出：大输出读到的是残片",
+      "find": "kid.stdout?.on('data', (b: Buffer) => out.push(b))",
+      "replace": "kid.stdout?.on('data', (b: Buffer) => { out.length = 0; out.push(b) })",
+      "by": "test",
+      "kills": [
+        "异步版输出超过 1 MB 照样读全"
+      ]
+    },
+    {
+      "id": "M-H221-g",
+      "req": "harness",
+      "file": "scripts/check/mutate.ts",
+      "why": "接管了信号的入口从 git 入口多引一个同步问的函数：上面按字面找同步等的那条看不穿",
+      "find": "import { runGitAsync } from './git-entry.js'",
+      "replace": "import { runGitAsync, gitText } from './git-entry.js'",
+      "by": "test",
+      "kills": [
+        "接管了信号的那个入口：从 git 入口只引异步那一个"
+      ]
+    },
+    {
+      "id": "M-H221-h",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "why": "从 git 入口引的名字一个都不报：同步等悄悄写回入口也看不出",
+      "find": "if (name !== 'runGitAsync') out.push(name)",
+      "replace": "if (name === '') out.push(name)",
+      "by": "test",
+      "kills": [
+        "从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算"
+      ]
+    },
+    {
+      "id": "M-H221-i",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "why": "整份导入（* as）不报：拿到整个入口也看不出",
+      "find": "if (ts.isNamespaceImport(named)) { out.push('*'); continue }",
+      "replace": "if (ts.isNamespaceImport(named)) continue",
+      "by": "test",
+      "kills": [
+        "从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算"
+      ]
+    },
+    {
+      "id": "M-H221-j",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "why": "只认同一目录、不带查询串的说明符：从上一级目录引、带查询串的就漏了",
+      "find": "/(^|\\/)git-entry(\\.[cm]?[jt]s)?(\\?.*)?$/",
+      "replace": "/^\\.\\/git-entry(\\.[cm]?[jt]s)?$/",
+      "by": "test",
+      "kills": [
+        "从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算"
+      ]
+    },
+    {
+      "id": "M-H222-a",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "cwd 不查在不在系统临时目录底下：夹具能在任何地方起 git、写别处的仓库",
+      "find": "  if (!inside(at, tmp) || at === tmp) throw",
+      "replace": "  if (at === tmp) throw",
+      "by": "test",
+      "kills": [
+        "cwd 不在系统临时目录底下：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-b",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "cwd 就是系统临时目录本身也放行：夹具会在别的夹具共用的那一层建仓库",
+      "find": "  if (!inside(at, tmp) || at === tmp) throw",
+      "replace": "  if (!inside(at, tmp)) throw",
+      "by": "test",
+      "kills": [
+        "cwd 就是系统临时目录本身：抛错（那里往下一层才是一个夹具自己的目录）"
+      ]
+    },
+    {
+      "id": "M-H222-c",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "不查在不在本仓库里：仓库克隆在临时目录底下时，夹具能往本仓库里写",
+      "find": "  if (inside(at, repo) || inside(repo, at)) throw",
+      "replace": "  if (false) throw",
+      "by": "test",
+      "kills": [
+        "cwd 在本仓库里（本仓库恰好在临时目录底下时）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-d",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "-c 的键不查白名单：夹具能经 -c 设 core.worktree 之类指到别处",
+      "find": "if (!pair.includes('=') || !CONFIG_KEYS.includes(key)) throw",
+      "replace": "if (!pair.includes('=')) throw",
+      "by": "test",
+      "kills": [
+        "-c 的键不在白名单里、没有等号：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-e",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "子命令不查白名单：夹具能起 push 之类、或用 -C 换目录",
+      "find": "  if (sub === undefined || !SUBCOMMANDS.includes(sub)) throw",
+      "replace": "  if (sub === undefined) throw",
+      "by": "test",
+      "kills": [
+        "子命令不在白名单里（push、rev-list、裸的 -C）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-f",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "init 带目录参数也放行：仓库建到 cwd 以外",
+      "find": "  if (sub === 'init' && args.slice(i + 1).some(",
+      "replace": "  if (false && args.slice(i + 1).some(",
+      "by": "test",
+      "kills": [
+        "init 带目录参数：抛错；-b 后面的分支名不算"
+      ]
+    },
+    {
+      "id": "M-H222-g",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "把 -b 后面的分支名也当成目录参数：init -b main 被误拒",
+      "find": "rest[j - 1] !== '-b')) throw",
+      "replace": "true)) throw",
+      "by": "test",
+      "kills": [
+        "init 带目录参数：抛错；-b 后面的分支名不算",
+        "在临时目录底下、白名单里的子命令与 -c 键：放行"
+      ]
+    },
+    {
+      "id": "M-H222-h",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "调用方给的环境变量不查白名单：能经 env 把 GIT_DIR 递进去",
+      "find": "    if (!ENV_KEYS.includes(k)) throw",
+      "replace": "    if (false) throw",
+      "by": "test",
+      "kills": [
+        "调用方给的环境变量不在白名单里：抛错；值是 undefined 的当没给"
+      ]
+    },
+    {
+      "id": "M-H222-i",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "值是 undefined 的也查：写 undefined 表示「没有这一项」的调用方被误拒",
+      "find": "    if (v === undefined) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "调用方给的环境变量不在白名单里：抛错；值是 undefined 的当没给"
+      ]
+    },
+    {
+      "id": "M-H222-j",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "不设 GIT_CONFIG_NOSYSTEM：夹具读本机系统配置",
+      "find": "  env.GIT_CONFIG_NOSYSTEM = '1'\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "环境：本进程的 GIT_* 一个不带；调用方给的提交身份带上；本机系统、用户配置不读；往上找仓库的天花板是给的那个加上系统临时目录"
+      ]
+    },
+    {
+      "id": "M-H222-k",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "不设 GIT_CONFIG_GLOBAL：夹具读本机用户配置（签名、钩子目录……）",
+      "find": "  env.GIT_CONFIG_GLOBAL = '/dev/null'\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "环境：本进程的 GIT_* 一个不带；调用方给的提交身份带上；本机系统、用户配置不读；往上找仓库的天花板是给的那个加上系统临时目录"
+      ]
+    },
+    {
+      "id": "M-H222-l",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "天花板不加系统临时目录：往上找仓库能找出临时目录、找到上面的仓库",
+      "find": "[given.GIT_CEILING_DIRECTORIES, tmp]",
+      "replace": "[given.GIT_CEILING_DIRECTORIES]",
+      "by": "test",
+      "kills": [
+        "环境：本进程的 GIT_* 一个不带；调用方给的提交身份带上；本机系统、用户配置不读；往上找仓库的天花板是给的那个加上系统临时目录"
+      ]
+    },
+    {
+      "id": "M-H222-m",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "起 git 的函数在加载时就抓下：自检记当前目录、计数预加载换掉模块上的函数后记不到、数不到",
+      "find": "import cp from 'node:child_process'\n",
+      "replace": "import * as cpNs from 'node:child_process'\nconst cp = { ...cpNs.default }\n",
+      "by": "test",
+      "kills": [
+        "调用时才取模块上的函数：拿到的是替身的答复（fixtureGitOrThrow 去掉首尾空白）"
+      ]
+    },
+    {
+      "id": "M-H222-n",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "夹具「不成就抛错」那一版交回的输出不去首尾空白：拿提交号去比的调用方都对不上",
+      "find": "  if (r.error === undefined && r.status === 0) return r.stdout.trim()",
+      "replace": "  if (r.error === undefined && r.status === 0) return r.stdout",
+      "by": "test",
+      "kills": [
+        "调用时才取模块上的函数：拿到的是替身的答复（fixtureGitOrThrow 去掉首尾空白）"
+      ]
+    },
+    {
+      "id": "M-H222-o",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "给了标准输入也不接：commit -F - 读不到说明",
+      "find": "stdio: [input === undefined ? 'ignore' : 'pipe'",
+      "replace": "stdio: ['ignore'",
+      "by": "test",
+      "kills": [
+        "建得出玩具仓库：init、add、从标准输入读说明的 commit 都以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H222-p",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "抛的错里不带 git 的原话：夹具坏了只看得到退出码",
+      "find": "${r.stderr.trim() === '' ? '' : `：${r.stderr.trim()}`}`)\n}",
+      "replace": "`)\n}",
+      "by": "test",
+      "kills": [
+        "答不上来的：fixtureGitOrThrow 抛错，错里带退出码与 git 的原话"
+      ]
+    },
+    {
+      "id": "M-H222-q",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "换上的函数名字丢了：按名字认函数的（报错、调试）对不上",
+      "find": "    Object.defineProperty(wrapped, 'name', { value: original.name })\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "换上的七个函数名字照旧"
+      ]
+    },
+    {
+      "id": "M-H222-r",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "带回调的那两个起进程函数自带的承诺版没带过来：按承诺用它的调用方拿到的结果形状变了",
+      "find": "    if (typeof custom === 'function') Object.defineProperty(wrapped, promisify.custom, { value: noted(custom) })\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "execFile 自带的 promisify 版本带过来了：交回 { stdout, stderr }，也告诉了自检"
+      ]
+    },
+    {
+      "id": "M-H222-s",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "换上的函数不交回原函数的返回值：自检里每一处起进程都拿不到结果",
+      "find": "{ onLaunch(a); return f.apply(this, a) }",
+      "replace": "{ onLaunch(a); f.apply(this, a); return undefined }",
+      "by": "test",
+      "kills": [
+        "返回值原样交回，参数一个不少告诉了自检"
+      ]
+    },
+    {
+      "id": "M-H222-t",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "换上的函数不告诉自检：每组在哪个目录起进程一笔都记不下",
+      "find": "{ onLaunch(a); return f.apply(this, a) }",
+      "replace": "{ return f.apply(this, a) }",
+      "by": "test",
+      "kills": [
+        "返回值原样交回，参数一个不少告诉了自检"
+      ]
+    },
+    {
+      "id": "M-H222-u",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "模板串只看没有插值的那种：带插值的模板串里提到夹具模块认不出",
+      "find": ": ts.isTemplateExpression(node) ? [node.head.text, ...node.templateSpans.map(s => s.literal.text)] : []",
+      "replace": ": []",
+      "by": "test",
+      "kills": [
+        "认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入、不带插值的反引号串；认不出：注释、拆开拼的名字"
+      ]
+    },
+    {
+      "id": "M-H222-v",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "列在「测试文件」里的也当成越界：清单形同虚设，提到就红",
+      "find": "s.length > 0 && !now.testFiles.includes(p)).map(([path, s])",
+      "replace": "s.length > 0).map(([path, s])",
+      "by": "test",
+      "kills": [
+        "不在「测试文件」里却提到只给测试用的模块的记下；在里面的、没提到的不记"
+      ]
+    },
+    {
+      "id": "M-H222-w",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "「测试文件」多出的行不列：新加的测试文件没人看",
+      "find": "  const newTestFiles = now.testFiles.filter(p => !baseTests.includes(p))",
+      "replace": "  const newTestFiles: string[] = []",
+      "by": "test",
+      "kills": [
+        "「测试文件」比基线多出的单列；列了却不在仓库里的算不在仓库里"
+      ]
+    },
+    {
+      "id": "M-H222-x",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "越界提到只给测试用的模块不红：夹具模块谁都能用",
+      "find": "  for (const u of report.outsideTestFiles) {\n    faults.push(",
+      "replace": "  for (const u of report.outsideTestFiles) {\n    out.push(",
+      "by": "test",
+      "kills": [
+        "提到了却不在「测试文件」里就红，点出文件与行号；多出的测试文件列给评审看"
+      ]
+    },
+    {
+      "id": "M-H222-y",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "读登记表时丢掉「测试文件」一节：清单永远是空的",
+      "find": "  const testFiles = '测试文件' in r ? names('测试文件', r['测试文件']) : []",
+      "replace": "  const testFiles: string[] = []",
+      "by": "test",
+      "kills": [
+        "读登记表：「测试文件」一节原样读出"
+      ]
+    },
+    {
+      "id": "M-H222-z",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "「测试文件」当成认不得的键：有这一节的登记表读不出",
+      "find": "  const keys = Object.keys(raw).filter(k => k !== '测试文件').sort()",
+      "replace": "  const keys = Object.keys(raw).sort()",
+      "by": "test",
+      "kills": [
+        "读登记表：「测试文件」一节原样读出"
+      ]
+    },
+    {
+      "id": "M-H222-aa",
+      "req": "harness",
+      "file": "scripts/check/child-process-use.ts",
+      "why": "入口不扫只给测试用的模块：判定写对了也用不上",
+      "find": "    mentions.set(path, testOnlyMentions(path, text))\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "入口：不在「测试文件」里的文件导入了 git 夹具，以 1 退出、点出文件与行号（基线上还没有这一节）"
+      ]
+    },
+    {
+      "id": "M-H222-ab",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "夹具放行写到玩具仓库以外的配置开关：root 下写本机用户配置会把空设备换成普通文件",
+      "find": "  config: ['--global', '--system', '--worktree', '--file', '-f'],",
+      "replace": "  config: [],",
+      "by": "test",
+      "kills": [
+        "config 带指别处的开关（--global、--system、--worktree、--file、-f、--file=）：抛错；不带的放行"
+      ]
+    },
+    {
+      "id": "M-H222-ac",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "带等号的写法认不出：指别处的开关换个写法就过",
+      "find": "  const name = a.split('=')[0]",
+      "replace": "  const name = a",
+      "by": "test",
+      "kills": [
+        "config 带指别处的开关（--global、--system、--worktree、--file、-f、--file=）：抛错；不带的放行",
+        "init 带指别处的开关（--separate-git-dir=、--template=）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-ad",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "建仓库时放行把仓库数据放到别处、从别处拷模板的开关",
+      "find": "  init: ['--separate-git-dir', '--template'],",
+      "replace": "  init: [],",
+      "by": "test",
+      "kills": [
+        "init 带指别处的开关（--separate-git-dir=、--template=）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-ae",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "在哪起只按字面比、不解软链：临时目录里一个指到别处的软链就把夹具带出去",
+      "find": "    try { return join(realpathSync(at), ...missing) } catch {",
+      "replace": "    try { return join(resolve(at), ...missing) } catch {",
+      "by": "test",
+      "kills": [
+        "cwd 是临时目录里指到别处的软链：按真实路径判，抛错"
+      ]
+    },
+    {
+      "id": "M-H222-af",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "只查在不在本仓库里、不查是不是它的上级目录：在上级目录起的 git 照样能找到本仓库",
+      "find": "  if (inside(at, repo) || inside(repo, at)) throw",
+      "replace": "  if (inside(at, repo)) throw",
+      "by": "test",
+      "kills": [
+        "cwd 是本仓库的上级目录（它恰好在临时目录底下时）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-ag",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "继承来的环境只删仓库指向那几项：往配置里注入键值的、别的 git 变量照样带进夹具起的 git",
+      "find": "if (!k.startsWith('GIT_')) env[k] = v",
+      "replace": "if (!['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'].includes(k)) env[k] = v",
+      "by": "test",
+      "kills": [
+        "环境：本进程里不是仓库指向的 GIT_* 也一律不带（往配置里注入键值的、随便起名的）"
+      ]
+    },
+    {
+      "id": "M-H222-ah",
+      "req": "harness",
+      "file": "scripts/check/selfcheck-spawn-notes.ts",
+      "why": "只换了起进程函数里的几个：经没换的那几个起的进程，自检记不到在哪个目录起",
+      "find": "export const NOTED_APIS = ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork'] as const",
+      "replace": "export const NOTED_APIS = ['spawn', 'spawnSync', 'execFile', 'execFileSync'] as const",
+      "by": "test",
+      "kills": [
+        "换掉的是起进程的七个函数，个个换上的不是原函数"
+      ]
+    },
+    {
+      "id": "M-H222-ai",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "夹具起不来时抛的错不说为什么起不来，只说退出码是空的",
+      "find": "（${r.error?.message ?? `退出码 ${r.status}`}）",
+      "replace": "（退出码 ${r.status}）",
+      "by": "test",
+      "kills": [
+        "起不来的（cwd 不存在）：fixtureGitOrThrow 抛错，错里带起不来的原因"
+      ]
+    },
+    {
+      "id": "M-H222-aj",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "不带插值的反引号串里写模块名认不出：那样导入只给测试用的模块不红",
+      "find": "    const pieces = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? [node.text]",
+      "replace": "    const pieces = ts.isStringLiteral(node) ? [node.text]",
+      "by": "test",
+      "kills": [
+        "认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入、不带插值的反引号串；认不出：注释、拆开拼的名字"
+      ]
+    },
+    {
+      "id": "M-H222-ak",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "指别处的长开关写成缩写认不出：git 认缩写，换个写法就写到玩具仓库以外",
+      "find": "  return a.startsWith('--') && name.length > 2 && s.startsWith(name)",
+      "replace": "  return a.startsWith('--') && name.length > 2 && s === name",
+      "by": "test",
+      "kills": [
+        "指别处的开关写成 git 认的缩写（config --glo、init --sep=）：抛错"
+      ]
+    },
+    {
+      "id": "M-H222-al",
+      "req": "harness",
+      "file": "scripts/check/git-fixture.ts",
+      "why": "短开关粘着值写认不出：把要写的文件直接接在开关后面就过",
+      "find": "  if (!s.startsWith('--')) return a.startsWith(s) && !a.startsWith('--')",
+      "replace": "  if (!s.startsWith('--')) return a === s",
+      "by": "test",
+      "kills": [
+        "短开关粘着值写（config -f路径）：抛错"
+      ]
+    },
+    {
+      "id": "M-H223-a",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "跑完不换回：替身漏到后面的组，后面起进程的全被替身吞掉",
+      "find": "    while (open.at(-1)?.done) open.pop()?.undo()\n",
+      "replace": "    while (open.at(-1)?.done) open.pop()\n",
+      "by": "test",
+      "kills": [
+        "换替身：body 正常还了以后换回原函数"
+      ]
+    },
+    {
+      "id": "M-H223-b",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "body 是 Promise 时不等它了结就换回：body 里 await 之后起的进程不经替身、真起",
+      "find": "      later = true\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "换替身：body 是 Promise 时等它了结才换回，交回它的结果"
+      ]
+    },
+    {
+      "id": "M-H223-c",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "body 抛错时不换回：替身漏到后面的组",
+      "find": "    return result\n  } finally { if (!later) restore() }",
+      "replace": "    restore(); return result\n  } finally { /* 只在正常还时换回 */ }",
+      "by": "test",
+      "kills": [
+        "换替身：body 抛错原样抛出，也换回了原函数"
+      ]
+    },
+    {
+      "id": "M-H223-d",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "Promise 失败时不换回：替身漏到后面的组",
+      "find": "      return Promise.resolve(result).finally(restore) as T",
+      "replace": "      return Promise.resolve(result).then(r => { restore(); return r }) as T",
+      "by": "test",
+      "kills": [
+        "换替身：Promise 失败也换回，原样抛出"
+      ]
+    },
+    {
+      "id": "M-H223-e",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "名字不查：模块对象上别的口（如 execve）也能被换掉",
+      "find": "  if (bad.length) throw",
+      "replace": "  if (bad.length < 0) throw",
+      "by": "test",
+      "kills": [
+        "换替身：名字不在起进程的七个里当场抛错，事后仍是原函数"
+      ]
+    },
+    {
+      "id": "M-H223-f",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "替身拿得到原函数：测试文件能把它存下来随便起进程",
+      "find": "  return swapped(names, () => { for (const n of names) live[n] = standIns[n] }, body)",
+      "replace": "  return swapped(names, kept => { for (const n of names) live[n] = (...a: unknown[]) => standIns[n]!(...a, kept.get(n)) }, body)",
+      "by": "test",
+      "kills": [
+        "换替身：body 里经通用启动函数调的是替身，替身收到的就是调用的那几个参数（不多给原函数），交回 body 的结果"
+      ]
+    },
+    {
+      "id": "M-H223-g",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "探子不转给原函数：被测的看不到 Node 真起、真报错",
+      "find": "heard.push([n, [...args]]); return original.apply(this, args) }",
+      "replace": "heard.push([n, [...args]]); return undefined }",
+      "by": "test",
+      "kills": [
+        "探子：原样转给原函数（真起了），记下哪个函数、收到的参数"
+      ]
+    },
+    {
+      "id": "M-H223-h",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "探子不记参数：测试看不到交了什么",
+      "find": "heard.push([n, [...args]]); return original",
+      "replace": "return original",
+      "by": "test",
+      "kills": [
+        "探子：原样转给原函数（真起了），记下哪个函数、收到的参数"
+      ]
+    },
+    {
+      "id": "M-H223-i",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "没换时也交出模块上的函数：测试文件拿得到原函数",
+      "find": "    return kept.has(name) && now !== kept.get(name) ? now : undefined",
+      "replace": "    return kept.has(name) ? now : undefined",
+      "by": "test",
+      "kills": [
+        "记下原样再换回：没换时问出 undefined，换了问得到换上的那个"
+      ]
+    },
+    {
+      "id": "M-H223-j",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "没记下的名字也问得出：拿得到 body 没打算换回的函数",
+      "find": "    return kept.has(name) && now !== kept.get(name) ? now : undefined",
+      "replace": "    return now !== kept.get(name) ? now : undefined",
+      "by": "test",
+      "kills": [
+        "记下原样再换回：没记下的名字问出 undefined"
+      ]
+    },
+    {
+      "id": "M-H223-k",
+      "req": "harness",
+      "file": "scripts/check/child-process-use-rule.ts",
+      "why": "起进程的替身不算只给测试用的模块：别的脚本能引它换掉起进程的函数",
+      "find": "['child-process-stand-in', 'git-fixture', 'selfcheck-spawn-notes']",
+      "replace": "['git-fixture', 'selfcheck-spawn-notes']",
+      "by": "test",
+      "kills": [
+        "只给测试用的三个模块都认：git 夹具、自检记当前目录那一处、起进程的替身"
+      ]
+    },
+    {
+      "id": "M-H223-l",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "两段交叠时不认：先了结的那段不抛错，也没人替它换回，替身漏到后面的组",
+      "find": "    if (open.at(-1) !== me) {",
+      "replace": "    if (open.at(-1) !== me && false) {",
+      "by": "test",
+      "kills": [
+        "换替身：两段交叠时先了结的那段抛错，不拆掉后一段的替身；两段都了结后回到原函数"
+      ]
+    },
+    {
+      "id": "M-H223-m",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "替身不是函数也装上：被测代码报「不是函数」，指不到原因",
+      "find": "  if (notFn.length) throw",
+      "replace": "  if (notFn.length < 0) throw",
+      "by": "test",
+      "kills": [
+        "换替身：替身不是函数当场抛错，事后仍是原函数"
+      ]
+    },
+    {
+      "id": "M-H223-n",
+      "req": "harness",
+      "file": "scripts/check/child-process-stand-in.ts",
+      "why": "探子也探自带 promisify 版本的那两个函数：promisify 出来的形状悄悄变了",
+      "find": "  if (custom.length) throw",
+      "replace": "  if (custom.length < 0) throw",
+      "by": "test",
+      "kills": [
+        "探子不探 execFile、exec：它们自带的 promisify 版本带不过去，当场抛错"
+      ]
     }
   ],
   "exemptions": [
@@ -28816,7 +30459,7 @@
       "req": "S1.b",
       "scope": "整条（经用户自己的邮箱工具只存草稿、不发送）",
       "why": "调不调、调哪个工具由 Agent 照 Skill 文字在宿主里决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）。",
-      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看（连同报告里那封信的「出处对不上」一行，ADR-199；以及「写博主的话出处」一行里「要看」那一段，ADR-210），并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
+      "mitigation": "skill/references/outreach-draft.md「放进用户自己的邮箱」写明只调建草稿、绝不调发送、调用前给用户看（连同报告里那封信的「出处对不上」一行，ADR-199；以及「逐行出处」一行里「要看」那一段，ADR-210、ADR-215），并提醒用户在宿主侧把发送类工具设成每次问或禁止；见 ADR-190。"
     },
     {
       "req": "P2.a",
@@ -28826,9 +30469,9 @@
     },
     {
       "req": "P2.d",
-      "scope": "写博主的话里机器判断不了的那几样：改写得准不准、一句话是不是真的在描述博主、发件人的感受有没有借机给博主安新说法",
-      "why": "这几样要读懂句子意思、拿去和博主原文比意思，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。登记的原文在不在、提到博主却没登记的句子由 P2.e、P2.f、P2.g 管，有自己的认领与负片。",
-      "mitigation": "skill/references/outreach-draft.md 写明写博主的话只能引用或准确改写他的简介、作品文案、昵称，每句登记出处；报告里「写博主的话出处」一行把信里这句与资料原文并排放，交付或存邮箱前要人对照。见 ADR-210。"
+      "scope": "逐句登记里机器判断不了的那几样：改写得准不准、来处填得对不对（比如把产品说法登记成发件人自己的话）、发件人自己的话有没有借机给博主安新说法或夹带产品说法",
+      "why": "这几样要读懂句子意思、拿去和博主原文比意思，由 Agent 与人的判断决定，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。登记的原文在不在、没登记的句子由 P2.e、P2.f、P2.g 管，有自己的认领与负片。",
+      "mitigation": "skill/references/outreach-draft.md 写明写博主的话只能引用或准确改写他的简介、作品文案、昵称，整封信每句登记出处；报告里「逐行出处」一行把信里这段与资料原文并排放，交付或存邮箱前要人看两样：登记了原文的，对照原文看改写得准不准；登记成发件人自己的话的，看有没有借机给博主安新说法、有没有夹带产品说法。见 ADR-210、ADR-215。"
     },
     {
       "req": "P1.b",

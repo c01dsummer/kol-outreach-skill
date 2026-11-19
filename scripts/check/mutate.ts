@@ -35,7 +35,6 @@
  * 那一段）与查的清单（`briefLeaks`）各写一份，哪天这边多打一栏，那边不跟也不红。
  */
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -70,6 +69,8 @@ import {
 } from './launch-rule.js'
 import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 import { realIo, writeAllSync } from './sync-write.js'
+import { spawn, type ChildProcess } from './start-process.js'
+import { runGitAsync } from './git-entry.js'
 
 /**
  * 本文件**唯一**的硬退出（ADR-70「硬退出收口」一节）：退出前要说的话先同步写满 fd 2，再退出。
@@ -789,15 +790,15 @@ let copyList: string[] | undefined
 const workerFiles = async (): Promise<void> => {
   if (copyList !== undefined) return
   // 异步问：这个入口接管了信号，同步等子进程的那一会儿信号处理器跑不了（h-mutate 的「没有一处同步等子进程」）
-  const git = (...args: string[]): Promise<string> => new Promise(done => {
-    execFile('git', args, { encoding: 'utf8', maxBuffer: 1 << 30 }, (error, stdout, stderr) => {
-      if (error !== null) {
-        exitWith(1, `✗ 变异测试：没法问 git 哪些文件要带进 worker 的副本（git ${args.join(' ')}）—— `
-          + `${stderr.trim() || error.message}；没有建任何隔离目录，也没施加任何变异`)
-      }
-      done(stdout)
-    })
-  })
+  // 经 git 入口异步问（ADR-221）：不在它表里的问法当场抛错
+  const git = async (...args: string[]): Promise<string> => {
+    const r = await runGitAsync(args)
+    if (r.error !== undefined || r.status !== 0) {
+      exitWith(1, `✗ 变异测试：没法问 git 哪些文件要带进 worker 的副本（git ${args.join(' ')}）—— `
+        + `${r.stderr.trim() || r.error?.message || `退出码 ${r.status}`}；没有建任何隔离目录，也没施加任何变异`)
+    }
+    return r.stdout.toString('utf8')
+  }
   const plan = workerCopyList(await git('rev-parse', '--show-prefix'), await git('ls-files', '-z', '--cached', '--others', '--exclude-standard'))
   if ('fault' in plan) exitWith(1, `✗ 变异测试：${plan.fault} —— 没有建任何隔离目录，也没施加任何变异`)
   copyList = plan.files
@@ -996,10 +997,11 @@ if (jobs === undefined) {
     '  按机器核数跑请把它去掉，不要写一个读不出来的值。')
 }
 // 可信历史与实际路由的核对只由 coordinator 做；拒绝发生在基线或任何施变之前。
-const askGit = (...args: string[]): Promise<string | null> => new Promise(done => {
-  execFile('git', args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
-    (error, stdout) => done(error === null ? stdout.trim() : null))
-})
+// 经 git 入口异步问（ADR-221），去首尾空白留在这一层；答不上来交回 null。名字不叫 askGit：git 入口导出的那个是同步的
+const askGitLater = async (...args: string[]): Promise<string | null> => {
+  const r = await runGitAsync(args)
+  return r.error === undefined && r.status === 0 ? r.stdout.toString('utf8').trim() : null
+}
 // 纯判定仍用同步注入接口；缺一个实际 Git 应答就异步读取并缓存，再继续求值。
 // 缓存保存 null 与空串的区别，不复制主干/祖先选择逻辑，也不在信号入口同步等待。
 const withGit = async <T>(consume: (ask: (...args: string[]) => string | null) => T): Promise<T> => {
@@ -1016,7 +1018,7 @@ const withGit = async <T>(consume: (ask: (...args: string[]) => string | null) =
       })
     } catch (e) {
       if (e !== pending) throw e
-      answers.set(JSON.stringify(requested), await askGit(...requested))
+      answers.set(JSON.stringify(requested), await askGitLater(...requested))
     }
   }
 }
@@ -1035,7 +1037,7 @@ if (comparison.kind === 'cannot-answer') {
   exitWith(1, `✗ 维护基线：${comparison.why}；未施加任何变异`)
 }
 try {
-  const catalog = await askGit('show', `${comparison.base}:scripts/check/mutations.json`)
+  const catalog = await askGitLater('show', `${comparison.base}:scripts/check/mutations.json`)
   if (catalog === null) throw new Error('读不到基线的变异目录')
   const previous = await withGit(ask => executionRoutes(JSON.parse(catalog).mutations,
     file => ask('show', `${comparison.base}:${file}`) ?? undefined))

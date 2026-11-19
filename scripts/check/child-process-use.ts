@@ -5,20 +5,16 @@
  * 只起 git、读文件、打印、交回退出码；认哪几处、怎么比、什么时候红都在 `child-process-use-rule.ts`（ADR-217）。
  * 起点与体量闸门同一个判定（`size-rule.ts` 的 `resolveBaseline`）。扫的是工作区里的受控文件加上没被忽略的新文件
  * （`git ls-files -z`，空字符分隔，路径不加引号）。无从判断时说出来、以 1 结束，不退化成「通过」。
- * 本文件自己也在登记表的「待挪」里：git 入口有了之后挪过去。
+ * git 经 git 入口问（ADR-220）。
  */
-import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
-import { type BaselineRegistry, type Site, REGISTRY_PATH, RULE_PATH, baselineFromFacts, goneFromWorktree, isScanned, judgeUse, launchSites, parseRegistry, useLines } from './child-process-use-rule.js'
+import { askGit, gitText } from './git-entry.js'
+import { resolveBaseline } from './size-rule.js'
+import { type BaselineRegistry, type Site, REGISTRY_PATH, RULE_PATH, baselineFromFacts, goneFromWorktree, isScanned, judgeUse, launchSites, parseRegistry, testOnlyMentions, useLines } from './child-process-use-rule.js'
 
-function tryGit(...args: string[]): string | null {
-  try {
-    return execFileSync('git', [...GIT_CONFIG, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
-  } catch { return null }
-}
-const trimmed = (...args: string[]) => tryGit(...args)?.trim() ?? null
+const tryGit = (...args: string[]) => gitText(args)
+const trimmed = askGit
 
 function cannotAnswer(why: string): number {
   console.error(`✗ 起子进程的接口：无从判断 —— ${why}`)
@@ -38,7 +34,7 @@ function main(): number {
   const root = trimmed('rev-parse', '--show-toplevel')
   const listed = tryGit('ls-files', '-z', '--full-name', '--cached', '--others', '--exclude-standard', '--', ':(top)')
   if (root === null || listed === null) return cannotAnswer('`git ls-files` 出错了')
-  const sites = new Map<string, Site[]>()
+  const sites = new Map<string, Site[]>(), mentions = new Map<string, Site[]>()
   for (const path of new Set(listed.split('\0').filter(Boolean))) {
     if (!isScanned(path)) continue
     let text: string
@@ -47,6 +43,7 @@ function main(): number {
       return cannotAnswer(`${path} 读不了：${(e as Error).message}`)
     }
     sites.set(path, launchSites(path, text))
+    mentions.set(path, testOnlyMentions(path, text))
   }
   let now
   try { now = parseRegistry(readFileSync(join(root, REGISTRY_PATH), 'utf8')) } catch (e) { return cannotAnswer(`登记表 ${REGISTRY_PATH} 读不了或解析不了：${(e as Error).message}`) }
@@ -55,7 +52,7 @@ function main(): number {
   const onTrunk = baseline.kind === 'not-applicable' || baseline.onTrunk
   const scope = baseline.kind === 'not-applicable' ? `${baseline.trunk}（没有上一版）`
     : `${baseline.onTrunk ? `${baseline.trunk} 的上一版` : baseline.trunk}（${baseline.base.slice(0, 7)}）`
-  const { ok, out, err } = useLines(judgeUse(sites, now, base), onTrunk, scope, base.kind === 'no-gate')
+  const { ok, out, err } = useLines(judgeUse(sites, now, base, mentions), onTrunk, scope, base.kind === 'no-gate')
   for (const line of out) console.log(line)
   for (const line of err) console.error(line)
   return ok ? 0 : 1

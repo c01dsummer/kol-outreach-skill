@@ -7,7 +7,7 @@ import { join as cxJoin, dirname as cxDirname, relative as cxRelative, isAbsolut
 import { tmpdir as cxTmpdir } from 'node:os';
 import { createHash as cxCreateHash } from 'node:crypto';
 import { pathToFileURL as cxPathToFileURL } from 'node:url';
-import { spawnSync as cxSpawnSync } from 'node:child_process';
+import { spawnSync as cxSpawnSync } from './check/start-process.js';
 import { prebuildTree as cxPrebuildTree, fixtureLoader as cxFixtureLoader, prebuiltCommand as cxPrebuiltCommand, isBare as cxIsBare } from './check/prebuilt.js';
 import { mkdtempSync as scMkdtempSync, realpathSync as scRealpathSync, mkdirSync as scMkdirSync, writeFileSync as scWriteFileSync, existsSync as scExistsSync, rmSync as scRmSync } from 'node:fs';
 import { join as scJoin, dirname as scDirname } from 'node:path';
@@ -36,14 +36,19 @@ import {
   launchSummary, launchTally, paidLaunches, printLabel, settleLaunches, summaryLine, tallyLine,
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchSummary, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
-import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
+import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, isGitProgram, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
 import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
-import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, useLines } from './check/child-process-use-rule.js'
+import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, testOnlyMentions, useLines } from './check/child-process-use-rule.js'
+import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
+import { QUESTIONS as gitQuestions, askGit, gitOrThrow, gitText, questionOf, runGit, runGitAsync } from './check/git-entry.js'
+import { fixtureCheck, fixtureGit, fixtureGitOrThrow } from './check/git-fixture.js'
+import { NOTED_APIS, noteSpawns } from './check/selfcheck-spawn-notes.js'
+import { withRestore, withSpies, withStandIns } from './check/child-process-stand-in.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -56,13 +61,13 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, unmarkedDiagnostics, wiringFault,
-  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, notARepo, stagedResidue,
+  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, batchBlobs, notARepo, stagedResidue,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
 import { DEPTH, addedLines, fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, markSite, type Field as UseField } from './check/field-use-rule.js'
 import {
-  beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
+  beginMutation, blockingWait, syncGitImports, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
@@ -143,10 +148,10 @@ import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import * as reviewRowsApi from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
-import { readFileSync as rf, unlinkSync as ul, renameSync } from 'node:fs'
-import { spawnSync, type ChildProcess } from 'node:child_process'
+import { readFileSync as rf, unlinkSync as ul, renameSync, accessSync, constants as fsConstants } from 'node:fs'
+import { spawnSync, type ChildProcess } from './check/start-process.js'
 import { EventEmitter } from 'node:events'
-import { isDeepStrictEqual } from 'node:util'
+import { isDeepStrictEqual, promisify } from 'node:util'
 import { runInNewContext } from 'node:vm'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { request as templateHttpsRequest } from 'node:https'
@@ -166,7 +171,7 @@ import { claimsLines, draftClaims, NO_FACTS, NOT_ENGLISH, UNMATCHED_BRACES } fro
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
-  keywordRows, mergePage, needsProfile, pagesFetched, pendingKeywords, rankCreators,
+  keywordRows, mergePage, needsProfile, pagesFetched, pendingKeywords, rankCreators, rawSeedFromLegacy,
   taskPlatforms, taskQueryStatus, tierCounts, resumeCostLine, underPageCap,
 } from './lib/pipeline.js'
 import {
@@ -202,7 +207,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p2-draft-claims', needs: [] },
   { id: 'p2-endorsement-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
-  { id: 'p2-creator-sources', needs: [] },
+  { id: 'p2-draft-sources', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
   { id: 'd4s-independent-claim', needs: [] },
@@ -341,7 +346,18 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ticket-refs-entry-edges', needs: [] },
   { id: 'h-child-process-sites', needs: [] },
   { id: 'h-child-process-judge', needs: [] },
+  { id: 'h-child-process-entry-test-files', needs: [] },
   { id: 'h-child-process-entry', needs: [] },
+  { id: 'h-child-process-entry-edges', needs: [] },
+  { id: 'h-start-process', needs: [] },
+  { id: 'h-start-process-shell', needs: [] },
+  { id: 'h-git-entry', needs: [] },
+  { id: 'h-git-entry-run', needs: [] },
+  { id: 'h-git-fixture', needs: [] },
+  { id: 'h-git-fixture-run', needs: [] },
+  { id: 'h-selfcheck-spawn-notes', needs: [] },
+  { id: 'h-child-process-stand-in', needs: [] },
+  { id: 'h-child-process-stand-in-spies', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -1727,184 +1743,302 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
 }
 
 })
-await group('p2-creator-sources', () => {
-suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在评审 HTML 里，不拦')
+await group('p2-draft-sources', () => {
+suite('P2', '开发信每一句对它登记的出处（博主资料、已证实的产品事实、发件人自己的话），并排列在评审 HTML 里，不拦')
 {
-  // P2.f（ADR-210）：期望只取自判据原文与下面写进夹具的字面值。
-  // 资料：简介、两条作品文案、昵称「Mei Lin」、账号 meicooks。草稿里各种情形各一句；登记都是整句。
+  // P2.f（ADR-210、ADR-215）：期望只取自判据原文与下面写进夹具的字面值。
+  // 资料：简介、两条作品文案、昵称「Mei Lin」，任务里两条已证实的产品事实。草稿里各种情形各一句。
   const BIO = "Mei's 3-ingredient recipes for  busy mornings"
   const POSTS = [{ desc: 'Leg day vlog' }, { desc: 'Yes, I show the “cleanup” every time – always' }] as unknown as Creator['recent_posts']
+  const FACTS = ['Portable 400ml blender, rinses clean in ten seconds.', 'Ships with a 1-year warranty.']
   const DRAFT = 'Subject: Your 3-ingredient smoothie series\n\nHi Mei,\n\n' +
     'Your series shows the cleanup every time —\nthat part stuck with me. You run marathons every week.\n\n' +
-    "Meicooks is my favourite channel. Mei Lin's kitchen looks great. We make a 400ml blender.\n\n" +
-    'Happy to send one over if it fits your kitchen.\n\nBest,\n{name}'
+    'We make a portable 400ml blender. It comes with a lifetime warranty.\n\n' +
+    'Meicooks is my favourite channel.\n\nHappy to send one over if it fits your kitchen.\n\nBest,\n{name}'
   const SOURCES = [
     { draft: 'YOUR 3-ingredient   smoothie series', from: 'bio', quote: 'MEI’S 3-INGREDIENT recipes for busy mornings' },
+    { draft: 'Hi Mei,', from: 'self' },
     { draft: 'Your series shows the cleanup every time —', from: 'post', quote: 'I show the "cleanup" every time - always' },
     { draft: 'that part stuck with me.', from: 'self' },
     { draft: 'You run marathons every week.', from: 'post', quote: 'I run marathons' },
+    { draft: 'We make a portable 400ml blender.', from: 'product', quote: 'portable 400ML blender' },
+    { draft: 'It comes with a lifetime warranty.', from: 'product', quote: 'lifetime warranty' },
     { draft: 'Happy to send one over if it fits your kitchen.', from: 'self' },
+    { draft: 'Best, {name}', from: 'self' },
     { draft: 'Your old sentence that was edited away', from: 'nickname', quote: 'Mei' },
-  ] as NonNullable<Creator['creator_sources']>
+  ] as NonNullable<Creator['draft_sources']>
   const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 4,
     tiers: { A: 4, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false }
   const people = [
-    mk('tiktok', 'meicooks', { nickname: 'Mei Lin', bio: BIO, recent_posts: POSTS, tier: 'A', score: 4, outreach_draft: DRAFT, creator_sources: SOURCES, profile_url: 'https://example.com/meicooks' }),
-    mk('tiktok', 'plain', { nickname: 'Ana', tier: 'A', score: 3, outreach_draft: 'Subject: Quick one\n\nHi Ana,\n\nWe make a blender.\n\nBest,\n{name}', profile_url: 'https://example.com/plain' }),
-    mk('tiktok', 'blank', { tier: 'A', score: 2, outreach_draft: ' \n ', creator_sources: SOURCES, profile_url: 'https://example.com/blank' }),
-    mk('tiktok', 'nodraft', { tier: 'A', score: 1, creator_sources: SOURCES, profile_url: 'https://example.com/nodraft' }),
+    mk('tiktok', 'meicooks', { nickname: 'Mei Lin', bio: BIO, recent_posts: POSTS, tier: 'A', score: 4, outreach_draft: DRAFT, draft_sources: SOURCES, profile_url: 'https://example.com/meicooks' }),
+    mk('tiktok', 'plain', { nickname: 'Ana', tier: 'A', score: 3, outreach_draft: '— …', profile_url: 'https://example.com/plain' }),
+    mk('tiktok', 'blank', { tier: 'A', score: 2, outreach_draft: ' \n ', draft_sources: SOURCES, profile_url: 'https://example.com/blank' }),
+    mk('tiktok', 'nodraft', { tier: 'A', score: 1, draft_sources: SOURCES, profile_url: 'https://example.com/nodraft' }),
   ]
   const before = structuredClone(people)
-  const lineOf = (page: string, handle: string): string | undefined => {
+  const rowOf = (page: string, handle: string, attr: string): string | undefined => {
     const card = page.split('<div class="card ').find(chunk => chunk.includes(`href="https://example.com/${handle}"`))
-    const m = card === undefined ? null : /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(card)
+    const m = card === undefined ? null : new RegExp(`<div class="bio" ${attr}>([^<]*)</div>`).exec(card)
     return m === null ? undefined : m[1].replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&')
   }
-  const HEAD = '写博主的话出处：', TAIL = '（改写得准不准请对照原文自己看）', BAR = '　｜　'
-  const SELF = '发件人自己的话（确认没有借它给博主安新说法）：'
-  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual' })
-  eq('P2.f 分三段、要看的在前：原文对不上、提到博主却没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条）；登记成 self 的单列；问候行不算',
+  const lineOf = (page: string, handle: string) => rowOf(page, handle, 'data-draft-sources="lines"')
+  const HEAD = '逐行出处：', TAIL = '（改写得准不准请对照原文自己看）', BAR = '　｜　'
+  const SELF = '发件人自己的话（确认没有借它给博主安新说法，也没有夹带产品说法）：'
+  // 「要看」那一段空着时这一行以「要看：无」开头（ADR-215），运营不用从下一段推断。
+  const lead = (want: string) => want.startsWith('要看：') ? want : `要看：无${BAR}${want}`
+  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual', facts: FACTS })
+  eq('P2.f 分三段、要看的在前：原文对不上（博主资料与产品事实）、没登记的、信里已没有的在「要看」，按在信里出现的先后；对得上的并排原文（不分大小写、空白合并、弯直单双引号同等、长短破折号同连字符，作品文案任一条，产品事实任一条）；登记成 self 的单列；问候与落款也要登记',
     lineOf(review, 'meicooks'), HEAD + '要看：' + [
       '「You run marathons every week.」← 作品文案原文「I run marathons」（原文对不上：他的作品文案里没有这段）',
-      '「Meicooks is my favourite channel.」（提到了博主，没标出处）',
-      "「Mei Lin's kitchen looks great.」（提到了博主，没标出处）",
-      '「Your old sentence that was edited away」（登记了出处，但信里已经没有这句）',
+      '「It comes with a lifetime warranty.」← 产品事实原文「lifetime warranty」（原文对不上：任务里已证实的产品事实没有这段）',
+      '「Meicooks is my favourite channel.」（没登记出处）',
+      '「Your old sentence that was edited away」（登记了出处，但信里已经没有这段）',
     ].join('；') + BAR + '对得上：' + [
       '「YOUR 3-ingredient   smoothie series」← 简介原文「MEI’S 3-INGREDIENT recipes for busy mornings」',
       '「Your series shows the cleanup every time —」← 作品文案原文「I show the "cleanup" every time - always」',
-    ].join('；') + BAR + SELF + ['「that part stuck with me.」', '「Happy to send one over if it fits your kitchen.」'].join('；') + TAIL)
-  eq('P2.f 有草稿、没提到博主也没登记的写「无」', lineOf(review, 'plain'), `${HEAD}无${TAIL}`)
+      '「We make a portable 400ml blender.」← 产品事实原文「portable 400ML blender」',
+    ].join('；') + BAR + SELF + ['「Hi Mei,」', '「that part stuck with me.」', '「Happy to send one over if it fits your kitchen.」', '「Best, {name}」'].join('；') + TAIL)
+  eq('P2.f 有草稿、没有一个字要登记（只有标点）时写「无」', lineOf(review, 'plain'), `${HEAD}无${TAIL}`)
   eq('P2.g 没草稿或草稿只有空白的卡片不出这一行', ['blank', 'nodraft'].map(h => lineOf(review, h)), [undefined, undefined])
   ok('P2.g 只标不改：草稿原文逐字在 HTML 里，输入名单不变',
     review.includes(DRAFT.replace(/&/g, '&amp;').replace(/'/g, '&#39;')) && isDeepStrictEqual(people, before))
-  ok('P2.g 默认模式 HTML 不出这一行（U9.a）', !renderHtml(people, meta).includes('data-draft-creator'))
-  const injected = renderHtml([mk('tiktok', 'inj', { tier: 'A', outreach_draft: 'You <b>rock</b>.', profile_url: 'https://example.com/inj' })], meta, { mode: 'review' })
-  ok('P2.f 这一行在输出处转义', !injected.includes('<b>rock</b>') && injected.includes('「You &lt;b&gt;rock&lt;/b&gt;.」（提到了博主，没标出处）'))
-  // 登记半句盖不住整句：句子里没登记的部分照印出来，不管 Agent 登记的是一小段、一个词还是一个标点。
-  const one = (draft: string, sources: NonNullable<Creator['creator_sources']>, over: Partial<Creator> = {}) =>
-    lineOf(renderHtml([mk('tiktok', 'one', { nickname: 'Mei Lin', bio: '3-ingredient recipes', tier: 'A', outreach_draft: draft, creator_sources: sources, profile_url: 'https://example.com/one', ...over })], meta, { mode: 'review' }), 'one')
+  ok('P2.g 默认模式 HTML 不出这一行（U9.a）', !renderHtml(people, meta, { facts: FACTS }).includes('data-draft-sources'))
+  const injected = renderHtml([mk('tiktok', 'inj', { tier: 'A', outreach_draft: 'We <b>rock</b>.', profile_url: 'https://example.com/inj' })], meta, { mode: 'review' })
+  ok('P2.f 这一行在输出处转义', !injected.includes('<b>rock</b>') && injected.includes('「We &lt;b&gt;rock&lt;/b&gt;.」（没登记出处）'))
+  // 产品事实：任务里一条都没有时，登记成产品事实的原文一律对不上；品牌偏好不算出处（render 只把已证实的那几条交进来）。
+  const product = (facts: readonly string[] | undefined) => lineOf(renderHtml([mk('tiktok', 'prod', { tier: 'A', outreach_draft: 'We make a blender.',
+    draft_sources: [{ draft: 'We make a blender.', from: 'product', quote: 'blender' }], profile_url: 'https://example.com/prod' })], meta, { mode: 'review', facts }), 'prod')
+  eq('P2.f 产品事实：任一条已证实的产品事实里有这段才对得上，任务里一条都没有时对不上',
+    [product(['A blender.']), product(['Cup', 'Our blender is quiet']), product([]), product(undefined), product(['A mixer.'])], [
+      `${HEAD}要看：无${BAR}对得上：「We make a blender.」← 产品事实原文「blender」${TAIL}`,
+      `${HEAD}要看：无${BAR}对得上：「We make a blender.」← 产品事实原文「blender」${TAIL}`,
+      ...[0, 1, 2].map(() => `${HEAD}要看：「We make a blender.」← 产品事实原文「blender」（原文对不上：任务里已证实的产品事实没有这段）${TAIL}`),
+    ])
+  // 产品事实的原文要整段落在同一条事实里：两条事实各有一半、拼起来才有的那段对不上。
+  const spliced = lineOf(renderHtml([mk('tiktok', 'prod', { tier: 'A', outreach_draft: 'A blender. Quiet motor.',
+    draft_sources: [{ draft: 'A blender. Quiet motor.', from: 'product', quote: 'blender. quiet' }], profile_url: 'https://example.com/prod' })], meta, { mode: 'review', facts: ['A blender.', 'Quiet motor.'] }), 'prod')
+  eq('P2.f 产品事实：原文要整段落在同一条事实里，跨两条拼起来的对不上', spliced,
+    `${HEAD}要看：「A blender. Quiet motor.」← 产品事实原文「blender. quiet」（原文对不上：任务里已证实的产品事实没有这段）${TAIL}`)
+  // 登记半句盖不住整行：那一行里没登记的部分照印出来，不管 Agent 登记的是一小段、一个词还是一个标点。
+  const one = (draft: string, sources: NonNullable<Creator['draft_sources']>, over: Partial<Creator> = {}) =>
+    lineOf(renderHtml([mk('tiktok', 'one', { nickname: 'Mei Lin', bio: '3-ingredient recipes', tier: 'A', outreach_draft: draft, draft_sources: sources, profile_url: 'https://example.com/one', ...over })], meta, { mode: 'review' }), 'one')
   const HALF = { draft: 'Your 3-ingredient series', from: 'bio', quote: '3-ingredient recipes' } as const
   const MATCH = '对得上：「Your 3-ingredient series」← 简介原文「3-ingredient recipes」'
-  const halfCases: Array<[string, string, NonNullable<Creator['creator_sources']>, string]> = [
-    ['登记半句，后半句编的', 'Hi Mei,\n\nYour 3-ingredient series proves you are the top chef.', [HALF],
+  const halfCases: Array<[string, string, NonNullable<Creator['draft_sources']>, string]> = [
+    ['登记半句，后半句编的', 'Your 3-ingredient series proves you are the top chef.', [HALF],
       `要看：「Your 3-ingredient series proves you are the top chef.」（只登记了其中一段，没登记的：「proves you are the top chef.」）${BAR}${MATCH}`],
-    ['登记一个词当发件人的话', 'Hi Mei,\n\nYou won awards.', [{ draft: 'you', from: 'self' }],
+    ['登记一个词当发件人的话', 'You won awards.', [{ draft: 'you', from: 'self' }],
       `要看：「You won awards.」（只登记了其中一段，没登记的：「won awards.」）${BAR}${SELF}「you」`],
-    ['句号后没空格也切句', 'Hi Mei,\n\nYour 3-ingredient series.You won awards.', [HALF],
-      `要看：「You won awards.」（提到了博主，没标出处）${BAR}${MATCH}`],
-    ['引号收尾的句子也切', 'Hi Mei,\n\nYour 3-ingredient series." You won awards.', [HALF],
-      `要看：「You won awards.」（提到了博主，没标出处）${BAR}${MATCH}`],
-    ['列表行各自成句', 'Hi Mei,\n\n- Your 3-ingredient series\n- You won awards', [HALF],
-      `要看：「- You won awards」（提到了博主，没标出处）${BAR}${MATCH}`],
-    ['缩写后的句点不切句', 'Hi Mei,\n\nYou studied under Dr. Oz in the U.S. for years.', [],
-      '要看：「You studied under Dr. Oz in the U.S. for years.」（提到了博主，没标出处）'],
-    ['问候行里带 you 一类词不算问候', 'Hey Mei your marathons rock!', [],
-      '要看：「Hey Mei your marathons rock!」（提到了博主，没标出处）'],
-    ['Dear 开头只跟名字是问候', 'Dear Mei,\n\nWe make a blender.', [], '无'],
-    ['Hello 开头只跟泛称和名字是问候', 'Hello team Mei!\n\nWe make a blender.', [], '无'],
-    ['弯撇号也认 you 一类词', 'Hi Mei,\n\nYou’re a pro.', [], '要看：「You’re a pro.」（提到了博主，没标出处）'],
-    ['名字整词才算：Meiko 不是 Mei', 'Hi Mei,\n\nMeiko helped us.', [], '无'],
-    ['要看的按在信里的先后，不按登记的先后', 'Hi Mei,\n\nYou won awards. Your 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
-      '要看：「You won awards.」（提到了博主，没标出处）；「Your 3-ingredient secret.」← 简介原文「secret」（原文对不上：他的简介里没有这段）'],
-    ['同一句只列一次', 'Hi Mei,\n\nYou rock.\n\nYou rock.', [], '要看：「You rock.」（提到了博主，没标出处）'],
-    ['登记跨过两句的一整段也算盖住', 'Hi Mei,\n\nYou cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
+    ['同一行里的几句不拆开，句号后的照列', 'Your 3-ingredient series. You won awards. Dr. Oz agrees.', [HALF],
+      `要看：「Your 3-ingredient series. You won awards. Dr. Oz agrees.」（只登记了其中一段，没登记的：「. You won awards. Dr. Oz agrees.」）${BAR}${MATCH}`],
+    ['列表编号也是字，要登记', '1. Your 3-ingredient series\n2. You won awards', [HALF],
+      `要看：「1. Your 3-ingredient series」（只登记了其中一段，没登记的：「1.」）；「2. You won awards」（没登记出处）${BAR}${MATCH}`],
+    ['回车、回车换行、U+2028、U+2029 都算换行', 'We make a blender.\r\nHi Mei,\rThanks\u2028Best\u2029Yu', [{ draft: 'We make a blender.', from: 'self' }],
+      `要看：「Hi Mei,」（没登记出处）；「Thanks」（没登记出处）；「Best」（没登记出处）；「Yu」（没登记出处）${BAR}${SELF}「We make a blender.」`],
+    ['不提博主的话没登记也列', 'We make a blender.', [], '要看：「We make a blender.」（没登记出处）'],
+    ['问候没登记也列', 'Hi Mei,\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
+      `要看：「Hi Mei,」（没登记出处）${BAR}${SELF}「We make a blender.」`],
+    ['落款没登记也列，折行各占一行', 'We make a blender.\n\nBest,\nYu', [{ draft: 'We make a blender.', from: 'self' }],
+      `要看：「Best,」（没登记出处）；「Yu」（没登记出处）${BAR}${SELF}「We make a blender.」`],
+    ['登记跨行也算盖住', 'Best,\nYu', [{ draft: 'Best, Yu', from: 'self' }], `${SELF}「Best, Yu」`],
+    ['弯撇号与直撇号算同一个', 'You’re a pro.', [{ draft: "You're a pro.", from: 'self' }], `${SELF}「You're a pro.」`],
+    ['要看的按在信里的先后，不按登记的先后', 'You won awards.\nYour 3-ingredient secret.', [{ draft: 'Your 3-ingredient secret.', from: 'bio', quote: 'secret' }],
+      '要看：「You won awards.」（没登记出处）；「Your 3-ingredient secret.」← 简介原文「secret」（原文对不上：他的简介里没有这段）'],
+    ['同一行在信里出现几处就列几处', 'You rock.\n\nYou rock.', [], '要看：「You rock.」（没登记出处）；「You rock.」（没登记出处）'],
+    // 同一段在信里出现两处，前一处登记了、后一处没盖住：后一处照列。
+    // 主题行去掉的「Subject:」字样不用登记；正文里同样写着的那一行照样核它自己那一处。
+    ['主题行的标签不用登记，正文同样的字照核', 'Subject: Subject\n\nSubject', [{ draft: 'Subject: Subject', from: 'self' }],
+      `要看：「Subject」（没登记出处）${BAR}${SELF}「Subject: Subject」`],
+    ['同一段前一处登记了，后一处没盖住照列', 'Want to try it? No pressure.\n\nNo pressure.', [{ draft: 'Want to try it? No pressure.', from: 'self' }],
+      `要看：「No pressure.」（没登记出处）${BAR}${SELF}「Want to try it? No pressure.」`],
+    ['登记跨过句号的一整段也算盖住', 'You cook. You bake.', [{ draft: 'You cook. You bake.', from: 'self' }], `${SELF}「You cook. You bake.」`],
+    ['只剩标点的一段不列', 'We make a blender.\n\n— …', [{ draft: 'We make a blender.', from: 'self' }], `${SELF}「We make a blender.」`],
+    ['占位符也是字，要登记', '{他的某条具体内容}', [], '要看：「{他的某条具体内容}」（没登记出处）'],
   ]
-  eq('P2.f 登记一小段盖不住整句：整句印出、标只登记了一部分并列出没登记的部分；切句认句号无空格、收尾引号、列表行，不在缩写处切；问候行带 you 不算问候；弯撇号、整词、去重；按在信里出现的先后',
-    halfCases.map(([name, draft, sources]) => [name, one(draft, sources)]), halfCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
-  // 登记停在切句点上或跨过切句点：覆盖按整封信的字算，被压到一部分的那句照样列出没登记的部分（独立复核第二轮的阻塞）。
+  eq('P2.f 每一行都要登记：有字没被盖住的那一行整行印出，只登记了一部分的列出没登记的部分；问候、落款、不提博主的话、列表编号、占位符也要登记；按换行分行（回车、U+2028、U+2029 也算），不切句；弯撇号；同一行出现几处列几处；按在信里出现的先后',
+    halfCases.map(([name, draft, sources]) => [name, one(draft, sources)]), halfCases.map(([name, , , want]) => [name, HEAD + lead(want) + TAIL]))
+  // 登记停在一行中间或跨过句号：覆盖按整封信的字算，那一行里没登记的部分照样列出。
   const POST = { recent_posts: [{ desc: 'Yes, I show the cleanup every time! Day 12. Still showing the cleanup!' }] as unknown as Creator['recent_posts'] }
-  const crossCases: Array<[string, string, NonNullable<Creator['creator_sources']>, string, Partial<Creator>]> = [
-    ['引号里的感叹号后接小写不切句', 'Hi Mei,\n\nYour post "Yes, I show the cleanup every time!" proves nobody works harder.',
+  const crossCases: Array<[string, string, NonNullable<Creator['draft_sources']>, string, Partial<Creator>]> = [
+    ['登记停在引号收尾处，同一行后面的评价照列', 'Your post "Yes, I show the cleanup every time!" proves nobody works harder.',
       [{ draft: 'Your post "Yes, I show the cleanup every time!"', from: 'post', quote: 'Yes, I show the cleanup every time!' }],
       '要看：「Your post "Yes, I show the cleanup every time!" proves nobody works harder.」（只登记了其中一段，没登记的：「proves nobody works harder.」）' + BAR +
       '对得上：「Your post "Yes, I show the cleanup every time!"」← 作品文案原文「Yes, I show the cleanup every time!」', POST],
-    ['登记跨过切句点，压到下一句一部分', 'Hi Mei,\n\nYour caption "Day 12. Still showing the cleanup!" is the most honest thing online.',
+    ['登记跨过句号，同一行后半照列', 'Your caption "Day 12. Still showing the cleanup!" is the most honest thing online.',
       [{ draft: 'Your caption "Day 12. Still showing the cleanup!"', from: 'post', quote: 'Day 12. Still showing the cleanup!' }],
-      '要看：「Still showing the cleanup!" is the most honest thing online.」（只登记了其中一段，没登记的：「is the most honest thing online.」）' + BAR +
+      '要看：「Your caption "Day 12. Still showing the cleanup!" is the most honest thing online.」（只登记了其中一段，没登记的：「is the most honest thing online.」）' + BAR +
       '对得上：「Your caption "Day 12. Still showing the cleanup!"」← 作品文案原文「Day 12. Still showing the cleanup!」', POST],
-    ['引文后接破折号评价不切句', 'Hi Mei,\n\nYour post "Clean kitchen!" — a masterclass in sustainability.',
+    ['引文后接破折号的评价照列，印原文的破折号', 'Your post "Clean kitchen!" — a masterclass in sustainability.',
       [{ draft: 'Your post "Clean kitchen!"', from: 'self' }],
-      `要看：「Your post "Clean kitchen!" — a masterclass in sustainability.」（只登记了其中一段，没登记的：「- a masterclass in sustainability.」）${BAR}${SELF}「Your post "Clean kitchen!"」`, {}],
-    ['表外缩写后接小写不切句', 'Hi Mei,\n\nYour 5 a.m. smoothie routine is the most disciplined thing around.',
-      [{ draft: 'Your 5 a.m.', from: 'self' }],
-      `要看：「Your 5 a.m. smoothie routine is the most disciplined thing around.」（只登记了其中一段，没登记的：「smoothie routine is the most disciplined thing around.」）${BAR}${SELF}「Your 5 a.m.」`, {}],
-    ['账号名带下划线整个写出来也认', 'Hi,\n\n@sarah_bakes is the best baker online.', [], '要看：「@sarah_bakes is the best baker online.」（提到了博主，没标出处）', { nickname: 'SB', handle: 'sarah_bakes' }],
-    ['账号名带数字整个写出来也认', 'Hi,\n\nmei123 is the best baker online.', [], '要看：「mei123 is the best baker online.」（提到了博主，没标出处）', { nickname: '🍰', handle: 'mei123' }],
-    ['问候后面接了评价就不是问候', 'Hey Mei, sourdough queen!\n\nWe make a blender.', [], '要看：「Hey Mei, sourdough queen!」（提到了博主，没标出处）', {}],
-    ['开头的称呼不带名字也算在说他', 'Hey sourdough queen!\n\nWe make a blender.', [], '要看：「Hey sourdough queen!」（提到了博主，没标出处）', {}],
-    ['there 这类泛称是问候', 'Hi there,\n\nWe make a blender.', [], '无', {}],
-    ['称呼和评价之间没标点也不是问候', 'Hi Mei the smoothie genius,\n\nWe make a blender.', [], '要看：「Hi Mei the smoothie genius,」（提到了博主，没标出处）', {}],
-    ['只有正文第一行可能是问候，后面的段照正文核', 'Hi Mei,\n\nWe make a blender.\n\nHey Mei', [], '要看：「Hey Mei」（提到了博主，没标出处）', {}],
-    ['没登记的只剩表情也列出', 'Hi Mei,\n\nYour smoothie series 🔥🔥', [{ draft: 'Your smoothie series', from: 'self' }], `要看：「Your smoothie series 🔥🔥」（只登记了其中一段，没登记的：「🔥🔥」）${BAR}${SELF}「Your smoothie series」`, {}],
-    ['登记在信里出现几处，每处都算盖住', 'Hi Mei,\n\nYour cleanup clip. Your cleanup clip is the best.', [{ draft: 'Your cleanup clip', from: 'self' }],
+      `要看：「Your post "Clean kitchen!" — a masterclass in sustainability.」（只登记了其中一段，没登记的：「— a masterclass in sustainability.」）${BAR}${SELF}「Your post "Clean kitchen!"」`, {}],
+    ['没登记的只剩表情也列出', 'Your smoothie series 🔥🔥', [{ draft: 'Your smoothie series', from: 'self' }], `要看：「Your smoothie series 🔥🔥」（只登记了其中一段，没登记的：「🔥🔥」）${BAR}${SELF}「Your smoothie series」`, {}],
+    ['登记在信里出现几处，每处都算盖住', 'Your cleanup clip.\nYour cleanup clip is the best.', [{ draft: 'Your cleanup clip', from: 'self' }],
       `要看：「Your cleanup clip is the best.」（只登记了其中一段，没登记的：「is the best.」）${BAR}${SELF}「Your cleanup clip」`, {}],
-    ['整个昵称也当名字认', 'Hi,\n\nmei_lin is the best baker online.', [], '要看：「mei_lin is the best baker online.」（提到了博主，没标出处）', { nickname: 'mei_lin', handle: 'x9' }],
-    ['问候只认段首行，折行后以 Hi 开头的行照正文接', 'Hello Mei,\n\nWe loved it.\nHi Mei\nyou ran far.', [], '要看：「Hi Mei you ran far.」（提到了博主，没标出处）', {}],
-    ['问候超过五个词不算问候', 'Hello Mei Lin Mei Lin Mei,\n\nWe make a blender.', [], '要看：「Hello Mei Lin Mei Lin Mei,」（提到了博主，没标出处）', {}],
-    ['主题行写到博主也要登记', 'Subject: Mei, your blender\n\nHi Mei,\n\nWe make a blender.', [], '要看：「Mei, your blender」（提到了博主，没标出处）', {}],
-    ['全角字与长破折号归一后对得上', 'Hi Mei,\n\nYour ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
+    ['主题行只登记了标签后的字就算盖住', 'Subject: your blender\n\nWe make a blender.', [{ draft: 'your blender', from: 'self' }, { draft: 'We make a blender.', from: 'self' }],
+      `${SELF}「your blender」；「We make a blender.」`, {}],
+    ['主题行前面有空行，仍只认第一个非空行的标签', '\n\nSubject: your blender\n\nWe make a blender.', [{ draft: 'your blender', from: 'self' }, { draft: 'We make a blender.', from: 'self' }],
+      `${SELF}「your blender」；「We make a blender.」`, {}],
+    ['全角花括号的占位符归一后也要登记', 'We make a ｛...｝ blender.', [{ draft: 'We make a', from: 'self' }, { draft: 'blender.', from: 'self' }],
+      `要看：「We make a ｛...｝ blender.」（只登记了其中一段，没登记的：「｛...｝」）${BAR}${SELF}「We make a」；「blender.」`, {}],
+    ['归一后是撇号的字不算没登记', 'Thanksʼ Mei', [{ draft: 'Thanks', from: 'self' }, { draft: 'Mei', from: 'self' }], `${SELF}「Thanks」；「Mei」`, {}],
+    ['紧跟在换行后的附加符号算下一行的字', 'Hi Mei,\n\u0301', [{ draft: 'Hi Mei,', from: 'self' }],
+      `要看：「\u0301」（没登记出处）${BAR}${SELF}「Hi Mei,」`, {}],
+    ['正文第一行开头的附加符号也要登记', '\n\u0301Hi', [{ draft: 'Hi', from: 'self' }],
+      `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
+    ['主题标签后开头的附加符号也要登记', 'Subject: \u0301Hi', [{ draft: 'Hi', from: 'self' }],
+      `要看：「\u0301Hi」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」`, {}],
+    // 冒号加附加符号按 Unicode 分字规则是一个字，伸进了正文，整个印出来（不跟着标签跳过）。
+    ['紧跟冒号的附加符号不跟着标签跳过', 'Subject:\u0301Hi', [{ draft: 'Hi', from: 'self' }],
+      `要看：「\u0301Hi」（只登记了其中一段，没登记的：「:\u0301」）${BAR}${SELF}「Hi」`, {}],
+    ['空白后的附加符号也要登记', 'Hi \u0301Mei', [{ draft: 'Hi', from: 'self' }, { draft: 'Mei', from: 'self' }],
+      `要看：「Hi \u0301Mei」（只登记了其中一段，没登记的：「\u0301」）${BAR}${SELF}「Hi」；「Mei」`, {}],
+    ['标了约时间、联系方式的登记印出用途', 'Free at 3pm EST? Text 415 555 0199.', [{ draft: 'Free at', from: 'self' }, { draft: '3pm EST?', from: 'self', purpose: 'schedule' }, { draft: 'Text', from: 'self' }, { draft: '415 555 0199.', from: 'self', purpose: 'contact' }],
+      `${SELF}「Free at」；「3pm EST?」（约时间）；「Text」；「415 555 0199.」（联系方式）`, {}],
+    ['登记跨行照样盖住', 'Hi\nMei', [{ draft: 'Hi Mei', from: 'self' }], `${SELF}「Hi Mei」`, {}],
+    ['主题行写什么都要登记', 'Subject: Mei, your blender\n\nWe make a blender.', [{ draft: 'We make a blender.', from: 'self' }],
+      `要看：「Mei, your blender」（没登记出处）${BAR}${SELF}「We make a blender.」`, {}],
+    ['没填的占位符整段是标点也要登记', 'Subject: {...}\n\nWe make a {...} blender.', [{ draft: 'We make a', from: 'self' }, { draft: 'blender.', from: 'self' }],
+      `要看：「{...}」（没登记出处）；「We make a {...} blender.」（只登记了其中一段，没登记的：「{...}」）${BAR}${SELF}「We make a」；「blender.」`, {}],
+    ['全角字与长破折号归一后对得上', 'Your ＳＭＯＯＴＨＩＥ — daily.', [{ draft: 'Your ＳＭＯＯＴＨＩＥ — daily.', from: 'bio', quote: 'ＳＭＯＯＴＨＩＥ — daily' }],
       '对得上：「Your ＳＭＯＯＴＨＩＥ — daily.」← 简介原文「ＳＭＯＯＴＨＩＥ — daily」', { bio: 'smoothie - daily' }],
+    ['符号后的附加符号与它合成一个字', 'We are =\u0338 them.', [{ draft: 'We are ≠ them.', from: 'self' }], `${SELF}「We are ≠ them.」`, {}],
+    ['认不得的用途不印', 'Call at 3pm.', [{ draft: 'Call at 3pm.', from: 'self', purpose: 'banana' } as unknown as NonNullable<Creator['draft_sources']>[number]], `${SELF}「Call at 3pm.」`, {}],
+    ['半角片假名加半角浊点与全角合写的算同一个字', 'ガイド付き', [{ draft: 'ｶﾞｲﾄﾞ付き', from: 'self' }], `${SELF}「ｶﾞｲﾄﾞ付き」`, {}],
+    ['半角浊点跨宽度对得上原文', 'ｶﾞｲﾄﾞ付き', [{ draft: 'ｶﾞｲﾄﾞ付き', from: 'bio', quote: 'ガイド' }], '对得上：「ｶﾞｲﾄﾞ付き」← 简介原文「ガイド」', { bio: 'ガイド付きツアー' }],
+    ['分开写的附加符号与合写的算同一个字', 'Café chats are fun.', [{ draft: 'Café chats are fun.', from: 'self' }], `${SELF}「Café chats are fun.」`, {}],
   ]
-  eq('P2.f 登记停在或跨过切句点也盖不住整句；切句在空白后接小写、破折号、开括号处不切；账号名整个认；问候只认正文第一行、只跟名字与泛称、五个词以内，开头称呼不是纯问候时当在说他；剩表情也列；登记每处都算；整个昵称也认；主题行照核；NFKC 与长破折号归一',
-    crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + want + TAIL]))
-  // 昵称：驼峰拆开认名字，the、with 这类普通词不算名字；两个字母的词不算。
-  eq('P2.f 昵称驼峰拆开认名字，普通词与两个字母的不算',
-    [one('Hi,\n\nSarah won awards. We cook with care. Jo is here.', [], { nickname: 'TechWithSarah', handle: 'x1' }),
-     one('Hi,\n\nWe make the blender with care.', [], { nickname: 'Cooking With Sarah | The Official', handle: 'x2' })],
-    [`${HEAD}要看：「Sarah won awards.」（提到了博主，没标出处）${TAIL}`, `${HEAD}无${TAIL}`])
+  eq('P2.f 登记停在一行中间或跨过句号都按字算，同一行里没登记的照列；剩表情也列；登记每处都算；主题行照核；NFKC、附加符号与长破折号归一',
+    crossCases.map(([name, draft, sources, , over]) => [name, one(draft, sources, over)]), crossCases.map(([name, , , want]) => [name, HEAD + lead(want) + TAIL]))
   // 名单被手改坏（昵称不是字符串、作品文案是 null、简介是数字）时这一行照出，不让 render 失败（P2.g）。
-  let crashed = ''
+  let crashed = '', badHtml = ''
   try {
-    renderHtml([mk('tiktok', 'bad', { nickname: 7 as unknown as string, bio: 5 as unknown as string, recent_posts: [{ desc: null }] as unknown as Creator['recent_posts'], tier: 'A',
-      outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post.', creator_sources: [{ draft: 'Your bio.', from: 'bio', quote: 'x' }, { draft: 'Your post.', from: 'post', quote: 'x' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
+    badHtml = renderHtml([mk('tiktok', 'bad', { nickname: 7 as unknown as string, bio: 5 as unknown as string, recent_posts: [{ desc: null }] as unknown as Creator['recent_posts'], tier: 'A',
+      outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post. Your name.', draft_sources: [{ draft: 'Your bio.', from: 'bio', quote: '5' }, { draft: 'Your post.', from: 'post', quote: 'null' }, { draft: 'Your name.', from: 'nickname', quote: '7' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
   } catch (error) { crashed = String(error) }
-  eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', crashed, '')
+  // 原文写成坏资料变成字符串后的样子（5、null、7）也对不上：不是字符串的资料不当字符串用。
+  eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', [crashed, lineOf(badHtml, 'bad')], ['', HEAD + '要看：' + ['「Hi,」（没登记出处）', '「You rock. Your bio. Your post. Your name.」（只登记了其中一段，没登记的：「You rock.」）',
+    '「Your bio.」← 简介原文「5」（原文对不上：他的简介里没有这段）', '「Your post.」← 作品文案原文「null」（原文对不上：他的作品文案里没有这段）', '「Your name.」← 昵称原文「7」（对不了：他的昵称没查过）'].join('；') + TAIL])
   // 资料三态（P1）：简介查过没写（null）是「对不上」；简介没查过（缺席）、作品没查过（缺席或空数组）是「对不了，没查过」，不说成「没有」。
-  const SRC3 = [{ draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['creator_sources']>
+  const SRC3 = [{ draft: 'Hey Sam,', from: 'self' }, { draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['draft_sources']>
   const DRAFT3 = 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.'
   // 手改坏的资料防护失效时这里会抛错：包一层，让断言报红而不是整组死在半路。
   const safeRender = (...args: Parameters<typeof renderHtml>): string => { try { return renderHtml(...args) } catch (error) { return String(error) } }
   const bare = safeRender([
-    mk('tiktok', 'bare', { nickname: 'Sam Rivera', bio: null, recent_posts: [], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/bare' }),
-    mk('tiktok', 'unq', { nickname: 'Sam Rivera', bio: undefined, recent_posts: undefined, tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/unq' }),
-    mk('tiktok', 'had', { nickname: 'Sam Rivera', bio: 'Sam here', recent_posts: [{ desc: 'leg day' }] as unknown as Creator['recent_posts'], tier: 'A', outreach_draft: DRAFT3, creator_sources: SRC3, profile_url: 'https://example.com/had' }),
+    mk('tiktok', 'bare', { nickname: 'Sam Rivera', bio: null, recent_posts: [], tier: 'A', outreach_draft: DRAFT3, draft_sources: SRC3, profile_url: 'https://example.com/bare' }),
+    mk('tiktok', 'unq', { nickname: 'Sam Rivera', bio: undefined, recent_posts: undefined, tier: 'A', outreach_draft: DRAFT3, draft_sources: SRC3, profile_url: 'https://example.com/unq' }),
+    mk('tiktok', 'had', { nickname: 'Sam Rivera', bio: 'Sam here', recent_posts: [{ desc: 'leg day' }] as unknown as Creator['recent_posts'], tier: 'A', outreach_draft: DRAFT3, draft_sources: SRC3, profile_url: 'https://example.com/had' }),
   ], meta, { mode: 'review' })
-  const NICK = `${BAR}对得上：「Sam Rivera here.」← 昵称原文「sam rivera」`
+  const NICK = `${BAR}对得上：「Sam Rivera here.」← 昵称原文「sam rivera」${BAR}${SELF}「Hey Sam,」`
   eq('P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对',
     ['bare', 'unq', 'had'].map(h => lineOf(bare, h)), [
       HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
       HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（对不了：他的简介没查过）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
       HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（原文对不上：他的作品文案里没有这段）'].join('；') + NICK + TAIL,
     ])
-  // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，和下一行接成一句。
-  const subj = renderHtml([mk('tiktok', 'subj', { nickname: 'Ana', tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
-  eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文切句', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen is lovely.」（提到了博主，没标出处）${TAIL}`)
+  // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，标签也要登记，下一行另算一行。
+  const subj = renderHtml([mk('tiktok', 'subj', { nickname: 'Ana', tier: 'A', outreach_draft: 'Hi Ana,\n\nSubject: your kitchen\nis lovely.', draft_sources: [{ draft: 'Hi Ana,', from: 'self' }], profile_url: 'https://example.com/subj' })], meta, { mode: 'review' })
+  eq('P2.f 主题行只认第一个非空行，后面以 Subject: 开头的行照正文核，标签也要登记', lineOf(subj, 'subj'), `${HEAD}要看：「Subject: your kitchen」（没登记出处）；「is lovely.」（没登记出处）${BAR}${SELF}「Hi Ana,」${TAIL}`)
+  // 只落在开头「Subject:」字样里的不算在信里：旧主题登记成 Subject，主题改了以后照样报信里已经没有；主题内容里真有的照常对上。
+  const relabel = renderHtml([mk('tiktok', 'relabel', { nickname: 'Ana', tier: 'A', outreach_draft: 'Subject: Quick hello\n\nHi Ana, Subject', draft_sources: [{ draft: 'Subject', from: 'self' }, { draft: 'Quick hello', from: 'self' }, { draft: 'Hi Ana,', from: 'self' }], profile_url: 'https://example.com/relabel' })], meta, { mode: 'review' })
+  eq('P2.f 登记只在开头 Subject: 字样里找得到时算信里已经没有；主题内容与正文里有的照常认',
+    [lineOf(relabel, 'relabel'), lineOf(renderHtml([mk('tiktok', 'relabel', { nickname: 'Ana', tier: 'A', outreach_draft: 'Subject: Quick hello\n\nHi Ana,', draft_sources: [{ draft: 'Subject', from: 'self' }, { draft: 'Quick hello', from: 'self' }, { draft: 'Hi Ana,', from: 'self' }], profile_url: 'https://example.com/relabel' })], meta, { mode: 'review' }), 'relabel')],
+    [`${HEAD}要看：无${BAR}${SELF}「Quick hello」；「Hi Ana,」；「Subject」${TAIL}`,
+     `${HEAD}要看：「Subject」（登记了出处，但信里已经没有这段）${BAR}${SELF}「Quick hello」；「Hi Ana,」${TAIL}`])
   criterion('P2.f', 'P2.g')
+  // P2.c 与 ADR-215：Agent 把约时间、联系方式那几个字单独登记成 self 并标上 purpose，里面的日期、钟点、电话不进「出处对不上」，另列一行；
+  // 机器不猜哪个数字是约时间：没标 purpose 的 self 登记一个都不挪；标了的，价钱、百分比、承诺词这几类也照列。
+  const CALL = 'Free for a quick call on 11/20/2026 at 3:30pm? Text me at 415 555 0199 for a 15-minute chat. I can do $40 off and free shipping, 20% too, even half off on the IPX7 one. It is FDA approved.'
+  const LETTER = `Hi Ana,\n\nWe make a 400ml blender.\n\n${CALL}\n\nOr call 415 555 0199 any time.`
+  // 整句标成约时间：句里只有日期、钟点、电话挪走，别的照列（标注不能替产品说法开门）。
+  const MARKED: NonNullable<Creator['draft_sources']> = [{ draft: CALL, from: 'self', purpose: 'schedule' }]
+  const claimsOf = (draft: string, sources: NonNullable<Creator['draft_sources']> | undefined) => {
+    const page = renderHtml([mk('tiktok', 'call', { tier: 'A', outreach_draft: draft, draft_sources: sources, profile_url: 'https://example.com/call' })], meta, { mode: 'review', facts: ['Portable 400ml blender.'] })
+    return [rowOf(page, 'call', 'data-draft-claims="unsourced"'), rowOf(page, 'call', 'data-draft-claims="sender-only"')]
+  }
+  const NOTE = '（只查数字和承诺词，其余说法仍要自己看）', SENDER_NOTE = '（确认是约时间、联系方式这类，不是产品说法）'
+  const PRODUCTISH = ['$40（I can do $40 off and free）', 'free shipping（$40 off and free shipping, 20% too, even）', '20%（and free shipping, 20% too, even half）',
+    'half off（20% too, even half off on the IPX7）', 'IPX7（off on the IPX7 one. It is）', 'It is FDA approved']
+  const TIMEISH = ['11/20/2026（quick call on 11/20/2026 at 3:30pm? Text）', '3:30pm（on 11/20/2026 at 3:30pm? Text me at）', '415 555 0199（Text me at 415 555 0199 for a 15-minute）']
+  const MINUTES = '15-minute（0199 for a 15-minute chat. I can）', OTHER_PHONE = '415 555 0199（Or call 415 555 0199 any time.）'
+  eq('P2.c 标成约时间、联系方式的登记里的日期、钟点、电话移到「只在发件人自己的话里」一行，同一句里的数量、价钱、百分比、承诺词、认证那句、数量写法、型号串照列；同一写法在信里别处没盖住的那一处照列',
+    claimsOf(LETTER, MARKED), [
+      `出处对不上：${[MINUTES, ...PRODUCTISH, OTHER_PHONE].join('；')}${NOTE}`,
+      `只在发件人自己的话里：${TIMEISH.join('；')}${SENDER_NOTE}`,
+    ])
+  // 整句登记成 self 但没标 purpose：机器不替 Agent 判断哪个数字是约时间，一个都不挪。
+  eq('P2.c 没标约时间、联系方式时一个都不挪：没登记、或整句登记成发件人自己的话，约时间、电话都照列在「出处对不上」，不出另一行',
+    [claimsOf(LETTER, undefined), claimsOf(LETTER, [{ draft: CALL, from: 'self' }])],
+    [0, 1].map(() => [`出处对不上：${[...TIMEISH, MINUTES, ...PRODUCTISH].join('；')}${NOTE}`, undefined]))
+  // 标注只盖住半个日期（停在 11/20 上）时那个日期不算落在里面；登记成博主资料或产品事实的也不算（手改名单挂上标注也不算）。
+  eq('P2.c 一条说法要整段落在标成约时间、联系方式的登记里才移走；登记成别的来处不移；登记跨行、多打空格照样算',
+    [claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self', purpose: 'schedule' }]),
+     claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'product', quote: 'noon', purpose: 'schedule' }]),
+     claimsOf('Free on  11/20/2026\nat noon.', [{ draft: 'Free on 11/20/2026 at noon.', from: 'self', purpose: 'schedule' }]),
+     claimsOf('Text me at 415  555 0199.', [{ draft: 'Text me at', from: 'self' }, { draft: '415 555 0199.', from: 'self', purpose: 'contact' }]),
+     claimsOf('Free on 11/20/2026 at noon.', [{ draft: 'Free on 11/20', from: 'self', purpose: 'schedule' }, { draft: '/2026 at noon.', from: 'self', purpose: 'schedule' }])],
+    [...[0, 1].map(() => [`出处对不上：11/20/2026（Free on 11/20/2026 at noon.）${NOTE}`, undefined]),
+      [`出处对不上：无${NOTE}`, `只在发件人自己的话里：11/20/2026（Free on 11/20/2026）${SENDER_NOTE}`],
+      [`出处对不上：无${NOTE}`, `只在发件人自己的话里：415  555 0199（Text me at 415 555 0199.）${SENDER_NOTE}`],
+      // 两条标注各盖一截、拼起来才盖住整个日期：不算落在一条登记里，照列。
+      [`出处对不上：11/20/2026（Free on 11/20/2026 at noon.）${NOTE}`, undefined]])
+  const escaped = renderHtml([mk('tiktok', 'esc', { tier: 'A', outreach_draft: 'Text me at 415 555 0199 <b>now</b> & then.', draft_sources: [{ draft: 'Text me at 415 555 0199 <b>now</b> & then.', from: 'self', purpose: 'contact' }], profile_url: 'https://example.com/esc' })], meta, { mode: 'review', facts: ['x'] })
+  ok('P2.c 「只在发件人自己的话里」一行在输出处转义', rowOf(escaped, 'esc', 'data-draft-claims="sender-only"') === `只在发件人自己的话里：415 555 0199（Text me at 415 555 0199 &lt;b&gt;now&lt;/b&gt; & then.）${SENDER_NOTE}`)
+  // 整段标成约时间也只挪日期、钟点、电话三类：产品规格（带单位的数量、倍数）照列。币符后隔一个空白的数归价格（£ 10 pm 是价格，不是钟点）。
+  const SPEC = 'It runs 40-hour with 5000mAh, 12 blades, 2x faster. Free at 3pm EST? Plans start at £ 10 pm.'
+  eq('P2.c 标成约时间也不移走产品规格（带单位的数量、倍数）；没有分钟的整点带 am、pm 算钟点', claimsOf(SPEC, [{ draft: SPEC, from: 'self', purpose: 'schedule' }]), [
+    `出处对不上：${['40-hour（It runs 40-hour with 5000mAh, 12）', '5000mAh（runs 40-hour with 5000mAh, 12 blades, 2x）', '12 blades（40-hour with 5000mAh, 12 blades, 2x faster. Free）', '2x（5000mAh, 12 blades, 2x faster. Free at）', '£ 10（Plans start at £ 10 pm.）'].join('；')}${NOTE}`,
+    `只在发件人自己的话里：3pm EST（faster. Free at 3pm EST? Plans start at）${SENDER_NOTE}`,
+  ])
+  // 挪不挪只看标注，不看后面的字：行末的约时间下一行是落款照挪；没标的「1:30 / hours」、「10/20/30 oz」整句登记成 self 也照列。
+  // 提示的前后文只取这一行：回车、换行、U+2028、U+2029 前后都算行界。
+  const UNITS = 'Cups come in 10/20/30 oz. It blends for 1:30\nhours.'
+  const marked = (sep: string) => claimsOf(`Hi Ana${sep}3pm EST${sep}Best`, [{ draft: 'Hi Ana', from: 'self' }, { draft: '3pm EST', from: 'self', purpose: 'schedule' }, { draft: 'Best', from: 'self' }])
+  eq('P2.c 挪不挪只看约时间、联系方式的标注，不看后面跟的字；提示的前后文只取这一行', [...claimsOf(UNITS, [{ draft: UNITS, from: 'self' }]),
+    ...['\r', '\n', '\r\n', '\u2028', '\u2029'].flatMap(marked)], [
+    `出处对不上：10/20/30（Cups come in 10/20/30 oz. It blends）；1:30（It blends for 1:30）${NOTE}`, undefined,
+    ...[0, 1, 2, 3, 4].flatMap(() => [`出处对不上：无${NOTE}`, `只在发件人自己的话里：3pm EST${SENDER_NOTE}`]),
+  ])
+  // 短标注会盖住信里每一处同样的写法：「只在发件人自己的话里」每一处都列、各带前后文，另一处其实在说产品时人看得见。
+  // 标了的整句里，兜底整串、尺寸串、版本号这些也照列；手改名单写了认不得的用途不算标注。
+  const RAW = 'See 20.11.2026 or 1920x1080 or v2.3.4 at 3pm EST.'
+  eq('P2.c 「只在发件人自己的话里」每一处都列；标了的整句里兜底整串照列；认不得的用途不算标注',
+    [claimsOf('Free at 1:30? It blends in 1:30 minutes.', [{ draft: 'Free at', from: 'self' }, { draft: '1:30', from: 'self', purpose: 'schedule' }]),
+      claimsOf(RAW, [{ draft: RAW, from: 'self', purpose: 'schedule' }]),
+      claimsOf('Call at 3pm EST.', [{ draft: 'Call at 3pm EST.', from: 'self', purpose: 'banana' } as unknown as NonNullable<Creator['draft_sources']>[number]])],
+    [[`出处对不上：无${NOTE}`, `只在发件人自己的话里：1:30（Free at 1:30? It blends in）；1:30（It blends in 1:30 minutes.）${SENDER_NOTE}`],
+      [`出处对不上：${['20.11.2026（See 20.11.2026 or 1920x1080 or）', '1920x1080（See 20.11.2026 or 1920x1080 or v2.3.4 at）', 'v2（or 1920x1080 or v2.3.4 at 3pm EST.）', '.3.4（or 1920x1080 or v2.3.4 at 3pm EST.）'].join('；')}${NOTE}`,
+        `只在发件人自己的话里：3pm EST（or v2.3.4 at 3pm EST.）${SENDER_NOTE}`],
+      [`出处对不上：3pm EST（Call at 3pm EST.）${NOTE}`, undefined]])
+  criterion('P2.c')
 }
 {
   // P2.e：正本校验、读写往返、投影。
   const root = mkdtempSync(join(tmpdir(), 'kol-p2src-review-'))
   try {
     const key = 'tiktok:meicooks'
-    const SOURCES = [{ draft: 'Your series', from: 'post', quote: 'my series' }, { draft: 'that stuck with me', from: 'self' }]
+    const SOURCES = [{ draft: 'Your series', from: 'post', quote: 'my series' }, { draft: 'that stuck with me', from: 'self' }, { draft: 'We make blenders', from: 'product', quote: 'blender' }, { draft: 'Your series.', from: 'self', purpose: 'schedule' }]
     const doc = (sources: unknown): AgentReviewDocument => ({ version: 1, updated_at: '2026-11-15T00:00:00Z', rounds: [],
-      reviews: { [key]: { account_keys: [key], outreach_draft: 'Your series. that stuck with me', creator_sources: sources } as unknown as AgentReview } })
-    writeAgentReviewDocument(root, doc(SOURCES))
+      reviews: { [key]: { account_keys: [key], outreach_draft: 'Your series. that stuck with me', draft_sources: sources } as unknown as AgentReview } })
+    // 写不进去时不在这里抛错（整组会死在半路），交给下面「读写往返不丢」那条报红。
+    try { writeAgentReviewDocument(root, doc(SOURCES)) } catch { writeAgentReviewDocument(root, doc([])) }
     const file = join(root, 'agent-review.json'), bytes = rf(file, 'utf8')
     const read = readAgentReviewDocument(root)
-    eq('P2.e 合规的 creator_sources 读写往返不丢', read.document.reviews[key].creator_sources, SOURCES)
+    eq('P2.e 合规的 draft_sources 读写往返不丢', read.document.reviews[key].draft_sources, SOURCES)
     const bad: Array<[string, unknown, string]> = [
-      ['不是数组', { draft: 'x' }, 'creator_sources 必须是数组'],
-      ['项不是对象', ['x'], 'creator_sources[0] 必须是对象'],
-      ['不认得的键', [{ draft: 'x', from: 'self', note: 'y' }], 'creator_sources[0].note 不认得'],
-      ['draft 空白', [{ draft: ' ', from: 'self' }], 'creator_sources[0].draft 必须是非空字符串'],
-      ['draft 缺', [{ from: 'self' }], 'creator_sources[0].draft 必须是非空字符串'],
-      ['from 不认得', [{ draft: 'x', from: 'observed_content', quote: 'y' }], 'creator_sources[0].from 必须是'],
-      ['self 写了原文', [{ draft: 'x', from: 'self', quote: 'y' }], 'creator_sources[0].quote 发件人自己的话不写原文'],
-      ['bio 没写原文', [{ draft: 'x', from: 'bio' }], 'creator_sources[0].quote 必须是非空字符串'],
-      ['post 原文空白', [{ draft: 'x', from: 'post', quote: '  ' }], 'creator_sources[0].quote 必须是非空字符串'],
-      ['nickname 原文不是字符串', [{ draft: 'x', from: 'nickname', quote: 3 }], 'creator_sources[0].quote 必须是非空字符串'],
-      ['第二项坏也指出第几项', [SOURCES[0], { draft: 'x', from: 'bio' }], 'creator_sources[1].quote 必须是非空字符串'],
+      ['不是数组', { draft: 'x' }, 'draft_sources 必须是数组'],
+      ['项不是对象', ['x'], 'draft_sources[0] 必须是对象'],
+      ['不认得的键', [{ draft: 'x', from: 'self', note: 'y' }], 'draft_sources[0].note 不认得'],
+      ['draft 空白', [{ draft: ' ', from: 'self' }], 'draft_sources[0].draft 必须是非空字符串'],
+      ['draft 缺', [{ from: 'self' }], 'draft_sources[0].draft 必须是非空字符串'],
+      ['from 不认得', [{ draft: 'x', from: 'observed_content', quote: 'y' }], 'draft_sources[0].from 必须是'],
+      ['self 写了原文', [{ draft: 'x', from: 'self', quote: 'y' }], 'draft_sources[0].quote 发件人自己的话不写原文'],
+      ['bio 没写原文', [{ draft: 'x', from: 'bio' }], 'draft_sources[0].quote 必须是非空字符串'],
+      ['用途不认得', [{ draft: 'x', from: 'self', purpose: 'price' }], 'draft_sources[0].purpose 必须是 schedule、contact 之一'],
+      ['不是发件人自己的话却写了用途', [{ draft: 'x', from: 'product', quote: 'x', purpose: 'contact' }], 'draft_sources[0].purpose 只有发件人自己的话'],
+      ['post 原文空白', [{ draft: 'x', from: 'post', quote: '  ' }], 'draft_sources[0].quote 必须是非空字符串'],
+      ['nickname 原文不是字符串', [{ draft: 'x', from: 'nickname', quote: 3 }], 'draft_sources[0].quote 必须是非空字符串'],
+      ['product 没写原文', [{ draft: 'x', from: 'product' }], 'draft_sources[0].quote 必须是非空字符串'],
+      ['第二项坏也指出第几项', [SOURCES[0], { draft: 'x', from: 'bio' }], 'draft_sources[1].quote 必须是非空字符串'],
     ]
     eq('P2.e 不合规的逐种拒绝，指出哪条评审、第几项、哪个键；已有正本保持原字节', bad.map(([name, value, want]) => {
       try { writeAgentReviewDocument(root, doc(value)); return [name, 'accepted'] }
@@ -1915,12 +2049,15 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     }), bad.map(([name]) => [name, true, true]))
     const creators = [mk('tiktok', 'meicooks')]
     const projected = projectAgentReviews(read.document, creators)
-    eq('P2.e 投影到名单原样带上', projected[0].creator_sources, SOURCES)
-    // 投影没带上时不在这里抛错，交给上一条断言报红。
-    if (projected[0].creator_sources !== undefined) projected[0].creator_sources[0].draft = 'changed'
-    eq('P2.e 改投影不反向改正本', read.document.reviews[key].creator_sources![0].draft, 'Your series')
-    const removed = structuredClone(read.document); delete removed.reviews[key].creator_sources
-    ok('P2.e 正本删掉它后，带着旧投影的名单重投影时也消失', !('creator_sources' in projectAgentReviews(removed, projected)[0]))
+    eq('P2.e 投影到名单原样带上', projected[0].draft_sources, SOURCES)
+    // 投影没带上或是空的时不在这里抛错，交给上一条断言报红。
+    const first = projected[0].draft_sources?.[0]
+    if (first !== undefined) first.draft = 'changed'
+    eq('P2.e 改投影不反向改正本', read.document.reviews[key].draft_sources?.[0]?.draft, 'Your series')
+    const removed = structuredClone(read.document); delete removed.reviews[key].draft_sources
+    ok('P2.e 正本删掉它后，带着旧投影的名单重投影时也消失', !('draft_sources' in projectAgentReviews(removed, projected)[0]))
+    // 旧名单当种子时（采集原件缺席）出处登记和草稿一样是评审判断，要清掉，不带进新一轮的原件里。
+    ok('P2.e 旧名单当种子时出处登记跟草稿一起清掉', !('draft_sources' in rawSeedFromLegacy(projected)[0]) && !('outreach_draft' in rawSeedFromLegacy(projected)[0]))
     criterion('P2.e')
   } finally { rmSync(root, { recursive: true, force: true }) }
 }
@@ -1938,19 +2075,47 @@ suite('P2', '开发信里写博主的话逐句对他资料原文，并排列在�
     for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify([creator]))
     writeFileSync(join(dir, 'agent-review.json'), JSON.stringify({ version: 1, updated_at: now, rounds: [], reviews: { 'tiktok:u14_render': {
       account_keys: ['tiktok:u14_render'], fit: '✅', fit_reason: '夹具', outreach_draft: DRAFT,
-      creator_sources: [{ draft: 'Your sourdough series is lovely.', from: 'bio', quote: 'sourdough series' }] } } }))
+      draft_sources: [{ draft: 'Your sourdough series is lovely.', from: 'bio', quote: 'sourdough series' }] } } }))
     writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
     const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
     const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
     const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
-    const line = /<div class="bio" data-draft-creator="sources">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
+    const line = /<div class="bio" data-draft-sources="lines">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
     const csv = read('kol.csv')
-    let xlsxText = ''
-    try { xlsxText = xlsxPart(join(dir, 'kol.xlsx'), 'xl/worksheets/sheet1.xml') } catch { xlsxText = 'unreadable' }
-    try { xlsxText += xlsxPart(join(dir, 'kol.xlsx'), 'xl/sharedStrings.xml') } catch { /* 没有共享字符串表时只看工作表 */ }
-    eq('P2.g 真起 render：以 0 结束不拦，报告里逐句对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
-      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csv.split('\n')[0].includes('creator_sources'), xlsxText !== 'unreadable' && xlsxText.includes('outreach_draft'), xlsxText.includes('creator_sources')],
-      [0, '写博主的话出处：要看：「You also climb.」（提到了博主，没标出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true, false])
+    // 工作簿逐张对：按工作簿自己的表清单（表名 + 关系号），用关系号在关系表里找到那张表的文件，读它第一行的表头。
+    // 期望整体全等：三层各一张（空层也有，名字里带人数），每张表头都和 kol.csv 的表头逐格相同。
+    // 任一张缺、关系对不上、表头读不出，结果都和期望不等 —— 不拿几张拼起来的字里「找得到某个词」顶替。
+    const xlsx = join(dir, 'kol.xlsx')
+    const cellText = (c: string) => (/<t\b[^>]*>([\s\S]*?)<\/t>/.exec(c)?.[1] ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+    const sheetHeads = (() => {
+      try {
+        const rels = xlsxPart(xlsx, 'xl/_rels/workbook.xml.rels')
+        return [...xlsxPart(xlsx, 'xl/workbook.xml').matchAll(/<sheet name="([^"]*)"[^>]*\br:id="([^"]+)"/g)].map(([, name, id]) => {
+          const target = new RegExp(`<Relationship Id="${id}"[^>]*Target="([^"]+)"`).exec(rels)?.[1]
+          if (target === undefined) return { name, head: 'no relationship' }
+          let xml: string
+          try { xml = xlsxPart(xlsx, `xl/${target.replace(/^\/?(?:xl\/)?/, '')}`) } catch { return { name, head: 'unreadable' } }
+          const first = /<row r="1"[^>]*>([\s\S]*?)<\/row>/.exec(xml)?.[1]
+          return { name, target, head: first === undefined ? 'no header row' : [...first.matchAll(/<c\b[^>]*>([\s\S]*?)<\/c>/g)].map(m => cellText(m[1])) }
+        })
+      } catch { return 'unreadable' }
+    })()
+    // 每张表要各有各的文件：两张指到同一个文件时，读到的表头再对也不算（另一张没写出来）。
+    const sheetFiles = (() => {
+      if (!Array.isArray(sheetHeads)) return sheetHeads
+      const targets = sheetHeads.map(sheet => ('target' in sheet ? sheet.target : undefined))
+      return new Set(targets).size === targets.length ? 'distinct' : 'shared'
+    })()
+    const sheetsShown = (() => {
+      if (!Array.isArray(sheetHeads)) return sheetHeads
+      return sheetHeads.map(({ name, head }) => ({ name, head }))
+    })()
+    // kol.csv 开头有给 Excel 认编码的 BOM，表头比对前去掉它。
+    const csvHead = csv.replace(/^\uFEFF/, '').split(/\r?\n/)[0].split(',')
+    eq('P2.g 真起 render：以 0 结束不拦，报告里逐行对原文，kol.csv 里草稿原样、CSV 与 XLSX 都没有出处列',
+      [r.status, line, csv.includes(DRAFT.replace(/"/g, '""')), csvHead.includes('draft_sources'), csvHead.includes('outreach_draft'), sheetsShown, sheetFiles],
+      [0, '逐行出处：要看：「Quick one」（没登记出处）；「Hi Ana,」（没登记出处）；「Your sourdough series is lovely. You also climb.」（只登记了其中一段，没登记的：「You also climb.」）；「Best,」（没登记出处）；「{name}」（没登记出处）　｜　对得上：「Your sourdough series is lovely.」← 简介原文「sourdough series」（改写得准不准请对照原文自己看）', true, false, true,
+        ['A级 直接发信 (1)', 'B级 先互动 (0)', 'C级 观察池 (0)'].map(name => ({ name, head: csvHead })), 'distinct'])
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
   } finally { rmSync(root, { recursive: true, force: true }) }
   }
@@ -8735,6 +8900,14 @@ harness('变异锚点那一步：暂存区里躺着的变异')
   const cut = { id: 'M-乙', file: 'u.ts', find: 'del()\n', replace: '' }
   const head = tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' })
   // 变异 git add 过、工作树那一处后来按回去了：工作树对得上，暂存区里是施加之后的样子
+  // 拆 cat-file --batch 的回话：拿手写的回话直接测（ADR-220 第三节还 ADR-70「anchors.ts 拆 cat-file 回话那几行留在入口」）
+  const sha = 'a'.repeat(40)
+  const reply = (...parts: string[]) => Buffer.from(parts.join(''), 'utf8')
+  eq('cat-file 回话：按顺序交回每一样的正文，正文里的换行、中文照字节数切', batchBlobs(reply(`${sha} blob 5\n中\nb\n`, `${sha} blob 0\n\n`), 2), ['中\nb', ''])
+  eq('cat-file 回话：问不到的只回一行、没有正文，交 undefined，后面那一样照常读', batchBlobs(reply(':./x missing\n', `${sha} blob 1\nz\n`), 2), [undefined, 'z'])
+  eq('cat-file 回话：不是 blob 的交 undefined，跳过它的正文', batchBlobs(reply(`${sha} tree 3\nabc\n`, `${sha} blob 1\nz\n`), 2), [undefined, 'z'])
+  eq('cat-file 回话：半截断了（缺头一行的换行、正文不够字节数），这一样和后面的都交 undefined，不当成读到了',
+    [batchBlobs(reply(`${sha} blob 1\nz\n`, `${sha} blob 5`), 3), batchBlobs(reply(`${sha} blob 9\nab`), 2)], [['z', undefined, undefined], [undefined, undefined]])
   eq('暂存区里没还原、工作树已按回去：报没还原', stagedResidue([back],
     tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return y\n' }), head), [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
   // 删一段的：暂存区里那段没了、工作树里还在 —— 分不开，照样报
@@ -9142,6 +9315,12 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   eq('异步等法不算，光提名字也不算', blockingWait("spawn(cmd) // 别写 execSync 那种"), undefined)
   eq('接管了信号的那个入口：没有一处同步等子进程',
     blockingWait(rf('scripts/check/mutate.ts', 'utf8')), undefined)
+  // 经 git 入口问 git 时，上面按字面找的那条看不穿：入口里除了 runGitAsync 都是同步等（ADR-221）
+  eq('从 git 入口引同步那几个：逐个说出名字，整份导入说 *，纯类型导入与 runGitAsync 不算',
+    syncGitImports("import { runGitAsync, gitText as t, type GitAnswer } from './git-entry.js'\nimport * as g from './git-entry'\nimport e from './git-entry.ts'\nimport type { GitOptions } from './git-entry.js'\nimport { runGit } from './other.js'\nimport { gitOrThrow } from '../check/git-entry.mjs?x'\nimport { askGit } from './not-git-entry.js'"),
+    ['gitText', '*', '*', 'gitOrThrow'])
+  eq('接管了信号的那个入口：从 git 入口只引异步那一个',
+    syncGitImports(rf('scripts/check/mutate.ts', 'utf8')), [])
 
   // 最后才拆：处理函数里有退出，留在测试进程里会把后面任何一次打断变成静默退出
   for (const s of sigs) process.off(s, onInterrupt)
@@ -9211,14 +9390,14 @@ if (typeof resolveMutationBaseline === 'function' && typeof executionRoutes === 
 const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
 const { join } = await import('node:path');
 const { tmpdir } = await import('node:os');
-const { spawnSync: maintenanceSpawn } = await import('node:child_process');
 const maintenanceMutation = (patch: Partial<MaintenanceMutation> = {}): MaintenanceMutation => ({
   id: 'M-contract', req: 'H-mutate', file: 'scripts/lib/fixture.ts', find: 'safe', replace: 'unsafe', ...patch,
 });
 const maintenanceReason = { reason: 'Cross-group fixture initialization must be observed.', recheck_when: 'When initialization gets a selectable group.' };
 const maintenanceFixtureDir = mkdtempSync(join(tmpdir(), 'kol-maintenance-contract-'));
+// 建玩具仓库经 git 夹具；派工问基线的那几问经 git 入口（与 mutate.ts 真问的同一张表）
 const maintenanceGit = (cwd: string, ...args: string[]): string | null => {
-  const result = maintenanceSpawn('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } });
+  const result = fixtureGit(args, { cwd });
   return result.status === 0 ? result.stdout.trim() : null;
 };
 try {
@@ -9232,7 +9411,7 @@ try {
   maintenanceGit(repository, 'commit', '--quiet', '--allow-empty', '-m', 'head');
   const head = maintenanceGit(repository, 'rev-parse', 'HEAD');
   if (!base || !head) throw new Error('Maintenance Git fixture could not create commits.');
-  const ask = (...args: string[]) => maintenanceGit(repository, ...args);
+  const ask = (...args: string[]) => gitText(args, { cwd: repository })?.trim() ?? null;
   const comparison = resolveMutationBaseline(ask, base);
   eq('维护-显式基线取真实祖先与HEAD', JSON.stringify(comparison), JSON.stringify({ kind: 'compare', base, head }));
   // 短 SHA 每跑不同，标签里写成固定的名字：同一配置两次正常基线的打印要逐字相同（ADR-145 第一节「限定」第 3 条）
@@ -9259,7 +9438,7 @@ try {
   const emptyRepository = join(maintenanceFixtureDir, 'empty');
   mkdirSync(emptyRepository);
   maintenanceGit(emptyRepository, 'init', '--quiet', '-b', 'main');
-  eq('维护-HEAD不存在时无从比较', resolveMutationBaseline((...args) => maintenanceGit(emptyRepository, ...args), base).kind, 'cannot-answer');
+  eq('维护-HEAD不存在时无从比较', resolveMutationBaseline((...args) => gitText(args, { cwd: emptyRepository })?.trim() ?? null, base).kind, 'cannot-answer');
   // A real Git shallow boundary keeps both commits resolvable, so this cannot pass merely because base is missing.
   writeFileSync(join(repository, '.git', 'shallow'), `${base}\n`);
   eq('维护-浅历史即使提交都存在也无从比较', resolveMutationBaseline(ask, base).kind, 'cannot-answer');
@@ -11045,7 +11224,7 @@ await group('h-prebuilt-observer-child-cwd', async () => {
 harness('观察器真实子cwd：独立公开契约v4，先验接线与双向字段语义')
 // v4字段oracle/标签保留；v5仅补独立冻结的主线程观测资格，worker诊断另域保留。
 const reportEq = eq;
-const { spawnSync } = await import('node:child_process');
+const { spawnSync } = await import('./check/start-process.js');
 const { createHash, randomUUID } = await import('node:crypto');
 const { mkdirSync, writeFileSync, readFileSync, symlinkSync, existsSync, rmSync, mkdtempSync, realpathSync } = await import('node:fs');
 const path = await import('node:path');
@@ -14493,9 +14672,10 @@ const clean: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT
 for (const key of keys) delete clean[key]
 delete clean.NODE_OPTIONS
 delete clean.MUTATING // 两轮都跑普通真实子集，不借施变运行跳过夹具准备或认领约束。
-const git = (cwd: string, args: string[], input?: string) => {
-  const r = spawnSync('git', args, { cwd, env: clean, input, encoding: 'utf8' })
-  if (r.error || r.signal || r.status !== 0) throw new Error(`Git 隔离测试未造好夹具：${r.error?.message ?? r.stderr}`)
+// 造诱饵仓库经 git 夹具：它自己去掉继承来的 GIT_*、不读本机配置
+const git = (cwd: string, args: string[]) => {
+  const r = fixtureGit(args, { cwd })
+  if (r.error || r.status !== 0) throw new Error(`Git 隔离测试未造好夹具：${r.error?.message ?? r.stderr}`)
   return r.stdout.trim()
 }
 const repo = (name: string) => {
@@ -15202,7 +15382,8 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
      * 一、把全局与系统配置挡在外面:否则一台设了 `core.autocrlf=true` 的机器上,
      * 下面那条 CRLF 断言会恒真 —— 假绿。
      *
-     * 二、**把继承来的仓库指向变量删掉。** `git -C <目录>` 压不住 `GIT_DIR` ——
+     * 二、**把继承来的仓库指向变量删掉。** 建仓库、提交经 git 夹具，它自己删；量改动经 git 入口，交给它的是下面这份删过的环境。
+     * `git -C <目录>` 压不住 `GIT_DIR` ——
      * 实测导出 `GIT_DIR`／`GIT_WORK_TREE` 指向另一个仓库之后,
      * `git -C 夹具 rev-parse --show-toplevel` 交回的是**那个**仓库。
      * 而这条夹具会 `init`、`commit`、`mv`,落在别人的仓库上就是真破坏;
@@ -15217,14 +15398,15 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     }
     for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
       'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete gitEnv[k]
-    /** 在夹具仓库里跑一条 git */
-    const g = (...args: string[]) =>
-      spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: gitEnv })
+    /** 在夹具仓库里建仓库、提交：经 git 夹具 */
+    const g = (...args: string[]) => fixtureGit(args, { cwd: repo })
+    /** 在夹具仓库里量改动：经 git 入口（与体量闸门真问的同一张表，钉死的配置由入口带） */
+    const ask = (args: readonly string[]) => gitText(args, { cwd: repo, env: gitEnv }) ?? ''
     const w = (rel: string, body: string) => {
       mkdirSync(join(repo, dirname(rel)), { recursive: true })
       writeFileSync(join(repo, rel), body, 'utf8')
     }
-    g('init', '-q', '.')
+    g('init', '-q')
     // 上面那个诱饵的第三拍就在这里:没把 `GIT_DIR` 删掉的话,`init` 会跑到诱饵那边,
     // 这个目录里不会有 `.git`。**先断言、再 mkdir 兜住** —— 不兜的话下一句
     // 写配置会 ENOENT 当场崩,而崩了不算被抓到(ADR-70),后面的断言一句话都说不上
@@ -15254,7 +15436,7 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     // ② `.md` 只给一行加前导空白:`.md` 不在白名单里,两边都照实数 → 1。
     w('docs/adr/文档.md', '# 标题\n\n1. 甲\n   2. 乙\n')
     // ③ 跨类改名、零内容变化:纯改名记录是 `0\t0\t`,与文件多长无关 → 两边都 0。
-    g('mv', 'docs/挪走的.md', 'scripts/lib/挪来的.ts')
+    renameSync(join(repo, 'docs/挪走的.md'), join(repo, 'scripts/lib/挪来的.ts'))
     // ④ 行尾翻转:两行各多一个 \r。照实数两行都算新增 → 2;`.ts` 吃折扣 → 0。
     //    **这是这条改动明写的代价,不是漏掉的情形** —— 钉住两边的数,
     //    它哪天变了(比如有人给照实数那一份 numstat 加上 --ignore-cr-at-eol)这条会红,而不是静默改口径。
@@ -15264,8 +15446,7 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     g('add', '-A'); g('commit', '-qm', '改')
 
     const numstat = (args: readonly string[]) => {
-      const r = g(...GIT_CONFIG, ...args, 'HEAD~1', 'HEAD')
-      return parseNumstat((r.stdout ?? '').trim())
+      return parseNumstat(ask([...args, 'HEAD~1', 'HEAD']).trim())
     }
     const plainFiles = numstat(NUMSTAT)
     const mergedFiles = merge(plainFiles, numstat(NUMSTAT_IGNORING_SPACE))
@@ -15277,9 +15458,9 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     eq('中文路径原样进分类判据 —— 靠的是 `-z`,不是 quotePath',
       plainFiles.map(f => f.path).includes('docs/adr/文档.md'), true)
     // `core.quotePath=false` 那一项要靠一次**不走 `-z`** 的调用才验得到:仓库本地把转义打开了,
-    // 压得住它的只有 `GIT_CONFIG`。列一遍改过的文件名,中文路径必须原样出来,
+    // 压得住它的只有 `GIT_CONFIG`。经入口列一遍那个文件名（表里不走 -z 的那一问是 ls-tree）,中文路径必须原样出来,
     // 不能是 `"docs/adr/\346\226\207..."` 那种转义串(ADR-98 末尾:它曾被注掉,没人发现,因为之前量不到)
-    const names = (g(...GIT_CONFIG, 'diff', '--name-only', 'HEAD~1', 'HEAD').stdout ?? '').split('\n')
+    const names = ask(['ls-tree', '--name-only', 'HEAD', '--', 'docs/adr/文档.md']).split('\n')
     eq('不走 -z 的调用:中文路径照样原样出来 —— 仓库本地打开了转义,钉死的 core.quotePath=false 压住了它',
       names.includes('docs/adr/文档.md'), true)
     eq('① 包进回调:照实数三行重排 + 两行新代码',
@@ -16046,8 +16227,8 @@ harness('周回访定期清点：欠条哪天登记、按什么名字认、列�
   const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-'))
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
-  const g = (date: string | null, ...a: string[]) => spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
-    { encoding: 'utf8', env: date ? { ...env, GIT_AUTHOR_DATE: day(date), GIT_COMMITTER_DATE: day(date) } : env })
+  const g = (date: string | null, ...a: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
+    { cwd: repo, env: date ? { GIT_AUTHOR_DATE: day(date), GIT_COMMITTER_DATE: day(date) } : {} })
   const put = (rel: string, body: string) => { mkdirSync(join(repo, dirname(rel)), { recursive: true }); writeFileSync(join(repo, rel), body, 'utf8') }
   const commit = (date: string) => { g(null, 'add', '-A'); g(date, 'commit', '-q', '-m', date) }
   const sha = () => g(null, 'rev-parse', 'HEAD').stdout.trim()
@@ -18440,7 +18621,7 @@ await group('d24-manual-template', () => {
   try {
     for (const key of ['readFileSync', 'readFile', 'writeFileSync', 'writeFile', 'appendFileSync', 'appendFile', 'openSync', 'open', 'statSync', 'stat', 'lstatSync', 'lstat', 'existsSync', 'renameSync', 'rename', 'unlinkSync', 'unlink', 'mkdirSync', 'mkdir', 'rmSync', 'rm', 'copyFileSync', 'copyFile', 'createReadStream', 'createWriteStream']) intercept(fsApi, key, 'file')
     for (const key of ['readFile', 'writeFile', 'appendFile', 'open', 'stat', 'lstat', 'rename', 'unlink', 'mkdir', 'rm', 'copyFile']) intercept(promiseApi, key, 'file')
-    for (const module of ['node:http', 'node:https']) for (const key of ['request', 'get']) intercept(requireForTemplate(module) as Record<string, unknown>, key, 'request')
+    for (const api of [requireForTemplate('node:http'), requireForTemplate('node:https')]) for (const key of ['request', 'get']) intercept(api as Record<string, unknown>, key, 'request')
     intercept(globalThis as unknown as Record<string, unknown>, 'fetch', 'request')
     syncBuiltinESMExports()
     try { rf(join(process.cwd(), 'package.json'), 'utf8') } catch {}
@@ -20025,7 +20206,7 @@ await group('u10-report-entry', async () => {
   const pathBlind = await import('node:path');
   const osBlind = await import('node:os');
   const { fileURLToPath: filePathBlind } = await import('node:url');
-  const { spawnSync: spawnBlind } = await import('node:child_process');
+  const { spawnSync: spawnBlind } = await import('./check/start-process.js');
   const rootBlind = await fsBlind.mkdtemp(pathBlind.join(osBlind.tmpdir(), 'kol-u10-entry-'));
   try {
     const taskDir = pathBlind.join(rootBlind, 'task'), cwdBlind = pathBlind.join(rootBlind, 'cwd');
@@ -20469,7 +20650,7 @@ await group('u11-keyword-report-entry', async () => {
   const { join } = await import('node:path')
   const { tmpdir } = await import('node:os')
   const { fileURLToPath } = await import('node:url')
-  const { spawnSync } = await import('node:child_process')
+  const { spawnSync } = await import('./check/start-process.js')
   const textCell = (s: string) => s.replace(/<[^>]*>/g, '').replace(/&(?:lt|gt|amp|quot|apos|nbsp);|&#(?:x[\da-f]+|\d+);/gi, e => {
     const named: Record<string, string> = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ' }
     return named[e.toLowerCase()] ?? String.fromCodePoint(e[2].toLowerCase() === 'x' ? parseInt(e.slice(3), 16) : parseInt(e.slice(2), 10))
@@ -22386,7 +22567,7 @@ await group('h-worker-output-interrupt', async () => {
 await group('h-worker-output-reclaim', async () => {
   harness('worker夹具只在本次起的进程组都停了之后才删自己的临时根；确认不了就不删')
   const { reclaimOwned, recordedGroups, liveGroups } = await import('./worker-output-contract-test.js')
-  const { spawn: spawnChild } = await import('node:child_process')
+  const { spawn: spawnChild } = await import('./check/start-process.js')
   const fsx = await import('node:fs'), osx = await import('node:os'), px = await import('node:path')
   const base = fsx.mkdtempSync(px.join(osx.tmpdir(), 'wrc-'))
   const started: number[] = []
@@ -22446,7 +22627,7 @@ await group('h-worker-output-reclaim', async () => {
     const unknown = px.join(base, 'unknown'); fsx.mkdirSync(unknown)
     const third = reclaimOwned([unknown], null)
     eq('worker夹具回收：组列不出来时不删，说明原因', [typeof third === 'string' && third.includes('cannot be listed'), fsx.existsSync(unknown)], [true, true])
-    const { spawnSync: spawnSyncChild } = await import('node:child_process')
+    const { spawnSync: spawnSyncChild } = await import('./check/start-process.js')
     const ownGroup = Number(spawnSyncChild('/bin/ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).stdout.trim())
     eq('worker夹具回收：看进程表读得出本进程自己那一组', [Number.isSafeInteger(ownGroup) && ownGroup > 0, liveGroups([ownGroup])], [true, [ownGroup]])
   } finally {
@@ -22673,7 +22854,8 @@ await group('h-observer-run', async () => {
     // 自己的 node_modules 是不是软链。沙箱照搬的是树根下的 node_modules，软链的目标不在沙箱里
     const linked = join(dir, 'linked')
     mkdirSync(join(linked, 'scripts', 'check'), { recursive: true })
-    for (const f of ['observer-run.ts', 'observer-rule.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
+    // 运行器起进程、问 git 经的那几份（ADR-221）连同它们引的也搬过来
+    for (const f of ['observer-run.ts', 'observer-rule.ts', 'start-process.ts', 'launch-count.ts', 'launch-rule.ts', 'git-entry.ts', 'git-config.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
     writeFileSync(join(linked, 'package.json'), '{ "type": "module" }\n')
     symlinkSync(realpathSync('node_modules'), join(linked, 'node_modules'))
     // 另起一个带 tsx 加载器的进程导入那棵树里的运行器：本进程可能跑在预编的 JS 上（`npm run compile` 之后的变异），仓库外的 .ts 它认不全
@@ -22935,7 +23117,7 @@ await group('h-iou-file-reminder', () => {
   // 真仓库：不钉某一张（哪张会被补上状态行说不准）。开着的欠条里还有正文写着 selfcheck.ts 的，就要列得出；
   // 全还清了就一条不列 —— 还清不该让测试红。列出的每一条正文里都要真写着它
   const realDocs = adrDocs()
-  const tracked = cxSpawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], { encoding: 'utf8' }).stdout.split('\0').filter(Boolean)
+  const tracked = (gitText(['ls-files', '-z']) ?? '').split('\0').filter(Boolean)
   const real = touchReport(realDocs, tracked, ['scripts/check/selfcheck.ts'])
   const realText = new Map(entryTexts(realDocs).map(t => [`${t.entry.file}:${t.entry.line}`, t.text]))
   // 独立数：完整路径，加上只属于它一个受控文件的尾段（`check/selfcheck.ts`、`selfcheck.ts`），两头都不能再连路径字符
@@ -22963,8 +23145,8 @@ await group('h-revisit-entry', () => {
   const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-entry-'))
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
-  const g = (date: string | null, ...a: string[]) => spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
-    { encoding: 'utf8', env: date ? { ...env, GIT_AUTHOR_DATE: `${date}T04:00:00+00:00`, GIT_COMMITTER_DATE: `${date}T04:00:00+00:00` } : env })
+  const g = (date: string | null, ...a: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a],
+    { cwd: repo, env: date ? { GIT_AUTHOR_DATE: `${date}T04:00:00+00:00`, GIT_COMMITTER_DATE: `${date}T04:00:00+00:00` } : {} })
   const put = (rel: string, body: string) => { mkdirSync(join(repo, dirname(rel)), { recursive: true }); writeFileSync(join(repo, rel), body, 'utf8') }
   g(null, 'init', '-q', '-b', 'main')
   const a8 = 'docs/adr/ADR-8-甲.md', a9 = 'docs/adr/ADR-9-乙.md'
@@ -22994,7 +23176,7 @@ await group('h-iou-file-reminder-entry', () => {
     const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GITHUB_ACTIONS: '' }
     for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete gitEnv[k]
     const run = (cwd: string, extra: NodeJS.ProcessEnv = {}) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, ...extra } })
-    const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+    const g = (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root })
     cxMkdirSync(cxJoin(root, 'docs/adr'), { recursive: true }); cxMkdirSync(cxJoin(root, 'scripts'))
     cxWriteFileSync(cxJoin(root, 'docs/adr/ADR-1-x.md'), '# ADR-1 x\n\n> ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR\n')
     const aBody = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n') + '\n'
@@ -23019,7 +23201,7 @@ await group('h-iou-file-reminder-entry', () => {
       summaryText.startsWith('### 欠条点名提醒\n'), summaryText.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts')], [0, true, true, true])
     cxRmSync(summary, { force: true })
     // 改名：欠条写的是旧路径，改名之后旧路径那一侧也算改到（内容大半没变，git 认得出这是改名）
-    g('add', '.'); g('commit', '-qm', 'a'); g('mv', 'scripts/a.ts', 'scripts/c.ts'); g('commit', '-qm', 'mv')
+    g('add', '.'); g('commit', '-qm', 'a'); renameSync(cxJoin(root, 'scripts/a.ts'), cxJoin(root, 'scripts/c.ts')); g('add', '-A'); g('commit', '-qm', 'mv')
     const moved = run(root)
     ok('入口：被点名的文件改了名，照样列出点了旧路径的那条', moved.stdout.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts'))
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
@@ -23075,7 +23257,7 @@ await group('h-ticket-refs', () => {
 })
 
 // 入口在玩具仓库里真起：每组各起几次，和判定那组的变异分开放、入口自己也拆成两组，启动乘条数才不过上限（ADR-145）
-type TicketToy = { root: string; run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => ReturnType<typeof cxSpawnSync>; g: (...args: string[]) => ReturnType<typeof cxSpawnSync> }
+type TicketToy = { root: string; run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => ReturnType<typeof cxSpawnSync>; g: (...args: string[]) => ReturnType<typeof fixtureGit> }
 /**
  * 玩具仓库：主干上一个提交（基线），一份旧记录里两个号、一条卡片链接（链接连同末尾的号算一处，共三处）；
  * 一份只有项目页链接与一个不带数字的词；根上一份带一个号的（在子目录里跑时它也得数到）。总共四处。
@@ -23090,7 +23272,7 @@ function ticketToy(root: string, branch: boolean, beforeBranch?: (t: TicketToy) 
   const t: TicketToy = {
     root,
     run: (cwd: string, extraEnv?: NodeJS.ProcessEnv) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, ...extraEnv } }),
-    g: (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv }),
+    g: (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root }),
   }
   cxMkdirSync(cxJoin(root, 'docs'))
   cxWriteFileSync(cxJoin(root, 'docs/old.md'), `旧文 ${TK(1)} 与 ${TK(2)}\n见 ${TK_LINK(3)}\n`)
@@ -23162,7 +23344,9 @@ await group('h-ticket-refs-entry-edges', () => {
     eq('入口：旧文件里卡片链接后面紧跟中文标点再写一个号，那个号单算一处，以 1 退出',
       [glued.status, String(glued.stderr).includes('docs/old.md  3 → 4')], [1, true])
     // git grep 照常退出、却在 stderr 说了话（有文件没读成）：在 PATH 最前面放一个包一层的 git，只在 grep 时往 stderr 写一句
-    const realGit = String(cxSpawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout).trim()
+    // PATH 上头一个能执行的 git（不起 shell 去问 command -v）
+    const realGit = (process.env.PATH ?? '').split(':').map(d => cxJoin(d || '.', 'git')).find(f => { try { accessSync(f, fsConstants.X_OK); return statSync(f).isFile() } catch { return false } })
+    if (realGit === undefined) throw new Error('PATH 上找不到能执行的 git：假 git 那一层没东西可转')
     cxMkdirSync(cxJoin(root, 'fakebin'))
     cxWriteFileSync(cxJoin(root, 'fakebin/git'),
       `#!/bin/sh\nfor a in "$@"; do [ "$a" = grep ] && echo 'error: 假装有个文件读不了' >&2 && break; done\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 })
@@ -23213,11 +23397,16 @@ await group('h-child-process-sites', () => {
 
 await group('h-child-process-judge', () => {
   harness('起子进程接口闸门的判法：不在登记表里碰了就红，待挪只许减，清掉了还挂着也红，主干上只报不判')
-  const reg = (registered: Record<string, string>, toMove: string[]): LaunchRegistry => ({ registered: new Map(Object.entries(registered)), toMove })
+  const reg = (registered: Record<string, string>, toMove: string[], testFiles: string[] = []): LaunchRegistry =>
+    ({ registered: new Map(Object.entries(registered)), toMove, testFiles })
   const text = (o: unknown) => JSON.stringify(o)
   const good = { '说明': 'x', '登记': { 'a.ts': '理由' }, '待挪': ['b.ts', 'c.ts'] }
   const parsed = parseRegistry(text(good))
-  eq('读登记表：两节原样读出', [[...parsed.registered], parsed.toMove], [[['a.ts', '理由']], ['b.ts', 'c.ts']])
+  eq('读登记表：两节原样读出，没有「测试文件」一节当空', [[...parsed.registered], parsed.toMove, parsed.testFiles], [[['a.ts', '理由']], ['b.ts', 'c.ts'], []])
+  const withTests = (() => { try { return parseRegistry(text({ ...good, '测试文件': ['t.ts', 'u.ts'] })).testFiles } catch (e) { return (e as Error).message } })()
+  eq('读登记表：「测试文件」一节原样读出', withTests, ['t.ts', 'u.ts'])
+  const badTests = [{ ...good, '测试文件': ['u.ts', 't.ts'] }, { ...good, '测试文件': ['t.ts', 't.ts'] }, { ...good, '测试文件': 't.ts' }, { ...good, '测试文件': [1] }]
+  eq('「测试文件」没排序、重复、不是列表、有不是字的项都抛错', badTests.map(b => { try { parseRegistry(text(b)); return 'ok' } catch { return 'throw' } }), badTests.map(() => 'throw'))
   const bad = [
     { ...good, '多的': 1 }, { '说明': 'x', '登记': { 'a.ts': '理由' } }, { ...good, '登记': { 'a.ts': '  ' } }, { ...good, '登记': ['a.ts'] },
     { ...good, '待挪': ['c.ts', 'b.ts'] }, { ...good, '待挪': ['b.ts', 'b.ts'] }, { ...good, '待挪': ['a.ts'] }, { ...good, '说明': 1 }, [],
@@ -23255,6 +23444,53 @@ await group('h-child-process-judge', () => {
   ok('主干上只报不判：不红，不对的照样列出', trunk.ok && trunk.err.length === 0 && trunk.out.some(l => l.includes('d.ts 碰了')) && trunk.out.some(l => l.includes('只报不判定')))
   const clean = useLines(judgeUse(new Map([['a.ts', site]]), reg({ 'a.ts': '理由' }, []), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, ['g.ts']) }), false, 's', false)
   ok('都对时不红，挪走的文件列出', clean.ok && clean.out.some(l => l.includes('挪走了 g.ts')))
+  // 只给测试用的模块：只许「测试文件」里的文件提到（ADR-222）
+  const said = [{ line: 2, kind: '只给测试用的模块' as const }]
+  const files = new Map([['a.ts', site], ['t.ts', []], ['u.ts', []], ['o.ts', []]])
+  const mentions = new Map([['t.ts', said], ['o.ts', said], ['u.ts', []]])
+  const tr = judgeUse(files, reg({ 'a.ts': '理由' }, [], ['m.ts', 't.ts']), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, [], ['t.ts']) }, mentions)
+  eq('不在「测试文件」里却提到只给测试用的模块的记下；在里面的、没提到的不记', tr.outsideTestFiles, [{ path: 'o.ts', sites: said }])
+  eq('「测试文件」比基线多出的单列；列了却不在仓库里的算不在仓库里', [tr.newTestFiles, tr.missing], [['m.ts'], ['m.ts']])
+  eq('基线上还没有「测试文件」一节时整节都算多出的', judgeUse(files, reg({ 'a.ts': '理由' }, [], ['t.ts']), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, []) }, mentions).newTestFiles, ['t.ts'])
+  const tl = useLines(tr, false, 's', false)
+  ok('提到了却不在「测试文件」里就红，点出文件与行号；多出的测试文件列给评审看',
+    !tl.ok && tl.err.some(l => l.includes('o.ts 提到了只给测试用的模块') && l.includes('第 2 行')) && tl.out.some(l => l.includes('「测试文件」比基线多了')) && tl.out.includes('    + m.ts'))
+  const tok = useLines(judgeUse(files, reg({ 'a.ts': '理由' }, [], ['o.ts', 't.ts']), { kind: 'registry', registry: reg({ 'a.ts': '理由' }, [], ['o.ts', 't.ts']) }, mentions), false, 's', false)
+  ok('提到的都在「测试文件」里、清单没多时不红，也不列', tok.ok && !tok.out.some(l => l.includes('测试文件')))
+  const said2 = (src: string) => testOnlyMentions('x.ts', src).map(m => m.line)
+  eq('认得出：导入说明符、动态导入、普通字符串、模板串的头与中段、纯类型导入、不带插值的反引号串；认不出：注释、拆开拼的名字',
+    [said2(`import { a } from './check/git-fixture.js'\n`), said2(`await import('./selfcheck-spawn-notes.js')\n`), said2(`const p = 'scripts/check/git-fixture.ts'\n`),
+      said2('const p = `git-fixture${x}`\n'), said2('const p = `${x}/git-fixture.js`\n'), said2(`import type { A } from './git-fixture.js'\n`),
+      said2('// git-fixture\nconst a = 1\n'), said2(`const p = 'git-' + 'fixture'\n`), said2(`const p = 'git-entry'\n`), said2('await import(`./git-fixture.js`)\n')],
+    [[1], [1], [1], [1], [1], [1], [], [], [], [1]])
+  // 名单手抄一份，不读常量：漏加、删掉一个都红
+  eq('只给测试用的三个模块都认：git 夹具、自检记当前目录那一处、起进程的替身',
+    ['git-fixture', 'selfcheck-spawn-notes', 'child-process-stand-in'].map(name => said2(`import { a } from './check/${name}.js'\n`)), [[1], [1], [1]])
+})
+
+await group('h-child-process-entry-test-files', () => {
+  harness('起子进程接口闸门的入口：只给测试用的模块只许「测试文件」里的文件提到')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-child-process-tests-'))
+  const entry = cxJoin(process.cwd(), 'scripts/check/child-process-use.ts')
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
+  const run = () => cxSpawnSync(...tsxCommand([entry]), { cwd: root, encoding: 'utf8', timeout: 60_000, env: gitEnv })
+  const g = (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root })
+  const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
+  const registry = (tests?: string[]) => put('scripts/check/child-process-registry.json', JSON.stringify({ '说明': 'x', '登记': { 'scripts/check/child-process-use-rule.ts': '判定' }, '待挪': [],
+    ...(tests === undefined ? {} : { '测试文件': tests }) }))
+  try {
+    put('scripts/check/child-process-use-rule.ts', `export const N = 'node:child' + '_process'\n`); registry()
+    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base'); g('checkout', '-q', '-b', 'work'); g('commit', '-q', '--allow-empty', '-m', 'w')
+    put('t.ts', `import { fixtureGit } from './scripts/check/git-fixture.js'\n`)
+    const outside = run()
+    eq('入口：不在「测试文件」里的文件导入了 git 夹具，以 1 退出、点出文件与行号（基线上还没有这一节）',
+      [outside.status, String(outside.stderr).includes('t.ts 提到了只给测试用的模块') && String(outside.stderr).includes('第 1 行')], [1, true])
+    registry(['t.ts'])
+    const listed = run()
+    eq('入口：列进「测试文件」后以 0 退出，多出的那一行列给评审看', [listed.status, String(listed.stdout).includes('「测试文件」比基线多了') && String(listed.stdout).includes('    + t.ts')], [0, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 
 await group('h-child-process-entry', () => {
@@ -23265,7 +23501,7 @@ await group('h-child-process-entry', () => {
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
     'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
   const run = (cwd = root) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: gitEnv })
-  const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+  const g = (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root })
   const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
   const registry = (toMove: string[]) => put('scripts/check/child-process-registry.json', JSON.stringify({ '说明': 'x', '登记': { 'scripts/check/child-process-use-rule.ts': '判定' }, '待挪': toMove }))
   const CP = 'node:child' + '_process'
@@ -23308,7 +23544,7 @@ await group('h-child-process-entry', () => {
     const brokenBase = run()
     eq('入口：基线那份登记表解析不了时说无从判断、以 1 结束', [brokenBase.status, String(brokenBase.stderr).includes('基线那份登记表解析不了')], [1, true])
     // 基线上有这道闸门却没有登记表：无从判断
-    g('checkout', '-q', '-f', 'main'); g('rm', '-q', 'scripts/check/child-process-registry.json'); g('commit', '-q', '-m', 'drop')
+    g('checkout', '-q', '-f', 'main'); cxRmSync(cxJoin(root, 'scripts/check/child-process-registry.json')); g('add', '-A'); g('commit', '-q', '-m', 'drop')
     g('checkout', '-q', '-b', 'work2'); g('commit', '-q', '--allow-empty', '-m', 'w'); registry([])
     const noBase = run()
     eq('入口：基线上有闸门却没有登记表时说无从判断、以 1 结束', [noBase.status, String(noBase.stderr).includes('先合主干')], [1, true])
@@ -23316,6 +23552,453 @@ await group('h-child-process-entry', () => {
     const bare = run()
     eq('起子进程接口闸门的入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 起子进程的接口：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+// 与上一组分开（ADR-131）：上一组起入口十几次，变异又多，乘出来的启动数会超上限；这两种走法各配一条变异，放在这里
+await group('h-child-process-entry-edges', () => {
+  harness('起子进程接口闸门的入口：HEAD 在主干上只报不判，列文件那一问答不上来说无从判断')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-child-process-edges-'))
+  const entry = cxJoin(process.cwd(), 'scripts/check/child-process-use.ts')
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
+  const run = () => cxSpawnSync(...tsxCommand([entry]), { cwd: root, encoding: 'utf8', timeout: 60_000, env: gitEnv })
+  const g = (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root })
+  const put = (path: string, body: string) => { cxMkdirSync(cxDirname(cxJoin(root, path)), { recursive: true }); cxWriteFileSync(cxJoin(root, path), body) }
+  const registry = (toMove: string[]) => put('scripts/check/child-process-registry.json', JSON.stringify({ '说明': 'x', '登记': { 'scripts/check/child-process-use-rule.ts': '判定' }, '待挪': toMove }))
+  const CP = 'node:child' + '_process'
+  try {
+    put('scripts/check/child-process-use-rule.ts', `export const N = '${CP}'\n`); put('old.ts', `import { spawn } from '${CP}'\n`); registry(['old.ts'])
+    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base'); g('commit', '-q', '--allow-empty', '-m', 'second')
+    // HEAD 就是 main，和它的上一版比：待挪多了照样列出来，只报不判、以 0 退出
+    put('new.ts', `const cp = require('${CP}')\n`); registry(['new.ts', 'old.ts'])
+    const grownOnTrunk = run()
+    eq('入口：HEAD 就在主干上时，待挪多了照样列出、只报不判，以 0 退出', [grownOnTrunk.status, String(grownOnTrunk.stdout).includes('「待挪」比基线多了 new.ts') && String(grownOnTrunk.stdout).includes('只报不判定')], [0, true])
+    // 列文件那一问答不上来（索引文件坏了；起点那几问不碰索引，照样答得上来）：无从判断，不当成一个文件都没有
+    cxWriteFileSync(cxJoin(root, '.git', 'index'), '坏了')
+    const noList = run()
+    eq('入口：git ls-files 出错时说无从判断、以 1 结束', [noList.status, String(noList.stderr).includes('`git ls-files` 出错了')], [1, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+// 两组共用：把模块上三个起进程的函数暂换成只记次数的替身，跑完换回。被拒的调用要「抛了且一次也没交给 Node」，
+// 只看抛了什么分不出「先交给 Node 起了、再抛」；替身也让变异把拒绝拿掉时不真起进程
+const startNames = ['spawn', 'spawnSync', 'execFileSync'] as const
+const startFunctions = { spawn: startSpawn, spawnSync: startSpawnSync, execFileSync: startExecFileSync }
+const withStubs = <T>(f: () => T): [T | Error, number] => {
+  let calls = 0
+  const stub = () => { calls++; return { status: 0, on: () => {} } }
+  const result = withStandIns(Object.fromEntries(startNames.map(name => [name, stub])), () => { try { return f() } catch (e) { return e as Error } })
+  return [result, calls]
+}
+
+await group('h-start-process', async () => {
+  harness('通用启动函数：起 git 当场抛错')
+  eq('认 git：看路径末段，正斜杠、反斜杠都切；git 自带的别的程序与名字里含 git 的不算',
+    ['git', '/usr/bin/git', 'C:\\Git\\cmd\\git.exe', 'gitk', 'git-upload-pack', 'mygit', 'node'].map(isGitProgram),
+    [true, true, true, false, false, false, false])
+  const refused = (f: () => unknown): [string, number] => {
+    const [result, calls] = withStubs(f)
+    return [result instanceof Error ? (result.message.includes('不起 git') ? '抛了' : result.message) : '没抛', calls]
+  }
+  eq('三个函数叫去起 git 都当场抛错，一次也没交给 Node（裸名、带路径、Windows 的 git.exe 与反斜杠路径都算）',
+    [refused(() => startSpawnSync('git', ['--version'])), refused(() => startSpawn('/usr/bin/git', ['--version'])),
+      refused(() => startExecFileSync('git', ['--version'])), refused(() => startSpawnSync('C:\\Git\\cmd\\git.exe', ['--version'])),
+      refused(() => startSpawn('git.exe', ['--version'])), refused(() => startExecFileSync('C:\\Git\\cmd\\git.exe', ['--version']))],
+    Array.from({ length: 6 }, () => ['抛了', 0]))
+  // 模块上的函数换掉以后，经通用启动函数起的也走换上的那个：计数、观察器两份预加载就是这样数到、拦到的。换上的不真起进程
+  let seen = ''
+  withStandIns({ spawnSync: (file: string) => { seen = file; return { status: 0 } } }, () => startSpawnSync('换上的那个看见了', []))
+  eq('起进程的函数是调用时才从模块上取的：模块上的换掉以后，经通用启动函数调的走换上的那个', seen, '换上的那个看见了')
+  // 过了检查的就原样交给 Node，Node 还什么就还什么、抛什么就抛什么。三个函数各换一次替身，替身一次正常还、一次抛。
+  // 不去一样样列「改了哪里」：交出去的全冻住（连给选项提供 stdio 的原型也冻住），程序名、参数数组、选项对象（自己的键里套一层对象，stdio 从原型上继承来）、替身还的东西都改不动，
+  // 包装就地改哪一处都当场抛错；另外再看替身只被叫一次、收到的就是原来那几个、个数不变，还回来的、抛出来的就是替身的那一个。
+  // 程序名故意带「..」和尾空格，参数里有带空白的、空串，选项里有个为假的 shell：规整、裁剪、删键这类改法在这些值上都看得出来。
+  // 替身没接上（比如函数在载入时就抄下来了）而真去起这个不存在的程序时，抛的错与异步的 error 事件都接住，替身没被叫，断言照样红
+  const program = './a/../不存在的程序 '
+  const forwarded = startNames.flatMap(name => ['还', '抛'].map(mode => {
+    const args = Object.freeze(['  -e ', '1', '']), env = Object.freeze({ A: ' 1 ' })
+    const options = Object.freeze(Object.assign(Object.create(Object.freeze({ stdio: 'pipe' })), { env, shell: false }))
+    const fromStub = Object.freeze({ 替身的: Object.freeze([name, mode]) })
+    const dispatched: unknown[] = []
+    let outcome: unknown
+    const stub = (...a: unknown[]) => {
+      dispatched.push([a.length, a[0] === program, a[1] === args, a[2] === options])
+      if (mode === '抛') throw fromStub
+      return fromStub
+    }
+    withStandIns({ [name]: stub }, () => {
+      try {
+        const returned = (startFunctions[name] as (...a: unknown[]) => unknown)(program, args, options)
+        outcome = returned === fromStub ? '还了替身的' : '还了别的'
+        if (returned !== fromStub) (returned as { on?: (e: string, h: () => void) => void } | undefined)?.on?.('error', () => {})
+      } catch (error) { outcome = error === fromStub ? '抛了替身的' : '抛了别的' }
+    })
+    return [dispatched, outcome]
+  }))
+  eq('过了检查的原样交给 Node、原样还回结果：交出去的全冻住也不出错，替身只被叫一次，程序名、参数数组、选项对象都是原来那个、个数不变，替身还的原样还回、替身抛的原样抛出',
+    forwarded, Array.from({ length: 3 }, () => [[[[3, true, true, true]], '还了替身的'], [[[3, true, true, true]], '抛了替身的']]).flat())
+})
+
+// 与上一组分开（ADR-131）：上一组不起进程，这一组真起三次，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
+await group('h-start-process-shell', async () => {
+  harness('通用启动函数：要经 shell 的、写法不对的当场抛错，写法对的原样交给 Node')
+  // 被起的程序一律用正在跑的这个 node（process.execPath），不靠 PATH 上有没有别的程序
+  const node = process.execPath
+  // 被拒的几条在替身下跑：抛了什么只认两种（不经 shell、写法不对），再加交给 Node 的次数，要是 0
+  const refusal = (start: unknown, args: unknown[]): [string, number] => {
+    const [result, calls] = withStubs(() => (start as (...a: unknown[]) => unknown)(node, ...args))
+    const message = result instanceof Error ? result.message : ''
+    return [message.includes('不经 shell') ? '不经 shell' : message.includes('只认（程序, 参数数组, 选项）') ? '写法不对' : result instanceof Error ? message : '没抛', calls]
+  }
+  const all = (args: unknown[]): [string, number][] => [startSpawnSync, startSpawn, startExecFileSync].map(start => refusal(start, args))
+  eq('选项要经 shell 的三个函数都当场抛错，一次也没交给 Node（shell 写 true 或写一个 shell 的路径都算）',
+    [all([['-e', '1'], { shell: true }]), all([['-e', '1'], { shell: '/bin/sh' }])],
+    Array.from({ length: 2 }, () => Array.from({ length: 3 }, () => ['不经 shell', 0])))
+  eq('写法不是（程序, 参数数组, 选项）的三个函数都当场抛错，一次也没交给 Node：参数数组省了、选项在第二个位置、参数数组的位置写空值、选项不是对象或是空值、多出第四个参数',
+    [[], [{ cwd: '/' }], [undefined, { cwd: '/' }], [null, { cwd: '/' }], [['-e', '1'], 'x'], [['-e', '1'], null], [['-e', '1'], []],
+      [['-e', '1'], {}, {}]].map(all),
+    Array.from({ length: 8 }, () => Array.from({ length: 3 }, () => ['写法不对', 0])))
+  // 程序名不是字符串的要真交给 Node，由它报错（不用替身）。有一条的第二个参数也不对（不是数组）：哪个先报由 Node 定，下面只认 Node 报的类型错，不认是哪个参数的错
+  // 模块上的函数暂换成一个记下收到什么、再转给原函数的探子：既看 Node 收到的参数一个没改，也看报的是 Node 自己的错
+  const notString = (file: unknown, ...args: unknown[]): [string, boolean][] => startNames.map(name => withSpies([name], heard => {
+    let code = '没抛'
+    try { (startFunctions[name] as (...a: unknown[]) => unknown)(file, ...args) } catch (e) { code = String((e as NodeJS.ErrnoException).code ?? (e as Error).message) }
+    const seen = heard.at(-1)?.[1]
+    return [code, heard.length === 1 && seen !== undefined && seen.length === args.length + 1 && seen[0] === file && seen.slice(1).every((a, i) => a === args[i])]
+  }))
+  eq('程序名不是字符串的三个函数都原样交给 Node（参数一个没改），由它报参数类型错，不先报写法不对（写法对的、写法不对的都一样）',
+    [notString(undefined, ['-e', '1']), notString(undefined, 'x'), notString(1)],
+    Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => ['ERR_INVALID_ARG_TYPE', true])))
+  // 写法对的照常起：cwd 照用、shell: false 也认，要正常退出（退出码 0、没有被信号结束）；异步那个不接标准输入，参数丢了也不会卡着等输入
+  const printCwd = ['-e', 'process.stdout.write(process.cwd())']
+  // 子进程不继承调用方的 NODE_OPTIONS：里面要是有相对路径的预加载，在 / 下找不到，子进程会先挂掉
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'NODE_OPTIONS'))
+  const attempt = <T>(f: () => T): T | string => { try { return f() } catch (e) { return `抛了：${(e as Error).message}` } }
+  const synced = attempt(() => { const r = startSpawnSync(node, printCwd, { cwd: '/', env, encoding: 'utf8', shell: false }); return [r.stdout, r.status, r.signal, r.error === undefined] })
+  // execFileSync 退出码不是 0 时自己会抛，抛了就落到 attempt 里
+  const filed = attempt(() => [startExecFileSync(node, printCwd, { cwd: '/', env, encoding: 'utf8' }), 0, null, true])
+  const spawned = await new Promise<unknown>(resolve => {
+    let text = ''
+    try {
+      const child = startSpawn(node, printCwd, { cwd: '/', env, stdio: ['ignore', 'pipe', 'pipe'] })
+      child.stdout?.on('data', (d: Buffer) => { text += String(d) })
+      child.on('error', e => resolve(`出错：${(e as NodeJS.ErrnoException).code}`))
+      child.on('close', (code, signal) => resolve([text, code, signal, true]))
+    } catch (e) { resolve(`抛了：${(e as Error).message}`) }
+  })
+  eq('写法对、不经 shell 时原样交给 Node：三个函数都照常起、正常退出，cwd 照用，shell: false 也认',
+    [synced, filed, spawned], Array.from({ length: 3 }, () => ['/', 0, null, true]))
+})
+
+await group('h-git-entry', async () => {
+  harness('git 入口：只答表里那几问，不在表里的当场抛错、不起 git')
+  // 已挪过来的检查脚本真问的那几串，照它们的写法逐个列（体量闸门、外部工单号的参数直接取规则模块里的常量）。
+  // 这份是手抄的：调用方以后换了问法、这里没跟上，这条不红，兜底是运行时那一问当场抛错
+  const asked: string[][] = [
+    ['rev-parse', 'HEAD'], ['rev-parse', '--is-shallow-repository'], ['rev-parse', '--show-toplevel'], ['rev-parse', '--verify', 'origin/main^{commit}'],
+    ['rev-parse', 'abc^1'], ['merge-base', 'origin/main', 'HEAD'], ['rev-list', 'a..b'], ['ls-tree', '--name-only', 'abc', '--', 'docs/adr/x.json'],
+    ['ls-tree', '-z', '--full-tree', '--name-only', 'abc', '--', 'scripts/check/child-process-registry.json'], ['show', 'abc:docs/有中文的 文件.md'],
+    ['log', '-1', '--format=%B', 'abc'], ['cat-file', 'blob', 'abc:x'], [...NUMSTAT, 'a', 'b'], [...NUMSTAT_IGNORING_SPACE, 'a', 'b'],
+    ['diff', '--name-only', '--no-renames', '-z', 'abc'], ['ls-files', '-z'], ['ls-files', '-s', '-z', '--', '.claude/skills', '.agents/skills'],
+    ['ls-files', '-z', '--full-name', '--cached', '--others', '--exclude-standard', '--', ':(top)'], ['cat-file', '--batch'],
+    ['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', 'a', 'b', 'c'], refsArgs(), refsArgs('abc'),
+    ['log', '--first-parent', '--diff-filter=A', '--format=%H', 'abc', '--', 'docs/x.md'], ['blame', '--first-parent', '--porcelain', '-L', '3,3', 'abc', '--', 'docs/x.md'],
+    ['rev-parse', '--show-prefix'], ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], ['status', '--porcelain'],
+  ]
+  const verdict = (args: unknown): string => { try { questionOf(args as string[]); return '答' } catch (e) { return (e as Error).message.includes('没有这一问') ? '没有这一问' : (e as Error).message.includes('一组字符串') ? '不是字符串' : (e as Error).message } }
+  eq('已挪过来的检查脚本真问的那几串，表里都有', asked.map(verdict), asked.map(() => '答'))
+  // 不在表里的：要写的子命令、多一个开关、空位里填一个开关（以 - 开头的修订、值）、路径一个都没给、路径放在 -- 前面、少一个、不是字符串
+  const refused: unknown[] = [
+    ['commit', '-m', 'x'], ['rev-parse', 'HEAD', '--short'], ['show', '--output=/tmp/x'], ['rev-parse', '--verify', '--quiet'],
+    ['blame', '--first-parent', '--porcelain', '-L', '--reverse', 'abc', '--', 'x'], ['ls-files', '-s', '-z', '--'], ['ls-files', '-s', '-z', 'x', '--', 'y'],
+    ['diff', '--numstat', '-z', 'a'], ['ls-files'], [], ['rev-parse', 1], 'rev-parse HEAD',
+  ]
+  eq('不在表里的一律说没有这一问：要写的子命令、多一个开关、空位里填开关、路径一个没给或放在 -- 前、少一个；不是一组字符串的另说',
+    refused.map(verdict), [...refused.slice(0, -2).map(() => '没有这一问'), '不是字符串', '不是字符串'])
+  // 表里每一问都只读：子命令只许这几个（status 会顺手刷新索引里的时间戳缓存，不改内容，见 ADR-220 第四节）
+  const readOnly = ['rev-parse', 'merge-base', 'rev-list', 'ls-tree', 'show', 'log', 'cat-file', 'diff', 'ls-files', 'status', 'grep', 'blame']
+  eq('表里每一问的子命令都是只读的那几个', gitQuestions.map(q => q[0]).filter(c => !readOnly.includes(c)), [])
+  // 路径空位什么都认（含开关），只有放在末尾、紧跟在 -- 后面才不会被当成开关
+  eq('表里的路径空位只在末尾，前一个是 --', gitQuestions.filter(q => q.some((t, i) => t === '<路径…>' && (i !== q.length - 1 || q[i - 1] !== '--'))), [])
+  // 不在表里的不起 git：模块上起进程的函数换成只记次数的替身
+  const [thrown, calls] = withStubs(() => runGit(['commit', '-m', 'x']))
+  eq('不在表里的当场抛错，一次也没交给 Node', [thrown instanceof Error && thrown.message.includes('没有这一问'), calls], [true, 0])
+  // 表里的交给模块上的 spawnSync（调用时才取）：程序是 git，参数前面先带固定配置，cwd、env、标准输入照传；没给标准输入就不接
+  const seen: unknown[] = []
+  withStandIns({
+    spawnSync: (file: unknown, args: unknown, options: Record<string, unknown>) => {
+      seen.push([file, args, options.cwd, (options.env as Record<string, string> | undefined)?.A, options.input, (options.stdio as unknown[])[0]])
+      return { status: 0, stdout: Buffer.from('答'), stderr: Buffer.from('') }
+    },
+  }, () => {
+    runGit(['cat-file', '--batch'], { cwd: '/某处', env: { A: '1' }, input: 'x\n' })
+    runGit(['rev-parse', 'HEAD'])
+  })
+  eq('表里的交给模块上的 spawnSync：起的是 git，参数前带不写索引的开关与固定配置，cwd、env、标准输入照传，没给标准输入就不接', seen,
+    [['git', ['--no-optional-locks', ...GIT_CONFIG, 'cat-file', '--batch'], '/某处', '1', 'x\n', 'pipe'], ['git', ['--no-optional-locks', ...GIT_CONFIG, 'rev-parse', 'HEAD'], undefined, undefined, undefined, 'ignore']])
+  // 异步那一版（变异派工用，ADR-221）：同一张表、同样的参数，交给模块上的 spawn（调用时才取）
+  let asyncThrown: unknown, asyncCalls = 0
+  await withStandIns({ spawn: () => { asyncCalls++; throw new Error('不该起') } }, async () => {
+    try { await runGitAsync(['commit', '-m', 'x']) } catch (e) { asyncThrown = e }
+  })
+  eq('异步版：不在表里的当场抛错，一次也没交给 Node', [asyncThrown instanceof Error && asyncThrown.message.includes('没有这一问'), asyncCalls], [true, 0])
+  const asyncSeen: unknown[] = []
+  await withStandIns({
+    spawn: (file: unknown, args: unknown, options: Record<string, unknown>) => {
+      asyncSeen.push([file, args, options.cwd, (options.env as Record<string, string> | undefined)?.A, (options.stdio as unknown[])[0]])
+      throw new Error('只看交了什么')
+    },
+  }, async () => {
+    for (const call of [() => runGitAsync(['rev-parse', 'HEAD'], { cwd: '/某处', env: { A: '1' } }), () => runGitAsync(['cat-file', '--batch'], { input: 'x\n' })]) {
+      try { await call() } catch { /* 替身抛的，只看交了什么 */ }
+    }
+  })
+  eq('异步版交给模块上的 spawn：起的是 git，参数前带不写索引的开关与固定配置，cwd、env 照传，没给标准输入就不接', asyncSeen,
+    [['git', ['--no-optional-locks', ...GIT_CONFIG, 'rev-parse', 'HEAD'], '/某处', '1', 'ignore'], ['git', ['--no-optional-locks', ...GIT_CONFIG, 'cat-file', '--batch'], undefined, undefined, 'pipe']])
+})
+
+await group('h-git-entry-run', async () => {
+  harness('git 入口：真起 git，固定配置压得住仓库里反着设的，答不上来的分得开')
+  const repo = mkdtempSync(join(tmpdir(), 'kol-git-entry-'))
+  // 全局与系统配置挡在外面，继承来的仓库指向变量删掉（同体量闸门的真 git 夹具）
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[k]
+  // 建夹具仓库经 git 夹具；被测的是 git 入口，问的那几问都经入口
+  const g = (...args: string[]) => fixtureGit(args, { cwd: repo })
+  try {
+    g('init', '-q')
+    // 仓库本地配置故意设成反的：中文路径转义打开、改名检测关掉。git 入口带的固定配置要压住它们
+    g('config', 'core.quotePath', 'true'); g('config', 'diff.renames', 'false')
+    g('config', 'user.name', 't'); g('config', 'user.email', 't@t')
+    writeFileSync(join(repo, '中文.md'), Array.from({ length: 20 }, (_, i) => `第 ${i} 行`).join('\n') + '\n')
+    g('add', '.'); g('commit', '-qm', '一')
+    renameSync(join(repo, '中文.md'), join(repo, '挪了.md')); g('add', '-A'); g('commit', '-qm', '二')
+    const at = { cwd: repo, env }
+    eq('不走 -z 的一问：中文路径原样出来（仓库里打开了转义，固定配置压住了它）',
+      gitText(['ls-tree', '--name-only', 'HEAD', '--', '挪了.md'], at), '挪了.md\n')
+    eq('改名检测开着（仓库里关掉了，固定配置压住了它）：挪个位置是改名，不是删 20 行加 20 行',
+      (gitText([...NUMSTAT, 'HEAD~1', 'HEAD'], at) ?? '').split('\0').slice(0, 1), ['0\t0\t'])
+    const head = gitText(['rev-parse', 'HEAD'], at)?.trim() ?? ''
+    eq('标准输入照传：cat-file --batch 读得到交进去的那一行', /^[0-9a-f]{40} blob \d+\n第 0 行/.test(runGit(['cat-file', '--batch'], { ...at, input: 'HEAD:挪了.md\n' }).stdout.toString('utf8')), true)
+    eq('cwd 照用：在夹具仓库里问 HEAD，答的是夹具仓库的提交', head === g('rev-parse', 'HEAD').stdout.trim() && /^[0-9a-f]{40}$/.test(head), true)
+    eq('答不上来的（没有这个修订）：gitText 交回 null', gitText(['rev-parse', '--verify', '没有这个^{commit}'], at), null)
+    // askGit 不收 cwd、env（决策记录同步、体量闸门的起点判法都吃它），不在夹具仓库里真问：模块上的 spawnSync 换成替身，看它只去首尾空白、答不上来交 null
+    const replies = [{ status: 0, stdout: Buffer.from(' abc\n'), stderr: Buffer.from('') }, { status: 128, stdout: Buffer.from('半句'), stderr: Buffer.from('x') }]
+    const trimmed = withStandIns({ spawnSync: () => replies.shift() }, () => [askGit('rev-parse', 'HEAD'), askGit('rev-parse', 'HEAD')])
+    eq('askGit：答得上来的去掉首尾空白，答不上来的交 null', trimmed, ['abc', null])
+    eq('gitOrThrow 不去首尾空白（-z 输出首尾的路径可能以空白开头或结尾）', gitOrThrow(['rev-parse', 'HEAD'], at), `${head}\n`)
+    // 工作区文件的时间戳变了，问 status 不回写索引（对工作区的 diff 照样会刷新索引里的时间戳缓存，带了开关也一样，见 ADR-220 第四节）
+    const indexBytes = () => rf(join(repo, '.git', 'index')).toString('hex'); gitText(['status', '--porcelain'], at); const before = indexBytes()
+    const later = new Date(Date.now() + 60_000); utimesSync(join(repo, '挪了.md'), later, later)
+    const status = gitText(['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', '挪了.md'], at)
+    eq('问 status 不回写索引（文件时间戳变了也一样）', [status !== null, indexBytes() === before], [true, true])
+    // 输出超过 Node 缺省的 1 MB 照样读全
+    const big = 'x'.repeat(3 * 1024 * 1024)
+    writeFileSync(join(repo, '大.txt'), big); g('add', '大.txt'); g('commit', '-qm', '三')
+    eq('输出超过 1 MB 照样读全', gitText(['cat-file', 'blob', 'HEAD:大.txt'], at)?.length, big.length)
+    let said = ''
+    try { gitOrThrow(['show', 'HEAD:没有这个文件'], at) } catch (e) { said = (e as Error).message }
+    // git 的原话（标准错误）另问一遍拿来比：错里光有参数里那个文件名不算带了原话
+    const own = runGit(['show', 'HEAD:没有这个文件'], at).stderr.trim()
+    eq('答不上来的：gitOrThrow 抛错，错里带退出码与 git 的原话', [said.includes('退出码 128'), own !== '' && said.includes(own)], [true, true])
+    // 异步版真起：答得上来、标准输入照传、非 0 退出、起不来、超过 1 MB，形状与同步版一一对上
+    const fine = await runGitAsync(['rev-parse', 'HEAD'], at)
+    eq('异步版答得上来：退出码 0、标准输出原样（不去空白）、没有错误', [fine.status, fine.stdout.toString('utf8'), fine.error], [0, g('rev-parse', 'HEAD').stdout, undefined])
+    const fed = await runGitAsync(['cat-file', '--batch'], { ...at, input: 'HEAD:挪了.md\n' })
+    eq('异步版标准输入照传：cat-file --batch 读得到交进去的那一行、读完就退出', [fed.status, /^[0-9a-f]{40} blob \d+\n第 0 行/.test(fed.stdout.toString('utf8'))], [0, true])
+    const missing = await runGitAsync(['show', 'HEAD:没有这个文件'], at)
+    eq('异步版非 0 退出：看退出码、带 git 的原话，error 留空（与同步版一样，error 只表示起不来）', [missing.status, missing.stderr.trim() === own, missing.error], [128, true, undefined])
+    const noStart = await runGitAsync(['rev-parse', 'HEAD'], { cwd: join(repo, '没有这个目录'), env })
+    eq('异步版起不来：error 有、退出码是 null', [noStart.error instanceof Error, noStart.status], [true, null])
+    eq('异步版输出超过 1 MB 照样读全', (await runGitAsync(['cat-file', 'blob', 'HEAD:大.txt'], at)).stdout.length, big.length)
+  } finally { rmSync(repo, { recursive: true, force: true }) }
+})
+
+await group('h-git-fixture', () => {
+  harness('git 夹具：只在系统临时目录底下、不在本仓库里起，子命令、-c 的键、环境变量各一张白名单，不合就抛错、不起 git')
+  const tmpRoot = realpathSync(tmpdir()), toy = mkdtempSync(join(tmpdir(), 'kol-git-fixture-'))
+  const refused = (args: string[], options: Parameters<typeof fixtureCheck>[1]): string => { try { fixtureCheck(args, options); return 'ok' } catch (e) { return (e as Error).message } }
+  try {
+    eq('在临时目录底下、白名单里的子命令与 -c 键：放行', [refused(['init', '-q', '-b', 'main'], { cwd: toy }), refused(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x'], { cwd: toy })], ['ok', 'ok'])
+    ok('没给 cwd：抛错', refused(['rev-parse', 'HEAD'], { cwd: '' }).includes('要给 cwd'))
+    ok('cwd 不在系统临时目录底下：抛错', refused(['rev-parse', 'HEAD'], { cwd: resolve('/') }).includes('只在系统临时目录'))
+    ok('cwd 就是系统临时目录本身：抛错（那里往下一层才是一个夹具自己的目录）', refused(['rev-parse', 'HEAD'], { cwd: tmpRoot }).includes('只在系统临时目录'))
+    // 本仓库要在临时目录底下才走得到第二道：把临时目录暂指到本仓库的上一级
+    const keptTmp = process.env.TMPDIR
+    let inRepo = ''
+    try { process.env.TMPDIR = dirname(process.cwd()); inRepo = refused(['rev-parse', 'HEAD'], { cwd: join(process.cwd(), 'scripts') }) } finally { if (keptTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = keptTmp }
+    ok('cwd 在本仓库里（本仓库恰好在临时目录底下时）：抛错', inRepo.includes('不在本仓库'))
+    // 上级目录那一半：临时目录暂指到本仓库上两级，cwd 给本仓库的上一级
+    let above = ''
+    try { process.env.TMPDIR = dirname(dirname(process.cwd())); above = refused(['rev-parse', 'HEAD'], { cwd: dirname(process.cwd()) }) } finally { if (keptTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = keptTmp }
+    ok('cwd 是本仓库的上级目录（它恰好在临时目录底下时）：抛错', above.includes('不在本仓库'))
+    // 按真实路径比：临时目录里的软链指到根目录，字面上在临时目录底下，真实路径不在
+    symlinkSync(resolve('/'), join(toy, '指到根目录'))
+    ok('cwd 是临时目录里指到别处的软链：按真实路径判，抛错', refused(['rev-parse', 'HEAD'], { cwd: join(toy, '指到根目录') }).includes('只在系统临时目录'))
+    eq('config 带指别处的开关（--global、--system、--worktree、--file、-f、--file=）：抛错；不带的放行',
+      [...[['--global'], ['--system'], ['--worktree'], ['--file', 'x'], ['-f', 'x'], ['--file=x']].map(sw => refused(['config', ...sw, 'a.b', 'c'], { cwd: toy }).includes('指别处的开关')),
+        refused(['config', 'user.name', 't'], { cwd: toy })],
+      [true, true, true, true, true, true, 'ok'])
+    eq('指别处的开关写成 git 认的缩写（config --glo、init --sep=）：抛错', [refused(['config', '--glo', 'a.b', 'c'], { cwd: toy }), refused(['init', '-q', '--sep=/x'], { cwd: toy })].map(m => m.includes('指别处的开关')), [true, true])
+    ok('短开关粘着值写（config -f路径）：抛错', refused(['config', '-fx', 'a.b', 'c'], { cwd: toy }).includes('指别处的开关'))
+    eq('init 带指别处的开关（--separate-git-dir=、--template=）：抛错',
+      ['--separate-git-dir=/x', '--template=/x'].map(sw => refused(['init', '-q', sw], { cwd: toy }).includes('指别处的开关')), [true, true])
+    eq('子命令不在白名单里（push、rev-list、裸的 -C）：抛错', ['push', 'rev-list', '-C'].map(sub => refused([sub, 'x'], { cwd: toy }).includes('不认这个子命令')), [true, true, true])
+    eq('-c 的键不在白名单里、没有等号：抛错', [refused(['-c', 'core.worktree=/', 'add', '.'], { cwd: toy }), refused(['-c', 'user.name', 'add', '.'], { cwd: toy })].map(m => m.includes('不认这一项配置')), [true, true])
+    eq('init 带目录参数：抛错；-b 后面的分支名不算', [refused(['init', '-q', 'elsewhere'], { cwd: toy }).includes('不带目录参数'), refused(['init', '-b', 'main', '-q'], { cwd: toy })], [true, 'ok'])
+    eq('调用方给的环境变量不在白名单里：抛错；值是 undefined 的当没给', [refused(['add', '.'], { cwd: toy, env: { GIT_DIR: '/x' } }).includes('不认这个环境变量'), refused(['add', '.'], { cwd: toy, env: { GIT_DIR: undefined } })], [true, 'ok'])
+    const decoys: Record<string, string> = { GIT_DIR: '/decoy', GIT_INDEX_FILE: '/decoy/index', GIT_CONFIG_PARAMETERS: "'core.bare=true'", GIT_ZZ_ANY: '1' }
+    const keptDecoys = Object.keys(decoys).map(k => [k, process.env[k]] as const)
+    let env: NodeJS.ProcessEnv = {}
+    try {
+      Object.assign(process.env, decoys)
+      env = fixtureCheck(['commit', '-qm', 'x'], { cwd: toy, env: { GIT_AUTHOR_NAME: 'A', GIT_CEILING_DIRECTORIES: '/given' } })
+    } finally {
+      for (const [k, v] of keptDecoys) if (v === undefined) delete process.env[k]; else process.env[k] = v
+    }
+    eq('环境：本进程的 GIT_* 一个不带；调用方给的提交身份带上；本机系统、用户配置不读；往上找仓库的天花板是给的那个加上系统临时目录',
+      [env.GIT_DIR, env.GIT_INDEX_FILE, env.GIT_AUTHOR_NAME, env.GIT_CONFIG_NOSYSTEM, env.GIT_CONFIG_SYSTEM, env.GIT_CONFIG_GLOBAL, env.GIT_CEILING_DIRECTORIES, env.PATH === process.env.PATH],
+      [undefined, undefined, 'A', '1', '/dev/null', '/dev/null', `/given:${tmpRoot}`, true])
+    eq('环境：本进程里不是仓库指向的 GIT_* 也一律不带（往配置里注入键值的、随便起名的）', [env.GIT_CONFIG_PARAMETERS, env.GIT_ZZ_ANY], [undefined, undefined])
+    // 起 git 的函数调用时才从模块上取：模块上的 spawnSync 换成替身，夹具用的是替身；不合规矩的一次也不交给它
+    const seen: unknown[][] = []
+    withStandIns({ spawnSync: (...a: unknown[]) => { seen.push(a); return { status: 0, stdout: ' abc\n', stderr: '' } } }, () => {
+      let got: unknown
+      try { got = fixtureGitOrThrow(['rev-parse', 'HEAD'], { cwd: toy }) } catch (e) { got = (e as Error).message }
+      eq('调用时才取模块上的函数：拿到的是替身的答复（fixtureGitOrThrow 去掉首尾空白）', got, 'abc')
+      try { fixtureGit(['push'], { cwd: toy }) } catch { /* 下面看替身被叫了几次 */ }
+    })
+    eq('交给替身的：程序是 git、参数原样、cwd 照给；不合规矩的那一次没交过去', [seen.length, seen[0]?.[0], seen[0]?.[1], (seen[0]?.[2] as { cwd?: string } | undefined)?.cwd], [1, 'git', ['rev-parse', 'HEAD'], toy])
+  } finally { rmSync(toy, { recursive: true, force: true }) }
+})
+
+await group('h-git-fixture-run', () => {
+  harness('git 夹具：真起 git，建得出玩具仓库，继承来的仓库指向碰不到别的仓库，答不上来的抛错带 git 的原话')
+  const home = mkdtempSync(join(tmpdir(), 'kol-git-fixture-run-')), toy = join(home, 'toy'), decoy = join(home, 'decoy')
+  mkdirSync(toy); mkdirSync(decoy)
+  const kept = new Map(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'].map(k => [k, process.env[k]] as const))
+  try {
+    const at = { cwd: toy }, id = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
+    fixtureGitOrThrow(['init', '-q', '-b', 'main'], { cwd: decoy })
+    const decoyBefore = readdirSync(join(decoy, '.git')).sort().join()
+    // 本进程带着指向诱饵仓库的三项：夹具起的 git 不认它们
+    process.env.GIT_DIR = join(decoy, '.git'); process.env.GIT_WORK_TREE = decoy; process.env.GIT_INDEX_FILE = join(decoy, '.git', 'index')
+    fixtureGitOrThrow(['init', '-q', '-b', 'main'], at)
+    writeFileSync(join(toy, 'a.txt'), 'a\n')
+    fixtureGitOrThrow(['add', 'a.txt'], at)
+    const fed = fixtureGit([...id, 'commit', '-q', '-F', '-'], { ...at, input: '从标准输入来的说明\n' })
+    eq('建得出玩具仓库：init、add、从标准输入读说明的 commit 都以 0 退出', fed.status, 0)
+    // 上一步没成时这里答不上来：记成空串让断言红，不让异常把整组带崩
+    const quiet = (args: string[]): string => { try { return fixtureGitOrThrow(args, at) } catch { return '' } }
+    eq('提交落在玩具仓库里，说明照传', quiet(['rev-parse', '--show-toplevel']) === realpathSync(toy)
+      && /^[0-9a-f]{40}$/.test(quiet(['rev-parse', 'HEAD'])), true)
+    eq('继承来的 GIT_DIR、GIT_WORK_TREE、GIT_INDEX_FILE 指着的诱饵仓库一个文件都没多', [readdirSync(join(decoy, '.git')).sort().join() === decoyBefore, existsSync(join(decoy, '.git', 'index'))], [true, false])
+    let said = ''
+    try { fixtureGitOrThrow(['rev-parse', '--verify', '没有这个'], at) } catch (e) { said = (e as Error).message }
+    const own = fixtureGit(['rev-parse', '--verify', '没有这个'], at).stderr.trim()
+    eq('答不上来的：fixtureGitOrThrow 抛错，错里带退出码与 git 的原话', [said.includes('退出码 128'), own !== '' && said.includes(own)], [true, true])
+    // 往上找仓库找不出临时目录：玩具目录底下没有 .git 的子目录里问，答「不是仓库」，不会找到临时目录上面的别的仓库
+    mkdirSync(join(home, 'bare'))
+    eq('没有 .git 的目录里问：答「不是仓库」，以 128 退出', fixtureGit(['rev-parse', '--show-toplevel'], { cwd: join(home, 'bare') }).status, 128)
+    let noStart = ''
+    try { fixtureGitOrThrow(['rev-parse', 'HEAD'], { cwd: join(home, '没有这个目录') }) } catch (e) { noStart = (e as Error).message }
+    ok('起不来的（cwd 不存在）：fixtureGitOrThrow 抛错，错里带起不来的原因', noStart.includes('（夹具）') && noStart.includes('ENOENT'))
+  } finally {
+    for (const [k, v] of kept) if (v === undefined) delete process.env[k]; else process.env[k] = v
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+await group('h-selfcheck-spawn-notes', async () => {
+  harness('自检记当前目录那一处：换上的函数先把参数告诉自检，名字照旧、自带的 promisify 版本照旧、返回值原样')
+  const heard: unknown[][] = []
+  // 七个都先记下原样、跑完换回（替身模块的 withRestore）；body 只问得到「现在换成了什么」，没换的问出 undefined
+  const seven = ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork'] as const
+  await withRestore(seven, async replaced => {
+    noteSpawns(a => heard.push(a))
+    eq('换掉的是起进程的七个函数，个个换上的不是原函数', [[...NOTED_APIS], seven.map(name => replaced(name) !== undefined)], [[...seven], seven.map(() => true)])
+    eq('换上的七个函数名字照旧', seven.map(name => replaced(name)?.name), [...seven])
+    const r: { status?: number | null; stdout?: string } | undefined = replaced('spawnSync')?.(process.execPath, ['-e', 'process.stdout.write("原样")'], { encoding: 'utf8' })
+    eq('返回值原样交回，参数一个不少告诉了自检', [r?.status, r?.stdout, heard.at(-1)?.[0], heard.at(-1)?.[1]], [0, '原样', process.execPath, ['-e', 'process.stdout.write("原样")']])
+    const execFile = replaced('execFile')
+    const viaPromise: { stdout?: unknown } | undefined = execFile === undefined ? undefined : await promisify(execFile)(process.execPath, ['-e', 'process.stdout.write("承诺")'])
+    eq('execFile 自带的 promisify 版本带过来了：交回 { stdout, stderr }，也告诉了自检', [viaPromise?.stdout, heard.at(-1)?.[1]], ['承诺', ['-e', 'process.stdout.write("承诺")']])
+  })
+})
+
+await group('h-child-process-stand-in', async () => {
+  harness('起进程的替身：换上的只在 body 里，跑完（正常还、抛错、Promise 了结）一定换回，交叠当场抛错')
+  // 换没换回只认一件真事：经通用启动函数真起一次 node，打得出那个字就是原函数回来了（替身不会真起进程）
+  const real = () => attemptText(() => startSpawnSync(process.execPath, ['-e', 'process.stdout.write("真")'], { encoding: 'utf8' }).stdout)
+  function attemptText(f: () => unknown): string { try { return String(f()) } catch (e) { return `抛了：${(e as Error).message}` } }
+  const got: unknown[][] = []
+  const stub = (...a: unknown[]) => { got.push(a); return { status: 0, stdout: '替身' } }
+  const inside = withStandIns({ spawnSync: stub }, () => startSpawnSync('不存在的程序', ['甲'], { cwd: '/' }).stdout)
+  eq('换替身：body 里经通用启动函数调的是替身，替身收到的就是调用的那几个参数（不多给原函数），交回 body 的结果',
+    [inside, got.length, got[0]?.length, got[0]?.[0], got[0]?.[1], (got[0]?.[2] as { cwd?: string } | undefined)?.cwd], ['替身', 1, 3, '不存在的程序', ['甲'], '/'])
+  eq('换替身：body 正常还了以后换回原函数', real(), '真')
+  const boom = new Error('body 抛的')
+  let caught: unknown
+  try { withStandIns({ spawnSync: stub }, () => { throw boom }) } catch (e) { caught = e }
+  eq('换替身：body 抛错原样抛出，也换回了原函数', [caught === boom, real()], [true, '真'])
+  // Promise 的 body：等它了结才换回 —— 了结之前还是替身，了结之后是原函数
+  let release: () => void = () => {}
+  const gate = new Promise<void>(done => { release = done })
+  const pending = withStandIns({ spawnSync: stub }, async () => { await gate; return startSpawnSync('不存在的程序', []).stdout })
+  const whileWaiting = attemptText(() => startSpawnSync('不存在的程序', []).stdout)
+  release()
+  eq('换替身：body 是 Promise 时等它了结才换回，交回它的结果', [whileWaiting, await pending.catch((e: Error) => `抛了：${e.message}`), real()], ['替身', '替身', '真'])
+  let rejected: unknown
+  try { await withStandIns({ spawnSync: stub }, async () => { await null; throw boom }) } catch (e) { rejected = e }
+  eq('换替身：Promise 失败也换回，原样抛出', [rejected === boom, real()], [true, '真'])
+  let unknownName = ''
+  try { withStandIns({ spawnSync: stub, spawnAll: stub } as never, () => startSpawnSync('不存在的程序', [])) } catch (e) { unknownName = (e as Error).message }
+  eq('换替身：名字不在起进程的七个里当场抛错，事后仍是原函数', [unknownName.includes('不认 spawnAll'), real()], [true, '真'])
+  let notFunction = ''
+  try { withStandIns({ spawnSync: undefined } as never, () => startSpawnSync('不存在的程序', [])) } catch (e) { notFunction = (e as Error).message }
+  eq('换替身：替身不是函数当场抛错，事后仍是原函数', [notFunction.includes('替身要是函数'), real()], [true, '真'])
+  // 两段交叠：先进的先了结。两段的替身交回不同的字，后一段等手动放行：前一段抛错以后、后一段放行之前，模块上还得是后一段的替身；两段都了结后回到原函数
+  let overlap = '', between = ''
+  let releaseFirst: () => void = () => {}, releaseSecond: () => void = () => {}
+  const first = withStandIns({ spawnSync: () => ({ stdout: '前一段' }) }, () => new Promise<void>(done => { releaseFirst = done }))
+  const second = withStandIns({ spawnSync: () => ({ stdout: '后一段' }) }, () => new Promise<void>(done => { releaseSecond = done }))
+  releaseFirst()
+  try { await first } catch (e) { overlap = (e as Error).message }
+  between = attemptText(() => startSpawnSync('不存在的程序', []).stdout)
+  releaseSecond()
+  try { await second } catch (e) { between += `；后一段了结时抛了：${(e as Error).message}` }
+  eq('换替身：两段交叠时先了结的那段抛错，不拆掉后一段的替身；两段都了结后回到原函数', [overlap.includes('两段替身交叠'), between, real()], [true, '后一段', '真'])
+})
+
+// 与上一组分开（ADR-131）：两组各自真起几次 node，变异各按点名的用例落在自己那组，乘出来的启动数才不超上限
+await group('h-child-process-stand-in-spies', async () => {
+  harness('起进程的替身：探子转给原函数、只交出参数；记下原样再换回只问得到换成了什么')
+  const real = () => attemptText(() => startSpawnSync(process.execPath, ['-e', 'process.stdout.write("真")'], { encoding: 'utf8' }).stdout)
+  function attemptText(f: () => unknown): string { try { return String(f()) } catch (e) { return `抛了：${(e as Error).message}` } }
+  let customSpy = ''
+  try { withSpies(['execFile'], () => undefined) } catch (e) { customSpy = (e as Error).message }
+  eq('探子不探 execFile、exec：它们自带的 promisify 版本带不过去，当场抛错', customSpy.includes('探子不探 execFile'), true)
+  // 探子：记下参数，原样转给原函数（真起），记录只交出参数
+  const spied = withSpies(['spawnSync'], heard => {
+    const r: { stdout?: string } | undefined = startSpawnSync(process.execPath, ['-e', 'process.stdout.write("探")'], { encoding: 'utf8' })
+    return [r?.stdout, heard.length, heard[0]?.[0], heard[0]?.[1][0], heard[0]?.[1][1]]
+  })
+  eq('探子：原样转给原函数（真起了），记下哪个函数、收到的参数', spied, ['探', 1, 'spawnSync', process.execPath, ['-e', 'process.stdout.write("探")']])
+  eq('探子：跑完换回原函数', real(), '真')
+  // 记下原样再换回：body 里被测的代码自己换；body 只问得到换成了什么，没换的问出 undefined
+  const noted: unknown[][] = []
+  const view = withRestore([...NOTED_APIS], replaced => {
+    const before = replaced('spawnSync')
+    noteSpawns(a => noted.push(a))
+    return [typeof before, typeof replaced('spawnSync'), replaced('spawnSync')?.name]
+  })
+  eq('记下原样再换回：没换时问出 undefined，换了问得到换上的那个', view, ['undefined', 'function', 'spawnSync'])
+  const heardBefore = noted.length
+  eq('记下原样再换回：跑完换回，再起进程不经 body 里换上的那个', [real(), noted.length === heardBefore], ['真', true])
+  // 只记下一个名字时，别的名字换了也问不出（外面再包一层把七个都换回）
+  const narrow = withRestore([...NOTED_APIS], () => withRestore(['spawnSync'], replaced => { noteSpawns(() => {}); return [typeof replaced('spawnSync'), typeof replaced('fork')] }))
+  eq('记下原样再换回：没记下的名字问出 undefined', narrow, ['function', 'undefined'])
 })
 
 await group('d19-config-known-gap', () => {

@@ -23,14 +23,20 @@
  * `worker_threads` 不起进程不算）；拿到子进程对象后碰未公开的内部方法；不在仓库受控文件里、
  * 扩展名不在 `SCANNED` 里的文件（`.sh`、工作流 yaml）。
  *
- * **登记表**（`REGISTRY_PATH`，JSON）分两节：「登记」是可以碰的文件与逐个的理由；「待挪」是现在碰着、
- * 等着挪进通用启动函数或 git 入口的文件，只有名字。判法（`judgeUse`）：
+ * **只给测试用的模块**（`TEST_ONLY_MODULES`，ADR-222、ADR-223）：git 夹具能在临时目录里写玩具仓库，自检记当前目录那一处、
+ * 起进程的替身都会换掉起进程的函数，都只该测试文件用。按名字认（`testOnlyMentions`）：任何字符串字面量、模板串的任何一段里带着这几个模块名
+ * （导入说明符就是字符串），就算提到了。认不出拆开拼的名字、从别的模块转手引的。
+ *
+ * **登记表**（`REGISTRY_PATH`，JSON）分三节：「登记」是可以碰的文件与逐个的理由；「待挪」是现在碰着、
+ * 等着挪进通用启动函数或 git 入口的文件，只有名字；「测试文件」是能提到只给测试用的模块的文件，只有名字
+ * （基线上还没有这一节时当空）。判法（`judgeUse`）：
  * - 不在两节里的文件碰了，红。
  * - 「待挪」比基线多了，红（基线那份读不出、解析不了也红；基线上有这道闸门却没有登记表，红）。
  *   基线上还没有这道闸门的（引入它的那条 PR），不比，只列出来。
  * - 「待挪」里的文件已经一处都不碰了还挂着，红 —— 逼着清名单，名单才只会越来越短。
  * - 登记了却不在仓库里的文件，红。
  * - 「登记」比基线多出的行不红，单独列出来给评审看：理由写得对不对是人判的。
+ * - 不在「测试文件」里的文件提到了只给测试用的模块，红；「测试文件」里列了却不在仓库里的，红；比基线多出的行不红，列给评审看。
  * 主干上只报不判，与体量闸门同一个理由（CI 跑在推送之后，判红只会让主干变红）。
  */
 import { createRequire } from 'node:module'
@@ -49,12 +55,14 @@ export const MODULE_NAMES: readonly string[] = ['child_process', 'node:child_pro
 export const SCANNED: readonly string[] = ['.ts', '.mts', '.cts', '.tsx', '.js', '.mjs', '.cjs', '.jsx']
 /** 进程内部、能绕开这个模块起进程的两个口。 */
 const INTERNAL_NAMES: readonly string[] = ['execve', 'binding']
+/** 只给测试用的模块（文件名去掉扩展名）：只许「测试文件」那一节里的文件提到（ADR-222）。 */
+export const TEST_ONLY_MODULES: readonly string[] = ['child-process-stand-in', 'git-fixture', 'selfcheck-spawn-notes']
 
 export function isScanned(path: string): boolean {
   return SCANNED.some(ext => path.endsWith(ext))
 }
 
-export type SiteKind = '模块名' | '动态取模块' | '进程内部的口'
+export type SiteKind = '模块名' | '动态取模块' | '进程内部的口' | '只给测试用的模块'
 export interface Site { line: number; kind: SiteKind }
 
 /** 一个文件里碰到起进程接口的每一处（行号从 1 起）。读不懂的源码照样有语法树，认得出几处算几处。 */
@@ -129,23 +137,46 @@ export function launchSites(path: string, text: string): Site[] {
   return sites
 }
 
+/**
+ * 一个文件里提到只给测试用的模块的每一处（行号从 1 起）：字符串字面量、模板串的任何一段里带着 `TEST_ONLY_MODULES` 里的一个名字。
+ * 纯类型的导入也算：说明符照样指着那个模块。
+ */
+export function testOnlyMentions(path: string, text: string): Site[] {
+  const ts = typescript()
+  const kind = path.endsWith('x') ? ts.ScriptKind.TSX : /\.[cm]?js$/.test(path) ? ts.ScriptKind.JS : ts.ScriptKind.TS
+  const tree = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind)
+  const sites: Site[] = []
+  const visit = (node: Ts.Node): void => {
+    const pieces = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? [node.text]
+      : ts.isTemplateExpression(node) ? [node.head.text, ...node.templateSpans.map(s => s.literal.text)] : []
+    if (pieces.some(p => TEST_ONLY_MODULES.some(m => p.includes(m)))) {
+      sites.push({ line: tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1, kind: '只给测试用的模块' })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return sites
+}
+
 export interface Registry {
   /** 可以碰的文件 → 为什么可以 */
   registered: Map<string, string>
   /** 等着挪走的文件 */
   toMove: string[]
+  /** 能提到只给测试用的模块的文件 */
+  testFiles: string[]
 }
 
 /**
  * 读登记表。形状不对就抛错，不当成空表：空表等于谁都不许碰，看着严、其实是把读坏了藏起来。
- * 只认三个键（「说明」「登记」「待挪」）；「登记」每一项的理由不许空；「待挪」按字典序排、不重复；
- * 一个文件不能两节都在。
+ * 认「说明」「登记」「待挪」三个键，「测试文件」可有可无（没有当空）；「登记」每一项的理由不许空；
+ * 「待挪」「测试文件」各按字典序排、不重复；一个文件不能「登记」「待挪」两节都在。
  */
 export function parseRegistry(text: string): Registry {
   const raw: unknown = JSON.parse(text)
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('登记表的根要是一个对象')
-  const keys = Object.keys(raw).sort()
-  if (keys.join() !== ['待挪', '登记', '说明'].sort().join()) throw new Error(`登记表只认「说明」「登记」「待挪」三个键，读到的是 ${keys.join('、')}`)
+  const keys = Object.keys(raw).filter(k => k !== '测试文件').sort()
+  if (keys.join() !== ['待挪', '登记', '说明'].sort().join()) throw new Error(`登记表只认「说明」「登记」「待挪」三个键与可有可无的「测试文件」，读到的是 ${Object.keys(raw).join('、')}`)
   const r = raw as Record<string, unknown>
   if (typeof r['说明'] !== 'string') throw new Error('「说明」要是一段字')
   const reg = r['登记'], move = r['待挪']
@@ -155,14 +186,19 @@ export function parseRegistry(text: string): Registry {
     if (typeof why !== 'string' || why.trim() === '') throw new Error(`「登记」里 ${path} 没写理由`)
     registered.set(path, why)
   }
-  if (!Array.isArray(move) || move.some(p => typeof p !== 'string')) throw new Error('「待挪」要是文件名的列表')
-  const toMove = move as string[]
-  for (let i = 1; i < toMove.length; i++) {
-    if (toMove[i - 1] >= toMove[i]) throw new Error(`「待挪」要按字典序排、不重复：${toMove[i - 1]} 与 ${toMove[i]}`)
+  const names = (section: string, value: unknown): string[] => {
+    if (!Array.isArray(value) || value.some(p => typeof p !== 'string')) throw new Error(`「${section}」要是文件名的列表`)
+    const list = value as string[]
+    for (let i = 1; i < list.length; i++) {
+      if (list[i - 1] >= list[i]) throw new Error(`「${section}」要按字典序排、不重复：${list[i - 1]} 与 ${list[i]}`)
+    }
+    return list
   }
+  const toMove = names('待挪', move)
+  const testFiles = '测试文件' in r ? names('测试文件', r['测试文件']) : []
   const both = toMove.filter(p => registered.has(p))
   if (both.length) throw new Error(`这几个文件两节都在：${both.join('、')}`)
-  return { registered, toMove }
+  return { registered, toMove, testFiles }
 }
 
 /** 基线那一侧：有登记表；或者那时还没有这道闸门（引入它的那条 PR）。 */
@@ -201,24 +237,32 @@ export interface UseReport {
   /** 「待挪」比基线少了的文件 */
   movedOut: string[]
   toMoveCount: number
+  /** 不在「测试文件」里却提到了只给测试用的模块的文件，带着每一处 */
+  outsideTestFiles: { path: string; sites: Site[] }[]
+  /** 「测试文件」比基线多出的文件（不红，给评审看）；基线上还没有闸门时是全部 */
+  newTestFiles: string[]
 }
 
 /**
  * 判。`sites` 是仓库里每个要扫的文件碰到的那几处（一处都没有的文件也要在里面，值是空数组 ——
- * 「在仓库里」靠它答）。
+ * 「在仓库里」靠它答）；`mentions` 是每个文件提到只给测试用的模块的那几处（没提到的可以不在里面）。
  */
-export function judgeUse(sites: Map<string, Site[]>, now: Registry, base: BaselineRegistry): UseReport {
+export function judgeUse(sites: Map<string, Site[]>, now: Registry, base: BaselineRegistry, mentions: Map<string, Site[]> = new Map()): UseReport {
   const listed = (p: string) => now.registered.has(p) || now.toMove.includes(p)
   const unlisted = [...sites].filter(([p, s]) => s.length > 0 && !listed(p)).map(([path, s]) => ({ path, sites: s }))
     .sort((a, b) => a.path < b.path ? -1 : 1)
   const baseMove = base.kind === 'registry' ? new Set(base.registry.toMove) : undefined
   const grownToMove = baseMove ? now.toMove.filter(p => !baseMove.has(p)) : []
   const staleToMove = now.toMove.filter(p => sites.has(p) && sites.get(p)!.length === 0)
-  const missing = [...now.registered.keys(), ...now.toMove].filter(p => !sites.has(p)).sort()
+  const missing = [...now.registered.keys(), ...now.toMove, ...now.testFiles].filter(p => !sites.has(p)).sort()
   const baseReg = base.kind === 'registry' ? base.registry.registered : new Map<string, string>()
   const newRegistered = [...now.registered].filter(([p, why]) => baseReg.get(p) !== why).map(([path, why]) => ({ path, why }))
   const movedOut = base.kind === 'registry' ? base.registry.toMove.filter(p => !now.toMove.includes(p)) : []
-  return { unlisted, grownToMove, staleToMove, missing, newRegistered, movedOut, toMoveCount: now.toMove.length }
+  const outsideTestFiles = [...mentions].filter(([p, s]) => s.length > 0 && !now.testFiles.includes(p)).map(([path, s]) => ({ path, sites: s }))
+    .sort((a, b) => a.path < b.path ? -1 : 1)
+  const baseTests = base.kind === 'registry' ? base.registry.testFiles : []
+  const newTestFiles = now.testFiles.filter(p => !baseTests.includes(p))
+  return { unlisted, grownToMove, staleToMove, missing, newRegistered, movedOut, toMoveCount: now.toMove.length, outsideTestFiles, newTestFiles }
 }
 
 /** 报告与结论。分支上有一样不对就红；主干上只报不判。 */
@@ -229,9 +273,16 @@ export function useLines(report: UseReport, onTrunk: boolean, scope: string, fir
     out.push(firstTime ? '  基线上还没有这道闸门，登记表整份给评审看：' : '  「登记」比基线多了（或理由改了），评审看理由对不对：')
     for (const r of report.newRegistered) out.push(`    + ${r.path} —— ${r.why}`)
   }
+  if (report.newTestFiles.length) {
+    out.push('  「测试文件」比基线多了，评审看它是不是只有测试用得着：')
+    for (const p of report.newTestFiles) out.push(`    + ${p}`)
+  }
   const faults: string[] = []
   for (const u of report.unlisted) {
     faults.push(`  ✗ ${u.path} 碰了起子进程的接口，却不在登记表里：${u.sites.map(s => `第 ${s.line} 行（${s.kind}）`).join('、')}`)
+  }
+  for (const u of report.outsideTestFiles) {
+    faults.push(`  ✗ ${u.path} 提到了只给测试用的模块（${TEST_ONLY_MODULES.join('、')}），却不在「测试文件」里：${u.sites.map(s => `第 ${s.line} 行`).join('、')}`)
   }
   for (const p of report.grownToMove) faults.push(`  ✗ 「待挪」比基线多了 ${p}`)
   for (const p of report.staleToMove) faults.push(`  ✗ ${p} 已经一处都不碰了，从「待挪」里删掉它`)
@@ -245,7 +296,8 @@ export function useLines(report: UseReport, onTrunk: boolean, scope: string, fir
     return { ok: true, out, err: [] }
   }
   const err = [`✗ 起子进程的接口：${faults.length} 处不对`, ...faults,
-    `  起进程走通用的启动函数，调 git 走 git 入口（这两个模块由后面几片建）；还没有的时候，新代码也不许直接碰 —— 登记表在 ${REGISTRY_PATH}。`,
-    '  「待挪」只许减：挪走了就删掉那一行；新文件要碰，只能进「登记」并写清理由，由评审判（ADR-217）。']
+    `  起进程走通用启动函数 scripts/check/start-process.ts；调 git 走 git 入口 scripts/check/git-entry.ts（只答它表里列的那几问，要问新的先往表里加一行）—— 登记表在 ${REGISTRY_PATH}。`,
+    '  「待挪」只许减：挪走了就删掉那一行；新文件要碰，只能进「登记」并写清理由，由评审判（ADR-217）。',
+    `  只给测试用的模块（${TEST_ONLY_MODULES.join('、')}）只许「测试文件」里的文件提到；要加一个文件，由评审判它是不是只有测试用得着（ADR-222、ADR-223）。`]
   return { ok: false, out, err }
 }

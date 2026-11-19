@@ -17,20 +17,17 @@
  * 照这一跑现算的一起交给 `summaryLine`。它说红就以 1 退出，闸门绿着也一样（第四十四节第 2 小节）；红不红全由它判。
  * 带 `--write` 时只做一件事（第 3 小节）：派生得出来就写这个文件；派生不出来或写不进去打一行 ✗、以 1 退出。不打别的行，不判闸门。
  */
-import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mutationSourceIdentity } from './claims.js'
 import { LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, type LaunchTrunk, SELFCHECK_LAUNCHES_FILE, idleGroupsLine, joinLaunchParts, launchGate, launchSummary, summaryLine } from './launch-rule.js'
 import { executionRoutes } from './mutate-rule.js'
-import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
+import { askGit } from './git-entry.js'
+import { resolveBaseline } from './size-rule.js'
 
 const json = (path: string): unknown => { try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return undefined } }
 const source = (): string | undefined => { try { return mutationSourceIdentity() } catch { return undefined } }
-// 与体量闸门同一个判法、同样钉死 GIT_CONFIG；HEAD 就是主干且没有父提交也算在主干上
-const tryGit = (...args: string[]): string | null => {
-  try { return execFileSync('git', [...GIT_CONFIG, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() } catch { return null }
-}
-const baseline = resolveBaseline(tryGit)
+// 与体量闸门同一个判法，git 经 git 入口问（ADR-220）；HEAD 就是主干且没有父提交也算在主干上
+const baseline = resolveBaseline(askGit)
 const trunk: LaunchTrunk = baseline.kind === 'cannot-answer' ? { unknown: baseline.why }
   : { onTrunk: baseline.kind === 'not-applicable' || baseline.onTrunk }
 

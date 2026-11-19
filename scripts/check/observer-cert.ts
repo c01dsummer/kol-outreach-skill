@@ -11,10 +11,10 @@
  * `run/` 装着脚本、参数表、事件文件、入口写的测试观察记录、两股输出与退出码；`summary.json` 最后写，记被测提交、设施各文件与每份证据的 SHA256、
  * 每一项的结论。全部成立才以 0 退出，否则 1；用法错 2。不访问外网，expected 全写在下面，不拿目标输出补。
  */
-import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import { runGit } from './git-entry.js'
 import { certifyIsolation, facilityFiles, facilityIdentity, runFaultControl, runObserved, type FaultControl, type Isolation, type ObservedRun } from './observer-run.js'
 import { CONTRACT_RECORDS, SCRIPT_SCHEMA, recordsAgainstRequests, zeroVerdict, type FacilityCause, type ObserverEntry, type ResponseScript, type ScriptResponse } from './observer-rule.js'
 
@@ -31,9 +31,10 @@ const items: Item[] = []
 const item = (id: string, kind: Item['kind'], ok: boolean, got: unknown) => { items.push({ id, kind, ok, got }); say(`${ok ? '✓' : '✗'} ${id}：${JSON.stringify(got)}`) }
 
 // 被测的是哪一棵树：40 位提交、工作区干不干净、Node 主版本
-const git = (...args: string[]) => spawnSync('git', args, { cwd: facilityIdentity().repo, encoding: 'utf8' })
-const head = git('rev-parse', 'HEAD').stdout?.trim() ?? '', dirty = git('status', '--porcelain')
-const provenance = { head, clean: dirty.status === 0 && dirty.stdout === '', node: process.version, problems: [] as string[] }
+// 经 git 入口问（ADR-221）：两问都在它的表里
+const git = (...args: string[]) => runGit(args, { cwd: facilityIdentity().repo })
+const head = git('rev-parse', 'HEAD').stdout.toString('utf8').trim(), dirty = git('status', '--porcelain')
+const provenance = { head, clean: dirty.error === undefined && dirty.status === 0 && dirty.stdout.length === 0, node: process.version, problems: [] as string[] }
 if (!/^[0-9a-f]{40}$/.test(head)) provenance.problems.push('取不到被测提交（不是 git 检出）')
 if (!provenance.clean) provenance.problems.push('工作区不干净：被测的不是那个提交原样的树')
 if (!process.version.startsWith('v22.')) provenance.problems.push(`Node 是 ${process.version}，不是 22`)

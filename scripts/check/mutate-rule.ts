@@ -393,6 +393,30 @@ export function anchorVerdict(muts: readonly { id: string; file: string; find: s
 export type StagedFault = { kind: 'residue' | 'unclear' | 'unconfirmed'; id: string; file: string }
 
 /**
+ * 拆 `git cat-file --batch` 的回话（ADR-220 第三节；原先在 `anchors.ts` 里）：问了几样，就按顺序交回几样正文。
+ * 每一样先是一行头 `<对象名> <类型> <字节数>`，是 blob 的接着那么多字节正文、再一个换行；问不到的（缺、歧义）git 只回
+ * 一行 `<问法> missing` 之类，没有正文。头一行认不出的、不是 blob 的交 `undefined`。回话在半截断了（找不到下一个换行、
+ * 正文不够字节数）的，这一样和后面的都交 `undefined`：读不全不当成读到了。
+ */
+export function batchBlobs(out: Buffer, count: number): (string | undefined)[] {
+  const blobs: (string | undefined)[] = []
+  let at = 0
+  for (let n = 0; n < count; n++) {
+    const eol = out.indexOf(0x0a, at)
+    if (eol < 0) break
+    const head = out.toString('utf8', at, eol).match(/^[0-9a-f]+ (\S+) (\d+)$/)
+    at = eol + 1
+    if (head === null) { blobs.push(undefined); continue }
+    const size = Number(head[2])
+    if (at + size > out.length) break
+    blobs.push(head[1] === 'blob' ? out.toString('utf8', at, at + size) : undefined)
+    at += size + 1
+  }
+  while (blobs.length < count) blobs.push(undefined)
+  return blobs
+}
+
+/**
  * 暂存区里躺着的变异：工作树上那一条对得上，暂存区里却是施加之后的样子（ADR-70「暂存区」一节；#457 上 CodeRabbit 第六轮）。
  *
  * 检查链第一步读的是工作树。变异被 `git add` 进了暂存区、工作树那一处后来又按回去了的，工作树上锚点完好，
