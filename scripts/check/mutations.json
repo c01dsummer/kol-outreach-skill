@@ -30827,8 +30827,8 @@
       "req": "harness",
       "file": "scripts/check/same-spot-rule.ts",
       "why": "类里不按行挑成员，所有成员都算",
-      "find": "spans(c.members, lineOf(c.members.pos) + 1).filter(([, sp]) => hit(sp)).map(",
-      "replace": "spans(c.members, lineOf(c.members.pos) + 1).map(",
+      "find": "lineOf(c.getEnd()) - 1).filter(([, sp]) => hit(sp)).map(",
+      "replace": "lineOf(c.getEnd()) - 1).map(",
       "by": "test",
       "kills": [
         "同一处：类里算到成员"
@@ -31319,8 +31319,8 @@
       "req": "harness",
       "file": "scripts/check/same-spot-rule.ts",
       "why": "不量行尾注释，跨几行的行尾注释后几行落到下一条",
-      "find": "      const end = lineOf(tail?.length ? tail[tail.length - 1].end : n.getEnd())",
-      "replace": "      const end = lineOf(n.getEnd())",
+      "find": "Math.min(last, lineOf(tail?.length ? tail[tail.length - 1].end : n.getEnd()))",
+      "replace": "Math.min(last, own)",
       "by": "test",
       "kills": [
         "同一处：跨几行的行尾注释整段算上一条，下一条从注释之后起"
@@ -31343,8 +31343,8 @@
       "req": "harness",
       "file": "scripts/check/same-spot-rule.ts",
       "why": "类成员从左花括号那一行就切起，类名那一行落到第一个成员",
-      "find": "lineOf(c.members.pos) + 1)",
-      "replace": "lineOf(c.members.pos) + 0)",
+      "find": "spans(c.members, lineOf(c.members.pos) + 1,",
+      "replace": "spans(c.members, lineOf(c.members.pos) + 0,",
       "by": "test",
       "kills": [
         "同一处：类名那一行与右花括号那一行算类名，不算哪个成员"
@@ -31360,6 +31360,30 @@
       "by": "test",
       "kills": [
         "同一处：多行变量声明只算落到的那个名字"
+      ]
+    },
+    {
+      "id": "M-H225-ay",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "成员的行尾注释不封顶，延到右花括号那一行时那一行算成了成员",
+      "find": "lineOf(c.members.pos) + 1, lineOf(c.getEnd()) - 1)",
+      "replace": "lineOf(c.members.pos) + 1)",
+      "by": "test",
+      "kills": [
+        "同一处：成员的行尾注释延到右花括号那一行，那一行仍算类名；成员自己写在那一行上的仍算成员"
+      ]
+    },
+    {
+      "id": "M-H225-az",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "封顶也压住了成员自己的行，写在右花括号那一行上的成员落空",
+      "find": "      const end = Math.max(own, Math.min(last,",
+      "replace": "      const end = (0 * own) + (Math.min(last,",
+      "by": "test",
+      "kills": [
+        "同一处：成员的行尾注释延到右花括号那一行，那一行仍算类名；成员自己写在那一行上的仍算成员"
       ]
     }
   ],

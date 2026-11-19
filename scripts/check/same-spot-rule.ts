@@ -88,20 +88,22 @@ export function codeSpots(path: string, text: string, a: number, b: number): str
   const hit = ([lo, hi]: Span) => lo <= b && hi >= a
   // 把一串相邻节点切成一段段连续的行，不漏不叠：每个节点从上一个占到的最后一行的下一行起（所以前面的注释与空行归它），
   // 到它自己结尾那一行；结尾后面同一行起头的注释（行尾注释，跨几行的也算）归它，由编译器的 getTrailingCommentRanges 量出，
-  // 不自己数换行。同一行挤着两个节点时，后一个从它自己那一行起，那一行两个都算
-  const spans = (nodes: readonly Ts.Node[], from: number): [Ts.Node, Span][] => {
+  // 不自己数换行。同一行挤着两个节点时，后一个从它自己那一行起，那一行两个都算。`last` 是行尾注释最多延到哪一行
+  // （类成员不越过类的右花括号那一行），节点自己的行不受它限
+  const spans = (nodes: readonly Ts.Node[], from: number, last = Infinity): [Ts.Node, Span][] => {
     let next = from
     return nodes.map(n => {
       const tail = ts.getTrailingCommentRanges(text, n.getEnd())
-      const end = lineOf(tail?.length ? tail[tail.length - 1].end : n.getEnd())
+      const own = lineOf(n.getEnd())
+      const end = Math.max(own, Math.min(last, lineOf(tail?.length ? tail[tail.length - 1].end : n.getEnd())))
       const span: Span = [Math.min(next, lineOf(n.getStart(file))), end]
       next = end + 1
       return [n, span]
     })
   }
   const pick = {
-    // 类成员从类的左花括号下一行切起；类名那一行、右花括号那一行不归哪个成员
-    members: (c: Ts.ClassDeclaration) => spans(c.members, lineOf(c.members.pos) + 1).filter(([, sp]) => hit(sp)).map(([m]) => m as Ts.ClassElement),
+    // 类成员从类的左花括号下一行切起；类名那一行、右花括号那一行不归哪个成员（成员自己写在那一行上的除外）
+    members: (c: Ts.ClassDeclaration) => spans(c.members, lineOf(c.members.pos) + 1, lineOf(c.getEnd()) - 1).filter(([, sp]) => hit(sp)).map(([m]) => m as Ts.ClassElement),
     own: (n: Ts.Node) => hit([lineOf(n.getStart(file)), lineOf(n.getEnd())]),
   }
   const names: string[] = []
