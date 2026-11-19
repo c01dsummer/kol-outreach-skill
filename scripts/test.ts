@@ -104,6 +104,10 @@ import {
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import { FACT_TABLE_FROM, FACT_TABLE_HEAD, OLD_GAPS, cellsOf, factTableFaults } from './check/adr-fact-table.js'
+import {
+  type ChainCommit, DOCS_BLOCK, type ReviewComment, type Round, type Spot, WAIVER_TABLE_HEAD, WHOLE_FILE, type Waiver as SpotWaiver,
+  chainFrom, changedRecords, codeSpots, docSpots, hitsOf, positionIn, roundsOf, sameSpot, spotText, spotsOf, waiversOf,
+} from './check/same-spot-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { compileCacheDir, tsxCommand } from './check/tsx-cmd.js'
 import {
@@ -360,6 +364,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-child-process-stand-in', needs: [] },
   { id: 'h-child-process-stand-in-spies', needs: [] },
   { id: 'h-adr-fact-table', needs: [] },
+  { id: 'h-same-spot', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -24056,6 +24061,125 @@ await group('h-adr-fact-table', () => {
     const r = adrSync(root, false)
     eq('找谁要那一节：npm run adr 里查得到，缺了就红', [r.ok, r.err.some(e => e.includes('缺「要用到的事实，各找谁要」一节'))], [false, true])
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-same-spot', () => {
+  harness('同一处连着两轮被评审挑中就拦住合入：分轮、换算地方、比较、解除（ADR-225）')
+  const code = [
+    "import fs from 'node:fs'", // 1
+    '', // 2
+    '// 说明', // 3
+    'export function alpha(x: number) {', // 4
+    '  const inner = () => x', // 5
+    '  return inner()', // 6
+    '}', // 7
+    'class Box {', // 8
+    '  size = 1', // 9
+    '  grow() { return 2 }', // 10
+    '}', // 11
+    'const one = 1, two = 2', // 12
+    "eq('断言甲', 1, 1)", // 13
+    'if (one) console.log(two)', // 14
+    '', // 15
+  ].join('\n')
+  const at = (a: number, b = a) => codeSpots('x.ts', code, a, b)
+  eq('同一处：函数里的内层函数算外层那个顶层声明', at(5), ['alpha'])
+  eq('同一处：语句前面的注释算这条语句的', at(3), ['alpha'])
+  eq('同一处：类里算到成员', [at(9), at(10)], [['Box.size'], ['Box.grow']])
+  eq('同一处：变量声明按落到的那个名字', at(12), ['one', 'two'])
+  eq('同一处：顶层调用取第一个字符串参数', at(13), ["eq('断言甲')"])
+  eq('同一处：导入与其余顶层语句各算一块', [at(1), at(14)], [['（导入）'], ['（顶层其余语句）']])
+  eq('同一处：跨两处的几行两处都算', at(6, 9), ['alpha', 'Box.size'])
+  eq('同一处：变量语句前面的注释算整条语句的名字，不算文件末尾', codeSpots('x.ts', '/** 说明 */\nexport const foo = 1\nexport const bar = 2\n', 1, 1), ['foo'])
+  const grouped = "await group('甲', () => {\n  eq(1)\n})\nvoid (run('乙'))\n"
+  eq('同一处：顶层调用剥掉 await、void、括号再取第一个字符串参数', [codeSpots('x.ts', grouped, 2, 2), codeSpots('x.ts', grouped, 4, 4)], [["group('甲')"], ["run('乙')"]])
+  eq('同一处：多行变量声明只算落到的那个名字', codeSpots('x.ts', 'const p = 1,\n  q = 2\n', 2, 2), ['q'])
+  eq('同一处：最后一条语句之后算文件末尾', codeSpots('x.ts', 'const a = 1\n\n\n', 3, 3), ['（文件末尾）'])
+  const doc = '开头\n# 甲\n正文\n```\n## 假的\n```\n## 乙\n正文\n'
+  eq('同一处：Markdown 算最近一个标题，围栏里的不算', [docSpots(doc, 5, 5), docSpots(doc, 8, 8)], [['# 甲'], ['## 乙']])
+  eq('同一处：Markdown 第一个标题之前算文首；跨节两节都算', [docSpots(doc, 1, 1), docSpots(doc, 3, 8)], [['（文首）'], ['# 甲', '## 乙']])
+
+  const c = (id: number, sha: string, p = 'x.ts', more: Partial<ReviewComment> = {}): ReviewComment => ({
+    id, path: p, original_commit_id: sha, original_line: 5, original_start_line: null, side: 'RIGHT', subject_type: 'line',
+    in_reply_to_id: null, created_at: `2026-11-19T00:00:${String(id).padStart(2, '0')}Z`, html_url: `u${id}`, ...more,
+  })
+  const fileAt = (_s: string, p: string) => p === 'x.ts' ? code : p === 'a.md' ? doc : p === 'a.json' ? '{"a": 1}\n' : null
+  const names = (x: ReviewComment) => spotsOf(x, fileAt).map(s => s.name)
+  eq('同一处：行内意见换算到顶层声明', names(c(1, 'h')), ['alpha'])
+  eq('同一处：多行意见按整个行范围', names(c(1, 'h', 'x.ts', { original_start_line: 9, original_line: 12 })), ['Box.size', 'Box.grow', 'one', 'two'])
+  eq('同一处：文件级、基线一侧、没有行号的算整份文件', [names(c(1, 'h', 'x.ts', { subject_type: 'file' })), names(c(1, 'h', 'x.ts', { side: 'LEFT' })), names(c(1, 'h', 'x.ts', { original_line: null }))], [[WHOLE_FILE], [WHOLE_FILE], [WHOLE_FILE]])
+  eq('同一处：其余文件与取不到内容的算整份文件', [names(c(1, 'h', 'a.json')), names(c(1, 'h', 'b.ts'))], [[WHOLE_FILE], [WHOLE_FILE]])
+  eq('同一处：Markdown 意见换算到标题', names(c(1, 'h', 'a.md')), ['# 甲'])
+  eq('同一处：整份文件与这份文件的任何地方算同一处，别的文件不算', [sameSpot({ path: 'x.ts', name: WHOLE_FILE }, { path: 'x.ts', name: 'alpha' }), sameSpot({ path: 'x.ts', name: 'alpha' }, { path: 'y.ts', name: 'alpha' }), sameSpot({ path: 'x.ts', name: 'alpha' }, { path: 'x.ts', name: 'beta' })], [true, false, false])
+
+  // 链从头往回：e 是头；d 是同步主干的合并（第二父 m 在主干上）；c2 是空提交；b 是带非主干第二父的合并；a 是第一个提交
+  const chain: ChainCommit[] = [
+    { sha: 'e', parents: ['d'], empty: false }, { sha: 'd', parents: ['c2', 'm'], empty: false },
+    { sha: 'c2', parents: ['c'], empty: true }, { sha: 'c', parents: ['b'], empty: false },
+    { sha: 'b', parents: ['a', 'side'], empty: false }, { sha: 'a', parents: ['m0'], empty: false },
+  ]
+  const onMain = (s: string) => s === 'm' || s === 'm0'
+  const sp = (x: ReviewComment) => [{ path: x.path, name: x.html_url.startsWith('u9') ? 'beta' : 'alpha' }]
+  const heads = (rs: Round[]) => rs.map(r => `${r.head}:${r.items.length}`)
+  eq('同一处：回复不算；同步主干的合并与空提交不起轮，算进下面那一轮；别的合并照样起轮',
+    heads(roundsOf(chain, onMain, [c(1, 'a'), c(2, 'b'), c(3, 'c'), c(4, 'c2'), c(5, 'd'), c(6, 'e'), c(7, 'e', 'x.ts', { in_reply_to_id: 6 })], sp)),
+    ['a:1', 'b:1', 'c:3', 'e:1'])
+  eq('同一处：没有意见的版本不算一轮', heads(roundsOf(chain, onMain, [c(1, 'a'), c(2, 'e')], sp)), ['a:1', 'e:1'])
+  eq('同一处：锚在链外的版本单独成一轮，按时间插进去', heads(roundsOf(chain, onMain, [c(1, 'a'), c(2, 'gone'), c(3, 'e')], sp)), ['a:1', 'gone:1', 'e:1'])
+
+  const rounds = roundsOf(chain, onMain, [c(1, 'a'), c(2, 'b'), c(91, 'c'), c(3, 'e')], sp)
+  const pos = (s: string) => { const k = chain.findIndex(x => x.sha.startsWith(s)); return k < 0 ? undefined : chain.length - 1 - k }
+  const hitPairs = (ws: SpotWaiver[] = []) => hitsOf(rounds, ws, pos).hits.map(h => `${h.earlier.head}>${h.later.head}:${h.spot.name}:${h.blocks}`)
+  eq('同一处：连着两轮同一处报出来，中间隔了一轮别处的不算', hitPairs(), ['a>b:alpha:true'])
+  const w = (after: string, name = 'alpha'): SpotWaiver => ({ spot: { path: 'x.ts', name }, after, where: '解除表' })
+  eq('同一处：解除表写到旧做法最后一轮，那一对不再算', hitPairs([w('a')]), [])
+  const again = roundsOf(chain, onMain, [c(1, 'a'), c(2, 'b'), c(3, 'c'), c(4, 'e')], sp)
+  eq('同一处：解除之后又连着两轮落回来，再拦', hitsOf(again, [w('a')], pos).hits.map(h => `${h.earlier.head}>${h.later.head}`), ['b>c', 'c>e'])
+  eq('同一处：解除别处的不管这一处', hitPairs([w('a', 'beta')]), ['a>b:alpha:true'])
+  const wholeRounds = roundsOf(chain, onMain, [c(1, 'a'), c(2, 'b', 'x.ts', { subject_type: 'file' })], x => spotsOf(x, fileAt))
+  eq('同一处：解除按报出的那一处一字不差地比，解除别处或整份文件不放走具体那一处',
+    [hitsOf(wholeRounds, [w('a', 'beta')], pos).hits.length, hitsOf(wholeRounds, [w('a', WHOLE_FILE)], pos).hits.length, hitsOf(wholeRounds, [w('a')], pos).hits.length], [1, 1, 0])
+  eq('同一处：只有这条 PR 加了或改了的决策记录里的解除表算数', changedRecords([{ text: '甲', base: '甲' }, { text: '乙', base: '丙' }, { text: '丁', base: null }]).map(r => r.text), ['乙', '丁'])
+  eq('同一处：一轮是整份文件、另一轮是具体一处，报出的是具体那一处；报的是相邻哪两轮', hitsOf(wholeRounds, [], pos).hits.map(h => [spotText(h.spot), h.earlier.head, h.later.head]), [['x.ts#alpha', 'a', 'b']])
+  const off = hitsOf(rounds, [w('zz')], pos)
+  eq('同一处：解除表写的提交不在链上，那一行不算、报出来', [off.hits.length, off.faults[0]?.includes('不在这条 PR 的历史上')], [1, true])
+  const docRounds = roundsOf(chain, onMain, [c(1, 'a', 'a.md'), c(2, 'b', 'a.md')], x => spotsOf(x, fileAt))
+  eq('同一处：Markdown 连着两轮只列出、不拦（需求所有者定）', [DOCS_BLOCK, hitsOf(docRounds, [], pos).hits.map(h => h.blocks)], [false, [false]])
+
+  const adr = (body: string) => waiversOf('ADR-300.md', `# ADR-300\n\n${body}`)
+  const good = adr(`## 同一处连着两轮：改设计\n\n${WAIVER_TABLE_HEAD}\n|---|---|---|\n| \`x.ts#alpha\` | abc1234 | 本记录第二节 |\n`)
+  eq('同一处：解除表读得出，记下是哪份文件第几行', [good.faults, good.waivers.map(x => [spotText(x.spot), x.after, x.where])], [[], [['x.ts#alpha', 'abc1234', 'ADR-300.md 第 7 行']]])
+  const badRow = adr(`## 同一处连着两轮：改设计\n\n${WAIVER_TABLE_HEAD}\n|---|---|---|\n| x.ts#alpha | abc1234 | 第二节 |\n`)
+  eq('同一处：解除表一行格式不对就报、不算解除，报出第几行', [badRow.faults.length, badRow.faults[0]?.includes('ADR-300.md 第 7 行'), badRow.waivers.length], [1, true, 0])
+  eq('同一处：解除表缺提交号或缺去处也不算', [adr(`## 同一处连着两轮：改设计\n\n${WAIVER_TABLE_HEAD}\n|---|---|---|\n| \`x.ts#alpha\` | 那一轮 | 第二节 |\n`).waivers.length, adr(`## 同一处连着两轮：改设计\n\n${WAIVER_TABLE_HEAD}\n|---|---|---|\n| \`x.ts#alpha\` | abc1234 |  |\n`).waivers.length], [0, 0])
+  eq('同一处：标题下面不是那张表报红，报出标题在第几行', [adr('## 同一处连着两轮：改设计\n\n照旧补了\n').faults[0]?.includes('要紧跟表头'), adr('## 同一处连着两轮：改设计\n\n照旧补了\n').faults[0]?.includes('第 3 行')], [true, true])
+  eq('同一处：解除表表头差一个字也不算', adr(`## 同一处连着两轮：改设计\n\n| 同一处 | 旧做法的提交 | 新做法写在哪 |\n|---|---|---|\n| \`x.ts#alpha\` | abc1234 | 第二节 |\n`).waivers.length, 0)
+  eq('同一处：围栏里的解除表不算', adr(`\`\`\`\n## 同一处连着两轮：改设计\n\n${WAIVER_TABLE_HEAD}\n|---|---|---|\n| \`x.ts#alpha\` | abc1234 | 第二节 |\n\`\`\`\n`).waivers.length, 0)
+
+  // #471 的真实评审记录回放（结单条件 2）：地方是对着 refs/pull/471/head 上各版本的真文件一次算好的
+  const rec = JSON.parse(rf('scripts/check/same-spot-471.json', 'utf8')) as { chain: ChainCommit[]; mainParents: string[]; comments: Array<ReviewComment & { spots: Spot[] }> }
+  const mainSet = new Set(rec.mainParents)
+  const rr = roundsOf(rec.chain, s => mainSet.has(s), rec.comments, x => (x as ReviewComment & { spots: Spot[] }).spots)
+  const replay = hitsOf(rr, [], () => undefined).hits.filter(h => h.blocks)
+  eq('同一处：#471 回放有 23 轮', rr.length, 23)
+  eq('同一处：#471 回放第二轮就拦（第一轮与第二轮都落在 keyOf 与 fieldsOf）', replay.filter(h => h.later === rr[1]).map(h => h.spot.name), ['keyOf', 'fieldsOf'])
+  eq('同一处：#471 回放一共 16 对连着的轮次被拦', new Set(replay.map(h => h.later.head)).size, 16)
+
+  // 提交链：头 h3 → h2（空提交）→ h1 → m（主干）；r1 是没有父提交的根
+  const parents: Record<string, string[]> = { h3: ['h2', 'side'], h2: ['h1'], h1: ['m'], m: [], r1: [], side: ['m'] }
+  const trees: Record<string, string> = { h3: 't3', h2: 't1', h1: 't1', m: 't0', r1: 't9', side: 't8' }
+  const walked = chainFrom('h3', s => parents[s], s => trees[s], s => s === 'm')
+  eq('同一处：提交链沿第一个父提交走到主干为止，带全部父提交，树与第一个父相同算空提交',
+    walked.map(x => `${x.sha}:${x.parents.join('+')}:${x.empty}`), ['h3:h2+side:false', 'h2:h1:true', 'h1:m:false'])
+  eq('同一处：提交链走到没有父提交的根也停', chainFrom('r1', s => parents[s], s => trees[s], () => false).map(x => x.sha), ['r1'])
+  const lettered: ChainCommit[] = ['abc111', 'abc222', 'def333'].map(sha => ({ sha, parents: [], empty: false }))
+  eq('同一处：提交号按前缀在链上找位置，最旧的是 0；找不到或前缀对得上不止一个都不算',
+    [positionIn(lettered, 'def3'), positionIn(lettered, 'abc2'), positionIn(lettered, 'abc'), positionIn(lettered, 'zzz')], [0, 1, undefined, undefined])
+  eq('同一处：取数入口用的几问 git 入口原本就答', ['abc^@', 'abc^{tree}', 'HEAD~1'].map(r => { try { questionOf(['rev-parse', r]); return true } catch { return false } }).concat((() => { try { questionOf(['cat-file', 'blob', 'abc:x.ts']); questionOf(['rev-list', 'origin/main']); return true } catch { return false } })()), [true, true, true, true])
+  const wf = rf('.github/workflows/same-spot.yml', 'utf8')
+  eq('同一处：工作流只读，评审事件与推送都触发，跑的是这个入口',
+    ['pull-requests: read', 'contents: read', 'pull_request_review:', 'pull_request_review_comment:', 'synchronize', 'npm run same-spot', 'cancel-in-progress: true'].filter(x => !wf.includes(x)), [])
+  eq('同一处：工作流不给写权限', /:\s*write/.test(wf), false)
 })
 
 await group('d19-config-known-gap', () => {

@@ -64,6 +64,9 @@ const EXEMPT: Record<string, string> = {
   // `h-iou-file-reminder-entry` 做（改被点名的文件列出、改别的不列、改名、CI 输出、无从比较，每次都以 0 退出），这里不再起一遍（ADR-196）
   'scripts/check/debt-touch.ts': '欠条点名提醒入口：需求测试组 h-iou-file-reminder-entry 在玩具仓库上真起',
   'scripts/check/revisit-due.ts': '周回访定期清点入口：需求测试组 h-revisit-entry 在玩具仓库上真起 --due 与 --born',
+  // 要这条 PR 的评审意见与只读令牌，只在 GitHub 的工作流里跑；判定都在 same-spot-rule.ts，由需求测试组守。
+  // 入口自己那几样（缺环境变量、翻页、退出码）没有东西起它，写在 ADR-225 第四节
+  'scripts/check/same-spot.ts': '同一处连着两轮的取数入口：只在 GitHub 工作流 same-spot.yml 里跑（要评审意见与令牌）；判定由需求测试组 h-same-spot 守',
 }
 
 /**
