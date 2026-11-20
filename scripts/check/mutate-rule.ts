@@ -630,7 +630,7 @@ export function exitFaults(source: string, helper: string, imported: readonly st
 }
 
 /**
- * 「这是不是一条具名夹具」—— `groupOfLabel` 与 `labelsOf` 两个 walk 共用这一处（ADR-99 第 316 行）。
+ * 「这是不是一条具名夹具」—— `groupOfLabel` 与 `labelsOf` 两个 walk 共用这一处（ADR-99「2026-11-13：归组与清册共用『什么算具名夹具』」一节）。
  *
  * 三条判据：调用的是光秃秃一个名字（`别的对象.eq(…)` 不是那个函数）、名字在 `declared` 里、
  * 首参是字符串字面量或不带插值的反引号串（两种都静态定得下来）。是就交回标签，不是交回 `undefined`。
