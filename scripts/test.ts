@@ -176,7 +176,7 @@ import { claimsLines, draftClaims, NO_FACTS, NOT_ENGLISH, UNMATCHED_BRACES } fro
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
-  keywordRows, mergePage, needsProfile, pagesFetched, pendingKeywords, rankCreators, rawSeedFromLegacy,
+  keywordRows, mergePage, mergeProfile, needsProfile, pagesFetched, pendingKeywords, rankCreators, rawSeedFromLegacy,
   taskPlatforms, taskQueryStatus, tierCounts, resumeCostLine, underPageCap,
 } from './lib/pipeline.js'
 import {
@@ -8365,6 +8365,20 @@ async function main(): Promise<void> {
   eq('P1.m Instagram 补全里粉丝数就是 0 时记成 0 不记成未取得有效值', [igGood.followers, flagged(igGood, 'followers')], [0, false])
   eq('P1.m Instagram 补全里作品数是合法整数时照常取到', [igGood.post_count, flagged(igGood, 'post_count')], [45, false])
 
+  // —— 二点五、作品样本接口顺带给的粉丝数（enrich 拿它算互动率这类比率）——
+  const ttSample = (follower: string): Promise<number | undefined> => withFakeFetch(
+    `{"code":200,"data":{"aweme_list":[{"aweme_id":"1","create_time":1700000000,"statistics":{"play_count":100,"digg_count":1,"comment_count":0,"share_count":0},` +
+    `"author":{"unique_id":"smp","follower_count":${follower},"following_count":10}}]}}`,
+    () => hub().recentPosts('smp', 'tiktok')).then(r => r.followers)
+  const igSample = (follower: string): Promise<number | undefined> => withFakeFetch(
+    `{"code":200,"data":{"data":{"user":{"username":"smp","follower_count":${follower},"following_count":10},"items":[{"id":"1","taken_at":1700000000,"like_count":1,"comment_count":0}]}}}`,
+    () => hub().recentPosts('smp', 'instagram')).then(r => r.followers)
+  eq('P1.m TikTok 作品样本里粉丝数给了负数时不当粉丝数用', await ttSample('-5'), undefined)
+  eq('P1.m TikTok 作品样本里粉丝数给了小数时不当粉丝数用也不取整', await ttSample('1500.5'), undefined)
+  eq('P1.m TikTok 作品样本里粉丝数是合法整数时照常取到', await ttSample('80000'), 80000)
+  eq('P1.m Instagram 作品样本里粉丝数给了负数时不当粉丝数用', await igSample('-5'), undefined)
+  eq('P1.m Instagram 作品样本里粉丝数是合法整数时照常取到', await igSample('80000'), 80000)
+
   // —— 三、供应商解析：TikTok 视频搜索 ——
   const searchTask: SearchTask = { keyword: 'portable charger', dimension: 'category', platform: 'tiktok' }
   const searchItem = (handle: string, id: string, follower: string): string =>
@@ -8500,6 +8514,29 @@ async function main(): Promise<void> {
   const still = pool3.get(creatorKey(odd))
   ok('P1.m 后来的查询没给粉丝数时已记下的未取得有效值不被抹回未查询', still !== undefined && flagged(still, 'followers') && still.followers === undefined)
 
+  // —— 十、补主页资料那一步（collect）与跨平台合并（作者补，非隔离会话所写）——
+  const healProfile = person('prof_heal', { invalid_from_provider: ['followers'] })
+  mergeProfile(healProfile, { followers: 80000 })
+  eq('P1.m 搜索给了怪粉丝数而补主页资料给了有效值时以有效值为准且不再记怪值', [healProfile.followers, flagged(healProfile, 'followers')], [80000, false])
+  const keepProfile = person('prof_keep', { invalid_from_provider: ['followers'] })
+  mergeProfile(keepProfile, {})
+  ok('P1.m 搜索给了怪粉丝数而补主页资料没给时仍记着未取得有效值', flagged(keepProfile, 'followers') && keepProfile.followers === undefined)
+  const newBadProfile = person('prof_new')
+  mergeProfile(newBadProfile, { invalid_from_provider: ['post_count'] })
+  ok('P1.m 搜索没给作品数而补主页资料给了怪值时记成未取得有效值', flagged(newBadProfile, 'post_count') && newBadProfile.post_count === undefined)
+  const goodProfile = person('prof_good', { followers: 80000 })
+  mergeProfile(goodProfile, { invalid_from_provider: ['followers'] })
+  ok('P1.m 搜索已给有效粉丝数而补主页资料给了怪值时有效值仍在且不记怪值', goodProfile.followers === 80000 && !flagged(goodProfile, 'followers'))
+
+  const xTt = person('x_same', { followers: 50000, linked_handle: 'instagram:x_same' })
+  const xIg = person('x_same', { platform: 'instagram', invalid_from_provider: ['followers'] })
+  const xMerged = mergeCrossPlatform([xTt, xIg]).find(c => c.merged_into === undefined)
+  ok('P1.m 跨平台同一人一侧粉丝数有效一侧是怪值时合并结果记成未取得有效值', xMerged !== undefined && xMerged.followers === undefined && flagged(xMerged, 'followers'))
+  const yTt = person('y_same', { followers: 50000, invalid_from_provider: ['post_count'], linked_handle: 'instagram:y_same' })
+  const yIg = person('y_same', { platform: 'instagram', followers: 30000, post_count: 12 })
+  const yMerged = mergeCrossPlatform([yTt, yIg]).find(c => c.merged_into === undefined)
+  ok('P1.m 跨平台同一人两侧粉丝数都有效时合并结果不记粉丝数是怪值', yMerged !== undefined && yMerged.followers === 80000 && !flagged(yMerged, 'followers'))
+
   // ═══════════════════════════ D21.u ═══════════════════════════
   criterion('D21.u')
 
@@ -8615,13 +8652,14 @@ function entryChecks(copy: string): void {
   const riskOf = (level: unknown): unknown => measured({ level, flags: [], peer_size: 8 }, source, at, 12, '夹具')
 
   interface Ran { status: number | null; stderr: string; dir: string; before: string }
-  function render(name: string, creators: unknown[], accounts?: Record<string, unknown>[]): Ran {
+  function render(name: string, creators: unknown[], accounts?: Record<string, unknown>[] | string): Ran {
     const dir = join(copy, name)
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'task.json'), taskJson(name))
     const before = JSON.stringify(creators, null, 2)
     writeFileSync(join(dir, 'creators.json'), before)
-    if (accounts !== undefined) {
+    if (typeof accounts === 'string') writeFileSync(join(dir, 'enrichment.json'), accounts)
+    else if (accounts !== undefined) {
       const map: Record<string, unknown> = {}
       for (const a of accounts) map[accountKey('tiktok', String(a.handle))] = a
       writeFileSync(join(dir, 'enrichment.json'), JSON.stringify({ version: 1, updated_at: at, accounts: map }, null, 2))
@@ -8668,6 +8706,18 @@ function entryChecks(copy: string): void {
   ok('D21.v 同一账号的活跃状态与风险等级都不合法时两处都报出来', vMany.stderr.includes('"paused"') && vMany.stderr.includes('"critical"'))
   ok('D21.v 两个账号都有不合法值时后一个账号那一处也在同一次报出来', vMany.stderr.includes('tiktok:kol80vf') && vMany.stderr.includes('"retired"'))
 
+  // 查哪些账号与报告原样用哪些账号是同一条（storedMetricsUsedAsIs）：没有可用样本、平台又不是 instagram 就原样用，
+  // 所以 sample 写成 null、平台缺了或大小写不对的账号也得查
+  const vNull = render('kol80-v-null', [alice('kol80vl')], [{ ...account('kol80vl', activityOf('zombie'), riskOf('low')), sample: null }])
+  eq('D21.v sample 写成 null 的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vNull.status, 2)
+  const { platform: _dropped, ...noPlatform } = account('kol80vm', activityOf('zombie'), riskOf('low'))
+  const vNoPf = render('kol80-v-nopf', [alice('kol80vm')], [noPlatform])
+  eq('D21.v 缺了平台字段的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vNoPf.status, 2)
+  const vCasePf = render('kol80-v-casepf', [alice('kol80vn')], [{ ...account('kol80vn', activityOf('zombie'), riskOf('low')), platform: 'TikTok' }])
+  eq('D21.v 平台写成 TikTok 大小写不对的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vCasePf.status, 2)
+  const vIg = render('kol80-v-ig', [alice('kol80vo')], [{ ...account('kol80vo', activityOf('zombie'), riskOf('low')), platform: 'instagram' }])
+  eq('D21.v 没有样本的 Instagram 账号存着的指标报告本就不用所以不因本条拒绝', vIg.status, 0)
+
   // 对照面
   const vOk = render('kol80-v-ok', [alice('kol80vg')], [account('kol80vg', activityOf('active'), riskOf('low'))])
   eq('D21.v 已测活跃状态与风险等级都合法时 render 照常以 0 结束', vOk.status, 0)
@@ -8685,6 +8735,17 @@ function entryChecks(copy: string): void {
 
   const vNone = render('kol80-v-none', [alice('kol80vk')])
   eq('D21.v 没有 enrichment.json 时 render 照常以 0 结束', vNone.status, 0)
+
+  // enrichment.json 整个不是合法 JSON：以 2 拒绝并指出是哪个文件（作者补）
+  const vJson = render('kol80-v-json', [alice('kol80vq')], '{"accounts": {"tiktok:kol80vq": ')
+  eq('D21.v enrichment.json 不是合法 JSON 时 render 以退出码 2 拒绝', vJson.status, 2)
+  ok('D21.v enrichment.json 不是合法 JSON 时一个交付文件都没写且名单原字节不变', untouched(vJson))
+  ok('D21.v enrichment.json 不是合法 JSON 时报错指出是 enrichment.json 这个文件', vJson.stderr.includes('enrichment.json'))
+
+  // 名单与增强结果同时坏：一次报全（作者补）
+  const vBoth = render('kol80-v-both', [alice('kol80vp', { followers: -3 })], [account('kol80vp', activityOf('zombie'), riskOf('low'))])
+  eq('D21.v 名单与增强结果同时有不合法值时 render 以退出码 2 拒绝', vBoth.status, 2)
+  ok('D21.v 名单与增强结果同时有不合法值时两个文件的问题在同一次报出来', vBoth.stderr.includes('creators.json') && vBoth.stderr.includes('-3') && vBoth.stderr.includes('enrichment.json') && vBoth.stderr.includes('"zombie"'))
 
   // ═══════════════════ D21.u：入口那一半（只起 render）═══════════════════
   criterion('D21.u')

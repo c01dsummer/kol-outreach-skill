@@ -17,7 +17,6 @@ const esc = (s: unknown) =>
 /** U12：原先原样插进模板的取值走这里 —— 和模板插值一样先转成文字（缺值照旧印出 undefined，不悄悄变成空白），再转义 */
 const escRaw = (v: unknown) => esc(String(v))
 
-/** P1：未知显示成「未知」，绝不显示成 0 —— 那是把没测量说成测量结果是零 */
 /**
  * P1.m：名单上的粉丝数、作品数分三态显示 —— 有值写缩写的数，供应商给了怪值写 `未知`，没查到写 `未查询`。
  * 原先没查到也写「未知」，与怪值那一态就分不开了。
@@ -25,6 +24,7 @@ const escRaw = (v: unknown) => esc(String(v))
 const creatorCountText = (c: Creator, field: 'followers' | 'post_count'): string =>
   c[field] !== undefined ? fmt(c[field]) : c.invalid_from_provider?.includes(field) ? '未知' : '未查询'
 
+/** P1：未知显示成「未知」，绝不显示成 0 —— 那是把没测量说成测量结果是零 */
 const fmt = (n?: number) =>
   n === undefined ? '未知'
   : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M'

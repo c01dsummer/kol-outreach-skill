@@ -5,6 +5,7 @@ import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.
 import { readCostDocument, stringifyCostJson } from './cost-json.js'
 import type { CostSnapshot } from './cost-ledger.js'
 import { ReviewInputError } from './review.js'
+import { storedMetricsUsedAsIs } from './assessment.js'
 
 /**
  * D29.a：新任务的目录由产品名拼成、建在 `output/` 底下（下面的 `taskDir`）。这三种字符拼不成一层目录名：
@@ -117,7 +118,7 @@ function recordShapeProblems(file: string, index: number, creator: unknown): str
   for (const field of COUNT_FIELDS) {
     const value = creator[field]
     if (value !== undefined && !(typeof value === 'number' && Number.isInteger(value) && value >= 0))
-      problems.push(wrong(field, '非负整数（未查询时删掉这个字段）'))
+      problems.push(wrong(field, '非负整数（未查询时删掉这个字段；旧版本可能把供应商给的怪值原样存了进来，不知道真值就删掉这个字段，再在 invalid_from_provider 里写上它的名字，报告就显示未知）'))
   }
   const invalid = creator.invalid_from_provider
   if (invalid !== undefined) {
@@ -225,15 +226,15 @@ const ACTIVITY_STATUSES: readonly unknown[] = ['active', 'cooling', 'dormant']
 const RISK_LEVELS: readonly unknown[] = ['low', 'medium', 'high']
 
 /**
- * D21.v（ADR-227）：没有作品样本的 TikTok 账号，render 直接用文件里存的活跃状态与风险等级（有样本的会重算，
- * Instagram 没样本的指标整个不用，见 `currentEnrichmentView`）。这两样手改坏了就拒收，不显示成空白、不当成别的等级。
+ * D21.v（ADR-227）：没有可用作品样本、平台又不是 instagram 的账号，render 直接用文件里存的活跃状态与风险等级
+ *（有样本的会重算，Instagram 没样本的指标整个不用；哪些算「原样用」与 `currentEnrichmentView` 共用 `storedMetricsUsedAsIs`）。这两样手改坏了就拒收，不显示成空白、不当成别的等级。
  * 只查这两样；文件读不读得成、别的字段对不对不在这里。
  */
 export function enrichmentValueProblems(file: string, state: EnrichmentState | undefined): string[] {
   if (!state || !isRecord(state.accounts)) return []
   const problems: string[] = []
   for (const [key, account] of Object.entries(state.accounts as Record<string, unknown>)) {
-    if (!isRecord(account) || account.platform !== 'tiktok' || account.sample !== undefined || !isRecord(account.metrics)) continue
+    if (!isRecord(account) || !storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue
     const metrics = account.metrics
     const at = `${file} 里账号 ${shown(key)}`
     const activity = metrics.activity_status
@@ -248,7 +249,11 @@ export function enrichmentValueProblems(file: string, state: EnrichmentState | u
 
 /** render 用：读 enrichment.json 并按 D21.v 查那两样，有问题以 ReviewInputError 拒收（入口以 2 结束） */
 export function loadReviewEnrichment(dir: string): EnrichmentState | undefined {
-  const state = loadEnrichment(dir)
+  let state: EnrichmentState | undefined
+  try { state = loadEnrichment(dir) } catch (e) {
+    if (!(e instanceof SyntaxError)) throw e
+    throw new ReviewInputError([`${join(dir, ENRICHMENT)} 不是合法的 JSON（${e.message}）；改正或删掉这个文件后再跑（删掉只是少了增强结果，报告照出）`])
+  }
   const problems = enrichmentValueProblems(join(dir, ENRICHMENT), state)
   if (problems.length) throw new ReviewInputError(problems)
   return state

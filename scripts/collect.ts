@@ -22,7 +22,7 @@ import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import {
-  MAX_PAGES, canRequestPage, canonicalReviewLinks, finalize, firstPagePending, igAfterPage, mergePage, needsProfile,
+  MAX_PAGES, canRequestPage, canonicalReviewLinks, finalize, firstPagePending, igAfterPage, mergePage, mergeProfile, needsProfile,
   pagesFetched, pendingKeywords, rawSeedFromLegacy, resumeCostLine, reviewRelations, underPageCap,
 } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
@@ -438,18 +438,7 @@ async function enrichProfiles() {
   for (const c of list) {
     try {
       const p = await api.profile(c.handle, c.platform)
-      const before = c.invalid_from_provider
-      Object.assign(c, {
-        ...p,
-        nickname: p.nickname ?? c.nickname,
-        followers: p.followers ?? c.followers,
-        post_count: p.post_count ?? c.post_count,
-      })
-      // P1.m：哪一次给了有效值就以它为准；最后仍没有值、而搜索或这次主页给过怪值的，才记「未取得有效值」
-      const invalid = (['followers', 'post_count'] as const).filter(k =>
-        c[k] === undefined && [...(p.invalid_from_provider ?? []), ...(before ?? [])].includes(k))
-      if (invalid.length) c.invalid_from_provider = invalid
-      else delete c.invalid_from_provider
+      mergeProfile(c, p)
       fillEmail(c)
     } catch (e) {
       // 单个失败不该拖垮整轮（一个 404 就挂掉 50 人的采集是不可接受的）。

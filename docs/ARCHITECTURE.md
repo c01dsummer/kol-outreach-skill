@@ -650,6 +650,7 @@ JSON 摘要、CSV/XLSX 与 HTML 都带出范围状态，使历史视频窗口与
 | `undefined` | **没查过** |
 | `null` | 查过，确实没有 |
 | 有值 | 查过，就是它 |
+| 名单上的粉丝数、作品数缺席，且名字列在 `invalid_from_provider` 里 | 查过，供应商给了值但不是有限非负整数（**已查询但未取得有效值**），交付里显示 `未知`；与没查过（显示 `未查询`）分开（P1.m，ADR-227） |
 | `recent_posts` 的空数组 | **例外：读作没查过**，与缺席同一态。今天没有生产者，全是盘上旧数据里 IG 那条兜底路径凭空写的（ADR-102） |
 | `Measurement<T>` | `measured`（带 source / observed_at / sample_size / basis）· `unavailable`（带 reason）· **字段整个缺席 = 未查询** |
 | `meta.json` 的 `capabilities` | 每种能力分别统计 `measured` / `unavailable` / `unqueried`，三个数不合并 |

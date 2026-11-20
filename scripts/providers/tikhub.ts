@@ -43,6 +43,11 @@ const readCount = (...candidates: unknown[]): CountRead => {
   const valid = given.find(v => typeof v === 'number' && Number.isInteger(v) && v >= 0)
   return valid !== undefined ? valid as number : given.length ? 'invalid' : undefined
 }
+/** 作品样本接口顺带给的粉丝数（P1.m 末句）：不是有限非负整数就当没给，不拿来算比率 */
+const sampleFollowers = (v: unknown): number | undefined => {
+  const read = readCount(v)
+  return typeof read === 'number' ? read : undefined
+}
 /** 把两项读数摊成 Creator 上的字段：怪值那一项本身留缺席，名字记进 invalid_from_provider */
 const countFields = (followers: CountRead, post_count: CountRead): Pick<Creator, 'followers' | 'post_count' | 'invalid_from_provider'> => {
   const invalid = ([['followers', followers], ['post_count', post_count]] as const).filter(([, v]) => v === 'invalid').map(([k]) => k)
@@ -483,7 +488,7 @@ export class TikHub {
     const author = list.find((item: any) => item?.author)?.author
     return {
       posts,
-      followers: finiteNumber(author?.follower_count),
+      followers: sampleFollowers(author?.follower_count),
       following: finiteNumber(author?.following_count),
       source: { kind: 'public_api', provider: 'tikhub', endpoint },
     }
@@ -517,7 +522,7 @@ export class TikHub {
     const user = data?.user ?? list.find((item: any) => item?.user)?.user
     return {
       posts,
-      followers: finiteNumber(user?.follower_count),
+      followers: sampleFollowers(user?.follower_count),
       following: finiteNumber(user?.following_count),
       source: { kind: 'public_api', provider: 'tikhub', endpoint },
       media_scope: 'provider_returned_first12',

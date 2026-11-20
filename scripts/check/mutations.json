@@ -31499,6 +31499,82 @@
       ]
     },
     {
+      "id": "M-P1-ar",
+      "req": "P1.m",
+      "why": "TikTok 作品样本接口顺带给的粉丝数是负数或小数时照样拿去算互动率这类比率，算出负的或怪的比率",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "followers: sampleFollowers(author?.follower_count),",
+      "replace": "followers: finiteNumber(author?.follower_count),",
+      "by": "test",
+      "kills": [
+        "P1.m TikTok 作品样本里粉丝数给了负数时不当粉丝数用",
+        "P1.m TikTok 作品样本里粉丝数给了小数时不当粉丝数用也不取整"
+      ]
+    },
+    {
+      "id": "M-P1-as",
+      "req": "P1.m",
+      "why": "Instagram 作品样本接口顺带给的粉丝数是负数时照样拿去算互动率这类比率",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "followers: sampleFollowers(user?.follower_count),",
+      "replace": "followers: finiteNumber(user?.follower_count),",
+      "by": "test",
+      "kills": [
+        "P1.m Instagram 作品样本里粉丝数给了负数时不当粉丝数用"
+      ]
+    },
+    {
+      "id": "M-P1-at",
+      "req": "P1.m",
+      "why": "补主页资料时只要搜索或这次主页给过怪值就记「未取得有效值」，哪怕这次主页给了有效粉丝数：名单里同一人既有值又记成怪值，下次读入被拒收",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "c[k] === undefined && [...(p.invalid_from_provider ?? []), ...(before ?? [])].includes(k))",
+      "replace": "[...(p.invalid_from_provider ?? []), ...(before ?? [])].includes(k))",
+      "by": "test",
+      "kills": [
+        "P1.m 搜索给了怪粉丝数而补主页资料给了有效值时以有效值为准且不再记怪值",
+        "P1.m 搜索已给有效粉丝数而补主页资料给了怪值时有效值仍在且不记怪值"
+      ]
+    },
+    {
+      "id": "M-P1-au",
+      "req": "P1.m",
+      "why": "跨平台同一人一侧粉丝数是供应商给的怪值时，合并结果把这个记号丢了，报告里显示成未查询而不是未知",
+      "file": "scripts/lib/identity.ts",
+      "find": "if (invalid.length) primary.invalid_from_provider = invalid",
+      "replace": "if (false) primary.invalid_from_provider = invalid",
+      "by": "test",
+      "kills": [
+        "P1.m 跨平台同一人一侧粉丝数有效一侧是怪值时合并结果记成未取得有效值"
+      ]
+    },
+    {
+      "id": "M-D21-bm",
+      "req": "D21.v",
+      "why": "读入检查只查平台恰好写成 tiktok、又完全没有 sample 键的账号，可报告还会原样用 sample 是 null、缺平台或平台大小写不对的账号存着的指标，这些账号里手改坏的值又能漏过去显示成空白",
+      "file": "scripts/lib/task.ts",
+      "find": "if (!isRecord(account) || !storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue",
+      "replace": "if (!isRecord(account) || account.platform !== 'tiktok' || account.sample !== undefined || !isRecord(account.metrics)) continue",
+      "by": "test",
+      "kills": [
+        "D21.v sample 写成 null 的账号已测活跃状态不合法时 render 也以退出码 2 拒绝",
+        "D21.v 缺了平台字段的账号已测活跃状态不合法时 render 也以退出码 2 拒绝",
+        "D21.v 平台写成 TikTok 大小写不对的账号已测活跃状态不合法时 render 也以退出码 2 拒绝"
+      ]
+    },
+    {
+      "id": "M-D21-bn",
+      "req": "D21.v",
+      "why": "名单与增强结果同时手改坏时，render 只报增强结果那一处，用户改完一处再跑才看见另一处，白多一个来回",
+      "file": "scripts/render.ts",
+      "find": "storedEnrichment = collect(() => loadReviewEnrichment(dir))",
+      "replace": "storedEnrichment = loadReviewEnrichment(dir)",
+      "by": "test",
+      "kills": [
+        "D21.v 名单与增强结果同时有不合法值时两个文件的问题在同一次报出来"
+      ]
+    },
+    {
       "id": "M-D4-bd",
       "req": "D4",
       "why": "collect 剩下的钱不够付下一次请求、同时读不出记忆文件时退 3 而不是 7：调用方会先让用户加预算，续跑后照样因为记忆读不出来出不了名单，白多一个来回",

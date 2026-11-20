@@ -540,19 +540,6 @@ export function keywordRows(
 }
 
 /**
- * 把一页搜索结果并进累加器，交回**新增了几个人**。
- *
- * **归人就在这里落笔**：同一个人被第二个任务搜到时保留已有字段，作品稳定取并集；那个任务的下标要追加进
- * `source_tasks` —— 漏了这一笔，后面那个词在关键词表上被报成「找到 N 条、一个都没入围」，
- * 而运营据此把一个其实出了人的词砍掉（U3.b，ADR-94 第十六节甲）。
- *
- * ⚠️ **它从入口脚本里搬出来是为了能被缺省那个验证者够到。** 留在 `collect.ts` 的循环里时，
- * 指着它的负片只能靠整跑一遍自检来验 —— 而那是本仓库最贵的一种验证者（每条这样的负片
- * 都要把自检从头跑到尾）。判据不变，验证者便宜了一个数量级。
- *
- * `creators` 就地改，交回新增数 —— 累加器本来就是跨页跨任务共用的那一份。
- */
-/**
  * P1.m（ADR-227）：粉丝数、作品数已有值的不动；还没有值的，这一次给了有效值就用它、不再记怪值，
  * 这一次给的是怪值就记「未取得有效值」。供应商没给（这一次也缺席）时照旧。
  */
@@ -567,6 +554,38 @@ export function mergeCounts(seen: Creator, p: Partial<Creator>): void {
   else delete seen.invalid_from_provider
 }
 
+/**
+ * P1.m（ADR-227）：把补主页资料拿到的 `p` 盖到名单上的人 `c` 上（collect 补全那一步）。
+ * 昵称、粉丝数、作品数这次没给就留原来的；哪一次给了有效值就以它为准；最后仍没有值、
+ * 而搜索或这次主页给过怪值的，才记「未取得有效值」。
+ */
+export function mergeProfile(c: Creator, p: Partial<Creator>): void {
+  const before = c.invalid_from_provider
+  Object.assign(c, {
+    ...p,
+    nickname: p.nickname ?? c.nickname,
+    followers: p.followers ?? c.followers,
+    post_count: p.post_count ?? c.post_count,
+  })
+  const invalid = (['followers', 'post_count'] as const).filter(k =>
+    c[k] === undefined && [...(p.invalid_from_provider ?? []), ...(before ?? [])].includes(k))
+  if (invalid.length) c.invalid_from_provider = invalid
+  else delete c.invalid_from_provider
+}
+
+/**
+ * 把一页搜索结果并进累加器，交回**新增了几个人**。
+ *
+ * **归人就在这里落笔**：同一个人被第二个任务搜到时保留已有字段，作品稳定取并集；那个任务的下标要追加进
+ * `source_tasks` —— 漏了这一笔，后面那个词在关键词表上被报成「找到 N 条、一个都没入围」，
+ * 而运营据此把一个其实出了人的词砍掉（U3.b，ADR-94 第十六节甲）。
+ *
+ * ⚠️ **它从入口脚本里搬出来是为了能被缺省那个验证者够到。** 留在 `collect.ts` 的循环里时，
+ * 指着它的负片只能靠整跑一遍自检来验 —— 而那是本仓库最贵的一种验证者（每条这样的负片
+ * 都要把自检从头跑到尾）。判据不变，验证者便宜了一个数量级。
+ *
+ * `creators` 就地改，交回新增数 —— 累加器本来就是跨页跨任务共用的那一份。
+ */
 export function mergePage(creators: Map<string, Creator>, page: readonly Partial<Creator>[],
   i: number, t: SearchTask): number {
   let added = 0
