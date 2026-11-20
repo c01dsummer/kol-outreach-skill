@@ -65,7 +65,7 @@ import {
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
-import { DEPTH, addedLines, fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, markSite, type Field as UseField } from './check/field-use-rule.js'
+import { DEPTH, addedLines, fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, markSite, outOfSight, wholeFile, type Field as UseField } from './check/field-use-rule.js'
 import {
   beginMutation, blockingWait, syncGitImports, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -16108,19 +16108,24 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
 
   // 新加的行：文件名是 git 列出来的（原样作键），每个文件一份 git diff -U0 的输出，只读块头
   const added = (diffs: [string, string][]) => { try { return [...addedLines(diffs)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } }
-  eq('新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）',
+  eq('新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；只改权限的没有新加的行；文件名原样作键（表情符号、制表符都不动）',
     added([
       ['scripts/check/a.ts', ['diff --git a/scripts/check/a.ts b/scripts/check/a.ts', 'index 1111111..2222222 100644', '--- a/scripts/check/a.ts', '+++ b/scripts/check/a.ts',
         '@@ -3 +3,2 @@', '-old', '+new3', '+@@ -1 +99 @@ 正文里像块头的新增行', '@@ -10 +12 @@ export function f() {', '-x', '+y12', '\\ No newline at end of file', ''].join('\n')],
       ['scripts/check/mode.ts', 'diff --git a/scripts/check/mode.ts b/scripts/check/mode.ts\nold mode 100644\nnew mode 100755\n'],
       ['scripts/check/gone.ts', 'diff --git a/scripts/check/gone.ts b/scripts/check/gone.ts\n--- a/scripts/check/gone.ts\n+++ b/scripts/check/gone.ts\n@@ -5,2 +4,0 @@\n-p\n-q\n'],
-      ['scripts/check/same.ts', ''],
       ['scripts/check/😀\t.ts', 'diff --git "a/scripts/check/😀\\t.ts" "b/scripts/check/😀\\t.ts"\nnew file mode 100644\n--- /dev/null\n+++ "b/scripts/check/😀\\t.ts"\n@@ -0,0 +1,2 @@\n+one\n+two\n'],
     ]), [['scripts/check/a.ts', [3, 4, 12]], ['scripts/check/😀\t.ts', [1, 2]]])
-  eq('新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的',
-    ['\u001b[1mdiff --git a/x b/x\u001b[m\n@@ -1 +1 @@\n-a\n+b\n', 'x: 3 lines changed\n', 'diff -u a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n', 'diff --git a/x b/x\n@@ -1 +a @@\n+b\n',
+  eq('新加的行：读不懂的抛错，不悄悄当成没改 —— 答空的（git 列了它，单问却没输出）、带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的',
+    ['', '\u001b[1mdiff --git a/x b/x\u001b[m\n@@ -1 +1 @@\n-a\n+b\n', 'x: 3 lines changed\n', 'diff -u a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n', 'diff --git a/x b/x\n@@ -1 +a @@\n+b\n',
       'diff --git a/x b/x\n@@ -1,0 +2,3\n', 'diff --git a/x b/x\n@@@ -1 -1 +1,2 @@@\n++b\n', 'diff --git a/x b/x\nnew file mode 100644\nBinary files /dev/null and b/x differ\n']
-      .map(t => { const r = added([['x', t]]); return typeof r === 'string' && r.includes('读不懂的 diff') }), [true, true, true, true, true, true, true])
+      .map(t => { const r = added([['x', t]]); return typeof r === 'string' && r.includes('读不懂的 diff') }), [true, true, true, true, true, true, true, true])
+  eq('没加进 git 的文件：整份算新加，行号只数换行符，末尾换行后的空段也算一行', [[...wholeFile('')], [...wholeFile('a')], [...wholeFile('a\nb\n')], [...wholeFile('a\r\nb')]],
+    [[1], [1], [1, 2, 3], [1, 2]])
+  const asked: string[] = []
+  eq('判定文件的行号能不能用：git 看不见的、符号链接的交回原因（看不见时不再问是不是链接），都没有交回 undefined',
+    [outOfSight('f.ts', false, () => { asked.push('f.ts'); return true }), outOfSight('g.ts', true, () => true), outOfSight('h.ts', true, () => false), asked],
+    ['f.ts 在类型检查的范围里，git 却看不见它（被忽略了，或名字两边写法不一样）', 'g.ts 是一个符号链接：git 说的是链接本身改了哪几行，字段却在它指向的文件里，行号对不上', undefined, []])
   eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd', 'x'), markSite('f', 'ab cd ab', 'ab', 'x'), markSite('f', 'ab', 'x', 'y'), markSite('f', 'ab', '', 'y')],
     [{ file: 'f', start: 3, end: 5 }, undefined, undefined, undefined])
   eq('变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点', [markSite('f', '__a + b__', 'a + b', 'a - b'), markSite('f', '__a + b__', 'a + b', 'a + b + c'), markSite('f', 'xaay', 'aa', 'a')],
@@ -23460,7 +23465,7 @@ await group('h-field-use-entry-git', () => {
     try {
       bins.push(fakeGitDir('[ "$a" = -U0 ]', 'exit 0'))
       const empty = run(root, { PATH: `${bins[0]}:${process.env.PATH ?? ''}` })
-      eq('字段断言入口：git 说文件改过、单问它却答空时说无从判断，以 1 退出', [empty.status, String(empty.stderr).includes('✗ 字段断言：无从判断 —— git 说 scripts/check/a.ts 改过，单问它却答空')], [1, true])
+      eq('字段断言入口：git 说文件改过、单问它却答空时说无从判断，以 1 退出', [empty.status, String(empty.stderr).includes('✗ 字段断言：无从判断 —— 读不懂的 diff：scripts/check/a.ts 的输出不以「diff --git 」开头（git 把它列在改过的文件里，单问它却答空）')], [1, true])
       bins.push(fakeGitDir('[ "$a" = --name-only ]', '{ echo "假装列不出来" >&2; exit 128; }'))
       const failed = run(root, { PATH: `${bins[1]}:${process.env.PATH ?? ''}` })
       eq('字段断言入口：git 列改过的文件时出错退出，说无从判断、带上 git 的原话，以 1 退出',

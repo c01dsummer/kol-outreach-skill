@@ -2,7 +2,8 @@
 /**
  * 字段断言闸门的入口（`npm run fields`，检查链里紧跟类型检查，ADR-198 第四节）。
  *
- * 只问 git、建语言服务、读变异登记表、打印、交回退出码；什么算字段、算新增、算守着、什么时候红，都在 `field-use-rule.ts`。
+ * 只问 git、读文件、建语言服务、读变异登记表、打印、交回退出码；什么算字段、算新增（含没加进 git 的整份、单问答空、git 看不见与符号链接）、
+ * 算守着、什么时候红，都在 `field-use-rule.ts`。
  * 要用到的每件事实找谁要，照 ADR-198 第四节那张表：git 都经 git 入口问，每一问的路径与输出都按仓库根算（`:(top)`、`--full-name`、`--no-relative`），在哪个子目录里跑都一样；字段问 TypeScript 语言服务；
  * 变异的位置用登记表与语言服务程序里的同一份正文。
  * 无从判断时说出来、以 1 结束，不退化成「没有新字段，通过」。退出码只设在进程上、不当场退出。
@@ -13,7 +14,7 @@ import { join } from 'node:path'
 import type * as Ts from 'typescript'
 
 import { askGit, runGit } from './git-entry.js'
-import { addedLines, fieldsOf, fieldVerdict, isJudgedFile, markSite, type Field, type Site } from './field-use-rule.js'
+import { addedLines, fieldsOf, fieldVerdict, isJudgedFile, markSite, outOfSight, wholeFile, type Field, type Site } from './field-use-rule.js'
 import { anchorCatalog } from './mutate-rule.js'
 import { resolveBaseline } from './size-rule.js'
 
@@ -35,21 +36,15 @@ function ask(args: readonly string[], what: string): string {
 /** 空字符分隔的一串名字，原样交回（不去空白、不解转义） */
 const zList = (out: string): string[] => out.split('\0').filter(n => n !== '')
 
-/** 新加的行：受跟踪的文件读各自 `-U0` 的块头；没加进 git 的整份算新加（行号与 `fieldsOf` 同一算法，只数换行符） */
+/** 新加的行：受跟踪的文件各问一次 `-U0`，交给 `addedLines` 读块头；没加进 git 的交给 `wholeFile` 整份算新加 */
 function changes(base: string, root: string): Map<string, Set<number>> {
   const tracked = zList(ask(['diff', '--name-only', '--no-renames', '--no-relative', '-z', base], '列改过的文件')).filter(isJudgedFile)
-  const diffs: [string, string][] = tracked.map(file => {
-    const out = ask(['diff', '--no-renames', '--no-relative', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--diff-algorithm=myers',
-      '--indent-heuristic', '-U0', '--inter-hunk-context=0', base, '--', `:(top,literal)${file}`], `取 ${file} 改了哪几行`)
-    // 列出来的文件一定有输出（只改权限的也有文件头，删掉的有一个只删的块）；答空说明路径没对上，不能当成没改
-    if (out === '') cannot(`git 说 ${file} 改过，单问它却答空`)
-    return [file, out]
-  })
+  const diffs: [string, string][] = tracked.map(file => [file, ask(['diff', '--no-renames', '--no-relative', '--no-color', '--no-ext-diff', '--no-textconv',
+    '--text', '--diff-algorithm=myers', '--indent-heuristic', '-U0', '--inter-hunk-context=0', base, '--', `:(top,literal)${file}`], `取 ${file} 改了哪几行`)])
   let added: Map<string, Set<number>>
   try { added = addedLines(diffs) } catch (e) { return cannot((e as Error).message) }
   for (const file of zList(ask(['ls-files', '-z', '--full-name', '--others', '--exclude-standard', '--', ':(top)scripts/check/'], '列没加进 git 的新文件')).filter(isJudgedFile)) {
-    const lines = readFileSync(join(root, file), 'utf8').split('\n').length
-    added.set(file, new Set(Array.from({ length: lines }, (_, i) => i + 1)))
+    added.set(file, wholeFile(readFileSync(join(root, file), 'utf8')))
   }
   return added
 }
@@ -89,14 +84,12 @@ function main(): number {
     const fields = fieldsOf(service, top)
     if (fields.length === 0) cannot('一个字段都没取到')
     const program = service.getProgram()!
-    // 字段所在的文件都得在 git 的视野里：git 看不见的文件，改了也列不出来，里面的字段永远不算新
+    // 字段所在的文件，git 说的行号都得能用（看得见、不是符号链接），由 `outOfSight` 判
     const visible = new Set(zList(ask(['ls-files', '-z', '--full-name', '--cached', '--others', '--exclude-standard', '--', ':(top)'], '列 git 看得见的文件')))
     for (const sf of program.getSourceFiles()) {
       const rel = sf.fileName.startsWith(top + '/') ? sf.fileName.slice(top.length + 1) : sf.fileName
-      if (!isJudgedFile(rel)) continue
-      if (!visible.has(rel)) cannot(`${rel} 在类型检查的范围里，git 却看不见它（被忽略了，或名字两边写法不一样）`)
-      // 符号链接：git 的 diff 只有链接指向的那一行，TypeScript 读的却是指向的文件，两边的行号对不上
-      if (lstatSync(join(top, rel)).isSymbolicLink()) cannot(`${rel} 是一个符号链接：git 说的是链接本身改了哪几行，字段却在它指向的文件里，行号对不上`)
+      const why = isJudgedFile(rel) ? outOfSight(rel, visible.has(rel), () => lstatSync(join(top, rel)).isSymbolicLink()) : undefined
+      if (why !== undefined) cannot(why)
     }
     const catalog = anchorCatalog(JSON.parse(readFileSync(join(top, 'scripts/check/mutations.json'), 'utf8')))
     if (catalog === undefined) cannot('变异登记表读不出一组变异')

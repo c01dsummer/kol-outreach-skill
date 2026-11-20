@@ -27346,7 +27346,7 @@
       "replace": "h[2] === undefined ? 0 :",
       "by": "test",
       "kills": [
-        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）"
+        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；只改权限的没有新加的行；文件名原样作键（表情符号、制表符都不动）"
       ]
     },
     {
@@ -27358,7 +27358,7 @@
       "replace": "n <= from + count",
       "by": "test",
       "kills": [
-        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）"
+        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；只改权限的没有新加的行；文件名原样作键（表情符号、制表符都不动）"
       ]
     },
     {
@@ -27370,7 +27370,7 @@
       "replace": "const from = Number(h[1]) - 1",
       "by": "test",
       "kills": [
-        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）"
+        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；只改权限的没有新加的行；文件名原样作键（表情符号、制表符都不动）"
       ]
     },
     {
@@ -27382,19 +27382,7 @@
       "replace": "if (!l.includes('@@')) continue",
       "by": "test",
       "kills": [
-        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）"
-      ]
-    },
-    {
-      "id": "M-H198-hq",
-      "req": "harness",
-      "why": "空的输出也要求以文件头开头：没改动的文件被当成读不懂",
-      "file": "scripts/check/field-use-rule.ts",
-      "find": "if (diff !== '' && !diff.startsWith(",
-      "replace": "if (!diff.startsWith(",
-      "by": "test",
-      "kills": [
-        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）"
+        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；只改权限的没有新加的行；文件名原样作键（表情符号、制表符都不动）"
       ]
     },
     {
@@ -27454,7 +27442,7 @@
       "replace": "(?:,(\\d+))? @@$/.exec(l)",
       "by": "test",
       "kills": [
-        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）"
+        "新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；只改权限的没有新加的行；文件名原样作键（表情符号、制表符都不动）"
       ]
     },
     {
@@ -27630,8 +27618,8 @@
       "req": "harness",
       "why": "还没加进 git 的新文件不算新加：里面的字段悄悄放过",
       "file": "scripts/check/field-use.ts",
-      "find": ".filter(isJudgedFile)) {\n    const lines",
-      "replace": ".filter(() => false)) {\n    const lines",
+      "find": ".filter(isJudgedFile)) {\n    added.set",
+      "replace": ".filter(() => false)) {\n    added.set",
       "by": "test",
       "kills": [
         "字段断言入口：还没加进 git 的新文件里的字段整份算新加（头几行以后的也算），以 1 退出、点出它们"
@@ -27641,12 +27629,12 @@
       "id": "M-H198-il",
       "req": "harness",
       "why": "还没加进 git 的新文件只算前几行新加：后面的字段悄悄放过",
-      "file": "scripts/check/field-use.ts",
-      "find": ".split('\\n').length\n    added.set",
-      "replace": ".split('\\n').length - 4\n    added.set",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "length: text.split('\\n').length }",
+      "replace": "length: text.split('\\n').length - 1 }",
       "by": "test",
       "kills": [
-        "字段断言入口：还没加进 git 的新文件里的字段整份算新加（头几行以后的也算），以 1 退出、点出它们"
+        "没加进 git 的文件：整份算新加，行号只数换行符，末尾换行后的空段也算一行"
       ]
     },
     {
@@ -27701,12 +27689,12 @@
       "id": "M-H198-iq",
       "req": "harness",
       "why": "git 说改过的文件单问答空时当成没改：新字段悄悄放过",
-      "file": "scripts/check/field-use.ts",
-      "find": "if (out === '') cannot(",
-      "replace": "if (out === '\\0') cannot(",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (!diff.startsWith('diff --git ')) throw",
+      "replace": "if (diff !== '' && !diff.startsWith('diff --git ')) throw",
       "by": "test",
       "kills": [
-        "字段断言入口：git 说文件改过、单问它却答空时说无从判断，以 1 退出"
+        "新加的行：读不懂的抛错，不悄悄当成没改 —— 答空的（git 列了它，单问却没输出）、带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的"
       ]
     },
     {
@@ -27749,24 +27737,24 @@
       "id": "M-H198-iu",
       "req": "harness",
       "why": "git 看不见的文件也照判：它的改动列不出来，里面的字段永远不算新",
-      "file": "scripts/check/field-use.ts",
-      "find": "if (!visible.has(rel)) cannot(",
-      "replace": "if (false) cannot(",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (!seen) return `",
+      "replace": "if (false) return `",
       "by": "test",
       "kills": [
-        "字段断言入口：字段所在的文件被 git 忽略时说无从判断，以 1 退出"
+        "判定文件的行号能不能用：git 看不见的、符号链接的交回原因（看不见时不再问是不是链接），都没有交回 undefined"
       ]
     },
     {
       "id": "M-H198-iv",
       "req": "harness",
       "why": "判定文件是符号链接也照判：git 的行号是链接本身的，字段在它指向的文件里，新字段对不上",
-      "file": "scripts/check/field-use.ts",
-      "find": "if (lstatSync(join(top, rel)).isSymbolicLink()) cannot(",
-      "replace": "if (false) cannot(",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (symlink()) return `",
+      "replace": "if (false) return `",
       "by": "test",
       "kills": [
-        "字段断言入口：判定文件是符号链接时说无从判断，以 1 退出"
+        "判定文件的行号能不能用：git 看不见的、符号链接的交回原因（看不见时不再问是不是链接），都没有交回 undefined"
       ]
     },
     {
@@ -27827,6 +27815,18 @@
       "by": "test",
       "kills": [
         "字段断言入口：主干上只有一个提交时说不适用，以 0 结束"
+      ]
+    },
+    {
+      "id": "M-H198-jb",
+      "req": "harness",
+      "why": "入口不理 outOfSight 交回的原因：git 看不见的、符号链接的判定文件照判，新字段对不上",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (why !== undefined) cannot(why)",
+      "replace": "if (false) cannot(why)",
+      "by": "test",
+      "kills": [
+        "字段断言入口：字段所在的文件被 git 忽略时说无从判断，以 1 退出"
       ]
     },
     {
