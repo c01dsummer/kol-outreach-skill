@@ -7965,7 +7965,7 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
   // 新读法与新写法和内置的等价（ADR-228），在仓库里各留一条能被变异抓住的对照（完整的随机比对不进仓库，结果记在 ADR-228）：
   // 读：同一个键写两次时原文取最后一处，转义写法的键按解码后的名字记，前一处是容器、后一处是数字时也只记数字。
   // 写：不是 readCostDocument 读入的对象没有原文可查，写出回调对非费用值原样放行，于是应与内置 JSON.stringify(值, null, 2) 逐字节相同 ——
-  // 夹具挑的是内置写法里各条岔路：toJSON、包装对象、数组里写不出的值写 null、对象里写不出的跳过、不可枚举的属性、-0 与 NaN、空容器、成环
+  // 夹具挑的是内置写法里各条岔路：toJSON、包装对象、数组里写不出的值写 null、对象里写不出的跳过、不可枚举的属性、-0 与 NaN、空容器、同一个对象出现两次（不算成环）、成环
   let twiceTokens: unknown[] = []
   try {
     const twice = readCostDocument<Record<string, unknown>>('{"n":1.0,"n":2.50,"\\u006d":3.0,"c":{"x":1},"c":4.0}')
@@ -7974,6 +7974,7 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
   const plainValue: Record<string, unknown> = { date: new Date(0), boxed: [new Number(3), new String('s'), new Boolean(false)],
     holes: [undefined, () => 1, Symbol('s'), 1], skipped: { u: undefined, f: () => 1, kept: -0 }, odd: [NaN, Infinity, -0],
     empty: [{}, []], nested: { toJSON: (key: string) => ({ key, list: [1, { a: '"q"' }] }) } }
+  plainValue.shared = [plainValue.empty, plainValue.empty]
   Object.defineProperty(plainValue, 'hidden', { value: 1, enumerable: false })
   const ring: Record<string, unknown> = {}; ring.self = ring
   let ringThrew = ''

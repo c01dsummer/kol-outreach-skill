@@ -250,8 +250,9 @@ const costRootKeys = new Set(['requests', 'cost_ledger', 'budget_usd'])
 type Writing = { holder: object; keys: string[]; next: number; parts: string[]; array: boolean; indent: string; prefix: string }
 
 /**
- * 与 `JSON.stringify(value, replacer, 2)` 逐字节相同的写出（ECMAScript SerializeJSONProperty 的步骤：toJSON、replacer、
- * 拆包装对象、JSON.rawJSON 的原文、数组里写不出的值写 null、对象里的跳过、成环抛 TypeError），只是用列表代替递归：
+ * 照 ECMAScript SerializeJSONProperty 的步骤写出（toJSON、replacer、拆包装对象、JSON.rawJSON 的原文、数组里写不出的值写 null、
+ * 对象里的跳过、成环抛 TypeError），对 JSON.parse 读出的数据加上这几样，与 `JSON.stringify(value, replacer, 2)` 逐字节相同；
+ * 刻意造出来的怪对象（原型换成包装类的普通对象、回调交回自带 toJSON 的包装对象）不保证相同，任务数据到不了那里。只是用列表代替递归：
  * 内置的那个逐层递归，任务里挂着深的嵌套时写回就栈溢出，能写多深看机器栈大小（ADR-228）。标量与键名的写法仍交给内置的 JSON.stringify。
  */
 function stringifyDeep(value: object, replacer: (this: object, key: string, item: unknown) => unknown): string {
@@ -259,7 +260,7 @@ function stringifyDeep(value: object, replacer: (this: object, key: string, item
   /** 一个位置上的值：标量写成文本，写不出的交回 undefined，容器交回待写的一层 */
   const property = (holder: object, key: string, indent: string, prefix: string): string | undefined | Writing => {
     let item: unknown = (holder as Record<string, unknown>)[key]
-    if (item !== null && (typeof item === 'object' || typeof item === 'bigint')) {
+    if (item !== null && (typeof item === 'object' || typeof item === 'function' || typeof item === 'bigint')) {
       const toJSON = (item as { toJSON?: unknown }).toJSON
       if (typeof toJSON === 'function') item = toJSON.call(item, key)
     }
