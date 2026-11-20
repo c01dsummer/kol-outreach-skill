@@ -110,6 +110,11 @@ export function mergeCrossPlatform(creators: Creator[]): Creator[] {
       a === undefined || b === undefined ? undefined : a + b
     primary.followers = sum(c.followers, other.followers)
     primary.post_count = sum(c.post_count, other.post_count)
+    // P1.m：合出来没有值、而任一侧那一项是供应商给的怪值时，合并结果也记「未取得有效值」（显示未知）
+    const invalid = (['followers', 'post_count'] as const).filter(k => primary[k] === undefined
+      && [c, other].some(x => x.invalid_from_provider?.includes(k)))
+    if (invalid.length) primary.invalid_from_provider = invalid
+    else delete primary.invalid_from_provider
     primary.email = mergeEmail(primary.email, secondary.email)
     primary.bio_links = [...new Set([...c.bio_links, ...other.bio_links])]
     // 两边的来源任务取并集 —— 漏了这一笔，跨平台同人被合掉之后，

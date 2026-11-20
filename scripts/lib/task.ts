@@ -89,8 +89,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 /**
  * D21.t：名单被手改坏时，在读入处就指出是哪个文件、第几条、哪个字段 ——
  * 不然它要到后面的同人识别、打分里才以 `toLowerCase is not a function` 一类的话崩掉。
- * 只查会崩或会错的这几种（逐字段试探 render 得出，ADR-192）；其余字段的类型不在此查。
+ * 只查会崩或会错的这几种（逐字段试探 render 得出，ADR-192），加上粉丝数、作品数与记怪值的那个字段（D21.u，ADR-227）；
+ * 其余字段的类型不在此查。
  */
+const COUNT_FIELDS = ['followers', 'post_count'] as const
+
 function recordShapeProblems(file: string, index: number, creator: unknown): string[] {
   const at = `${file} 第 ${index + 1} 条`
   if (!isRecord(creator)) return [`${at}不是一条记录（读到 ${shown(creator)}），应是一个对象；改正或删掉这条后再跑`]
@@ -110,6 +113,21 @@ function recordShapeProblems(file: string, index: number, creator: unknown): str
   const sources = creator.discovery_sources
   if (sources !== undefined && sources !== null && (!Array.isArray(sources) || !sources.every(isRecord)))
     problems.push(wrong('discovery_sources', '来源对象的数组（来源未知时删掉这个字段）'))
+  // D21.u：粉丝数、作品数写坏了不猜（P1.m 那一态由 invalid_from_provider 记，不由怪值本身记）
+  for (const field of COUNT_FIELDS) {
+    const value = creator[field]
+    if (value !== undefined && !(typeof value === 'number' && Number.isInteger(value) && value >= 0))
+      problems.push(wrong(field, '非负整数（未查询时删掉这个字段）'))
+  }
+  const invalid = creator.invalid_from_provider
+  if (invalid !== undefined) {
+    if (!Array.isArray(invalid) || !invalid.every(name => (COUNT_FIELDS as readonly unknown[]).includes(name))
+      || new Set(invalid).size !== invalid.length)
+      problems.push(wrong('invalid_from_provider', '只含 "followers"、"post_count" 且不重复的数组（都取到了有效值时删掉这个字段）'))
+    else for (const field of invalid as string[]) if (creator[field] !== undefined)
+      problems.push(`${at}${who}的 invalid_from_provider 列了 ${field}，可 ${field} 又写了 ${shown(creator[field])}；`
+        + `取到了有效值就从 invalid_from_provider 里删掉它，没取到就删掉 ${field}；改正这条后再跑`)
+  }
   return problems
 }
 
@@ -201,6 +219,39 @@ export function loadEnrichment(dir: string): EnrichmentState | undefined {
   const p = join(dir, ENRICHMENT)
   if (!existsSync(p)) return undefined
   return JSON.parse(readFileSync(p, 'utf8'))
+}
+
+const ACTIVITY_STATUSES: readonly unknown[] = ['active', 'cooling', 'dormant']
+const RISK_LEVELS: readonly unknown[] = ['low', 'medium', 'high']
+
+/**
+ * D21.v（ADR-227）：没有作品样本的 TikTok 账号，render 直接用文件里存的活跃状态与风险等级（有样本的会重算，
+ * Instagram 没样本的指标整个不用，见 `currentEnrichmentView`）。这两样手改坏了就拒收，不显示成空白、不当成别的等级。
+ * 只查这两样；文件读不读得成、别的字段对不对不在这里。
+ */
+export function enrichmentValueProblems(file: string, state: EnrichmentState | undefined): string[] {
+  if (!state || !isRecord(state.accounts)) return []
+  const problems: string[] = []
+  for (const [key, account] of Object.entries(state.accounts as Record<string, unknown>)) {
+    if (!isRecord(account) || account.platform !== 'tiktok' || account.sample !== undefined || !isRecord(account.metrics)) continue
+    const metrics = account.metrics
+    const at = `${file} 里账号 ${shown(key)}`
+    const activity = metrics.activity_status
+    if (isRecord(activity) && activity.status === 'measured' && !ACTIVITY_STATUSES.includes(activity.value))
+      problems.push(`${at}的 metrics.activity_status 标为已测，值却是 ${shown(activity.value)}，应是 "active"、"cooling"、"dormant" 之一；改正这个账号后再跑`)
+    const risk = metrics.audience_quality_risk
+    if (isRecord(risk) && risk.status === 'measured' && !(isRecord(risk.value) && RISK_LEVELS.includes(risk.value.level)))
+      problems.push(`${at}的 metrics.audience_quality_risk 标为已测，等级却是 ${shown(isRecord(risk.value) ? risk.value.level : risk.value)}，应是 "low"、"medium"、"high" 之一；改正这个账号后再跑`)
+  }
+  return problems
+}
+
+/** render 用：读 enrichment.json 并按 D21.v 查那两样，有问题以 ReviewInputError 拒收（入口以 2 结束） */
+export function loadReviewEnrichment(dir: string): EnrichmentState | undefined {
+  const state = loadEnrichment(dir)
+  const problems = enrichmentValueProblems(join(dir, ENRICHMENT), state)
+  if (problems.length) throw new ReviewInputError(problems)
+  return state
 }
 
 export function saveEnrichment(dir: string, state: EnrichmentState): void {

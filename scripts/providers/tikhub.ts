@@ -32,6 +32,27 @@ export interface PublicPostSample {
 const finiteNumber = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined
 
+/**
+ * 粉丝数、作品数（P1.m，ADR-227）：按先后看每个候选来源，第一个是有限非负整数的就是值；
+ * 一个都不是时，只要有一个给了东西（不是缺席也不是 null）就算「已查询但未取得有效值」，
+ * 不猜它想说多少；全都没给才是未查询。
+ */
+type CountRead = number | 'invalid' | undefined
+const readCount = (...candidates: unknown[]): CountRead => {
+  const given = candidates.filter(v => v !== undefined && v !== null)
+  const valid = given.find(v => typeof v === 'number' && Number.isInteger(v) && v >= 0)
+  return valid !== undefined ? valid as number : given.length ? 'invalid' : undefined
+}
+/** 把两项读数摊成 Creator 上的字段：怪值那一项本身留缺席，名字记进 invalid_from_provider */
+const countFields = (followers: CountRead, post_count: CountRead): Pick<Creator, 'followers' | 'post_count' | 'invalid_from_provider'> => {
+  const invalid = ([['followers', followers], ['post_count', post_count]] as const).filter(([, v]) => v === 'invalid').map(([k]) => k)
+  return {
+    followers: followers === 'invalid' ? undefined : followers,
+    post_count: post_count === 'invalid' ? undefined : post_count,
+    ...(invalid.length ? { invalid_from_provider: invalid } : {}),
+  }
+}
+
 const isoFromUnix = (v: unknown): string | undefined => {
   const n = finiteNumber(v)
   if (n === undefined) return undefined
@@ -221,11 +242,11 @@ export class TikHub {
         platform: 'tiktok',
         handle,
         nickname: a?.nickname ?? '',   // P1 例外：展示用，缺失退化为空名不影响决策
-        followers: a?.follower_count,   // P1: 缺失即 undefined，不记 0
+        // P1: 缺失即 undefined，不记 0；给了怪值记「未取得有效值」（P1.m）。
         // 实测：搜索结果里 aweme_count 对**所有人**都返回 0 —— 那不是真实值，
         // 是 TikTok 在搜索结果里不填这个字段。当成 0 会让内容积累加分全员失效，
         // 且 0 是个「值」，类型系统防不住。只能显式判掉，等 profile 补全。
-        post_count: a?.aweme_count === 0 ? undefined : a?.aweme_count,
+        ...countFields(readCount(a?.follower_count), readCount(a?.aweme_count === 0 ? undefined : a?.aweme_count)),
         bio: a?.signature,            // P1: 搜索结果常无 bio，须与「bio 为空」区分
         bio_links: [],
         verified: Boolean(a?.custom_verify || a?.enterprise_verify_reason),
@@ -257,9 +278,8 @@ export class TikHub {
       // 记成 undefined 有两笔账：这个人每轮续跑再被查一次，email 还会跟着记成「未查询」。
       bio: u?.signature ?? null,   // P1 例外：三态本身，profile 侧的空简介就是 null
       bio_links: link ? [link] : [],
-      followers: stats?.followerCount ?? u?.followerCount ?? undefined,
+      ...countFields(readCount(stats?.followerCount, u?.followerCount), readCount(stats?.videoCount, u?.videoCount)),
       following: stats?.followingCount ?? u?.followingCount ?? undefined,
-      post_count: stats?.videoCount ?? u?.videoCount ?? undefined,
       verified: Boolean(u?.verified),
       avatar: u?.avatarMedium,
     }
@@ -380,10 +400,9 @@ export class TikHub {
       nickname: u?.full_name || undefined,
       bio: u?.biography ?? null,   // P1 例外：同上，profile 查回来了，biography 空就是「查过，没写」
       bio_links: links,
-      followers: u?.follower_count ?? undefined,
-      following: u?.following_count ?? undefined,
       // 实测 media_count 常为 null（IG 不返回）—— null 是「没给」，当 0 会让内容积累加分失效
-      post_count: u?.media_count ?? undefined,
+      ...countFields(readCount(u?.follower_count), readCount(u?.media_count)),
+      following: u?.following_count ?? undefined,
       is_private: Boolean(u?.is_private),
       verified: Boolean(u?.is_verified),
       avatar: u?.profile_pic_url,

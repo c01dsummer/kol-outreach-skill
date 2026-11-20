@@ -552,6 +552,21 @@ export function keywordRows(
  *
  * `creators` 就地改，交回新增数 —— 累加器本来就是跨页跨任务共用的那一份。
  */
+/**
+ * P1.m（ADR-227）：粉丝数、作品数已有值的不动；还没有值的，这一次给了有效值就用它、不再记怪值，
+ * 这一次给的是怪值就记「未取得有效值」。供应商没给（这一次也缺席）时照旧。
+ */
+export function mergeCounts(seen: Creator, p: Partial<Creator>): void {
+  const invalid = new Set(seen.invalid_from_provider ?? [])
+  for (const k of ['followers', 'post_count'] as const) {
+    if (seen[k] !== undefined) continue
+    if (p[k] !== undefined) { seen[k] = p[k]; invalid.delete(k) }
+    else if (p.invalid_from_provider?.includes(k)) invalid.add(k)
+  }
+  if (invalid.size) seen.invalid_from_provider = (['followers', 'post_count'] as const).filter(k => invalid.has(k))
+  else delete seen.invalid_from_provider
+}
+
 export function mergePage(creators: Map<string, Creator>, page: readonly Partial<Creator>[],
   i: number, t: SearchTask): number {
   let added = 0
@@ -567,6 +582,7 @@ export function mergePage(creators: Map<string, Creator>, page: readonly Partial
       // D11 / P1.e：后来取得的作品并入已有证据；同 id 保留先到记录，缺 id 不吞掉。
       seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)
       seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources, p.discovery_sources)
+      mergeCounts(seen, p)
       continue
     }
     creators.set(k, { ...(p as Creator), recent_posts: mergeRecentPosts(undefined, p.recent_posts), source_keyword: t.keyword,
