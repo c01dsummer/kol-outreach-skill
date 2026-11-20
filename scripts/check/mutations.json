@@ -27820,7 +27820,7 @@
     {
       "id": "M-H198-jb",
       "req": "harness",
-      "why": "入口不理 outOfSight 交回的原因：git 看不见的、符号链接的判定文件照判，新字段对不上",
+      "why": "入口不理判定交回的原因：git 看不见的、符号链接的判定文件照判，新字段对不上",
       "file": "scripts/check/field-use.ts",
       "find": "if (why !== undefined) cannot(why)",
       "replace": "if (false) cannot(why)",
