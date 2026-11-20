@@ -208,6 +208,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-missing-values', needs: [] },
   { id: 'p1-profile-state', needs: [] },
   { id: 'p1-plays', needs: [] },
+  { id: 'p1-score-unqueried', needs: [] },
   { id: 'p2-placeholders', needs: [] },
   { id: 'p2-draft-claims', needs: [] },
   { id: 'p2-endorsement-claims', needs: [] },
@@ -237,6 +238,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd17-config', needs: [] },
   { id: 'd19-resume', needs: [] },
   { id: 'd27-p3-entry', needs: ['d19-resume'] },
+  { id: 'd4-p3-budget-memory', needs: [] },
   { id: 'p1-followers-sort', needs: [] },
   { id: 'd5-csv', needs: [] },
   { id: 'd2-d8-actual-paths', needs: [] },
@@ -779,6 +781,253 @@ suite('P1', '没取到的播放数不得被判成爆款')
   eq('没取到的播放数不参与爆款判定', decided, [])
 }
 
+})
+await group('p1-score-unqueried', () => {
+suite('P1', '打分时未查询的项不给那一项的分（P1.j、P1.k、P1.l）')
+{
+// 由没读实现的隔离上下文照准入读物包写成（ADR-226 第四节），原文头注释照搬；搬入时只改了 base 一处与外面这层组。
+/**
+ * 隔离上下文写的测试 · P1.j / P1.k / P1.l
+ *
+ * 只依据：pack-P1/01-需求-P1.md 的判据原文、02-签名（lib/score.d.ts、lib/types.d.ts）、
+ * 03-对外文档/skill/references/semantic-fit.md。没读实现，没跑过。
+ *
+ * 期望值的出处（semantic-fit.md「第一步：硬指标算分（规则）」原句）：
+ *   「粉丝量在目标区间内          +20」
+ *   「发帖数 > 30（内容积累）     +10」
+ *   「最佳内容播放量 > 100k       +5」
+ * 区间出处（同一文件）：「粉丝数 < 5,000 | 排除」「粉丝数 > 5,000,000 | 排除」。
+ *
+ * 假定由宿主提供（本文件不定义）：
+ *   eq(label: string, got: unknown, want: unknown): void
+ *   ok(label: string, cond: boolean): void
+ *   criterion(id: string): void           —— 认领紧挨在前面的那一组断言
+ *   mk(platform, handle, extra): Creator  —— 只填签名里必填的字段，其余字段缺席
+ *
+ * 写法：全部用「同一个人只差一个字段」的差值对照。每一组对照里，另外两项在两侧
+ * 取同一个状态，所以只改坏一项（例如只让「作品数未查询也给分」）时，另外两条判据的
+ * 差值不变、断言不红。每条判据都在两种背景下各做一遍：
+ *   背景甲 —— 另外两项都缺席（未查询）
+ *   背景乙 —— 另外两项都「查到且合格」
+ * 这样「未查询被当成合格」只在别的项也有值时才发作的改坏，也照得到。
+ */
+
+// 文档原句里的三项分值
+const PTS_FOLLOWERS = 20 // 「粉丝量在目标区间内 +20」
+const PTS_POSTS = 10 //     「发帖数 > 30（内容积累） +10」
+const PTS_HOT = 5 //        「最佳内容播放量 > 100k +5」
+
+// 取值都离文档写的边界很远，不测边界本身（边界含不含不是这三条判据的事）
+const FOLLOWERS_OK = 50_000 //        5,000 与 5,000,000 之间
+const FOLLOWERS_TOO_FEW = 100 //      < 5,000
+const FOLLOWERS_TOO_MANY = 9_000_000 // > 5,000,000
+const POSTS_OK = 200 //               > 30
+const POSTS_TOO_FEW = 3 //            不多于 30
+const PLAYS_HOT = 500_000 //          > 100k
+const PLAYS_COLD = 1_000 //           不超过 100k
+
+/** 播放数取到了的一条作品 */
+const post = (plays: number): RecentPost => ({ desc: 'a post', plays })
+/** 播放数没取到的一条作品：plays 键缺席 */
+const postNoPlays = (): RecentPost => ({ desc: 'a post' })
+
+/**
+ * source_dimension 固定写 category：文档的分值表里只有竞品词、场景词来源加分，
+ * 两侧同值，差值里消掉；写死只是为了不依赖 mk 的缺省。
+ */
+const base = (handle: string, extra: Partial<Creator>): Creator => {
+  // 搬入时改：本文件的 mk 给粉丝数、作品数、作品填了缺省值；隔离作者假定它们缺席，所以先删掉这三个键再放 extra
+  const c: Partial<Creator> = mk('tiktok', handle, { source_dimension: 'category' })
+  delete c.followers; delete c.post_count; delete c.recent_posts
+  return { ...c, ...extra } as Creator
+}
+
+const score = (extra: Partial<Creator>): number => scoreCreator(base('p1_score', extra))
+
+// 两种背景。键缺席 = 未查询（types.d.ts：「这些字段可能是 undefined —— 那表示没查到」）
+const BG = {
+  甲: { 粉丝: {}, 作品数: {}, 作品: {} },
+  乙: {
+    粉丝: { followers: FOLLOWERS_OK },
+    作品数: { post_count: POSTS_OK },
+    作品: { recent_posts: [post(PLAYS_HOT)] },
+  },
+} satisfies Record<string, Record<string, Partial<Creator>>>
+
+// 背景甲（搬入时把循环展开：变异的 kills 要在源码里找得到字面的断言名）
+{
+  const bg = BG.甲
+  // ───────────────────────── P1.j 粉丝数未查询 ─────────────────────────
+  {
+    const rest = { ...bg.作品数, ...bg.作品 }
+    const unqueried = score({ ...rest }) //                      followers 键缺席
+    const explicitUndef = score({ ...rest, followers: undefined })
+    const qualified = score({ ...rest, followers: FOLLOWERS_OK })
+    const zero = score({ ...rest, followers: 0 })
+    const tooFew = score({ ...rest, followers: FOLLOWERS_TOO_FEW })
+    const tooMany = score({ ...rest, followers: FOLLOWERS_TOO_MANY })
+
+    // 正：查到且合格 比 未查询 正好多那一项
+    eq(`P1.j[背景甲] 粉丝数「查到且在区间内」比「未查询」正好多 +20`, qualified - unqueried, PTS_FOLLOWERS)
+    // 反：未查询 与 确实不合格 同分（这一项都不得分）
+    eq(`P1.j[背景甲] 粉丝数「未查询」与「确实是 0」同分`, unqueried, zero)
+    eq(`P1.j[背景甲] 粉丝数「未查询」与「确实低于下限」同分`, unqueried, tooFew)
+    eq(`P1.j[背景甲] 粉丝数「未查询」与「确实高于上限」同分`, unqueried, tooMany)
+    // 键缺席与显式 undefined 是同一个「未查询」
+    eq(`P1.j[背景甲] followers 键缺席与显式 undefined 同分`, unqueried, explicitUndef)
+    // 对照本身有效：确实不合格的人同样比合格的人少这一项（否则上面的「同分」可能是三者都给了分）
+    eq(`P1.j[背景甲] 对照有效：粉丝数「在区间内」比「确实是 0」正好多 +20`, qualified - zero, PTS_FOLLOWERS)
+    criterion('P1.j')
+  }
+
+  // ───────────────────────── P1.k 作品数未查询 ─────────────────────────
+  {
+    const rest = { ...bg.粉丝, ...bg.作品 }
+    const unqueried = score({ ...rest }) //                      post_count 键缺席
+    const explicitUndef = score({ ...rest, post_count: undefined })
+    const qualified = score({ ...rest, post_count: POSTS_OK })
+    const zero = score({ ...rest, post_count: 0 })
+    const tooFew = score({ ...rest, post_count: POSTS_TOO_FEW })
+
+    eq(`P1.k[背景甲] 作品数「查到且多于门槛」比「未查询」正好多 +10`, qualified - unqueried, PTS_POSTS)
+    eq(`P1.k[背景甲] 作品数「未查询」与「确实是 0」同分`, unqueried, zero)
+    eq(`P1.k[背景甲] 作品数「未查询」与「确实不多于门槛」同分`, unqueried, tooFew)
+    eq(`P1.k[背景甲] post_count 键缺席与显式 undefined 同分`, unqueried, explicitUndef)
+    eq(`P1.k[背景甲] 对照有效：作品数「多于门槛」比「确实是 0」正好多 +10`, qualified - zero, PTS_POSTS)
+    criterion('P1.k')
+  }
+
+  // ───────────────────────── P1.l 播放数没取到 ─────────────────────────
+  {
+    const rest = { ...bg.粉丝, ...bg.作品数 }
+    // 同一个人、同一条作品，只差这条作品的 plays：没取到 / 取到且超过门槛 / 取到且是 0 / 取到且不到门槛
+    const noPlays = score({ ...rest, recent_posts: [postNoPlays()] })
+    const explicitUndef = score({ ...rest, recent_posts: [{ desc: 'a post', plays: undefined }] })
+    const hot = score({ ...rest, recent_posts: [post(PLAYS_HOT)] })
+    const zero = score({ ...rest, recent_posts: [post(0)] })
+    const cold = score({ ...rest, recent_posts: [post(PLAYS_COLD)] })
+
+    eq(`P1.l[背景甲] 作品播放数「取到且超过门槛」比「没取到」正好多 +5`, hot - noPlays, PTS_HOT)
+    eq(`P1.l[背景甲] 播放数「没取到」与「确实是 0」同分`, noPlays, zero)
+    eq(`P1.l[背景甲] 播放数「没取到」与「确实不到门槛」同分`, noPlays, cold)
+    eq(`P1.l[背景甲] plays 键缺席与显式 undefined 同分`, noPlays, explicitUndef)
+    eq(`P1.l[背景甲] 对照有效：播放数「超过门槛」比「确实是 0」正好多 +5`, hot - zero, PTS_HOT)
+
+    // 几条作品全都没取到播放数：条数再多也不是爆款
+    const manyNoPlays = score({ ...rest, recent_posts: [postNoPlays(), postNoPlays(), postNoPlays()] })
+    eq(`P1.l[背景甲] 三条作品播放数都没取到，与一条没取到同分`, manyNoPlays, noPlays)
+
+    // 没取到的那条夹在取到了的中间：它既不算爆款，也不替别的作品得分或丢分
+    const mixedCold = score({ ...rest, recent_posts: [postNoPlays(), post(PLAYS_COLD), postNoPlays()] })
+    eq(`P1.l[背景甲] 没取到的作品与一条不到门槛的作品并列，仍不得「有爆款」那一项`, mixedCold, cold)
+    const mixedHot = score({ ...rest, recent_posts: [postNoPlays(), post(PLAYS_HOT)] })
+    eq(`P1.l[背景甲] 没取到的作品与一条真爆款并列，得分与只有那条真爆款相同`, mixedHot, hot)
+
+    // 作品整个没问过（recent_posts 缺席）同样没有取到任何播放数
+    const noPosts = score({ ...rest })
+    eq(`P1.l[背景甲] 作品未查询（recent_posts 缺席）与「有作品、播放数没取到」同分`, noPosts, noPlays)
+    criterion('P1.l')
+  }
+}
+// 背景乙（搬入时把循环展开：变异的 kills 要在源码里找得到字面的断言名）
+{
+  const bg = BG.乙
+  // ───────────────────────── P1.j 粉丝数未查询 ─────────────────────────
+  {
+    const rest = { ...bg.作品数, ...bg.作品 }
+    const unqueried = score({ ...rest }) //                      followers 键缺席
+    const explicitUndef = score({ ...rest, followers: undefined })
+    const qualified = score({ ...rest, followers: FOLLOWERS_OK })
+    const zero = score({ ...rest, followers: 0 })
+    const tooFew = score({ ...rest, followers: FOLLOWERS_TOO_FEW })
+    const tooMany = score({ ...rest, followers: FOLLOWERS_TOO_MANY })
+
+    // 正：查到且合格 比 未查询 正好多那一项
+    eq(`P1.j[背景乙] 粉丝数「查到且在区间内」比「未查询」正好多 +20`, qualified - unqueried, PTS_FOLLOWERS)
+    // 反：未查询 与 确实不合格 同分（这一项都不得分）
+    eq(`P1.j[背景乙] 粉丝数「未查询」与「确实是 0」同分`, unqueried, zero)
+    eq(`P1.j[背景乙] 粉丝数「未查询」与「确实低于下限」同分`, unqueried, tooFew)
+    eq(`P1.j[背景乙] 粉丝数「未查询」与「确实高于上限」同分`, unqueried, tooMany)
+    // 键缺席与显式 undefined 是同一个「未查询」
+    eq(`P1.j[背景乙] followers 键缺席与显式 undefined 同分`, unqueried, explicitUndef)
+    // 对照本身有效：确实不合格的人同样比合格的人少这一项（否则上面的「同分」可能是三者都给了分）
+    eq(`P1.j[背景乙] 对照有效：粉丝数「在区间内」比「确实是 0」正好多 +20`, qualified - zero, PTS_FOLLOWERS)
+    criterion('P1.j')
+  }
+
+  // ───────────────────────── P1.k 作品数未查询 ─────────────────────────
+  {
+    const rest = { ...bg.粉丝, ...bg.作品 }
+    const unqueried = score({ ...rest }) //                      post_count 键缺席
+    const explicitUndef = score({ ...rest, post_count: undefined })
+    const qualified = score({ ...rest, post_count: POSTS_OK })
+    const zero = score({ ...rest, post_count: 0 })
+    const tooFew = score({ ...rest, post_count: POSTS_TOO_FEW })
+
+    eq(`P1.k[背景乙] 作品数「查到且多于门槛」比「未查询」正好多 +10`, qualified - unqueried, PTS_POSTS)
+    eq(`P1.k[背景乙] 作品数「未查询」与「确实是 0」同分`, unqueried, zero)
+    eq(`P1.k[背景乙] 作品数「未查询」与「确实不多于门槛」同分`, unqueried, tooFew)
+    eq(`P1.k[背景乙] post_count 键缺席与显式 undefined 同分`, unqueried, explicitUndef)
+    eq(`P1.k[背景乙] 对照有效：作品数「多于门槛」比「确实是 0」正好多 +10`, qualified - zero, PTS_POSTS)
+    criterion('P1.k')
+  }
+
+  // ───────────────────────── P1.l 播放数没取到 ─────────────────────────
+  {
+    const rest = { ...bg.粉丝, ...bg.作品数 }
+    // 同一个人、同一条作品，只差这条作品的 plays：没取到 / 取到且超过门槛 / 取到且是 0 / 取到且不到门槛
+    const noPlays = score({ ...rest, recent_posts: [postNoPlays()] })
+    const explicitUndef = score({ ...rest, recent_posts: [{ desc: 'a post', plays: undefined }] })
+    const hot = score({ ...rest, recent_posts: [post(PLAYS_HOT)] })
+    const zero = score({ ...rest, recent_posts: [post(0)] })
+    const cold = score({ ...rest, recent_posts: [post(PLAYS_COLD)] })
+
+    eq(`P1.l[背景乙] 作品播放数「取到且超过门槛」比「没取到」正好多 +5`, hot - noPlays, PTS_HOT)
+    eq(`P1.l[背景乙] 播放数「没取到」与「确实是 0」同分`, noPlays, zero)
+    eq(`P1.l[背景乙] 播放数「没取到」与「确实不到门槛」同分`, noPlays, cold)
+    eq(`P1.l[背景乙] plays 键缺席与显式 undefined 同分`, noPlays, explicitUndef)
+    eq(`P1.l[背景乙] 对照有效：播放数「超过门槛」比「确实是 0」正好多 +5`, hot - zero, PTS_HOT)
+
+    // 几条作品全都没取到播放数：条数再多也不是爆款
+    const manyNoPlays = score({ ...rest, recent_posts: [postNoPlays(), postNoPlays(), postNoPlays()] })
+    eq(`P1.l[背景乙] 三条作品播放数都没取到，与一条没取到同分`, manyNoPlays, noPlays)
+
+    // 没取到的那条夹在取到了的中间：它既不算爆款，也不替别的作品得分或丢分
+    const mixedCold = score({ ...rest, recent_posts: [postNoPlays(), post(PLAYS_COLD), postNoPlays()] })
+    eq(`P1.l[背景乙] 没取到的作品与一条不到门槛的作品并列，仍不得「有爆款」那一项`, mixedCold, cold)
+    const mixedHot = score({ ...rest, recent_posts: [postNoPlays(), post(PLAYS_HOT)] })
+    eq(`P1.l[背景乙] 没取到的作品与一条真爆款并列，得分与只有那条真爆款相同`, mixedHot, hot)
+
+    // 作品整个没问过（recent_posts 缺席）同样没有取到任何播放数
+    const noPosts = score({ ...rest })
+    eq(`P1.l[背景乙] 作品未查询（recent_posts 缺席）与「有作品、播放数没取到」同分`, noPosts, noPlays)
+    criterion('P1.l')
+  }
+}
+
+// ─────────────── 三项互不串：三个「未查询」叠在一起，一项也不多给 ───────────────
+// 这一组不单独认领判据：任一项被改坏它都会红，只用来照「叠加时才发作」的改坏。
+{
+  const allUnqueried = score({})
+  const allKnownBad = score({ followers: 0, post_count: 0, recent_posts: [post(0)] })
+  const allQualified = score({
+    followers: FOLLOWERS_OK,
+    post_count: POSTS_OK,
+    recent_posts: [post(PLAYS_HOT)],
+  })
+  eq('P1.j+k+l 三项都「未查询」与三项都「确实不合格」同分', allUnqueried, allKnownBad)
+  eq(
+    'P1.j+k+l 三项都「查到且合格」比三项都「未查询」正好多 20+10+5',
+    allQualified - allUnqueried,
+    PTS_FOLLOWERS + PTS_POSTS + PTS_HOT,
+  )
+  ok('P1.j+k+l 打分不改写输入：未查询的字段打完分仍然缺席', (() => {
+    const c = base('p1_untouched', {})
+    scoreCreator(c)
+    return c.followers === undefined && c.post_count === undefined && c.recent_posts === undefined
+  })())
+}
+}
 })
 await group('p2-placeholders', () => {
 suite('P2', '开发信占位符必须原样保留到产出物')
@@ -7786,6 +8035,60 @@ suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改�
       refused.filter(({ status, armed, kept, reserves, attempts }) => !(status === 2 && armed && kept && reserves === 0 && attempts === 0)), [])
   } finally { rmSync(p3Root, { recursive: true, force: true }) }
   tension('D27', 'P3')
+}
+
+})
+await group('d4-p3-budget-memory', () => {
+suite('D4', '钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3（D4 × P3）')
+{
+  // 需求方 2026-11-20 选定（ADR-226 第二节）：两件同时发生时先修记忆文件。断点照样先存好；
+  // stderr 另说钱也不够了、续跑命令带 --budget。阳性对照：同一份目录、记忆完好时以 3 停下，证明夹具真走到了「钱不够」那一路。
+  // 夹具与断言参照隔离上下文写的说明（ADR-226 第四节）；它建议的保存失败注入计数没采用，见那一节。
+  const root = mkdtempSync(join(tmpdir(), 'kol-d4-p3-'))
+  try {
+    const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
+    const person = (handle: string) => ({ platform: 'tiktok', handle, nickname: handle, followers: 10000, post_count: 50, bio: null,
+      bio_links: ['https://example.com'], verified: false, profile_url: '', source_keyword: 'local', source_dimension: 'category', recent_posts: [], fit: '✅' })
+    // 总上限 0、一个关键词还没抓过：第一次请求就付不起，零请求停下
+    const taskText = `{"product":"d4-p3","market":"US","target_count":9999,"budget_usd":0,`
+      + `"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok"}],"done":[],"offsets":{},"pages":{},"answered":{},"found":{},`
+      + `"created_at":"2026-01-01T00:00:00.000Z","updated_at":"2026-01-01T00:00:00.000Z","requests":0,"cost_ledger":${LEDGER('0')}}`
+    const healthy = JSON.stringify({ version: 1, updated_at: '2026-01-01', creators: {} })
+    const broken = '{"version":1,"updated_at":"2026-01-01","creators":{'
+    let made = 0
+    const runCollect = (memory: string) => {
+      const cwd = join(root, `run-${++made}`), taskDir = join(cwd, 'task'), file = join(taskDir, 'task.json'), memFile = join(cwd, 'memory', 'creators.json')
+      mkdirSync(join(cwd, 'memory'), { recursive: true }); mkdirSync(taskDir)
+      writeFileSync(file, taskText); writeFileSync(memFile, memory)
+      const people = [person('d4p3_a'), person('d4p3_b')]
+      for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(taskDir, name), JSON.stringify(people))
+      const ledger = join(cwd, 'attempts.tsv')
+      const argv = [join(process.cwd(), 'scripts', 'collect.ts'), '--resume', taskDir]
+      const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d4-p3', FAKE_FETCH_LEDGER: ledger,
+        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+      kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)}`
+      const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
+      const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
+      let task: any
+      try { task = JSON.parse(rf(file, 'utf8')) } catch { task = undefined }
+      return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', attempts: lines(ledger), task,
+        memoryKept: rf(memFile, 'utf8') === memory }
+    }
+    const control = runCollect(healthy)
+    eq('钱不够又读不出记忆夹具有效：同一份目录记忆完好时 collect 零请求、以 3 停下',
+      [control.status, control.attempts], [3, 0])
+    const both = runCollect(broken)
+    eq('钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，零请求，stdout 不出汇总',
+      [both.status, both.attempts, both.stdout.trim()], [7, 0, ''])
+    ok('钱不够又读不出记忆：stderr 写明剩下的钱也不够付下一次请求了，修复命令带 --budget <新总上限>',
+      /剩下的钱也不够付下一次请求/.test(both.stderr) && /修好它再跑:.*--budget <新总上限>/.test(both.stderr))
+    // 零请求的夹具里盘上的账与进度本来就不该变；「这一跑真的存过一次」看 updated_at：每次保存任务文件都会改写它
+    ok('钱不够又读不出记忆：断点照样保存（任务文件这一跑重新写过、读得回来，费用账与请求数不变），记忆文件一字未动',
+      both.task !== undefined && both.task.updated_at !== '2026-01-01T00:00:00.000Z'
+        && both.task.requests === 0 && both.task.cost_ledger?.limit_micro_usd === 0 && both.memoryKept)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+  tension('D4', 'P3')
 }
 
 })
@@ -19005,6 +19308,18 @@ await group('u9-review-output', () => {
   eq('U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列', bounded(sorted.flatMap((c, i) => c.handle === matrixExpected[i] ? [] : [`${i}:${c.handle}/${matrixExpected[i]}`])), noFaults)
   ok('U9.b 排序返回独立名单', sorted !== matrix)
   ok('U9.b 排序保留输入每个字段及其缺席状态', isDeepStrictEqual(matrix, beforeMatrix))
+  // U9.l：同一有效建议、同一层里，没算过分的排在这一组最后（在 0 分之后），但不越过下一层、也不越过下一档建议。
+  // 期望是照判据手写的，不取上面那个 order：它与实现同一种写法，两边一起写反时这条要能独立地红（ADR-226）。
+  const lastInTier = api.sortForReviewOutput([
+    mk('tiktok', 'next-priority', { effective_priority: '备选', tier: 'A', score: 90 }),
+    mk('tiktok', 'next-tier', { effective_priority: '优先联系', tier: 'B', score: 90 }),
+    mk('tiktok', 'none', { effective_priority: '优先联系', tier: 'A' }),
+    mk('tiktok', 'zero', { effective_priority: '优先联系', tier: 'A', score: 0 }),
+    mk('tiktok', 'ten', { effective_priority: '优先联系', tier: 'A', score: 10 }),
+  ]).map(c => c.handle)
+  eq('U9.l 同一有效建议同一层里没算过分的排最后，在 0 分之后、下一层与下一档建议之前',
+    lastInTier, ['ten', 'zero', 'none', 'next-tier', 'next-priority'])
+  criterion('U9.l')
   const matrixSheets = api.buildSheets(matrix, { mode: 'review' })
   eq('U9.c 三层表内独立排序且不跨层移动', bounded(['A', 'B', 'C'].flatMap((tier, i) => {
     const got = matrixSheets[i].rows.map(r => String(r[headers.indexOf('handle')]))

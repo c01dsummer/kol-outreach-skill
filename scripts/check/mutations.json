@@ -126,11 +126,12 @@
     },
     {
       "id": "M-P1-b",
-      "req": "P1",
+      "req": "P1.j",
       "why": "把未知粉丝数当作「符合区间」给分 —— 不知道却声称合格",
       "by": "test",
       "kills": [
-        "未知粉丝不得分"
+        "未知粉丝不得分",
+        "P1.j[背景甲] 粉丝数「查到且在区间内」比「未查询」正好多 +20"
       ],
       "file": "scripts/lib/score.ts",
       "find": "if (c.followers !== undefined && c.followers >= FOLLOWER_MIN && c.followers <= FOLLOWER_MAX) s += 20",
@@ -1806,11 +1807,12 @@
     },
     {
       "id": "M-P1-h",
-      "req": "P1",
+      "req": "P1.l",
       "why": "把未知播放数当成 20 万 —— 「没取到播放数」被伪装成「这条是爆款」，凭空多给 5 分。P1 禁止的是「未知被当成一个具体值」，不论那个值落在阈值哪一侧",
       "by": "test",
       "kills": [
-        "没取到的播放数不参与爆款判定"
+        "没取到的播放数不参与爆款判定",
+        "P1.l[背景乙] 播放数「没取到」与「确实是 0」同分"
       ],
       "file": "scripts/lib/score.ts",
       "find": "if (c.recent_posts?.some(p => p.plays !== undefined && p.plays > 100_000)) s += 5",
@@ -31384,6 +31386,43 @@
       "by": "test",
       "kills": [
         "同一处：成员的行尾注释延到右花括号那一行，那一行仍算类名；成员自己写在那一行上的仍算成员"
+      ]
+    },
+    {
+      "id": "M-P1-al",
+      "req": "P1.k",
+      "why": "作品数没查过的人照样拿到「作品数多于门槛」那一项的分 —— 不知道他发过多少作品，却当成发得够多，凭空多给 10 分",
+      "file": "scripts/lib/score.ts",
+      "find": "if (c.post_count !== undefined && c.post_count > 30) s += 10",
+      "replace": "if (c.post_count === undefined || c.post_count > 30) s += 10",
+      "by": "test",
+      "kills": [
+        "P1.k[背景甲] 作品数「查到且多于门槛」比「未查询」正好多 +10",
+        "P1.k[背景乙] 作品数「未查询」与「确实是 0」同分"
+      ]
+    },
+    {
+      "id": "M-U9-ab",
+      "req": "U9.l",
+      "why": "同一有效建议、同一层里，还没算过分的人排到了算出分的人前面 —— 没有依据的人顶在最前，运营先看到的是最没底的那几个",
+      "file": "scripts/lib/rows.ts",
+      "find": "    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1\n",
+      "replace": "    if (a.score === undefined) return -1\n    if (b.score === undefined) return 1\n",
+      "by": "test",
+      "kills": [
+        "U9.l 同一有效建议同一层里没算过分的排最后，在 0 分之后、下一层与下一档建议之前"
+      ]
+    },
+    {
+      "id": "M-D4-bd",
+      "req": "D4",
+      "why": "collect 剩下的钱不够付下一次请求、同时读不出记忆文件时退 3 而不是 7：调用方会先让用户加预算，续跑后照样因为记忆读不出来出不了名单，白多一个来回",
+      "file": "scripts/collect.ts",
+      "find": "    process.exit(EXIT.memory)\n",
+      "replace": "    process.exit(stopped === 'budget' ? EXIT.budget : EXIT.memory)\n",
+      "by": "test",
+      "kills": [
+        "钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，零请求，stdout 不出汇总"
       ]
     }
   ],

@@ -179,7 +179,7 @@ round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manua
 
 公共格式默认模式（U9.a）保留原排序：先按 `tier`（A→B→C），同层按 `score` 降序；生产 render 按下文 U9 先排有效建议，再使用原排序及同分规则。**同层同分时按粉丝数分三档 ——
 「已查到且不是 0」→「未查询」→「确实是 0」**（P1.h）。「不知道」压得过确认为 0 的人，
-压不过任何真查到了数的人。
+压不过任何真查到了数的人。同一有效建议、同一层里还没算过分的人（`score` 显示「未查询」）排在这一组最后，在 0 分的人之后（U9.l）。
 
 ## XLSX（U5）
 
