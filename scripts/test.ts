@@ -7958,9 +7958,12 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
   }
   let ledgerDeep: unknown, ledgerThrew = ''
   try { ledgerDeep = ledgerOf(DEPTH) } catch (error) { ledgerThrew = error instanceof Error ? error.message : String(error) }
+  // 浅处读出的先得真是占位（冻住的对象），两边都丢了最里层（undefined）时不能算相同
+  const ledgerShallow = ledgerOf(1)
+  const isPlaceholder = (value: unknown): boolean => value !== null && typeof value === 'object' && Object.isFrozen(value)
   eq('读得进来的深层嵌套：最里层的数字原文记得下来，费用子树最里层读不出精确值的数字照样换成「读不出」的占位、与浅处读出的相同，不抛异常',
     [deepThrew, innermost !== null && typeof innermost === 'object' ? sourceNumberToken(deepRead!, innermost, 'a') : 'innermost-missing',
-      ledgerThrew, isDeepStrictEqual(ledgerDeep, ledgerOf(1)) && typeof ledgerOf(1) !== 'number'],
+      ledgerThrew, isPlaceholder(ledgerShallow) && isPlaceholder(ledgerDeep) && isDeepStrictEqual(ledgerDeep, ledgerShallow)],
     ['', '1', '', true])
   // 新读法与新写法和内置的等价（ADR-228），在仓库里各留一条能被变异抓住的对照（完整的随机比对不进仓库，结果记在 ADR-228）：
   // 读：同一个键写两次时原文取最后一处，转义写法的键按解码后的名字记，前一处是容器、后一处是数字时也只记数字。
