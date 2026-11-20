@@ -8061,8 +8061,8 @@
       "req": "P1",
       "why": "搜索结果里缺失的粉丝数被记成 0。这一层是三态第一次成形的地方，记成 0 之后下游再也分不出「没查过」和「真的没有粉丝」，入池判定会把一批还没查过的人当成粉丝数不达标挡掉",
       "file": "scripts/providers/tikhub.ts",
-      "find": "...countFields(readCount(a?.follower_count), ",
-      "replace": "...countFields(readCount(a?.follower_count ?? 0), ",
+      "find": "const counts = countFields(readCount(a?.follower_count), ",
+      "replace": "const counts = countFields(readCount(a?.follower_count ?? 0), ",
       "by": "test",
       "kills": [
         "搜索未返回粉丝数时仍是未查询"
@@ -31462,7 +31462,7 @@
       "id": "M-P1-aq",
       "req": "P1.m",
       "why": "同一人后来的查询给了有效的粉丝数之后，仍留着「未取得有效值」的标记：交付物照旧写「未知」，有效值被盖住",
-      "file": "scripts/lib/pipeline.ts",
+      "file": "scripts/lib/counts.ts",
       "find": "if (p[k] !== undefined) { seen[k] = p[k]; invalid.delete(k) }",
       "replace": "if (p[k] !== undefined) { seen[k] = p[k] }",
       "by": "test",
@@ -31549,6 +31549,19 @@
       ]
     },
     {
+      "id": "M-P1-az",
+      "req": "P1.m",
+      "why": "视频搜索同一页里同一个作者出现两次时，后一条给的粉丝数、作品数被丢掉：先缺后给怪值的显示成未查询，先缺后给有效值的仍没有粉丝数",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "if (seen) { mergeCounts(seen, counts); seen.recent_posts!.push(post); continue }",
+      "replace": "if (seen) { seen.recent_posts!.push(post); continue }",
+      "by": "test",
+      "kills": [
+        "P1.m 视频搜索同一作者先缺粉丝数后给怪值时记成未取得有效值",
+        "P1.m 视频搜索同一作者先缺粉丝数后给有效值时用有效值且不记怪值"
+      ]
+    },
+    {
       "id": "M-D21-bm",
       "req": "D21.v",
       "why": "读入检查只查平台恰好写成 tiktok、又完全没有 sample 键的账号，可报告还会原样用 sample 是 null、缺平台或平台大小写不对的账号存着的指标，这些账号里手改坏的值又能漏过去显示成空白",
@@ -31572,6 +31585,18 @@
       "by": "test",
       "kills": [
         "D21.v 名单与增强结果同时有不合法值时两个文件的问题在同一次报出来"
+      ]
+    },
+    {
+      "id": "M-D21-bo",
+      "req": "D21.v",
+      "why": "增强结果里标为已测却缺了值时，拒收的报错在印读到的值那一步崩掉，指不出文件、账号与字段",
+      "file": "scripts/lib/task.ts",
+      "find": "  if (text === undefined) return value === undefined ? '缺席' : `一个 JSON 写不出的值（${typeof value}）`\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D21.v 已测活跃状态缺了值时报一条且指出文件账号与字段"
       ]
     },
     {

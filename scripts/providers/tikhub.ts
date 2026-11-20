@@ -7,6 +7,7 @@ import { CostError } from '../lib/cost-ledger.js'
 import { extractEmail } from '../lib/email.js'
 import { searchPostId } from '../lib/posts.js'
 import { hashtagKeyword } from '../lib/ig-route.js'
+import { mergeCounts } from '../lib/counts.js'
 
 const BASE = 'https://api.tikhub.io'
 const TIKTOK_SEARCH_ENDPOINT = '/api/v1/tiktok/app/v3/fetch_video_search_result'
@@ -240,8 +241,10 @@ export class TikHub {
         likes: aw?.statistics?.digg_count,
       }
 
+      // 同一页里同一个账号又出现一次：作品照收，两项读数按 P1.m 合（已有值不动，没值的用这次的有效值，这次给怪值才记怪值）
+      const counts = countFields(readCount(a?.follower_count), readCount(a?.aweme_count === 0 ? undefined : a?.aweme_count))
       const seen = byHandle.get(handle)
-      if (seen) { seen.recent_posts!.push(post); continue }
+      if (seen) { mergeCounts(seen, counts); seen.recent_posts!.push(post); continue }
 
       byHandle.set(handle, {
         platform: 'tiktok',
@@ -251,7 +254,7 @@ export class TikHub {
         // 实测：搜索结果里 aweme_count 对**所有人**都返回 0 —— 那不是真实值，
         // 是 TikTok 在搜索结果里不填这个字段。当成 0 会让内容积累加分全员失效，
         // 且 0 是个「值」，类型系统防不住。只能显式判掉，等 profile 补全。
-        ...countFields(readCount(a?.follower_count), readCount(a?.aweme_count === 0 ? undefined : a?.aweme_count)),
+        ...counts,
         bio: a?.signature,            // P1: 搜索结果常无 bio，须与「bio 为空」区分
         bio_links: [],
         verified: Boolean(a?.custom_verify || a?.enterprise_verify_reason),

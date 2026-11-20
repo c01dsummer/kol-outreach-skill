@@ -82,6 +82,8 @@ function readOptionalReviewCreators(file: string): Creator[] | undefined {
 const shown = (value: unknown): string => {
   let text: string
   try { text = JSON.stringify(value) } catch { return '一个嵌套太深、印不出来的值' }
+  // JSON 写不出的（缺席的 undefined、函数）JSON.stringify 交回 undefined，照直说，不在下面取 length 时崩掉
+  if (text === undefined) return value === undefined ? '缺席' : `一个 JSON 写不出的值（${typeof value}）`
   return text.length > 80 ? `${text.slice(0, 77)}…` : text
 }
 const isRecord = (value: unknown): value is Record<string, unknown> =>

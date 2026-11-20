@@ -194,7 +194,7 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
+import { enrichmentValueProblems, loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -8125,6 +8125,8 @@ function parseCsv(text: string): string[][] {
 await group('invalid-values-by-source', async () => {
 suite('P1', '供应商给的怪粉丝数、作品数显示未知；手改坏的名单与增强结果读入时拒收（P1.m、D21.u、D21.v）')
 {
+// 这一组建的临时目录都放在这一个根下，组末一起删（CodeRabbit 第一轮，作者改）
+const kol80Root = mkdtempSync(join(tmpdir(), 'kol80-'))
 // 下面整段出自只读准入读物包的隔离会话（ADR-227 第四节）。搬入时只改了两处：
 // 一、起 render 的方式（见入口级那一段开头）；二、读文件的函数名换成本文件的 rf。断言与期望一字未改。
 
@@ -8151,7 +8153,7 @@ const flagged = (c: Partial<Creator>, item: 'followers' | 'post_count'): boolean
 
 /** 真写一份 CSV 再读回来，取这个人某一列的那一格 —— 看的是落到文件里的字。 */
 function csvCell(c: Creator, column: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'kol80-csv-'))
+  const dir = mkdtempSync(join(kol80Root, 'csv-'))
   const file = join(dir, 'kol.csv')
   writeCsv(file, [...HEADERS], [toRow(c)])
   const rows = parseCsv(rf(file, 'utf8'))
@@ -8267,7 +8269,7 @@ const record = (handle: string, extra: Record<string, unknown> = {}): Record<str
 })
 
 function dirWith(creators: unknown, raw?: unknown): string {
-  const dir = mkdtempSync(join(tmpdir(), 'kol80-load-'))
+  const dir = mkdtempSync(join(kol80Root, 'load-'))
   writeFileSync(join(dir, 'creators.json'), JSON.stringify(creators, null, 2))
   if (raw !== undefined) writeFileSync(join(dir, 'creators.raw.json'), JSON.stringify(raw, null, 2))
   return dir
@@ -8276,7 +8278,8 @@ function dirWith(creators: unknown, raw?: unknown): string {
 /** 【猜】读入函数拒绝＝抛错，问题清单在 message 里。交回 message；没拒绝交回 undefined。 */
 function refusal(dir: string): string | undefined {
   try { loadReviewCreatorInputs(dir); return undefined }
-  catch (e) { return e instanceof Error ? e.message : String(e) }
+  // 只认读入拒收（ReviewInputError）；别的异常是读入函数自己崩了，不算拒收，照抛让这一组红（CodeRabbit 第一轮，作者改）
+  catch (e) { if (e instanceof ReviewInputError) return e.message; throw e }
 }
 const refused = (rec: Record<string, unknown>): boolean => refusal(dirWith([rec])) !== undefined
 
@@ -8399,6 +8402,30 @@ async function main(): Promise<void> {
   eq('P1.m 视频搜索里粉丝数合法的作者照常取到粉丝数且不记成未取得有效值', sOk && [sOk.followers, flagged(sOk, 'followers')], [80000, false])
   // 【猜】搜索结果里恒为 0 的作品数是「这里不填」（tikhub.md、M-P1-k），所以仍算未查询而不是未知
   eq('P1.m 视频搜索里恒为 0 的作品数仍算未查询不记成未取得有效值', sOk && [sOk.post_count, flagged(sOk, 'post_count')], [undefined, false])
+
+  // 作者补（ADR-227 第五节，CodeRabbit 第一轮）：同一页里同一个作者出现两次时，后一条的读数按 P1.m 合进前一条
+  const dupPage = await withFakeFetch(
+    `{"code":200,"data":{"aweme_list":[],"has_more":0,"cursor":2,"search_item_list":[` +
+    `${searchItem('d_bad', '7300000000000000011', 'null')},${searchItem('d_bad', '7300000000000000012', '"12k"')},` +
+    `${searchItem('d_ok', '7300000000000000013', 'null')},${searchItem('d_ok', '7300000000000000014', '80000')},` +
+    `${searchItem('d_zero', '7300000000000000015', '0')},${searchItem('d_zero', '7300000000000000016', '90000')}]}}`,
+    () => hub().search(searchTask, 'US', 0),
+  )
+  const dup = (h: string) => dupPage.creators.find(c => c.handle === h)
+  eq('P1.m 视频搜索同一作者先缺粉丝数后给怪值时记成未取得有效值', [dup('d_bad')?.followers, dup('d_bad') && flagged(dup('d_bad')!, 'followers'), dup('d_bad')?.recent_posts?.length], [undefined, true, 2])
+  eq('P1.m 视频搜索同一作者先缺粉丝数后给有效值时用有效值且不记怪值', [dup('d_ok')?.followers, dup('d_ok') && flagged(dup('d_ok')!, 'followers')], [80000, false])
+  eq('P1.m 视频搜索同一作者先给了 0 后给别的值时保留先到的 0', dup('d_zero')?.followers, 0)
+
+  // 作者补（CodeRabbit 第一轮）：标为已测却缺了值时，D21.v 的报错照样指出文件、账号、字段，不因印不出 undefined 而崩
+  const noValue = ((): string[] => {
+    try {
+      return enrichmentValueProblems('E.json', { accounts: {
+        'tiktok:nv': { platform: 'tiktok', metrics: { activity_status: { status: 'measured' }, audience_quality_risk: { status: 'measured', value: {} } } },
+      } } as never)
+    } catch (e) { return [`查的时候崩了：${String(e)}`] }
+  })()
+  eq('D21.v 已测活跃状态缺了值时报一条且指出文件账号与字段', noValue.filter(s => s.includes('E.json') && s.includes('tiktok:nv') && s.includes('activity_status') && s.includes('缺席')).length, 1)
+  eq('D21.v 已测风险等级缺了等级时报一条且指出文件账号与字段', noValue.filter(s => s.includes('E.json') && s.includes('tiktok:nv') && s.includes('audience_quality_risk') && s.includes('缺席')).length, 1)
 
   // —— 四、打分 ——
   const sUnq = scoreCreator(person('score_unq'))
@@ -8611,6 +8638,7 @@ await main()
   eq('P1.l 盘上播放数写成 null 的作品打分时不算爆款，与没有作品同分',
     scoreCreator({ ...base, recent_posts: [{ desc: '', plays: null as unknown as number }] }) - scoreCreator({ ...base, recent_posts: [] }), 0)
 }
+rmSync(kol80Root, { recursive: true, force: true })
 }
 })
 await group('invalid-values-entry', () => {

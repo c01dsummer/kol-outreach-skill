@@ -3,6 +3,7 @@ import { linkCrossPlatform, mergeCrossPlatform } from './identity.js'
 import { mergeRecentPosts } from './posts.js'
 import { mergeDiscoverySources } from './discovery.js'
 import { taskLabel } from './task-label.js'
+import { mergeCounts } from './counts.js'
 import {
   passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty, applyAudienceRiskPenalty,
 } from './score.js'
@@ -537,21 +538,6 @@ export function keywordRows(
       }),
     }
   })
-}
-
-/**
- * P1.m（ADR-227）：粉丝数、作品数已有值的不动；还没有值的，这一次给了有效值就用它、不再记怪值，
- * 这一次给的是怪值就记「未取得有效值」。供应商没给（这一次也缺席）时照旧。
- */
-export function mergeCounts(seen: Creator, p: Partial<Creator>): void {
-  const invalid = new Set(seen.invalid_from_provider ?? [])
-  for (const k of ['followers', 'post_count'] as const) {
-    if (seen[k] !== undefined) continue
-    if (p[k] !== undefined) { seen[k] = p[k]; invalid.delete(k) }
-    else if (p.invalid_from_provider?.includes(k)) invalid.add(k)
-  }
-  if (invalid.size) seen.invalid_from_provider = (['followers', 'post_count'] as const).filter(k => invalid.has(k))
-  else delete seen.invalid_from_provider
 }
 
 /**
