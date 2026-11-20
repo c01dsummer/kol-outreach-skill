@@ -8069,21 +8069,22 @@ suite('D4', '钱不够付下一次请求、同时读不出记忆文件：collect
       kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)}`
       const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
       const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
-      const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
       let task: any
       try { task = JSON.parse(rf(file, 'utf8')) } catch { task = undefined }
-      return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', attempts: lines(ledger), task,
+      return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', task,
         memoryKept: rf(memFile, 'utf8') === memory }
     }
     const control = runCollect(healthy)
-    eq('钱不够又读不出记忆夹具有效：同一份目录记忆完好时 collect 零请求、以 3 停下',
-      [control.status, control.attempts], [3, 0])
+    // 对照那一跑的 stdout 必须真有一份汇总、写着因钱不够停下：下面「stdout 不出汇总」才不是因为这套夹具本来就打不出汇总
+    const stoppedBy = (stdout: string): unknown => { try { return JSON.parse(stdout).stopped } catch { return `读不成：${stdout.slice(0, 120)}` } }
+    eq('钱不够又读不出记忆夹具有效：同一份目录记忆完好时 collect 以 3 停下，stdout 汇总写着因钱不够停下',
+      [control.status, stoppedBy(control.stdout)], [3, 'budget'])
     const both = runCollect(broken)
-    eq('钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，零请求，stdout 不出汇总',
-      [both.status, both.attempts, both.stdout.trim()], [7, 0, ''])
+    eq('钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，stdout 不出汇总',
+      [both.status, both.stdout.trim()], [7, ''])
     ok('钱不够又读不出记忆：stderr 写明剩下的钱也不够付下一次请求了，修复命令带 --budget <新总上限>',
       /剩下的钱也不够付下一次请求/.test(both.stderr) && /修好它再跑:.*--budget <新总上限>/.test(both.stderr))
-    // 零请求的夹具里盘上的账与进度本来就不该变；「这一跑真的存过一次」看 updated_at：每次保存任务文件都会改写它
+    // 总上限 0 的夹具里盘上的账与进度本来就不该变；「这一跑真的存过一次」看 updated_at：每次保存任务文件都会改写它
     ok('钱不够又读不出记忆：断点照样保存（任务文件这一跑重新写过、读得回来，费用账与请求数不变），记忆文件一字未动',
       both.task !== undefined && both.task.updated_at !== '2026-01-01T00:00:00.000Z'
         && both.task.requests === 0 && both.task.cost_ledger?.limit_micro_usd === 0 && both.memoryKept)

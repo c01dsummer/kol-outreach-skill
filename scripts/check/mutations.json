@@ -5137,7 +5137,8 @@
       "replace": "    if (a.score === undefined) return -1\n    if (b.score === undefined) return 1",
       "by": "test",
       "kills": [
-        "排序：没算过分的排在 0 分之后，不与它混同"
+        "排序：没算过分的排在 0 分之后，不与它混同",
+        "U9.l 同一有效建议同一层里没算过分的排最后，在 0 分之后、下一层与下一档建议之前"
       ]
     },
     {
@@ -31402,18 +31403,6 @@
       ]
     },
     {
-      "id": "M-U9-ab",
-      "req": "U9.l",
-      "why": "同一有效建议、同一层里，还没算过分的人排到了算出分的人前面 —— 没有依据的人顶在最前，运营先看到的是最没底的那几个",
-      "file": "scripts/lib/rows.ts",
-      "find": "    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1\n",
-      "replace": "    if (a.score === undefined) return -1\n    if (b.score === undefined) return 1\n",
-      "by": "test",
-      "kills": [
-        "U9.l 同一有效建议同一层里没算过分的排最后，在 0 分之后、下一层与下一档建议之前"
-      ]
-    },
-    {
       "id": "M-D4-bd",
       "req": "D4",
       "why": "collect 剩下的钱不够付下一次请求、同时读不出记忆文件时退 3 而不是 7：调用方会先让用户加预算，续跑后照样因为记忆读不出来出不了名单，白多一个来回",
@@ -31422,7 +31411,7 @@
       "replace": "    process.exit(stopped === 'budget' ? EXIT.budget : EXIT.memory)\n",
       "by": "test",
       "kills": [
-        "钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，零请求，stdout 不出汇总"
+        "钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，stdout 不出汇总"
       ]
     }
   ],
