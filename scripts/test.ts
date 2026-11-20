@@ -7958,10 +7958,29 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
   }
   let ledgerDeep: unknown, ledgerThrew = ''
   try { ledgerDeep = ledgerOf(DEPTH) } catch (error) { ledgerThrew = error instanceof Error ? error.message : String(error) }
-  eq('读得进来的深层嵌套：最里层的数字原文记得下来，费用子树最里层的数字照样换成精确金额，与浅处读出的相同，不抛异常',
+  eq('读得进来的深层嵌套：最里层的数字原文记得下来，费用子树最里层读不出精确值的数字照样换成「读不出」的占位、与浅处读出的相同，不抛异常',
     [deepThrew, innermost !== null && typeof innermost === 'object' ? sourceNumberToken(deepRead!, innermost, 'a') : 'innermost-missing',
       ledgerThrew, isDeepStrictEqual(ledgerDeep, ledgerOf(1)) && typeof ledgerOf(1) !== 'number'],
     ['', '1', '', true])
+  // 新读法与新写法和内置的等价（ADR-228），在仓库里各留一条能被变异抓住的对照（完整的随机比对不进仓库，结果记在 ADR-228）：
+  // 读：同一个键写两次时原文取最后一处，转义写法的键按解码后的名字记，前一处是容器、后一处是数字时也只记数字。
+  // 写：不是 readCostDocument 读入的对象没有原文可查，写出回调对非费用值原样放行，于是应与内置 JSON.stringify(值, null, 2) 逐字节相同 ——
+  // 夹具挑的是内置写法里各条岔路：toJSON、包装对象、数组里写不出的值写 null、对象里写不出的跳过、不可枚举的属性、-0 与 NaN、空容器、成环
+  let twiceTokens: unknown[] = []
+  try {
+    const twice = readCostDocument<Record<string, unknown>>('{"n":1.0,"n":2.50,"\\u006d":3.0,"c":{"x":1},"c":4.0}')
+    twiceTokens = ['n', 'm', 'c'].map(key => sourceNumberToken(twice, twice, key))
+  } catch (error) { twiceTokens = [error instanceof Error ? error.message : String(error)] }
+  const plainValue: Record<string, unknown> = { date: new Date(0), boxed: [new Number(3), new String('s'), new Boolean(false)],
+    holes: [undefined, () => 1, Symbol('s'), 1], skipped: { u: undefined, f: () => 1, kept: -0 }, odd: [NaN, Infinity, -0],
+    empty: [{}, []], nested: { toJSON: (key: string) => ({ key, list: [1, { a: '"q"' }] }) } }
+  Object.defineProperty(plainValue, 'hidden', { value: 1, enumerable: false })
+  const ring: Record<string, unknown> = {}; ring.self = ring
+  let ringThrew = ''
+  try { stringifyCostJson(ring) } catch (error) { ringThrew = error instanceof Error ? error.name : String(error) }
+  eq('新读法记下的原文与新写法写出的文本都与内置的一致：重复的键取最后一处、转义的键按解码后的名字记；写出与内置 JSON.stringify 逐字节相同，成环同样抛 TypeError',
+    [twiceTokens, stringifyCostJson(plainValue) === JSON.stringify(plainValue, null, 2) ? true : stringifyCostJson(plainValue), ringThrew],
+    [['2.50', '3.0', '4.0'], true, 'TypeError'])
   // 整份写回也不递归（ADR-228）：一万层 —— 内置 JSON.stringify 带写出回调时默认栈一两千层就溢出，这个深度在哪台机器上都量得出；
   // 再深则缩进的总长超过字符串上限（两万层约八亿字），与栈无关，见 ADR-228 的欠条。写出的文本再读回来，层数与最里层的原文不变；
   // 最里层的缩进是根下一层的 2 格加上每层数组 2 格

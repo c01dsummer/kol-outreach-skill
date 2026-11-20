@@ -12440,6 +12440,66 @@
       ]
     },
     {
+      "id": "M-D19-be",
+      "req": "D19.g",
+      "why": "同一个键在文件里写了两次时，记下的数字原文取了前一处，而读出的值是后一处：整份写回时把被丢掉的那一处原文写回盘上",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "    if (top) top.level.set(top.index === undefined ? top.key! : String(top.index++), value)",
+      "replace": "    if (top) { const at = top.index === undefined ? top.key! : String(top.index++); if (!top.level.has(at)) top.level.set(at, value) }",
+      "by": "test",
+      "kills": [
+        "新读法记下的原文与新写法写出的文本都与内置的一致：重复的键取最后一处、转义的键按解码后的名字记；写出与内置 JSON.stringify 逐字节相同，成环同样抛 TypeError"
+      ]
+    },
+    {
+      "id": "M-D19-bf",
+      "req": "D19.g",
+      "why": "整份写回时不再按值自带的转换写法写出（如日期），写出的文本与原先的写法不同",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "      if (typeof toJSON === 'function') item = toJSON.call(item, key)",
+      "replace": "      void toJSON",
+      "by": "test",
+      "kills": [
+        "新读法记下的原文与新写法写出的文本都与内置的一致：重复的键取最后一处、转义的键按解码后的名字记；写出与内置 JSON.stringify 逐字节相同，成环同样抛 TypeError"
+      ]
+    },
+    {
+      "id": "M-D19-bg",
+      "req": "D19.g",
+      "why": "整份写回时数组里写不出的值不再写成 null 而是直接丢掉，数组变短、后面的元素挪了位置",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "    if (got === undefined) { if (level.array) level.parts.push('null') }",
+      "replace": "    if (got === undefined) { }",
+      "by": "test",
+      "kills": [
+        "新读法记下的原文与新写法写出的文本都与内置的一致：重复的键取最后一处、转义的键按解码后的名字记；写出与内置 JSON.stringify 逐字节相同，成环同样抛 TypeError"
+      ]
+    },
+    {
+      "id": "M-D19-bh",
+      "req": "D19.g",
+      "why": "整份写回时包装成对象的数字、字符串与真假值被写成空对象，不再写出里面的值",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "      || item instanceof Number || item instanceof String || item instanceof Boolean || item instanceof BigInt)",
+      "replace": ")",
+      "by": "test",
+      "kills": [
+        "新读法记下的原文与新写法写出的文本都与内置的一致：重复的键取最后一处、转义的键按解码后的名字记；写出与内置 JSON.stringify 逐字节相同，成环同样抛 TypeError"
+      ]
+    },
+    {
+      "id": "M-D19-bi",
+      "req": "D19.g",
+      "why": "整份写回时按原文写出的数字不再照原文写，而是写成一个装着原文的对象，盘上的数字变了样",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "    if (item === null || typeof item !== 'object' || exactJSON.isRawJSON?.(item)",
+      "replace": "    if (item === null || typeof item !== 'object'",
+      "by": "test",
+      "kills": [
+        "读得进来的深层嵌套整份写回不抛异常：写出的文本再读回来层数不变，最里层与根预算的数字照原文写回"
+      ]
+    },
+    {
       "id": "M-D27-a",
       "req": "D27.a",
       "why": "只认根与根下一层对象里的键，任务条目、费用账条目与更深处写重复的键认不出来，读入只留最后一处照样放行",
@@ -12793,7 +12853,7 @@
       "by": "test",
       "kills": [
         "任一层写重复的键：读得进来的深层嵌套与超长字符串照常判，不抛异常，写在里面或后面的重复照样认出并列出原文",
-        "读得进来的深层嵌套：最里层的数字原文记得下来，费用子树最里层的数字照样换成精确金额，与浅处读出的相同，不抛异常"
+        "读得进来的深层嵌套：最里层的数字原文记得下来，费用子树最里层读不出精确值的数字照样换成「读不出」的占位、与浅处读出的相同，不抛异常"
       ]
     },
     {
@@ -24967,7 +25027,7 @@
       "replace": "preserveCostNumbers(value as Record<string, unknown>, child)",
       "by": "test",
       "kills": [
-        "读得进来的深层嵌套：最里层的数字原文记得下来，费用子树最里层的数字照样换成精确金额，与浅处读出的相同，不抛异常"
+        "读得进来的深层嵌套：最里层的数字原文记得下来，费用子树最里层读不出精确值的数字照样换成「读不出」的占位、与浅处读出的相同，不抛异常"
       ]
     },
     {
