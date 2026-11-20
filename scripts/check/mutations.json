@@ -30773,6 +30773,618 @@
       "kills": [
         "找谁要那一节：标题写差一点的，指出是哪一行"
       ]
+    },
+    {
+      "id": "M-H225-a",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "Markdown 连着两轮也拦了：需求所有者定的是文档只列出、不拦",
+      "find": "export const DOCS_BLOCK = false",
+      "replace": "export const DOCS_BLOCK = true",
+      "by": "test",
+      "kills": [
+        "同一处：Markdown 连着两轮只列出、不拦（需求所有者定）"
+      ]
+    },
+    {
+      "id": "M-H225-b",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "上一条占到的最后一行也算进下一条，行尾注释那一行同时落在两处",
+      "find": "      next = end + 1",
+      "replace": "      next = end",
+      "by": "test",
+      "kills": [
+        "同一处：上一条语句行尾的注释算上一条，不算下一条"
+      ]
+    },
+    {
+      "id": "M-H225-c",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "只看起点不看终点，前面所有语句都算落到",
+      "find": "  const hit = ([lo, hi]: Span) => lo <= b && hi >= a",
+      "replace": "  const hit = ([lo, hi]: Span) => lo <= b",
+      "by": "test",
+      "kills": [
+        "同一处：函数里的内层函数算外层那个顶层声明"
+      ]
+    },
+    {
+      "id": "M-H225-d",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "最后一条语句之后的行一处都不算，那条意见就从比较里消失了",
+      "find": "  if (names.length === 0) names.push('（文件末尾）')",
+      "replace": "  if (names.length < 0) names.push('（文件末尾）')",
+      "by": "test",
+      "kills": [
+        "同一处：最后一条语句之后算文件末尾"
+      ]
+    },
+    {
+      "id": "M-H225-e",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "类里不按行挑成员，所有成员都算",
+      "find": "lineOf(c.getEnd()) - 1).filter(([, sp]) => hit(sp)).map(",
+      "replace": "lineOf(c.getEnd()) - 1).map(",
+      "by": "test",
+      "kills": [
+        "同一处：类里算到成员"
+      ]
+    },
+    {
+      "id": "M-H225-f",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "类一律只算类名，不细到成员",
+      "find": "    return inner.length ? inner : [s.name.text]",
+      "replace": "    return [s.name.text]",
+      "by": "test",
+      "kills": [
+        "同一处：类里算到成员"
+      ]
+    },
+    {
+      "id": "M-H225-g",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "一条变量语句里不看落到哪个名字，每个名字都算",
+      "find": "    return (hit.length ? hit : all).map(d => d.name.getText(file))",
+      "replace": "    return all.map(d => d.name.getText(file))",
+      "by": "test",
+      "kills": [
+        "同一处：多行变量声明只算落到的那个名字"
+      ]
+    },
+    {
+      "id": "M-H225-h",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "顶层调用不取第一个字符串参数，整份测试文件的断言全成一处",
+      "find": "    if (first && ts.isCallExpression(e) && (ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first))) {",
+      "replace": "    if (first && false) {",
+      "by": "test",
+      "kills": [
+        "同一处：顶层调用取第一个字符串参数"
+      ]
+    },
+    {
+      "id": "M-H225-i",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "导入语句不单算，混进其余顶层语句那一块",
+      "find": "  if (ts.isImportDeclaration(s) || ts.isImportEqualsDeclaration(s)) return ['（导入）']",
+      "replace": "  if (ts.isImportDeclaration(s) && false) return ['（导入）']",
+      "by": "test",
+      "kills": [
+        "同一处：导入与其余顶层语句各算一块"
+      ]
+    },
+    {
+      "id": "M-H225-j",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "围栏里举例的标题也当成真的节",
+      "find": "    if (!mask[i] && /^#{1,6} /.test(lines[i])) current = lines[i].trim()",
+      "replace": "    if (/^#{1,6} /.test(lines[i])) current = lines[i].trim()",
+      "by": "test",
+      "kills": [
+        "同一处：Markdown 算最近一个标题，围栏里的不算"
+      ]
+    },
+    {
+      "id": "M-H225-k",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "跨节的几行只算最后一行所在的那一节",
+      "find": "    if (i + 1 >= a) names.add(current)",
+      "replace": "    if (i + 1 === b) names.add(current)",
+      "by": "test",
+      "kills": [
+        "同一处：Markdown 第一个标题之前算文首；跨节两节都算"
+      ]
+    },
+    {
+      "id": "M-H225-l",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "文件级意见、锚在基线一侧的意见照常按行换算，行号对的不是那份文件",
+      "find": "  if (c.subject_type === 'file' || c.side === 'LEFT' || c.original_line == null) return whole",
+      "replace": "  if (c.original_line == null) return whole",
+      "by": "test",
+      "kills": [
+        "同一处：文件级、基线一侧、没有行号的算整份文件"
+      ]
+    },
+    {
+      "id": "M-H225-m",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "代码与 Markdown 以外的文件也按标题去切",
+      "find": "  if (!CODE_FILE_RE.test(c.path) && !DOC_FILE_RE.test(c.path)) return whole",
+      "replace": "  if (!CODE_FILE_RE.test(c.path) && false) return whole",
+      "by": "test",
+      "kills": [
+        "同一处：其余文件与取不到内容的算整份文件"
+      ]
+    },
+    {
+      "id": "M-H225-n",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "多行意见只看最后一行",
+      "find": "  const a = c.original_start_line ?? c.original_line, b = c.original_line",
+      "replace": "  const a = c.original_line, b = c.original_line",
+      "by": "test",
+      "kills": [
+        "同一处：多行意见按整个行范围"
+      ]
+    },
+    {
+      "id": "M-H225-o",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "整份文件不再和这份文件的任何地方算同一处",
+      "find": "  x.path === y.path && (x.name === y.name || x.name === WHOLE_FILE || y.name === WHOLE_FILE)",
+      "replace": "  x.path === y.path && (x.name === y.name)",
+      "by": "test",
+      "kills": [
+        "同一处：整份文件与这份文件的任何地方算同一处，别的文件不算"
+      ]
+    },
+    {
+      "id": "M-H225-p",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "不比文件路径，两个文件里同名的函数也算同一处",
+      "find": "  x.path === y.path && (x.name === y.name",
+      "replace": "  (x.name === y.name",
+      "by": "test",
+      "kills": [
+        "同一处：整份文件与这份文件的任何地方算同一处，别的文件不算"
+      ]
+    },
+    {
+      "id": "M-H225-q",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "同步主干的合并照样起轮，锚在上面的意见另成一轮",
+      "find": "    const syncMerge = c.parents.length > 1 && c.parents.slice(1).every(onMain)",
+      "replace": "    const syncMerge = false",
+      "by": "test",
+      "kills": [
+        "同一处：回复不算；同步主干的合并与空提交不起轮，算进下面那一轮；别的合并照样起轮"
+      ]
+    },
+    {
+      "id": "M-H225-r",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "第二个父提交不在主干上的合并也折掉，带进来的别的分支的改动不起轮",
+      "find": "c.parents.slice(1).every(onMain)",
+      "replace": "c.parents.slice(1).length > 0",
+      "by": "test",
+      "kills": [
+        "同一处：回复不算；同步主干的合并与空提交不起轮，算进下面那一轮；别的合并照样起轮"
+      ]
+    },
+    {
+      "id": "M-H225-s",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "空提交照样起轮",
+      "find": "    const folds = syncMerge || c.empty",
+      "replace": "    const folds = syncMerge",
+      "by": "test",
+      "kills": [
+        "同一处：回复不算；同步主干的合并与空提交不起轮，算进下面那一轮；别的合并照样起轮"
+      ]
+    },
+    {
+      "id": "M-H225-t",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "回复也当成新意见",
+      "find": "    if (c.in_reply_to_id != null) continue",
+      "replace": "    if (c.in_reply_to_id === -1) continue",
+      "by": "test",
+      "kills": [
+        "同一处：回复不算；同步主干的合并与空提交不起轮，算进下面那一轮；别的合并照样起轮"
+      ]
+    },
+    {
+      "id": "M-H225-u",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "链外那一轮一律排到最前面，不按时间插",
+      "find": "    const lo = before.length ? before.at(-1)!.at : -1",
+      "replace": "    const lo = -1",
+      "by": "test",
+      "kills": [
+        "同一处：锚在链外的版本单独成一轮，按时间插进去"
+      ]
+    },
+    {
+      "id": "M-H225-v",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "拿第一轮去和后面每一轮比，不是相邻两轮",
+      "find": "    const earlier = rounds[k], later = rounds[k + 1]",
+      "replace": "    const earlier = rounds[0], later = rounds[k + 1]",
+      "by": "test",
+      "kills": [
+        "同一处：连着两轮同一处报出来，中间隔了一轮别处的不算"
+      ]
+    },
+    {
+      "id": "M-H225-w",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "解除表写的那一轮本身不算进解除，差一轮",
+      "find": "w.spot.name === s.name && r.at <= at)",
+      "replace": "w.spot.name === s.name && r.at < at)",
+      "by": "test",
+      "kills": [
+        "同一处：解除表写到旧做法最后一轮，那一对不再算"
+      ]
+    },
+    {
+      "id": "M-H225-x",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "解除表管住了后面所有轮次，又落回来也不再拦",
+      "find": "w.spot.path === s.path && w.spot.name === s.name && r.at <= at)",
+      "replace": "w.spot.path === s.path && w.spot.name === s.name)",
+      "by": "test",
+      "kills": [
+        "同一处：解除之后又连着两轮落回来，再拦"
+      ]
+    },
+    {
+      "id": "M-H225-y",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "解除表不看是哪一处，解除一处等于全解",
+      "find": "live.some(({ w, at }) => w.spot.path === s.path && w.spot.name === s.name &&",
+      "replace": "live.some(({ w, at }) => w.spot.path === s.path &&",
+      "by": "test",
+      "kills": [
+        "同一处：解除别处的不管这一处"
+      ]
+    },
+    {
+      "id": "M-H225-z",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "解除表写的提交不在链上也算解除",
+      "find": "    const at = positionOf(w.after)\n",
+      "replace": "    const at = positionOf(w.after) ?? 1e9\n",
+      "by": "test",
+      "kills": [
+        "同一处：解除表写的提交不在链上，那一行不算、报出来"
+      ]
+    },
+    {
+      "id": "M-H225-aa",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "Markdown 不论定没定都拦",
+      "find": "blocks: DOCS_BLOCK || !DOC_FILE_RE.test(spot.path)",
+      "replace": "blocks: true",
+      "by": "test",
+      "kills": [
+        "同一处：Markdown 连着两轮只列出、不拦（需求所有者定）"
+      ]
+    },
+    {
+      "id": "M-H225-ab",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "围栏里举例的解除表也当成真的",
+      "find": "    if (mask[h] || !WAIVER_HEADING_RE.test(lines[h])) continue",
+      "replace": "    if (!WAIVER_HEADING_RE.test(lines[h])) continue",
+      "by": "test",
+      "kills": [
+        "同一处：围栏里的解除表不算"
+      ]
+    },
+    {
+      "id": "M-H225-ac",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "解除标题下面不是那张表也不报",
+      "find": "      faults.push(`${file} 第 ${h + 1} 行的",
+      "replace": "      void (`${file} 第 ${h + 1} 行的",
+      "by": "test",
+      "kills": [
+        "同一处：标题下面不是那张表报红，报出标题在第几行"
+      ]
+    },
+    {
+      "id": "M-H225-ad",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "那一处不用反引号包着、不写成路径井号名字也收",
+      "find": "const SPOT_CELL_RE = /^`([^`#]+)#([^`]+)`$/",
+      "replace": "const SPOT_CELL_RE = /^`?([^`#]+)#([^`]+?)`?$/",
+      "by": "test",
+      "kills": [
+        "同一处：解除表一行格式不对就报、不算解除，报出第几行"
+      ]
+    },
+    {
+      "id": "M-H225-ae",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "提交那一格写什么都收",
+      "find": "|| !SHA_RE.test(cells[1]) ||",
+      "replace": "||",
+      "by": "test",
+      "kills": [
+        "同一处：解除表缺提交号或缺去处也不算"
+      ]
+    },
+    {
+      "id": "M-H225-af",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "新做法写在哪那一格空着也收",
+      "find": "!SHA_RE.test(cells[1]) || !cells[2]) {",
+      "replace": "!SHA_RE.test(cells[1])) {",
+      "by": "test",
+      "kills": [
+        "同一处：解除表缺提交号或缺去处也不算"
+      ]
+    },
+    {
+      "id": "M-H225-ag",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "函数声明不按名字算，混进其余顶层语句那一块",
+      "find": "  if ((ts.isFunctionDeclaration(s) || ts.isInterfaceDeclaration(s)",
+      "replace": "  if ((false || ts.isInterfaceDeclaration(s)",
+      "by": "test",
+      "kills": [
+        "同一处：函数里的内层函数算外层那个顶层声明"
+      ]
+    },
+    {
+      "id": "M-H225-ai",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "语句前面的注释没落到哪个名字时，一个名字都不算，那条意见从比较里消失",
+      "find": "    return (hit.length ? hit : all).map(d => d.name.getText(file))",
+      "replace": "    return hit.map(d => d.name.getText(file))",
+      "by": "test",
+      "kills": [
+        "同一处：变量语句前面的注释算整条语句的名字，不算文件末尾"
+      ]
+    },
+    {
+      "id": "M-H225-aj",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "不剥 await，测试文件里每个测试组都算成同一块",
+      "find": "    while (ts.isAwaitExpression(e) || ts.isVoidExpression(e) || ts.isParenthesizedExpression(e)) e = e.expression",
+      "replace": "    while (ts.isVoidExpression(e) || ts.isParenthesizedExpression(e)) e = e.expression",
+      "by": "test",
+      "kills": [
+        "同一处：顶层调用剥掉 await、void、括号再取第一个字符串参数"
+      ]
+    },
+    {
+      "id": "M-H225-ak",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "解除用宽的比法，解除整份文件或别处也放走了具体那一处",
+      "find": "live.some(({ w, at }) => w.spot.path === s.path && w.spot.name === s.name && r.at <= at)",
+      "replace": "live.some(({ w, at }) => sameSpot(w.spot, s) && r.at <= at)",
+      "by": "test",
+      "kills": [
+        "同一处：解除按报出的那一处一字不差地比，解除别处或整份文件不放走具体那一处"
+      ]
+    },
+    {
+      "id": "M-H225-al",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "已经合进主干的解除表也算进来，以后每条 PR 都会因为别人的解除表红",
+      "find": "  return files.filter(f => f.text !== f.base)",
+      "replace": "  return [...files]",
+      "by": "test",
+      "kills": [
+        "同一处：只有这条 PR 加了或改了的决策记录里的解除表算数"
+      ]
+    },
+    {
+      "id": "M-H225-am",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "新加的决策记录（主干上没有）里的解除表不算",
+      "find": "  return files.filter(f => f.text !== f.base)",
+      "replace": "  return files.filter(f => f.base !== null && f.text !== f.base)",
+      "by": "test",
+      "kills": [
+        "同一处：只有这条 PR 加了或改了的决策记录里的解除表算数"
+      ]
+    },
+    {
+      "id": "M-H225-an",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "「整份文件」意见与具体一处配出的一对，报出来的是整份文件，看不出落在哪",
+      "find": "        const spot = x.name === WHOLE_FILE ? y : x",
+      "replace": "        const spot = x",
+      "by": "test",
+      "kills": [
+        "同一处：一轮是整份文件、另一轮是具体一处，报出的是具体那一处；报的是相邻哪两轮"
+      ]
+    },
+    {
+      "id": "M-H225-ao",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "提交链走到主干也不停，主干上的提交也算进 PR 的轮次",
+      "find": "  for (let sha: string | undefined = head; sha !== undefined && !onMain(sha);) {",
+      "replace": "  for (let sha: string | undefined = head; sha !== undefined;) {",
+      "by": "test",
+      "kills": [
+        "同一处：提交链沿第一个父提交走到主干为止，带全部父提交，树与第一个父相同算空提交"
+      ]
+    },
+    {
+      "id": "M-H225-ap",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "空提交不比树，一律算有改动",
+      "find": "    chain.push({ sha, parents, empty: parents.length > 0 && treeOf(sha) === treeOf(parents[0]) })",
+      "replace": "    chain.push({ sha, parents, empty: false })",
+      "by": "test",
+      "kills": [
+        "同一处：提交链沿第一个父提交走到主干为止，带全部父提交，树与第一个父相同算空提交"
+      ]
+    },
+    {
+      "id": "M-H225-aq",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "提交链沿最后一个父提交走，走进了别的分支",
+      "find": "    sha = parents[0]\n",
+      "replace": "    sha = parents.at(-1)\n",
+      "by": "test",
+      "kills": [
+        "同一处：提交链沿第一个父提交走到主干为止，带全部父提交，树与第一个父相同算空提交"
+      ]
+    },
+    {
+      "id": "M-H225-ar",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "提交号前缀对得上几个时取第一个，解除可能落到别的提交上",
+      "find": "  return found.length === 1 ? chain.length - 1 - found[0] : undefined",
+      "replace": "  return found.length >= 1 ? chain.length - 1 - found[0] : undefined",
+      "by": "test",
+      "kills": [
+        "同一处：提交号按前缀在链上找位置，最旧的是 0；找不到或前缀对得上不止一个都不算"
+      ]
+    },
+    {
+      "id": "M-H225-as",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "解除表报错里的行号差一行，指不到那一行",
+      "find": "      waivers.push({ spot: { path: spot[1], name: spot[2] }, after: cells[1], where: `${file} 第 ${i + 1} 行` })",
+      "replace": "      waivers.push({ spot: { path: spot[1], name: spot[2] }, after: cells[1], where: `${file} 第 ${i} 行` })",
+      "by": "test",
+      "kills": [
+        "同一处：解除表读得出，记下是哪份文件第几行"
+      ]
+    },
+    {
+      "id": "M-H225-at",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "解除标题下面的表头差一个字也收",
+      "find": "    if (lines[i]?.trim() !== WAIVER_TABLE_HEAD || !DIVIDER_RE.test(lines[i + 1]?.trim() ?? '')) {",
+      "replace": "    if (!DIVIDER_RE.test(lines[i + 1]?.trim() ?? '')) {",
+      "by": "test",
+      "kills": [
+        "同一处：解除表表头差一个字也不算"
+      ]
+    },
+    {
+      "id": "M-H225-au",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "不量行尾注释，跨几行的行尾注释后几行落到下一条",
+      "find": "Math.min(last, lineOf(tail?.length ? tail[tail.length - 1].end : n.getEnd()))",
+      "replace": "Math.min(last, own)",
+      "by": "test",
+      "kills": [
+        "同一处：跨几行的行尾注释整段算上一条，下一条从注释之后起"
+      ]
+    },
+    {
+      "id": "M-H225-av",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "同一行挤着的后一条语句从下一行才起，那一行只算前一条",
+      "find": "      const span: Span = [Math.min(next, lineOf(n.getStart(file))), end]",
+      "replace": "      const span: Span = [next, end]",
+      "by": "test",
+      "kills": [
+        "同一处：一行挤着两条语句，那一行两条都算"
+      ]
+    },
+    {
+      "id": "M-H225-aw",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "类成员从左花括号那一行就切起，类名那一行落到第一个成员",
+      "find": "spans(c.members, lineOf(c.members.pos) + 1,",
+      "replace": "spans(c.members, lineOf(c.members.pos) + 0,",
+      "by": "test",
+      "kills": [
+        "同一处：类名那一行与右花括号那一行算类名，不算哪个成员"
+      ]
+    },
+    {
+      "id": "M-H225-ax",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "多行变量声明不按行挑名字，落到哪一行都算全部名字",
+      "find": "    own: (n: Ts.Node) => hit([lineOf(n.getStart(file)), lineOf(n.getEnd())]),",
+      "replace": "    own: (n: Ts.Node) => true,",
+      "by": "test",
+      "kills": [
+        "同一处：多行变量声明只算落到的那个名字"
+      ]
+    },
+    {
+      "id": "M-H225-ay",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "成员的行尾注释不封顶，延到右花括号那一行时那一行算成了成员",
+      "find": "lineOf(c.members.pos) + 1, lineOf(c.getEnd()) - 1)",
+      "replace": "lineOf(c.members.pos) + 1)",
+      "by": "test",
+      "kills": [
+        "同一处：成员的行尾注释延到右花括号那一行，那一行仍算类名；成员自己写在那一行上的仍算成员"
+      ]
+    },
+    {
+      "id": "M-H225-az",
+      "req": "harness",
+      "file": "scripts/check/same-spot-rule.ts",
+      "why": "封顶也压住了成员自己的行，写在右花括号那一行上的成员落空",
+      "find": "      const end = Math.max(own, Math.min(last,",
+      "replace": "      const end = (0 * own) + (Math.min(last,",
+      "by": "test",
+      "kills": [
+        "同一处：成员的行尾注释延到右花括号那一行，那一行仍算类名；成员自己写在那一行上的仍算成员"
+      ]
     }
   ],
   "exemptions": [
