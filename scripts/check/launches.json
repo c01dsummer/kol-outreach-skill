@@ -207,6 +207,8 @@
     {"config":"[\"test\",[\"h-worker-output-guardian\"]]","launches":1,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-worker-output-reclaim\"]]","launches":4,"maxPaid":null,"running":9,"stopping":0},
     {"config":"[\"test\",[\"h-worker-start\"]]","launches":0,"maxPaid":null,"running":8,"stopping":0},
+    {"config":"[\"test\",[\"invalid-values-by-source\"]]","launches":0,"maxPaid":null,"running":10,"stopping":0},
+    {"config":"[\"test\",[\"invalid-values-entry\"]]","launches":19,"maxPaid":null,"running":3,"stopping":0},
     {"config":"[\"test\",[\"p1-followers-sort\"]]","launches":0,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"p1-legacy-score-output\"]]","launches":0,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"p1-missing-values\",\"p1-score-unqueried\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
