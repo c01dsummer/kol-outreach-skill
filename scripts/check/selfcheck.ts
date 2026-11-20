@@ -573,7 +573,7 @@ const runGroups = (): Set<string> | undefined => {
  *
  * 带时间窗口的组（`TIME_WINDOW_GROUPS`）所在的族不进队列：其余各族全部交回之后，再一族一族单独跑
  * （ADR-132 第十节）。先后是判定（`shardOrder`）；这里只照它派工。名单不是耗时表：列的是判红取决于
- * 子进程起停时刻的组，就是 ADR-132 第 288 行点名的那两组。
+ * 子进程起停时刻的组，就是 ADR-132 第十节点名的那两组。
  */
 const TIME_WINDOW_GROUPS = ['mutation-cost-entry', 'claims-restoration-entry']
 const runShards = async (jobs: number): Promise<void> => {
@@ -608,7 +608,7 @@ const runShards = async (jobs: number): Promise<void> => {
     // 不够那一种也走事件；这里不接管道，不必另问 `noStdio`）。两条都把原因交给合并、报成
     // 「没起来」—— 混进「没交回结果」的话，人会去翻那份空的子进程输出。
     // 打开这一族的日志也在这个 `try` 里：资源不够时它可能先于 `spawn` 撞上（ADR-72 在变异派工那一侧
-    // 量到过 `cpSync` 先撞 EMFILE），放在外面就是未捕获异常 —— 本进程当场退出，已起的几族没人收（ADR-132 第 324 行）
+    // 量到过 `cpSync` 先撞 EMFILE），放在外面就是未捕获异常 —— 本进程当场退出，已起的几族没人收（ADR-158「五、拆进程跑打不开某一族的日志」）
     try {
       fd = openSync(out, 'w')
       const [exe, args] = prebuiltCommand([script, `--only=${fams[i].join(',')}`], process.cwd(), kidEnv)
