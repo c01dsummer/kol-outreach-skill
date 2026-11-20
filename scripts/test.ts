@@ -16078,7 +16078,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   const { fs: toy, files: toyFiles } = fieldToy()
   const vias = (fs: readonly UseField[], file?: string) => fs.filter(f => file === undefined || f.file === `scripts/check/${file}`).map(f => f.via).sort()
   const toyOf = (via: string) => toy.find(f => f.via === via)
-  const textOf = (f: UseField | undefined, files = toyFiles) => f?.sites.map(s => files[s.file].slice(s.start, s.end))
+  const textOf = (f: UseField | undefined, files = toyFiles) => f?.sites.map(s => files[s.file]?.slice(s.start, s.end)) // 文件对不上时给 undefined、不崩：变异把赋值处的文件写错时要由断言红，不是让验证者死在半路
   // 期望里有 undefined 的用严格深比较：eq 按 JSON 比，数组里的 undefined 与 null 分不开
   const strict = (got: unknown, want: unknown): [unknown, unknown] => [isDeepStrictEqual(got, want) ? got : { 严格比对不等: got }, want]
   eq('字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条）',
@@ -16103,7 +16103,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   eq('字段：判别联合按判别值分到成员，赋值处只算到那一个成员的字段上；没分开的联合（两个成员都有 value、没有判别值）一处都不算',
     [textOf(toyOf('shape().x')), textOf(toyOf('shape().w')), toy.filter(f => f.via === 'shape().kind').map(f => textOf(f)!.length).sort(), toy.filter(f => f.via === 'amb().value').map(f => f.sites.length)],
     [['x: 1'], [], [0, 1], [0, 0]])
-  eq('字段：别的文件里给它赋值也算（lib 下的算，验证者里的不算），赋值处带着自己所在的文件', toyOf('lonely().bb')?.sites.map(s => [s.file, toyFiles[s.file].slice(s.start, s.end)]).sort(),
+  eq('字段：别的文件里给它赋值也算（lib 下的算，验证者里的不算），赋值处带着自己所在的文件', toyOf('lonely().bb')?.sites.map(s => [s.file, toyFiles[s.file]?.slice(s.start, s.end)]).sort(),
     [['scripts/check/c.ts', 'bb: 1'], ['scripts/lib/e.ts', 'bb: 3']])
 
   // 新加的行：文件名是 git 列出来的（原样作键），每个文件一份 git diff -U0 的输出，只读块头
