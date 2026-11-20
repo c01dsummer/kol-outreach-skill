@@ -14,7 +14,8 @@
  */
 import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
-import { taskFile, taskId, loadTask, loadReviewCreatorInputs, loadEnrichment, persistListAndStatus } from './lib/task.js'
+import { ReviewInputError } from './lib/review.js'
+import { taskFile, taskId, loadTask, loadReviewCreatorInputs, loadReviewEnrichment, persistListAndStatus } from './lib/task.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
@@ -76,8 +77,17 @@ if (badDuplicates.length) process.exit(2)
 let creators: Creator[]
 let reviews: TaskReviews
 let relations: Creator[]
+let storedEnrichment: ReturnType<typeof loadReviewEnrichment>
 try {
-  const inputs = loadReviewCreatorInputs(dir)
+  // D21.v：增强结果里手改坏的活跃状态、风险等级与名单的坏记录同一步拒收、一起报，都在写任何文件之前
+  const problems: string[] = []
+  const collect = <T>(read: () => T): T | undefined => {
+    try { return read() } catch (e) { if (!(e instanceof ReviewInputError)) throw e; problems.push(...e.problems) }
+  }
+  const read = collect(() => loadReviewCreatorInputs(dir))
+  storedEnrichment = collect(() => loadReviewEnrichment(dir))
+  if (problems.length || !read) throw new ReviewInputError(problems)
+  const inputs = read
   relations = reviewRelations(inputs.previous, inputs.raw)
   reviews = prepareTaskReviews(dir, state, inputs.previous, new Date().toISOString(), relations)
   // 同人识别和当前判断均从独立克隆重建，原件只用作完整关系证据。
@@ -121,7 +131,7 @@ const accountKeysFor = (list: Creator[]): Set<string> => {
 
 // D8/U7：直接导出也先在内存重核旧样本；不改 enrichment.json、不发请求。
 const riskPeers = accountKeysFor(creators.filter(c => c.fit === '✅' || c.fit === '⚠️'))
-const enrichment = currentEnrichmentView(loadEnrichment(dir), riskPeers)
+const enrichment = currentEnrichmentView(storedEnrichment, riskPeers)
 attachAssessments(creators, enrichment)
 
 // 算分 → 分层 → 受众降权 → 排序。管线在 lib/pipeline.ts

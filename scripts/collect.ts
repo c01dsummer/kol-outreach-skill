@@ -22,7 +22,7 @@ import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import {
-  MAX_PAGES, canRequestPage, canonicalReviewLinks, finalize, firstPagePending, igAfterPage, mergePage, needsProfile,
+  MAX_PAGES, canRequestPage, canonicalReviewLinks, finalize, firstPagePending, igAfterPage, mergePage, mergeProfile, needsProfile,
   pagesFetched, pendingKeywords, rawSeedFromLegacy, resumeCostLine, reviewRelations, underPageCap,
 } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
@@ -438,12 +438,7 @@ async function enrichProfiles() {
   for (const c of list) {
     try {
       const p = await api.profile(c.handle, c.platform)
-      Object.assign(c, {
-        ...p,
-        nickname: p.nickname ?? c.nickname,
-        followers: p.followers ?? c.followers,
-        post_count: p.post_count ?? c.post_count,
-      })
+      mergeProfile(c, p)
       fillEmail(c)
     } catch (e) {
       // 单个失败不该拖垮整轮（一个 404 就挂掉 50 人的采集是不可接受的）。

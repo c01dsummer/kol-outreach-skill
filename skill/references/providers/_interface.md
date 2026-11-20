@@ -17,6 +17,9 @@ interface Creator {
   followers?:    number
   following?:    number
   post_count?:   number
+  // 供应商对 followers / post_count 给了值、却不是有限非负整数（字符串、负数、小数、无穷）：
+  // 那一项留缺席，把字段名记进这里（已查询但未取得有效值，交付里显示「未知」）；给 null 或不给仍算未查询（P1.m）
+  invalid_from_provider?: Array<'followers' | 'post_count'>
   bio?:          string
   bio_links:     string[]      // ★ 跨平台同人识别用，两边都归一化成数组
   verified:      boolean
@@ -91,7 +94,7 @@ recentPosts(handle: string, platform: Platform): Promise<{
     is_pinned?: boolean
     video_confirmed?: boolean  // 新 IG 主页作品逐条写 true/false；false=未见肯定视频信号，不等于确认图文；旧样本缺席=未知
   }>
-  followers?: number
+  followers?: number           // 不是有限非负整数就不给（当这次没给），不拿它算比率（P1.m）
   following?: number
   source: { kind: 'public_api'; provider: string; endpoint: string }
 }>

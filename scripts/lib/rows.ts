@@ -55,6 +55,10 @@ export interface ReviewOutputOptions { mode?: 'review' }
 export const cell = (v: unknown): string =>
   v === undefined ? '未查询' : v === null ? '' : String(v)
 
+/** P1.m：粉丝数、作品数多一态 —— 供应商给了怪值的那一项写 `未知`，与 `未查询`、`0` 分得开 */
+export const countCell = (c: Creator, field: 'followers' | 'post_count'): string =>
+  c[field] === undefined && c.invalid_from_provider?.includes(field) ? '未知' : cell(c[field])
+
 const topGeo = (c: Creator): string => {
   if (!c.audience_geo) return ''
   const [k, v] = Object.entries(c.audience_geo).sort((a, b) => b[1] - a[1])[0] ?? []   // P1 例外：上一行已守 audience_geo 存在，此处仅防空对象
@@ -148,7 +152,7 @@ export function toRow(c: Creator): unknown[] {
     // 缺席只展示「未查询」，不补数值；已计算评分仍保留 number 类型。
     c.tier, c.score === undefined ? '未查询' : c.score,
     c.fit ?? '', c.fit_reason ?? '', c.platform, c.handle, c.nickname,
-    cell(c.followers), cell(c.post_count), cell(c.bio), cell(c.email), cell(c.email_verified),
+    countCell(c, 'followers'), countCell(c, 'post_count'), cell(c.bio), cell(c.email), cell(c.email_verified),
     topGeo(c), cell(assessment?.followers), cell(assessment?.following),
     metricCell(metrics?.engagement_rate_followers, pct),
     metricCell(metrics?.engagement_rate_views, pct),
