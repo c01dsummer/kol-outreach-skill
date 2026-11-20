@@ -240,6 +240,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd27-p3-entry', needs: ['d19-resume'] },
   { id: 'd4-p3-budget-memory', needs: [] },
   { id: 'invalid-values-by-source', needs: [] },
+  { id: 'invalid-values-entry', needs: [] },
   { id: 'p1-followers-sort', needs: [] },
   { id: 'd5-csv', needs: [] },
   { id: 'd2-d8-actual-paths', needs: [] },
@@ -8094,32 +8095,7 @@ suite('D4', '钱不够付下一次请求、同时读不出记忆文件：collect
 }
 
 })
-await group('invalid-values-by-source', async () => {
-suite('P1', '供应商给的怪粉丝数、作品数显示未知；手改坏的名单与增强结果读入时拒收（P1.m、D21.u、D21.v）')
-{
-// 下面整段出自只读准入读物包的隔离会话（ADR-227 第四节）。搬入时只改了两处：
-// 一、起 render 的方式（见入口级那一段开头）；二、读文件的函数名换成本文件的 rf。断言与期望一字未改。
-
-
-// ───────────────────────── 自己造的最小帮手 ─────────────────────────
-
-/** 最小的人。字段按 types.d.ts 的 Creator；不带粉丝数、作品数（＝未查询）。 */
-const person = (handle: string, extra: Partial<Creator> = {}): Creator => ({
-  platform: 'tiktok',
-  handle,
-  nickname: handle,
-  bio: null,
-  bio_links: [],
-  verified: false,
-  profile_url: `https://www.tiktok.com/@${handle}`,
-  source_keyword: 'portable charger',
-  source_dimension: 'category',
-  ...extra,
-})
-
-const flagged = (c: Partial<Creator>, item: 'followers' | 'post_count'): boolean =>
-  Array.isArray(c.invalid_from_provider) && c.invalid_from_provider.includes(item)
-
+// 怪值那两组（invalid-values-by-source、invalid-values-entry）共用的两个小帮手，出自同一隔离会话
 const count = (text: string, needle: string): number => text.split(needle).length - 1
 
 /** RFC 4180 的最小解析：引号包裹、内部引号成对、字段里可以有逗号与换行。 */
@@ -8146,6 +8122,32 @@ function parseCsv(text: string): string[][] {
   if (cur !== '' || row.length > 0) { row.push(cur); rows.push(row) }
   return rows
 }
+await group('invalid-values-by-source', async () => {
+suite('P1', '供应商给的怪粉丝数、作品数显示未知；手改坏的名单与增强结果读入时拒收（P1.m、D21.u、D21.v）')
+{
+// 下面整段出自只读准入读物包的隔离会话（ADR-227 第四节）。搬入时只改了两处：
+// 一、起 render 的方式（见入口级那一段开头）；二、读文件的函数名换成本文件的 rf。断言与期望一字未改。
+
+
+// ───────────────────────── 自己造的最小帮手 ─────────────────────────
+
+/** 最小的人。字段按 types.d.ts 的 Creator；不带粉丝数、作品数（＝未查询）。 */
+const person = (handle: string, extra: Partial<Creator> = {}): Creator => ({
+  platform: 'tiktok',
+  handle,
+  nickname: handle,
+  bio: null,
+  bio_links: [],
+  verified: false,
+  profile_url: `https://www.tiktok.com/@${handle}`,
+  source_keyword: 'portable charger',
+  source_dimension: 'category',
+  ...extra,
+})
+
+const flagged = (c: Partial<Creator>, item: 'followers' | 'post_count'): boolean =>
+  Array.isArray(c.invalid_from_provider) && c.invalid_from_provider.includes(item)
+
 
 /** 真写一份 CSV 再读回来，取这个人某一列的那一格 —— 看的是落到文件里的字。 */
 function csvCell(c: Creator, column: string): string {
@@ -8597,17 +8599,23 @@ async function main(): Promise<void> {
   const okBoth = dirWith([record('u_ok_h', { followers: 80000 })], [record('u_ok_h', { followers: 80000 }), record('u_ok_i', { invalid_from_provider: ['post_count'] })])
   eq('D21.u 两个文件都合规时读入不被拒绝', refusal(okBoth), undefined)
 
-  // ═══════════════════ 入口级（真起 render）═══════════════════
-  // 搬入时改的第一处：原件在一份一次性的仓库副本里起 `npm run render`；这里照本文件别的组的起法，
-  // 在临时目录里起 render（当前目录放一份空记忆），任务目录按绝对路径给
-  const copy = mkdtempSync(join(tmpdir(), 'kol-invalid-values-'))
-  try {
-    mkdirSync(join(copy, 'memory'))
-    writeFileSync(join(copy, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-10-01T00:00:00Z', creators: {} }))
-    entryChecks(copy)
-  } finally { rmSync(copy, { recursive: true, force: true }) }
+  // 入口级（真起 render）那一半在下一组 invalid-values-entry：起进程多，与这一组分开，变异各走各的组
 }
 
+await main()
+// 作者补的一条（不是隔离会话写的）：ADR-226 那张「打分时 null 算哪一态」的播放数那一半。粉丝数、作品数写成 null
+// 的读入时就拒收（上面 D21.u），播放数不在读入检查里，打分时 null 不能算超过爆款门槛
+{
+  const base: Creator = { platform: 'tiktok', handle: 'plays_null', nickname: 'n', bio: null, bio_links: [], verified: false,
+    profile_url: '', source_keyword: 'k', source_dimension: 'category' }
+  eq('P1.l 盘上播放数写成 null 的作品打分时不算爆款，与没有作品同分',
+    scoreCreator({ ...base, recent_posts: [{ desc: '', plays: null as unknown as number }] }) - scoreCreator({ ...base, recent_posts: [] }), 0)
+}
+}
+})
+await group('invalid-values-entry', () => {
+suite('D21', '怪值那条的入口一半：真起 render 看拒收与交付（P1.m、D21.u、D21.v，出自同一隔离会话）')
+{
 // ═════════════════════════════════════════════════════════════════════
 /**
  * 入口级。起法照 output-format.md「导出（render）读哪几个文件」：
@@ -8770,15 +8778,16 @@ function entryChecks(copy: string): void {
   const cells = (r: Ran): string[] => r.status === 0 ? parseCsv(rf(join(r.dir, 'kol.csv'), 'utf8')).slice(1).flat() : []
   ok('P1.m render 出的 kol.csv 里粉丝数未取得有效值的人有一格是未知而未查询的人没有', cells(mBad).includes('未知') && !cells(mUnq).includes('未知'))
 }
-await main()
-// 作者补的一条（不是隔离会话写的）：ADR-226 那张「打分时 null 算哪一态」的播放数那一半。粉丝数、作品数写成 null
-// 的读入时就拒收（上面 D21.u），播放数不在读入检查里，打分时 null 不能算超过爆款门槛
-{
-  const base: Creator = { platform: 'tiktok', handle: 'plays_null', nickname: 'n', bio: null, bio_links: [], verified: false,
-    profile_url: '', source_keyword: 'k', source_dimension: 'category' }
-  eq('P1.l 盘上播放数写成 null 的作品打分时不算爆款，与没有作品同分',
-    scoreCreator({ ...base, recent_posts: [{ desc: '', plays: null as unknown as number }] }) - scoreCreator({ ...base, recent_posts: [] }), 0)
-}
+
+  // ═══════════════════ 入口级（真起 render）═══════════════════
+  // 搬入时改的第一处：原件在一份一次性的仓库副本里起 `npm run render`；这里照本文件别的组的起法，
+  // 在临时目录里起 render（当前目录放一份空记忆），任务目录按绝对路径给
+  const copy = mkdtempSync(join(tmpdir(), 'kol-invalid-values-'))
+  try {
+    mkdirSync(join(copy, 'memory'))
+    writeFileSync(join(copy, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-10-01T00:00:00Z', creators: {} }))
+    entryChecks(copy)
+  } finally { rmSync(copy, { recursive: true, force: true }) }
 }
 })
 await group('p1-followers-sort', () => {
