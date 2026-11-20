@@ -1,0 +1,46 @@
+name: same-spot
+
+# 同一处连着两轮被评审挑中就拦住合入（ADR-225，`process/6-INTEGRATE.md`「同一处连着两轮被挑出毛病」）。
+#
+# 为什么另起一份、不放进 check.yml：要读这条 PR 的评审意见（pull-requests: read），而 check.yml 整份钉死在变异负载闸门里、
+# 权限也只给到 contents/actions；本地 `npm run check` 没有这份令牌，只跑它的测试。
+#
+# 推送与评审触发：拦不拦取决于评审意见，评审交上来（行内意见都挂在一次评审里）要重判；解除表在决策记录里，推上来也要重判。
+# 不用单条行内意见那个事件：它跑出来的结果算不进必须通过的检查，同组里还会把推送那一跑顶掉。
+# 每条 PR 每种事件一组，新的一跑只顶掉同一种事件的旧跑；两种触发同一个任务名，PR 上看到的是最后那一跑。
+# ⚠️ 要它真能拦住合入，需求所有者要在 main 的分支保护里把「同一处连着两轮」加成必须通过（这项设置不在仓库里）。
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  same-spot:
+    name: 同一处连着两轮
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 检出 PR 头（评审事件默认检出的是合并结果），全部历史：要沿第一个父提交往回走到主干
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit
+      - run: npm run same-spot
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SAME_SPOT_PR: ${{ github.event.pull_request.number }}
+          SAME_SPOT_HEAD: ${{ github.event.pull_request.head.sha }}
+          SAME_SPOT_MAIN: origin/main
