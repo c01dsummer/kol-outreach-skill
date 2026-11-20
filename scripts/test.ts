@@ -7931,8 +7931,10 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
   // D27.e 判据那一半在这里认领（复核发现 1）：入口那一半由自检认领，但任何一种多拒的扫描都会让自检里带费用账条目的阳性对照
   // 一并失败、带上夹具记号，自检那边的负片按规矩记不上功；判据这一层没有夹具记号，负片记在这里
   criterion('D27.e')
-  // 读得进来的深层嵌套与超长字符串（D19.k 那条复核发现的同类）：不抛异常，写在里面或后面的重复照样认出
-  const DEPTH = 2400
+  // 读得进来的深层嵌套与超长字符串（D19.k 那条复核发现的同类）：不抛异常，写在里面或后面的重复照样认出。
+  // 嵌套的夹具在这里现拼，不存进仓库。十万层远超任何机器栈上逐层递归能走的深度（默认栈两千来层就用完），
+  // 所以这条在哪台机器上都量的是「读与查重复键不递归」，不随栈大小变绿变红（ADR-228）
+  const DEPTH = 100_000
   const deepText = doc({ matrix: `"matrix":${'['.repeat(DEPTH)}{"a":5.5e0,"a":1}${']'.repeat(DEPTH)}` })
   const longText = `{"notes":"${'x'.repeat(9_000_000)}",${doc({ budget: '"budget_usd":9.5e1,"budget_usd":1' }).slice(1)}`
   const deep = scan(deepText), long = scan(longText)
@@ -7942,6 +7944,36 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
         && deep.all.length === 1 && inOrder(deep.all[0], ['5.5e0', '1']) ? true : JSON.stringify(deep).slice(0, 300),
       'dups' in long && long.dups?.length === 1 && long.all.length === 1 && long.all[0].includes('budget_usd') && inOrder(long.all[0], ['9.5e1', '1'])
         ? true : JSON.stringify(long).slice(0, 300)], [true, true, true])
+  // 同一深度上，读入记下的数字原文与费用子树的精确金额也走到底（ADR-228）：最里层对象里 a 的原文是留下的最后一处 1；
+  // 费用账里十万层深的 0.5（不足一微美元，读不出精确值，换成「读不出」的占位，不再是数字）与只套一层时读出的相同。期望只来自夹具字面值与同一份读法在浅处的结果
+  let deepRead: Record<string, unknown> | undefined, deepThrew = ''
+  try { deepRead = readCostDocument<Record<string, unknown>>(deepText) } catch (error) { deepThrew = error instanceof Error ? error.message : String(error) }
+  let innermost: unknown = deepRead?.matrix
+  for (let level = 0; level < DEPTH && Array.isArray(innermost); level++) innermost = innermost[0]
+  const ledgerOf = (depth: number): unknown => {
+    let at: unknown = readCostDocument<Record<string, unknown>>(`{"cost_ledger":{"x":${'['.repeat(depth)}0.5${']'.repeat(depth)}}}`).cost_ledger
+    at = (at as Record<string, unknown>).x
+    for (let level = 0; level < depth; level++) at = (at as unknown[])[0]
+    return at
+  }
+  let ledgerDeep: unknown, ledgerThrew = ''
+  try { ledgerDeep = ledgerOf(DEPTH) } catch (error) { ledgerThrew = error instanceof Error ? error.message : String(error) }
+  eq('读得进来的深层嵌套：最里层的数字原文记得下来，费用子树最里层的数字照样换成精确金额，与浅处读出的相同，不抛异常',
+    [deepThrew, innermost !== null && typeof innermost === 'object' ? sourceNumberToken(deepRead!, innermost, 'a') : 'innermost-missing',
+      ledgerThrew, isDeepStrictEqual(ledgerDeep, ledgerOf(1)) && typeof ledgerOf(1) !== 'number'],
+    ['', '1', '', true])
+  // 整份写回也不递归（ADR-228）：一万层 —— 内置 JSON.stringify 带写出回调时默认栈一两千层就溢出，这个深度在哪台机器上都量得出；
+  // 再深则缩进的总长超过字符串上限（两万层约八亿字），与栈无关，见 ADR-228 的欠条。写出的文本再读回来，层数与最里层的原文不变；
+  // 最里层的缩进是根下一层的 2 格加上每层数组 2 格
+  const WRITE_DEPTH = 10_000
+  let deepWritten = '', writeThrew = ''
+  try {
+    deepWritten = stringifyCostJson(readCostDocument<Record<string, unknown>>(`{"budget_usd":1.50,"x":${'['.repeat(WRITE_DEPTH)}2.50${']'.repeat(WRITE_DEPTH)}}`))
+  } catch (error) { writeThrew = error instanceof Error ? error.message : String(error) }
+  let deepBack: unknown = deepWritten ? (JSON.parse(deepWritten) as Record<string, unknown>).x : undefined, deepLevels = 0
+  while (Array.isArray(deepBack)) { deepBack = deepBack[0]; deepLevels++ }
+  eq('读得进来的深层嵌套整份写回不抛异常：写出的文本再读回来层数不变，最里层与根预算的数字照原文写回',
+    [writeThrew, deepLevels, deepWritten.includes('"budget_usd": 1.50'), new RegExp(`\\n {${2 + 2 * WRITE_DEPTH}}2\\.50\\n`).test(deepWritten)], ['', WRITE_DEPTH, true, true])
   // 找不到读入时的原文（读入后的副本、普通 JSON.parse 读出的对象）就无从核对：交回 null，写成问题，不当成没有重复（两种模式都是）。
   // 同一份不做副本时没有重复、没有问题是阳性对照
   const plainDoc = readCostDocument<Record<string, unknown>>(doc())
