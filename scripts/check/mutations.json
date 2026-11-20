@@ -27482,6 +27482,354 @@
       ]
     },
     {
+      "id": "M-H198-hy",
+      "req": "harness",
+      "why": "字段交回的文件写成绝对路径：和 git 列出的改动对不上，新字段全看不见",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "file: rel(sf), via, line",
+      "replace": "file: sf.fileName, via, line",
+      "by": "test",
+      "kills": [
+        "字段：行号从 1 起，指向属性名那一行；交回的每一项带着它所在的文件"
+      ]
+    },
+    {
+      "id": "M-H198-hz",
+      "req": "harness",
+      "why": "字段那条路径写错：报出来的字段认不出是哪个",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "rel(sf), via, line",
+      "replace": "rel(sf), ['via']: `${via}?`, line",
+      "by": "test",
+      "kills": [
+        "字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条）"
+      ]
+    },
+    {
+      "id": "M-H198-ia",
+      "req": "harness",
+      "why": "赋值处的文件写成绝对路径：变异的位置对不上，守着的字段也报缺变异",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "{ file: rel(sf), start: n.getStart(), end: n.end }",
+      "replace": "{ file: sf.fileName, start: n.getStart(), end: n.end }",
+      "by": "test",
+      "kills": [
+        "字段：赋值处带着它所在的文件，相对仓库根写"
+      ]
+    },
+    {
+      "id": "M-H198-ib",
+      "req": "harness",
+      "why": "赋值处的起点带上前面的空白注释：挨着的变异也算守着",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "{ file: rel(sf), start: n.getStart(), end: n.end }",
+      "replace": "{ file: rel(sf), start: n.pos, end: n.end }",
+      "by": "test",
+      "kills": [
+        "字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x['f'] += …；变量的初始值、比较不算；带 readonly 的照样认"
+      ]
+    },
+    {
+      "id": "M-H198-ic",
+      "req": "harness",
+      "why": "字段不带赋值处：哪条变异都守不住它",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "sites: sites.get(decl) ?? [],",
+      "replace": "sites: [],",
+      "by": "test",
+      "kills": [
+        "字段：赋值处带着它所在的文件，相对仓库根写"
+      ]
+    },
+    {
+      "id": "M-H198-id",
+      "req": "harness",
+      "why": "找字段停下的函数不标「没展开完」：里面没找到的字段悄悄放过",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "? { cut: true as const } :",
+      "replace": "? {} :",
+      "by": "test",
+      "kills": [
+        "字段：递归类型（每展开一层都是新实例）（对象、数组别名、元组别名、包了一层 Readonly 的）找字段停得下来；停下的函数在函数名那一行记一条「没展开完」"
+      ]
+    },
+    {
+      "id": "M-H198-ie",
+      "req": "harness",
+      "why": "豁免理由不照原文交回：空理由也当成立",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "{} : { waiver })",
+      "replace": "{} : { ['waiver']: 'x' })",
+      "by": "test",
+      "kills": [
+        "字段：豁免写在上一行或同一行；标记后面空着就是空串"
+      ]
+    },
+    {
+      "id": "M-H198-if",
+      "req": "harness",
+      "why": "不交回新增的字段：报数说一个都没新加",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "return { fresh, unmarked, waived, unjustified, red",
+      "replace": "return { ['fresh']: [], unmarked, waived, unjustified, red",
+      "by": "test",
+      "kills": [
+        "字段闸门：声明那一行是这次加的才算新增，按文件、行号排；没登记变异、没豁免的报出来、红"
+      ]
+    },
+    {
+      "id": "M-H198-ig",
+      "req": "harness",
+      "why": "不交回缺变异的字段：红了却说不出是哪个",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "return { fresh, unmarked, waived, unjustified, red",
+      "replace": "return { fresh, ['unmarked']: [], waived, unjustified, red",
+      "by": "test",
+      "kills": [
+        "字段闸门：声明那一行是这次加的才算新增，按文件、行号排；没登记变异、没豁免的报出来、红"
+      ]
+    },
+    {
+      "id": "M-H198-ih",
+      "req": "harness",
+      "why": "不交回靠豁免放行的字段：放过了哪些看不见",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "return { fresh, unmarked, waived, unjustified, red",
+      "replace": "return { fresh, unmarked, ['waived']: [], unjustified, red",
+      "by": "test",
+      "kills": [
+        "字段闸门：有理由的豁免放行、不红；空理由与只有空白的理由不成立、红，有变异守着也算不成立，也不重复报缺变异"
+      ]
+    },
+    {
+      "id": "M-H198-ii",
+      "req": "harness",
+      "why": "不交回空理由的豁免：红了却说不出是哪个",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "return { fresh, unmarked, waived, unjustified, red",
+      "replace": "return { fresh, unmarked, waived, ['unjustified']: [], red",
+      "by": "test",
+      "kills": [
+        "字段闸门：有理由的豁免放行、不红；空理由与只有空白的理由不成立、红，有变异守着也算不成立，也不重复报缺变异"
+      ]
+    },
+    {
+      "id": "M-H198-ij",
+      "req": "harness",
+      "why": "有没守着的新字段也以 0 退出：红了检查链却照样往下走",
+      "file": "scripts/check/field-use.ts",
+      "find": "      return 1\n    }\n    console.log(`✓ ${NAME}：比",
+      "replace": "      return 0\n    }\n    console.log(`✓ ${NAME}：比",
+      "by": "test",
+      "kills": [
+        "字段断言入口：新加的字段没有变异守着（改动还没提交）以 1 退出，点出文件、行号与字段；旁边没改的旧字段不报"
+      ]
+    },
+    {
+      "id": "M-H198-ik",
+      "req": "harness",
+      "why": "还没加进 git 的新文件不算新加：里面的字段悄悄放过",
+      "file": "scripts/check/field-use.ts",
+      "find": ".filter(isJudgedFile)) {\n    const lines",
+      "replace": ".filter(() => false)) {\n    const lines",
+      "by": "test",
+      "kills": [
+        "字段断言入口：还没加进 git 的新文件里的字段整份算新加（头几行以后的也算），以 1 退出、点出它们"
+      ]
+    },
+    {
+      "id": "M-H198-il",
+      "req": "harness",
+      "why": "还没加进 git 的新文件只算前几行新加：后面的字段悄悄放过",
+      "file": "scripts/check/field-use.ts",
+      "find": ".split('\\n').length\n    added.set",
+      "replace": ".split('\\n').length - 4\n    added.set",
+      "by": "test",
+      "kills": [
+        "字段断言入口：还没加进 git 的新文件里的字段整份算新加（头几行以后的也算），以 1 退出、点出它们"
+      ]
+    },
+    {
+      "id": "M-H198-im",
+      "req": "harness",
+      "why": "主干上也判红：合进主干之后的那一跑把已经合入的东西再拦一遍",
+      "file": "scripts/check/field-use.ts",
+      "find": "    if (baseline.onTrunk) {\n",
+      "replace": "    if (false) {\n",
+      "by": "test",
+      "kills": [
+        "字段断言入口：HEAD 就在主干上时有没守着的新字段也只报数，以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H198-in",
+      "req": "harness",
+      "why": "检查链里不跑字段断言闸门：整道闸门形同没有",
+      "file": "package.json",
+      "find": "npm run typecheck && npm run fields && npm run compile",
+      "replace": "npm run typecheck && npm run compile",
+      "by": "test",
+      "kills": [
+        "字段断言检查链：package.json 里 fields 起的是这个入口，check 里紧跟类型检查"
+      ]
+    },
+    {
+      "id": "M-H198-io",
+      "req": "harness",
+      "why": "环境里开着按字面读路径时不去掉：单问那个文件对不上路径，新字段看不见",
+      "file": "scripts/check/field-use.ts",
+      "find": "'GIT_DIFF_OPTS', 'GIT_LITERAL_PATHSPECS', ",
+      "replace": "'GIT_DIFF_OPTS', ",
+      "by": "test",
+      "kills": [
+        "字段断言入口：环境里开着按字面读路径，照样认出那个新字段、以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-ip",
+      "req": "harness",
+      "why": "环境里改了 diff 的上下文行数时不去掉：新字段旁边没改的旧字段也算新加",
+      "file": "scripts/check/field-use.ts",
+      "find": "const GIT_ENV_DROPPED = ['GIT_DIFF_OPTS', ",
+      "replace": "const GIT_ENV_DROPPED = [",
+      "by": "test",
+      "kills": [
+        "字段断言入口：环境里把 diff 的上下文改成五行，新字段旁边没改的旧字段照样不算新加"
+      ]
+    },
+    {
+      "id": "M-H198-iq",
+      "req": "harness",
+      "why": "git 说改过的文件单问答空时当成没改：新字段悄悄放过",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (out === '') cannot(",
+      "replace": "if (out === '\\0') cannot(",
+      "by": "test",
+      "kills": [
+        "字段断言入口：git 说文件改过、单问它却答空时说无从判断，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-ir",
+      "req": "harness",
+      "why": "列没加进 git 的新文件时跟着当前目录走：在子目录里跑，新文件一个也列不出来",
+      "file": "scripts/check/field-use.ts",
+      "find": "':(top)scripts/check/'], '列没加进",
+      "replace": "'scripts/check/'], '列没加进",
+      "by": "test",
+      "kills": [
+        "字段断言入口：在子目录里跑也从仓库根问 —— 改过的文件与还没加进 git 的新文件都点得出来，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-is",
+      "req": "harness",
+      "why": "git 出错退出也当答上来了：列不出改过的文件就当一个都没改",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (r.error === undefined && r.status === 0) return r.stdout",
+      "replace": "if (r.error === undefined) return r.stdout",
+      "by": "test",
+      "kills": [
+        "字段断言入口：git 列改过的文件时出错退出，说无从判断、带上 git 的原话，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-it",
+      "req": "harness",
+      "why": "基线算不出来（浅克隆、找不到主干）时以 0 退出：什么都没比就说通过",
+      "file": "scripts/check/field-use.ts",
+      "find": "return cannot(`${baseline.why}",
+      "replace": "return 0 && cannot(`${baseline.why}",
+      "by": "test",
+      "kills": [
+        "字段断言入口：找不到主干引用时说无从判断，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-iu",
+      "req": "harness",
+      "why": "git 看不见的文件也照判：它的改动列不出来，里面的字段永远不算新",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (!visible.has(rel)) cannot(",
+      "replace": "if (false) cannot(",
+      "by": "test",
+      "kills": [
+        "字段断言入口：字段所在的文件被 git 忽略时说无从判断，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-iv",
+      "req": "harness",
+      "why": "判定文件是符号链接也照判：git 的行号是链接本身的，字段在它指向的文件里，新字段对不上",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (lstatSync(join(top, rel)).isSymbolicLink()) cannot(",
+      "replace": "if (false) cannot(",
+      "by": "test",
+      "kills": [
+        "字段断言入口：判定文件是符号链接时说无从判断，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-iw",
+      "req": "harness",
+      "why": "一个字段都没取到也照判：什么都没认出来就说没有新字段",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (fields.length === 0) cannot(",
+      "replace": "if (fields.length < 0) cannot(",
+      "by": "test",
+      "kills": [
+        "字段断言入口：一个字段都没取到时说无从判断，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-ix",
+      "req": "harness",
+      "why": "tsconfig.json 的选项有错也照建语言服务：字段与赋值处可能认不准",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (parsed.errors.length > 0) cannot(",
+      "replace": "if (parsed.errors.length > 99) cannot(",
+      "by": "test",
+      "kills": [
+        "字段断言入口：tsconfig.json 读得出、选项有错时说无从判断，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-iy",
+      "req": "harness",
+      "why": "tsconfig.json 读不出也照往下走",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (read.error !== undefined) cannot(",
+      "replace": "if (read.error === null) cannot(",
+      "by": "test",
+      "kills": [
+        "字段断言入口：tsconfig.json 写坏了（读不出）时说无从判断，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-iz",
+      "req": "harness",
+      "why": "变异登记表读不出一组变异也照往下走：说不出无从判断",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (catalog === undefined) cannot(",
+      "replace": "if (catalog === null) cannot(",
+      "by": "test",
+      "kills": [
+        "字段断言入口：变异登记表读不出一组变异时说无从判断，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H198-ja",
+      "req": "harness",
+      "why": "主干上只有一个提交时不说不适用：没有上一版可比也硬比",
+      "file": "scripts/check/field-use.ts",
+      "find": "if (baseline.kind === 'not-applicable') {",
+      "replace": "if (baseline.kind === 'not-applicable' && false) {",
+      "by": "test",
+      "kills": [
+        "字段断言入口：主干上只有一个提交时说不适用，以 0 结束"
+      ]
+    },
+    {
       "id": "M-H196-a",
       "req": "harness",
       "file": "scripts/check/debt-touch-rule.ts",

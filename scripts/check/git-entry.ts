@@ -37,11 +37,16 @@ export const QUESTIONS: readonly (readonly string[])[] = [
   ['diff', '--numstat', '-z', REV, REV],
   ['diff', '--numstat', '-z', '-w', REV, REV],
   ['diff', '--name-only', '--no-renames', '-z', REV],
+  // 字段断言闸门：改过的文件（`--no-relative` 压住本机的 `diff.relative`）、单个文件新加了哪几行（只读块头，算法钉死），ADR-198 第四节
+  ['diff', '--name-only', '--no-renames', '--no-relative', '-z', REV],
+  ['diff', '--no-renames', '--no-relative', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--diff-algorithm=myers', '--indent-heuristic', '-U0', '--inter-hunk-context=0', REV, '--', PATHS],
   // 列文件：受控文件、技能目录的索引条目、起子进程闸门的全部文件
   ['ls-files', '-z'],
   ['ls-files', '-s', '-z', '--', PATHS],
   ['ls-files', '-z', '--full-name', '--cached', '--others', '--exclude-standard', '--', ':(top)'],
   ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+  // 字段断言闸门：还没加进 git 的新文件（整份算新加），ADR-198 第四节
+  ['ls-files', '-z', '--full-name', '--others', '--exclude-standard', '--', PATHS],
   // 变异锚点一次读暂存区与 HEAD 上的一组对象（从标准输入读）
   ['cat-file', '--batch'],
   // 打包时核输入有没有没提交的改动
