@@ -174,7 +174,7 @@ import {
 import { LESSON_DRAFT_HINT, enrichedFlag, renderHtml } from './lib/report.js'
 import { categoryProblem, currentRuleVersion, lessonProblems, lessonsBoundaryNote, lessonsFile, readLessonsSeen, useLessonsDir, useSkillDir, versionState, type LessonsSeen } from './lib/lessons.js'
 import { MissingValueError, SafeHtml, escapeText, html, joinHtml, need } from './lib/safe-html.js'
-import { marked, type Tokens } from 'marked'
+import { marked, type Token, type Tokens } from 'marked'
 import { claimsLines, draftClaims, NO_FACTS, NOT_ENGLISH, UNMATCHED_BRACES } from './lib/draft-claims.js'
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
@@ -1797,13 +1797,16 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   {
     // 读表交给 marked（按 GitHub 的 Markdown 规则解析），不手写规则：手写的读表连着两轮漏掉 GitHub 的写法
     // （行首省略竖线、整行没有竖线也算一行），需求所有者 2026-11-21 定改用现成库（ADR-231 第十一节）。
-    // 整份文档交给 marked 解析，再在它给的顶层块里找：代码块里的示例、注释里的字不会被当成锚点或表格；
-    // 锚点是标题时，只在它这一节里找（遇到同级或更高级的标题就停），锚点是段落时，只认紧接着的那张表。
-    const firstTableAfter = (text: string, anchor: string): string[] | string => {
+    // 整份文档交给 marked 解析，锚点与表格都按它给的结构认，不按原文的字认：
+    // 锚点要是指定种类的块（标题或段落），且它在网页上显示出来的字（marked 的行内词元，去掉 HTML 与注释）以锚点开头；
+    // 代码块、注释里写着同样的字都不算。锚点是标题时，只在它这一节里找表（遇到同级或更高级的标题就停），
+    // 锚点是段落时，只认紧接着的那张表。表格每行第一格也按显示出来的字比。
+    const shown = (ts: Token[] | undefined): string => (ts ?? []).map(t =>
+      t.type === 'html' ? '' : 'tokens' in t && t.tokens ? shown(t.tokens) : 'text' in t ? String(t.text) : '').join('')
+    const firstTableAfter = (text: string, kind: 'heading' | 'paragraph', anchor: string): string[] | string => {
       const blocks = marked.lexer(text)
-      // 锚点只认真的标题或段落：代码块、HTML 注释等别的块里写着同样的字不算
-      const hits = blocks.flatMap((b, i) => (b.type === 'heading' || b.type === 'paragraph') && b.raw.includes(anchor) ? [i] : [])
-      if (hits.length !== 1) return `「${anchor}」在正文块里出现 ${hits.length} 次`
+      const hits = blocks.flatMap((b, i) => b.type === kind && shown((b as Tokens.Heading | Tokens.Paragraph).tokens).trim().startsWith(anchor) ? [i] : [])
+      if (hits.length !== 1) return `显示出来以「${anchor}」开头的${kind === 'heading' ? '标题' : '段落'}有 ${hits.length} 个`
       const head = blocks[hits[0]]
       let table: Tokens.Table | undefined
       for (const b of blocks.slice(hits[0] + 1)) {
@@ -1813,13 +1816,13 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
         if (b.type === 'heading' && (b as Tokens.Heading).depth <= (head as Tokens.Heading).depth) break
       }
       if (!table) return `「${anchor}」那一节里没有表`
-      return table.rows.map(row => row[0].text.trim().replace(/^\*\*(.*)\*\*$/, '$1'))
+      return table.rows.map(row => shown(row[0].tokens).trim())
     }
     const THREE = ['目标市场', '本次预算上限（美元）', '要找多少人']
     eq('product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条',
-       firstTableAfter(rf('skill/references/product-intake.md', 'utf8'), '## 必须问的三个'), THREE)
+       firstTableAfter(rf('skill/references/product-intake.md', 'utf8'), 'heading', '必须问的三个'), THREE)
     eq('SKILL.md「只问这三个」那张表列了且只列了目标市场、预算上限、要找多少人三条',
-       firstTableAfter(rf('skill/SKILL.md', 'utf8'), '**只问这三个**'), THREE)
+       firstTableAfter(rf('skill/SKILL.md', 'utf8'), 'paragraph', '只问这三个'), THREE)
   }
   criterion('F1.a')
   tension('F9', 'F1')
