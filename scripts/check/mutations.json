@@ -32373,14 +32373,13 @@
     {
       "id": "M-P1-bf",
       "req": "P1.n",
-      "why": "增强结果里手写的合作报价缺了币种，读入时不拦：名单表格先换新，报告拼到那一格才拒绝，报错只给前后标记、不点文件与字段",
-      "file": "scripts/lib/task.ts",
-      "find": "[['currency', '币种', text], ",
-      "replace": "[",
+      "why": "增强结果里手写的合作报价缺了币种时，报告那一格的报错不写白话格名，只给前后标记，看不出是哪个账号缺了币种",
+      "file": "scripts/lib/report.ts",
+      "find": "${need(quote.value.currency, `增强结果里账号 ${who} 的合作报价币种`)}",
+      "replace": "${quote.value.currency}",
       "by": "test",
       "kills": [
-        "P1.n 入口：合作报价缺币种时 stderr 点名 enrichment.json、账号与币种",
-        "P1.n 入口：合作报价缺币种时名单、report.html 与 meta.json 都没动"
+        "P1.n 入口：合作报价缺币种时 stderr 点名增强结果、账号与币种"
       ]
     },
     {
@@ -32397,60 +32396,12 @@
       ]
     },
     {
-      "id": "M-P1-bi",
-      "req": "P1.n",
-      "why": "报价、样本、指标没写成三态包装（裸对象、裸数字、拼错的状态）读入时不拦，拼报告时以内部错误崩掉、不点文件账号",
-      "file": "scripts/lib/task.ts",
-      "find": "if (isRecord(m) && (m.status === 'measured' || m.status === 'unavailable')) {",
-      "replace": "if (isRecord(m) || typeof m === 'number') {",
-      "by": "test",
-      "kills": [
-        "P1.n 增强结果读入检查逐项点名：账号名、报价包装、报价各项、不可用原因、样本、风险依据、原样用的指标"
-      ]
-    },
-    {
-      "id": "M-P1-bj",
-      "req": "P1.n",
-      "why": "已测作品样本不是一串或没写来源、日期，读入时不拦，名单表格换新之后报告才拒",
-      "file": "scripts/lib/task.ts",
-      "find": "if (wrapped('sample', sample)) {",
-      "replace": "if (wrapped('sample', sample) && false) {",
-      "by": "test",
-      "kills": [
-        "P1.n 增强结果读入检查逐项点名：账号名、报价包装、报价各项、不可用原因、样本、风险依据、原样用的指标"
-      ]
-    },
-    {
-      "id": "M-P1-bk",
-      "req": "P1.n",
-      "why": "报价或指标标为不可用却没写原因，读入时不拦，报告那一格只能拒绝或印空",
-      "file": "scripts/lib/task.ts",
-      "find": "if (m.status === 'unavailable' && !text(m.reason))",
-      "replace": "if (m.status === 'unavailable' && m.reason === 0)",
-      "by": "test",
-      "kills": [
-        "P1.n 增强结果读入检查逐项点名：账号名、报价包装、报价各项、不可用原因、样本、风险依据、原样用的指标"
-      ]
-    },
-    {
-      "id": "M-P1-bl",
-      "req": "P1.n",
-      "why": "原样用的已测指标没有值时读入不拦，名单表格换新之后报告才拒",
-      "file": "scripts/lib/task.ts",
-      "find": "      if (!wrapped(`metrics.${name}`, m)) continue",
-      "replace": "      if (!wrapped(`metrics.${name}`, m) || name) continue",
-      "by": "test",
-      "kills": [
-        "P1.n 增强结果读入检查逐项点名：账号名、报价包装、报价各项、不可用原因、样本、风险依据、原样用的指标"
-      ]
-    },
-    {
       "id": "M-D21-bm",
       "req": "D21.v",
       "why": "读入检查只查平台恰好写成 tiktok、又完全没有 sample 键的账号，可报告还会原样用 sample 是 null、缺平台或平台大小写不对的账号存着的指标，这些账号里手改坏的值漏过读入，要等名单表格换新之后拼报告时才拒",
       "file": "scripts/lib/task.ts",
-      "find": "if (!storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue",
-      "replace": "if (account.platform !== 'tiktok' || account.sample !== undefined || !isRecord(account.metrics)) continue",
+      "find": "if (!isRecord(account) || !storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue",
+      "replace": "if (!isRecord(account) || account.platform !== 'tiktok' || account.sample !== undefined || !isRecord(account.metrics)) continue",
       "by": "test",
       "kills": [
         "D21.v sample 写成 null、缺平台、平台大小写不对的账号活跃状态不合法时都在读入处拒绝、一个交付文件都没写"

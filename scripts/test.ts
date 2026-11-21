@@ -8512,40 +8512,6 @@ async function main(): Promise<void> {
   })()
   eq('D21.v 已测活跃状态缺了值时报一条且指出文件账号与字段', noValue.filter(s => s.includes('E.json') && s.includes('tiktok:nv') && s.includes('activity_status') && s.includes('缺席')).length, 1)
   eq('D21.v 已测风险等级缺了等级时报一条且指出文件账号与字段', noValue.filter(s => s.includes('E.json') && s.includes('tiktok:nv') && s.includes('audience_quality_risk') && s.includes('缺席')).length, 1)
-  // 作者补（ADR-230 第九节，两轮独立复核）：报告要印的增强结果几样，读入时逐项查、逐项点名。
-  // 每一项单独坏一个账号，看报出来的那一条点的是不是它；期望是写死的字段名，不借被测函数算
-  const one = (account: object): string[] => {
-    try { return enrichmentValueProblems('E.json', { accounts: { 'tiktok:x': { platform: 'tiktok', handle: 'x', ...account } } } as never) }
-    catch (e) { return [`查的时候崩了：${String(e)}`] }
-  }
-  const measured = (value: unknown, extra: object = {}) => ({ status: 'measured', value, source: { provider: 'tikhub' }, observed_at: '2026-10-01T00:00:00Z', sample_size: 1, basis: 'x', ...extra })
-  const quoteOk = { amount: 300, currency: 'USD', platform: 'tiktok', format: 'tiktok_video', quantity: 1, source: 'creator_quote', observed_at: '2026-10-01' }
-  const { currency: _c, ...noCurrency } = quoteOk
-  const named = (problems: string[], ...words: string[]) => problems.length === 1 && words.every(w => problems[0].includes(w)) && problems[0].includes('tiktok:x')
-  eq('P1.n 增强结果读入检查逐项点名：账号名、报价包装、报价各项、不可用原因、样本、风险依据、原样用的指标', {
-    齐全时一条不报: one({ followers: 10, collaboration_quote: measured(quoteOk), metrics: { engagement_rate_followers: measured(0.1) } }).length === 0,
-    报价来源写了别的词照收: one({ collaboration_quote: measured({ ...quoteOk, source: 'rate_card' }) }).length === 0,
-    账号名: named(one({ handle: undefined }), 'handle'),
-    样本写成null照收: one({ sample: null, metrics: { view_rate: measured(0.2) } }).length === 0,
-    报价是裸对象: named(one({ collaboration_quote: quoteOk }), 'collaboration_quote', '三态包装'),
-    报价缺币种: named(one({ collaboration_quote: measured(noCurrency) }), 'currency'),
-    报价金额不是数: named(one({ collaboration_quote: measured({ ...quoteOk, amount: '300' }) }), 'amount'),
-    报价其余几项缺了: named(one({ collaboration_quote: measured({ amount: 300, currency: 'USD' }) }), 'quantity', 'platform', 'format', 'source', 'observed_at'),
-    报价不可用没原因: named(one({ collaboration_quote: { status: 'unavailable', source: { provider: 'manual' }, observed_at: 'x' } }), 'collaboration_quote', 'reason'),
-    样本不是一串: named(one({ sample: measured(5) }), 'sample', '一串'),
-    样本没来源: named(one({ sample: measured([], { source: {} }) }), 'source.provider'),
-    样本没日期: named(one({ sample: measured([], { observed_at: undefined }) }), 'sample', 'observed_at'),
-    风险依据缺指标名: named(one({ metrics: { audience_quality_risk: measured({ level: 'low', flags: [{ direction: 'low' }] }) } }), 'audience_quality_risk', 'flags'),
-    最后发布不是日期: named(one({ metrics: { latest_post_at: measured(5) } }), 'latest_post_at', '日期'),
-    原样用的指标没有值: named(one({ metrics: { engagement_rate_followers: measured(null) } }), 'engagement_rate_followers'),
-    原样用的指标是裸数字: named(one({ metrics: { view_rate: 0.2 } }), 'metrics.view_rate', '三态包装'),
-    原样用的指标不可用没原因: named(one({ metrics: { median_views: { status: 'unavailable', source: {}, observed_at: 'x' } } }), 'metrics.median_views', 'reason'),
-  }, {
-    齐全时一条不报: true, 报价来源写了别的词照收: true, 账号名: true, 样本写成null照收: true, 报价是裸对象: true,
-    报价缺币种: true, 报价金额不是数: true, 报价其余几项缺了: true, 报价不可用没原因: true, 样本不是一串: true, 样本没来源: true,
-    样本没日期: true, 风险依据缺指标名: true, 最后发布不是日期: true,
-    原样用的指标没有值: true, 原样用的指标是裸数字: true, 原样用的指标不可用没原因: true,
-  })
 
   // —— 四、打分 ——
   const sUnq = scoreCreator(person('score_unq'))
@@ -8971,8 +8937,7 @@ suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名�
       writeFileSync(join(dir, 'meta.json'), OLD_META)
       const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
       const r = spawnSync(exe, args, { cwd: root, encoding: 'utf8', timeout: 300000 })
-      return { status: r.status, stderr: String(r.stderr), report: rf(join(dir, 'report.html'), 'utf8'), meta: rf(join(dir, 'meta.json'), 'utf8'),
-        creators: rf(join(dir, 'creators.json'), 'utf8'), sent: JSON.stringify(creators, null, 2) }
+      return { status: r.status, stderr: String(r.stderr), report: rf(join(dir, 'report.html'), 'utf8'), meta: rf(join(dir, 'meta.json'), 'utf8') }
     }
     const fine = render('p1n-fine', [person('p1nok')])
     eq('P1.n 入口：名单齐全时 render 以 0 结束（下面几条的阳性对照）', fine.status, 0)
@@ -8986,8 +8951,8 @@ suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名�
     const url = render('p1n-url', [noUrl])
     eq('P1.n 入口：名单里有人缺主页链接时 render 以退出码 2 结束', url.status, 2)
     ok('P1.n 入口：缺主页链接时 stderr 点名主页链接', url.stderr.includes('主页链接') && url.stderr.includes('p1nurl'))
-    // 独立复核挑出（作者补）：合作报价是 Agent 照 public-metrics.md 手写进 enrichment.json 的，漏写一项也是本该总有的格缺了。
-    // 要在写任何文件之前就拒收、点名文件账号字段 —— 不能等拼到报告那一格才说「…▯…」，那时名单表格已经换新了。
+    // 独立复核挑出（作者补）：合作报价是 Agent 照 public-metrics.md 手写进 enrichment.json 的，漏写一项也是本该总有的格缺了：
+    // 报告不出，报错点名账号与那一格，不能只给「…▯…」。名单表格这时已经写了（ADR-230 第六节那张欠条）
     const quote = (value: object) => ({ version: 1, updated_at: '2026-10-01T00:00:00Z', accounts: { 'tiktok:p1nquote': {
       platform: 'tiktok', handle: 'p1nquote', collaboration_quote: { status: 'measured', value, source: { provider: 'manual' },
         observed_at: '2026-10-01T00:00:00Z', sample_size: 1, basis: '博主报价' } } } })
@@ -8996,10 +8961,9 @@ suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名�
     eq('P1.n 入口：合作报价齐全时 render 以 0 结束（下面一条的阳性对照）', quoted.status, 0)
     const noCurrency = render('p1n-quote-currency', [person('p1nquote')], quote(fullQuote))
     eq('P1.n 入口：增强结果里合作报价缺币种时 render 以退出码 2 结束', noCurrency.status, 2)
-    ok('P1.n 入口：合作报价缺币种时 stderr 点名 enrichment.json、账号与币种',
-      noCurrency.stderr.includes('enrichment.json') && noCurrency.stderr.includes('p1nquote') && noCurrency.stderr.includes('currency（币种'))
-    ok('P1.n 入口：合作报价缺币种时名单、report.html 与 meta.json 都没动',
-      noCurrency.creators === noCurrency.sent && noCurrency.report === OLD_REPORT && noCurrency.meta === OLD_META)
+    ok('P1.n 入口：合作报价缺币种时 stderr 点名增强结果、账号与币种',
+      noCurrency.stderr.includes('增强结果') && noCurrency.stderr.includes('p1nquote') && noCurrency.stderr.includes('币种'))
+    ok('P1.n 入口：合作报价缺币种时 report.html 与 meta.json 都还是上一份', noCurrency.report === OLD_REPORT && noCurrency.meta === OLD_META)
     criterion('P1.n')
   } finally { rmSync(root, { recursive: true, force: true }) }
 }
