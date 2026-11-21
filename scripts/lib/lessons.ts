@@ -50,7 +50,7 @@ const VERSION_RE = /^[0-9a-f]{64}$/
 
 /**
  * 品类名能不能当文件名用。品类名原样当文件名（读同名那一份，D31.l），所以只拦会让它指到别处或建不成文件的写法：
- * 带路径分隔符、以点开头（`.`、`..`、隐藏文件）、控制字符、首尾空白（同名比的是原字，首尾空白肉眼看不出，宁可拒），
+ * 带路径分隔符、以点开头（`.`、`..`、隐藏文件）、以减号开头（`lessons` 命令会把 `--护肤` 当成开关，存了也读不到）、控制字符、首尾空白（同名比的是原字，首尾空白肉眼看不出，宁可拒），
  * 以及 Windows 上建不成或会指到设备的写法（`< > : " | ? *`、`CON`、`NUL`、`COM1` 这类保留名、以点结尾）：同一份经验库换到 Windows 上也要读得到。
  */
 export function categoryProblem(name: unknown): string | undefined {
@@ -60,6 +60,7 @@ export function categoryProblem(name: unknown): string | undefined {
   if (s !== s.trim()) return '首尾带空白'
   if (/[/\\]/.test(s)) return '带路径分隔符'
   if (s.startsWith('.')) return '以点开头'
+  if (s.startsWith('-')) return '以减号开头（命令行会把它当成开关）'
   if (/[.\s]$/.test(s)) return '以点或空白结尾'
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(s)) return '带控制字符'

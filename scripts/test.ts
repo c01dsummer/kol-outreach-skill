@@ -23694,9 +23694,9 @@ suite('D31', '复评经验库：品类名、五项、规则版本与三种状态
     eq('D31.a 经验库默认放在 memory/lessons/ 下，每个品类一个以品类名命名的 .json 文件',
       [lessonsFile('护肤'), lessonsFile('home decor')], [join('memory', 'lessons', '护肤.json'), join('memory', 'lessons', 'home decor.json')])
     const GOOD_NAMES = ['护肤', 'home decor', 'creators', 'console', 'a.b', 'Z'.repeat(80)]
-    const BAD_NAMES: unknown[] = ['', '  ', ' 护肤', '护肤 ', 'a/b', 'a\\b', '.hidden', '..', '护肤.', 'a\u0001b', 'a\u007fb', 'a:b', 'a?', 'a*', 'a<b>', 'a|b', 'a"b',
+    const BAD_NAMES: unknown[] = ['', '  ', ' 护肤', '护肤 ', 'a/b', 'a\\b', '.hidden', '..', '--护肤', '-a', '护肤.', 'a\u0001b', 'a\u007fb', 'a:b', 'a?', 'a*', 'a<b>', 'a|b', 'a"b',
       'CON', 'nul', 'Com1', 'lpt9.txt', 'Z'.repeat(81), 42, null]
-    eq('D31.a 合规的品类名（中文、带空格、80 个字以内）收；空的、首尾空白、带路径分隔符、以点开头或结尾、带控制字符或 Windows 不许进文件名的字符、是 Windows 保留设备名、超过 80 个字、不是字符串的都拒',
+    eq('D31.a 合规的品类名（中文、带空格、80 个字以内）收；空的、首尾空白、带路径分隔符、以点开头或结尾、以减号开头、带控制字符或 Windows 不许进文件名的字符、是 Windows 保留设备名、超过 80 个字、不是字符串的都拒',
       [GOOD_NAMES.map(n => [n, categoryProblem(n) === undefined]), BAD_NAMES.map(n => [n, categoryProblem(n) !== undefined])],
       [GOOD_NAMES.map(n => [n, true]), BAD_NAMES.map(n => [n, true])])
     criterion('D31.a')

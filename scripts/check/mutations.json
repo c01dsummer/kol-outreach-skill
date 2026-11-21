@@ -26352,7 +26352,7 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "D31.a 合规的品类名（中文、带空格、80 个字以内）收；空的、首尾空白、带路径分隔符、以点开头或结尾、带控制字符或 Windows 不许进文件名的字符、是 Windows 保留设备名、超过 80 个字、不是字符串的都拒",
+        "D31.a 合规的品类名（中文、带空格、80 个字以内）收；空的、首尾空白、带路径分隔符、以点开头或结尾、以减号开头、带控制字符或 Windows 不许进文件名的字符、是 Windows 保留设备名、超过 80 个字、不是字符串的都拒",
         "D31.a 品类名不合规（带路径分隔符、以点开头、只有空白）时 add 与 read 都以 2 退出，经验库目录里不多文件；合规的追加写进同一个文件"
       ]
     },
@@ -26622,7 +26622,7 @@
       "replace": "  if (false as boolean) return",
       "by": "test",
       "kills": [
-        "D31.a 合规的品类名（中文、带空格、80 个字以内）收；空的、首尾空白、带路径分隔符、以点开头或结尾、带控制字符或 Windows 不许进文件名的字符、是 Windows 保留设备名、超过 80 个字、不是字符串的都拒"
+        "D31.a 合规的品类名（中文、带空格、80 个字以内）收；空的、首尾空白、带路径分隔符、以点开头或结尾、以减号开头、带控制字符或 Windows 不许进文件名的字符、是 Windows 保留设备名、超过 80 个字、不是字符串的都拒"
       ]
     },
     {
@@ -26630,8 +26630,8 @@
       "req": "D31",
       "why": "写入时保存失败报成输入问题：用户以为是草稿不合格，去改草稿，其实是磁盘或权限出了事",
       "file": "scripts/lessons.ts",
-      "find": "不能当成已写入。`)\n    process.exit(EXIT.save)",
-      "replace": "不能当成已写入。`)\n    process.exit(EXIT.input)",
+      "find": "不能当成已写入。`)\n      return EXIT.save",
+      "replace": "不能当成已写入。`)\n      return EXIT.input",
       "by": "selfcheck",
       "kills": [
         "lessons add 经验库存在但保存失败时以 6 结束，stdout 为空，经验库原字节，stderr 写出经验库路径与「保存失败」"
@@ -26647,6 +26647,18 @@
       "by": "selfcheck",
       "kills": [
         "lessons 子命令不认识、缺参数、参数重复、多出来或缺值时以 2 拒绝并给出用法，stdout 为空，经验库原字节，不写读取记录"
+      ]
+    },
+    {
+      "id": "M-D31-z",
+      "req": "D31",
+      "why": "读取记录保存失败时不删上一次留下的那份：render 把别的品类、别的几条当成这一次读的写进数据边界",
+      "file": "scripts/lessons.ts",
+      "find": "    try { rmSync(recordFile, { force: true }) }",
+      "replace": "    try { void rmSync }",
+      "by": "selfcheck",
+      "kills": [
+        "lessons read 读取记录保存失败时以 6 结束，stdout 为空，删掉上一次留下的读取记录，stderr 写出「保存失败」与「没有读经验库」"
       ]
     },
     {

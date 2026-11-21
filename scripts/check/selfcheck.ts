@@ -12874,6 +12874,14 @@ group('lessons-entry', [], () => {
   const parse = (s: string): unknown => { try { return JSON.parse(s) } catch { return undefined } }
   if (list.ok) named('lessons list 以 0 结束，stdout 是一份 JSON：categories 列出已有品类名',
     list.status === 0 && isDeepStrictEqual(parse(list.stdout), { categories: ['kx'] }), `退出=${list.status}，stdout=${JSON.stringify(list.stdout)}`)
+  // 读取记录保存失败：上一次留下的读取记录设成只读（root 跑也拒，见 lib/atomic.ts 的权限位那一问），
+  // 它记的是别的品类 —— 留着的话 render 会当成这一次读的
+  const recordFile = join(task, 'lessons-read.json')
+  writeFileSync(recordFile, '{"category":"旧品类","status":"ok","lessons":[]}\n'); chmodSync(recordFile, 0o444)
+  const rr = runBoth('lessons read 保存失败：旧读取记录只读', [entry, 'read', '--dir', task, '--category', 'kx'], cwd, { status: 6, soft: [0, 1, 2] })
+  if (rr.ok) named('lessons read 读取记录保存失败时以 6 结束，stdout 为空，删掉上一次留下的读取记录，stderr 写出「保存失败」与「没有读经验库」',
+    rr.status === 6 && rr.stdout === '' && !existsSync(recordFile) && rr.stderr.includes('保存失败') && rr.stderr.includes('没有读经验库'),
+    `退出=${rr.status}，记录还在=${existsSync(recordFile)}，stderr=${stderrTail(rr.stderr)}`)
   // 保存失败：经验库文件只读（root 跑也拒，见 lib/atomic.ts 的权限位那一问）
   chmodSync(store, 0o444)
   const ro = runBoth('lessons add 保存失败：经验库只读', [entry, 'add', '--category', 'kx', '--entry', draft, '--confirmed-by-user'], cwd, { status: 6, soft: [0, 1, 2] })
