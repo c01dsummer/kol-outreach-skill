@@ -92,7 +92,7 @@ TikTok 走视频搜索，**IG 缺省走 Reels 搜索**，取得作品及作者�
 
 **开始评审之前：** 任务有 `brand_calibration` 时，collect 第一次建出任务目录后、写任何评审之前，运行一次 `npm run --silent calibration -- version --dir output/{task}`，把手写的 `version` 换成按内容算出的 `sha256:` 内容哈希；评审记下的品牌版本就是换过之后的这个值。任务建好后原地改了校准内容，也是改完运行一次这条命令换 version，不手写哈希；旧评审照旧待重评，须实际重评。这条命令不要与同一任务的 collect、enrich、render 同时运行（不加锁）。已有评审、version 还是手写标签的旧任务不必为换格式而运行：内容没变也会让全部旧评审待重评。退出码与没有校准时怎么转述见 `references/product-intake.md`。
 
-**先读复评经验（D31）：** 写任何评审之前，运行 `npm run --silent lessons -- list` 看已有的品类名，给本任务定一个品类名（能沿用就沿用，不为此问用户），再运行 `npm run --silent lessons -- read --dir output/{task} --category <品类名>`，把读到的经验当作这次判断的参考。没有这一品类、读不出来都照常往下做，报告的数据边界会替你说明。经验只影响你的内容判断，不改评分、分层与去重；按人工复评的分歧起草经验、用户确认后写入，见 `references/semantic-fit.md`「复评经验」一节。
+**先读复评经验（D31）：** 写任何评审之前，运行 `npm run --silent lessons -- list` 看已有的品类名，给本任务定一个品类名（能沿用就沿用，不为此问用户），再运行 `npm run --silent lessons -- read --dir output/{task} --category <品类名>`，把读到的经验当作这次判断的参考。没有这一品类、读不出来都照常往下做，报告的数据边界会替你说明。经验只影响你的内容判断，不改评分、分层与去重；重出的报告里有人工与你的分歧时，交付时主动按分歧附上经验草稿、用户确认后才写入，见 `references/semantic-fit.md`「复评经验」一节。
 
 **硬指标按规则算分**：粉丝区间、内容积累、有无邮箱、商务合作信号。这部分是客观的。
 

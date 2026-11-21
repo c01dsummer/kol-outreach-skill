@@ -18,6 +18,7 @@ output/{product}-{YYYYMMDDHHmm}/
 ├── agent-review.json Agent 判断与冻结轮次正本 —— Agent 在此保存判断和草稿
 ├── manual-feedback.csv 人工原作答 —— 模板命令创建／显式追加，报告只读
 ├── enrichment.json    分平台公开样本、指标、报价与查询状态（运行 enrich 后）
+├── lessons-read.json 语义筛选前读了哪份复评经验、读到哪几条（运行 lessons read 后）
 ├── task.json      采集状态（断点续跑用）
 └── meta.json      本次任务元数据
 ```
@@ -62,6 +63,7 @@ npm run render -- --dir output/{task} --ignore-memory   # 只在用户明确接�
 - **名单从任务目录的 `creators.json` 来**，也就是 collect 保存的当前名单。`creators.raw.json`（采集原件）只用来认关联账号，不往名单里加人；它不在时拿 `creators.json` 顶上。`creators.json` 不在时导出一份空名单，照常以 0 结束。
 - **判断从 `agent-review.json` 来**。这份不在时，render 把 `creators.json` 旧行里带的判断（`fit`、`fit_reason`、草稿等）迁成正本存下，再照正本出名单。
 - `enrichment.json` 可以没有，没有就是公开指标全部未查询。
+- `lessons-read.json` 可以没有，没有就是这次没读复评经验库，数据边界照这样说；它不改名单、分层与评分（见 `references/semantic-fit.md`「复评经验」）。
 - 跨任务记忆 `memory/creators.json` 与 collect 一样，按 render 进程的当前目录找（用 `npm run` 时就是仓库根目录）。文件还不存在时 `memory_status` 是 `absent`，render 会新建它、记下这批推荐。
 
 能导出的最小任务目录长这样：render 以 0 结束，写出 `kol.csv`、`kol.xlsx`、`report.html`、`meta.json`，并存下 `agent-review.json`。照着试的时候，先用 `cp -r` 把整个仓库（连同 `node_modules`）复制一份一次性的副本，把这两个文件放进副本里的 `output/demo/`，在副本根目录跑 `npm run render -- --dir output/demo`。这样 `memory/creators.json` 和 `output/` 都落在副本里，用完整份删掉；直接在仓库根目录跑，这个示例里的人会被记进真的跨任务记忆。`--ignore-memory` 不起隔离作用：它只让读不出的记忆不拦导出，读得出时照常去重、照常写回。

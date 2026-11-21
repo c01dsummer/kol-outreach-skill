@@ -10,7 +10,7 @@
  * 看不到时不当成没有，也不拿任何东西去盖掉原文件（D31.t、D31.u）。
  */
 import { createHash } from 'node:crypto'
-import { lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './atomic.js'
 import { readCostDocument, sourceDuplicates } from './cost-json.js'
@@ -50,7 +50,8 @@ const VERSION_RE = /^[0-9a-f]{64}$/
 
 /**
  * 品类名能不能当文件名用。品类名原样当文件名（读同名那一份，D31.l），所以只拦会让它指到别处或建不成文件的写法：
- * 带路径分隔符、以点开头（`.`、`..`、隐藏文件）、控制字符、首尾空白（同名比的是原字，首尾空白肉眼看不出，宁可拒）。
+ * 带路径分隔符、以点开头（`.`、`..`、隐藏文件）、控制字符、首尾空白（同名比的是原字，首尾空白肉眼看不出，宁可拒），
+ * 以及 Windows 上建不成或会指到设备的写法（`< > : " | ? *`、`CON`、`NUL`、`COM1` 这类保留名、以点结尾）：同一份经验库换到 Windows 上也要读得到。
  */
 export function categoryProblem(name: unknown): string | undefined {
   const bad = textProblem(name)
@@ -59,8 +60,11 @@ export function categoryProblem(name: unknown): string | undefined {
   if (s !== s.trim()) return '首尾带空白'
   if (/[/\\]/.test(s)) return '带路径分隔符'
   if (s.startsWith('.')) return '以点开头'
+  if (/[.\s]$/.test(s)) return '以点或空白结尾'
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(s)) return '带控制字符'
+  if (/[<>:"|?*]/.test(s)) return '带 Windows 不许进文件名的字符'
+  if (/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i.test(s)) return '是 Windows 的保留设备名'
   if ([...s].length > 80) return '超过 80 个字'
   return undefined
 }
@@ -104,6 +108,7 @@ function storeProblem(text: string): { problem: string } | { lessons: Lesson[] }
   catch (e) { return { problem: e instanceof Error ? e.message : String(e) } }
   const dups = duplicateKeyProblems(sourceDuplicates(doc))
   if (dups.length) return { problem: `写重复的键：${dups.join('；')}` }
+  if (doc.version !== 1) return { problem: `version 不是 1（这里是 ${JSON.stringify(doc.version)}），认不得这一版的写法` }
   if (!Array.isArray(doc.lessons)) return { problem: 'lessons 不是数组' }
   for (const [i, entry] of doc.lessons.entries()) {
     const bad = lessonProblems(entry)
@@ -134,7 +139,8 @@ export function currentRuleVersion(): string {
     const hash = createHash('sha256')
     const walk = (rel: string): void => {
       const abs = rel === '' ? SKILL : join(SKILL, rel)
-      const st = lstatSync(abs)
+      // skill/ 本身可以是一条符号链接（装到用户机器上常这样）：根上跟着链接走，里面的链接只记指向
+      const st = rel === '' ? statSync(abs) : lstatSync(abs)
       if (st.isSymbolicLink()) { hash.update(`l\0${rel}\0${readlinkSync(abs)}\0`); return }
       if (st.isDirectory()) {
         hash.update(`d\0${rel}\0`)

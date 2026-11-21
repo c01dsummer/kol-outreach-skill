@@ -23691,9 +23691,10 @@ suite('D31', '复评经验库：品类名、五项、规则版本与三种状态
   try {
     eq('D31.a 经验库默认放在 memory/lessons/ 下，每个品类一个以品类名命名的 .json 文件',
       [lessonsFile('护肤'), lessonsFile('home decor')], [join('memory', 'lessons', '护肤.json'), join('memory', 'lessons', 'home decor.json')])
-    const GOOD_NAMES = ['护肤', 'home decor', 'creators', 'Z'.repeat(80)]
-    const BAD_NAMES: unknown[] = ['', '  ', ' 护肤', '护肤 ', 'a/b', 'a\\b', '.hidden', '..', 'a\u0001b', 'a\u007fb', 'Z'.repeat(81), 42, null]
-    eq('D31.a 合规的品类名（中文、带空格、80 个字以内）收；空的、首尾空白、带路径分隔符、以点开头、带控制字符、超过 80 个字、不是字符串的都拒',
+    const GOOD_NAMES = ['护肤', 'home decor', 'creators', 'console', 'a.b', 'Z'.repeat(80)]
+    const BAD_NAMES: unknown[] = ['', '  ', ' 护肤', '护肤 ', 'a/b', 'a\\b', '.hidden', '..', '护肤.', 'a\u0001b', 'a\u007fb', 'a:b', 'a?', 'a*', 'a<b>', 'a|b', 'a"b',
+      'CON', 'nul', 'Com1', 'lpt9.txt', 'Z'.repeat(81), 42, null]
+    eq('D31.a 合规的品类名（中文、带空格、80 个字以内）收；空的、首尾空白、带路径分隔符、以点开头或结尾、带控制字符或 Windows 不许进文件名的字符、是 Windows 保留设备名、超过 80 个字、不是字符串的都拒',
       [GOOD_NAMES.map(n => [n, categoryProblem(n) === undefined]), BAD_NAMES.map(n => [n, categoryProblem(n) !== undefined])],
       [GOOD_NAMES.map(n => [n, true]), BAD_NAMES.map(n => [n, true])])
     criterion('D31.a')
@@ -23733,10 +23734,14 @@ suite('D31', '复评经验库：品类名、五项、规则版本与三种状态
       renameSync(join(skill, 'references', 'semantic-fit.md'), join(skill, 'references', 'fit.md')); const renamed = currentRuleVersion()
       renameSync(join(skill, 'references', 'fit.md'), join(skill, 'references', 'semantic-fit.md'))
       unlinkSync(join(skill, 'link.md')); symlinkSync('references/semantic-fit.md', join(skill, 'link.md')); const relinked = currentRuleVersion()
+      // skill/ 本身是一条符号链接时，跟着链接看里面的内容
+      symlinkSync(skill, join(root, 'skill-link')); useSkillDir(join(root, 'skill-link'))
+      const viaLink = currentRuleVersion(); writeFileSync(join(skill, 'SKILL.md'), '# rules v3\n'); const viaLinkChanged = currentRuleVersion()
+      writeFileSync(join(skill, 'SKILL.md'), '# rules v1\n')
       useSkillDir(join(root, 'no-skill-here')); const missing = currentRuleVersion()
-      eq('D31.i 规则版本是 skill/ 全部内容的 64 位十六进制指纹：同样的内容两次一样，改一个字节、多一个文件、改文件名、符号链接改指向都变，改回去复原；skill/ 读不出来时是「未知」',
-        [/^[0-9a-f]{64}$/.test(v1), again === v1, byte !== v1, back === v1, added !== v1, renamed !== v1, relinked !== v1, missing],
-        [true, true, true, true, true, true, true, '未知'])
+      eq('D31.i 规则版本是 skill/ 全部内容的 64 位十六进制指纹：同样的内容两次一样，改一个字节、多一个文件、改文件名、符号链接改指向都变，改回去复原；skill/ 本身是符号链接时里面改了也变；skill/ 读不出来时是「未知」',
+        [/^[0-9a-f]{64}$/.test(v1), again === v1, byte !== v1, back === v1, added !== v1, renamed !== v1, relinked !== v1, viaLinkChanged !== viaLink, missing],
+        [true, true, true, true, true, true, true, true, '未知'])
     } finally { useSkillDir('skill') }
     criterion('D31.i')
 
@@ -23756,9 +23761,8 @@ suite('D31', '复评经验库：品类名、五项、规则版本与三种状态
     eq('D31.v 数据边界写明读进来的每一条经验（局面原文），按读到的次序一条不落',
       [okNote.includes('护肤'), ['局面甲', '局面乙', '局面丙'].every(s => at(s) >= 0)], [true, true])
     criterion('D31.v')
-    eq('D31.k 写于规则改动之前、版本未知的经验照样列出，每条紧跟着写明它属哪种状态',
+    eq('D31.v 写于规则改动之前、版本未知的经验照样列出，每条紧跟着写明它属哪种状态',
       parts.map(at).every((p, i, all) => p >= 0 && (i === 0 || p > all[i - 1]!)), true)
-    criterion('D31.k')
     const SEEN: [string, LessonsSeen][] = [
       ['没读过', { status: 'not_read' }],
       ['读取记录读不出来', { status: 'record_unreadable', detail: 'RECORD-DETAIL' }],
@@ -23826,21 +23830,21 @@ suite('D31', '复评经验库：lessons 命令的读、写与列名')
     })
     eq('D31.d 草稿缺局面、教训、证据、归因任一项时 add 以 2 退出，不写入',
       lacking, ['situation', 'lesson', 'evidence', 'attribution'].map(k => [k, 2, false]))
-    const added = run('add', '--category', '护肤', '--entry', draft(DRAFT), '--confirmed-by-user')
+    const t0 = Date.now(), added = run('add', '--category', '护肤', '--entry', draft(DRAFT), '--confirmed-by-user'), t1 = Date.now()
     const written = json(existsSync(store) ? rf(store, 'utf8') : '')
     const entry = written?.lessons?.[0]
     useSkillDir(join(cwd, 'skill'))
     let expectedVersion: string
     try { expectedVersion = currentRuleVersion() } finally { useSkillDir('skill') }
-    eq('D31.e 草稿自带规则版本或写入时间时整条不写入（以 2 退出）；不带时由 add 在写入那一刻填上：规则版本是当前 skill/ 的指纹，写入时间是一个时刻',
-      [carried, added.status, entry?.rule_version === expectedVersion, !Number.isNaN(Date.parse(entry?.added_at)),
+    eq('D31.e 草稿自带规则版本或写入时间时整条不写入（以 2 退出）；不带时由 add 在写入那一刻填上：规则版本是当前 skill/ 的指纹，写入时间落在这次 add 跑的那段时间里',
+      [carried, added.status, entry?.rule_version === expectedVersion, Date.parse(entry?.added_at) >= t0 - 1000 && Date.parse(entry?.added_at) <= t1 + 1000,
         isDeepStrictEqual(Object.fromEntries(Object.entries(entry ?? {}).filter(([k]) => k !== 'rule_version' && k !== 'added_at')), DRAFT)],
       [CARRY.map(([what]) => [what, 2, false]), 0, true, true, true])
     criterion('D31.e')
     eq('D31.c add 只在 memory/lessons/ 下写这一品类的文件：当前目录下多出来的只有 memory/lessons/护肤.json，skill/ 一字不变',
       [files(cwd).filter(p => !before.includes(p)), isDeepStrictEqual(skillBytes(), skillBefore)], [[join('memory', 'lessons', '护肤.json')], true])
     criterion('D31.c')
-    const second = run('add', '--category', '护肤', '--entry', draft({ ...DRAFT, situation: '第二种局面', attribution: '混杂' }), '--confirmed-by-user')
+    const second = run('add', '--category', '护肤', '--entry', draft({ ...DRAFT, situation: '第二种局面', attribution: '混杂', state: '同一版本', index: 99 }), '--confirmed-by-user')
     eq('D31.a 品类名不合规（带路径分隔符、以点开头、只有空白）时 add 与 read 都以 2 退出，经验库目录里不多文件；合规的追加写进同一个文件',
       [['a/b', '..', ' '].flatMap(bad => [run('add', '--category', bad, '--entry', draft(DRAFT), '--confirmed-by-user').status, run('read', '--dir', task, '--category', bad).status]),
         files(join(cwd, 'memory', 'lessons')), second.status, json(existsSync(store) ? rf(store, 'utf8') : '')?.lessons?.map((l: any) => l.situation)],
@@ -23879,7 +23883,7 @@ suite('D31', '复评经验库：lessons 命令的读、写与列名')
 
     // D31.t、D31.u：这一份读不出来
     const BROKEN: [string, string][] = [['坏 JSON', '{"version":1,"lessons":['], ['重复的键', '{"version":1,"lessons":[],"lessons":[]}'],
-      ['lessons 不是数组', '{"version":1,"lessons":{}}'], ['有一条不合格', JSON.stringify({ version: 1, lessons: [{ ...DRAFT }] })], ['根是数组', '[]']]
+      ['lessons 不是数组', '{"version":1,"lessons":{}}'], ['有一条不合格', JSON.stringify({ version: 1, lessons: [{ ...DRAFT }] })], ['根是数组', '[]'], ['认不得的版本', '{"version":9,"lessons":[]}']]
     const broken = BROKEN.map(([what, text], i) => {
       const category = `坏${i}`, file = join(cwd, 'memory', 'lessons', `${category}.json`)
       writeFileSync(file, text)
@@ -23887,7 +23891,7 @@ suite('D31', '复评经验库：lessons 命令的读、写与列名')
       const a = run('add', '--category', category, '--entry', draft(DRAFT), '--confirmed-by-user')
       return { what, r, rec, a, kept: rf(file, 'utf8') === text }
     })
-    eq('D31.t 经验库那一份存在却读不出来（坏 JSON、重复的键、结构不对、有一条不合格）时 read 照常以 0 结束，读取记录写成「读不出来」并带上原因，不写成没有或零条，stderr 也说了',
+    eq('D31.t 经验库那一份存在却读不出来（坏 JSON、重复的键、结构不对、有一条不合格、认不得的版本）时 read 照常以 0 结束，读取记录写成「读不出来」并带上原因，不写成没有或零条，stderr 也说了',
       broken.map(b => [b.what, b.r.status, b.rec?.status, typeof b.rec?.detail === 'string' && b.rec.detail.length > 0, (b.r.stderr ?? '').includes('读不出来')]),
       BROKEN.map(([what]) => [what, 0, 'unreadable', true, true]))
     criterion('D31.t')
@@ -23895,6 +23899,12 @@ suite('D31', '复评经验库：lessons 命令的读、写与列名')
       broken.map(b => [b.what, b.a.status, b.kept]), BROKEN.map(([what]) => [what, 2, true]))
     criterion('D31.u')
     eq('lessons read 的 --dir 不是任务目录（没有 task.json）时以 2 退出，不写读取记录', [noTask.status, existsSync(join(root, 'not-a-task', 'lessons-read.json'))], [2, false])
+    const readStore = () => existsSync(store) ? rf(store, 'utf8') : undefined, storeNow = readStore(), f = draft(DRAFT)
+    const USAGE: string[][] = [[], ['nope'], ['list', '--dir', task], ['add', '--category', '护肤', '--entry', f, '--confirmed-by-user', '--confirmed-by-user'],
+      ['add', '--category', '护肤', '--entry', f, '--confirmed-by-user', '--dir', task], ['read', '--dir', task, '--dir', task, '--category', '护肤'], ['read', '--dir', task],
+      ['read', '--dir', task, '--category', '护肤', '--confirmed-by-user'], ['add', '--category', '护肤', '--entry', '--confirmed-by-user']]
+    eq('lessons 子命令不认识、缺参数、参数重复或多出来时以 2 退出，经验库原字节',
+      USAGE.map(args => [args.join(' '), run(...args).status]).concat([['经验库', readStore() === storeNow ? 1 : 0]]), USAGE.map(args => [args.join(' '), 2]).concat([['经验库', 1]]))
 
     eq('D31.s 跑完 list、read、add（含被拒的），memory/creators.json 一字不变',
       rf(join(cwd, 'memory', 'creators.json'), 'utf8'), CREATORS)
@@ -23954,6 +23964,13 @@ suite('D31', '复评经验库：render 把读了什么写进数据边界，名�
       runs.map(r => [r.csv === runs[0]!.csv, r.list === runs[0]!.list, isDeepStrictEqual(r.meta.tiers, runs[0]!.meta.tiers), r.csv.length > 0]),
       runs.map(() => [true, true, true, true]))
     criterion('D31.r')
+    // 品类名、局面、原因都来自本机可手改的文件，报告里要当文字显示，不当标记（U12 那一道）
+    const EVIL = { category: '护<肤>&"', file, status: 'unreadable', detail: '<img src=x>', rule_version: V, lessons: [] }
+    const EVIL_OK = { category: '护<肤>&"', file, status: 'ok', rule_version: V, lessons: [{ index: 1, state: '同一版本', situation: '<script>x</script>&amp;' }] }
+    const evil = [EVIL, EVIL_OK].map(lessons => renderHtml([], { ...runs[0]!.meta, lessons }))
+    eq('D31.v 品类名、局面、读不出来的原因里带 < > & 引号时，报告的数据边界里转义后原样显示，不当成标记',
+      [evil[0]!.includes('<img src=x>'), evil[0]!.includes('&lt;img src=x&gt;'), evil[1]!.includes('<script>x</script>'), evil[1]!.includes('&lt;script&gt;x&lt;/script&gt;&amp;amp;'),
+        evil.every(h => h.includes('护&lt;肤&gt;&amp;&quot;'))], [false, true, false, true, true])
 
     // D31.p：有分歧时报告提示可以把分歧沉淀成经验；没有分歧不出这句
     const summary = (disagreements: string[]) => ({ rounds: [], eligible: { yes: 0, no: 0, unknown: 0, unreviewed: 0, denominator: 0, rate: null },

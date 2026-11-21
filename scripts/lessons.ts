@@ -12,7 +12,7 @@
  *
  *   npm run lessons -- add --category <品类名> --entry <草稿 JSON 文件> --confirmed-by-user
  *     把一条用户在对话里确认收下的经验追加进库（D31.g）。不带 --confirmed-by-user 不写：
- *     这个开关是 Agent 替用户按下的，机器核不了用户真说过没有，只防 Agent 顺手就写（ADR-230 第五节）。
+ *     这个开关是 Agent 替用户按下的，机器核不了用户真说过没有，只防 Agent 顺手就写（ADR-230 第二节第 4 条）。
  *     五项不齐不写（D31.d），库读不出来不写（D31.u）。
  *
  * 退出码沿用 ADR-193 那张表：0 做完；1 保存失败以外的运行错误；2 输入问题；6 保存失败。
@@ -103,6 +103,6 @@ if (read.status === 'unreadable') console.error(`⚠️ ${file} 读不出来，�
 // 给 Agent 读的全文：每条经验原样，加上它的状态
 console.log(JSON.stringify({
   ...record,
-  lessons: read.status === 'ok' ? read.lessons.map((l, i) => ({ index: i + 1, state: record.lessons[i].state, ...l })) : [],
+  lessons: read.status === 'ok' ? read.lessons.map((l, i) => ({ ...l, index: i + 1, state: record.lessons[i].state })) : [],
 }, null, 2))
 process.exit(EXIT.done)
