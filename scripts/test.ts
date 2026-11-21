@@ -174,6 +174,7 @@ import {
 import { LESSON_DRAFT_HINT, enrichedFlag, renderHtml } from './lib/report.js'
 import { categoryProblem, currentRuleVersion, lessonProblems, lessonsBoundaryNote, lessonsFile, readLessonsSeen, useLessonsDir, useSkillDir, versionState, type LessonsSeen } from './lib/lessons.js'
 import { MissingValueError, SafeHtml, escapeText, html, joinHtml, need } from './lib/safe-html.js'
+import { marked, type Tokens } from 'marked'
 import { claimsLines, draftClaims, NO_FACTS, NOT_ENGLISH, UNMATCHED_BRACES } from './lib/draft-claims.js'
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
@@ -1794,17 +1795,14 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   // 逐字就是这三条：多一行（加不加粗都算）、少一行、改了问法都红。
   // 逐字比，不按关键词认 —— 改了问法要有人回来看一眼它还是不是同一个问题。
   {
+    // 读表交给 marked（按 GitHub 的 Markdown 规则解析），不手写规则：手写的读表连着两轮漏掉 GitHub 的写法
+    // （行首省略竖线、整行没有竖线也算一行），需求所有者 2026-11-21 定改用现成库（ADR-231 第十一节）。
     const firstTableAfter = (text: string, anchor: string): string[] | string => {
       const at = text.split(anchor)
       if (at.length !== 2) return `「${anchor}」出现 ${at.length - 1} 次`
-      // GFM 表格：表头一行、分隔一行，之后到空行为止的每一行都是数据行，行首的竖线可省（CodeRabbit 第一轮）
-      const lines = at[1].split('\n')
-      const start = lines.findIndex(l => l.includes('|'))
-      if (start < 0) return `「${anchor}」后面没有表`
-      if (!/^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[start + 1] ?? '')) return `「${anchor}」后面那张表的第二行不是分隔行`
-      const end = lines.findIndex((l, i) => i > start && (l.trim() === '' || !l.includes('|')))
-      return lines.slice(start + 2, end < 0 ? lines.length : end)
-        .map(l => l.trim().replace(/^\|/, '').split('|')[0].trim().replace(/^\*\*(.*)\*\*$/, '$1'))
+      const table = marked.lexer(at[1]).find((t): t is Tokens.Table => t.type === 'table')
+      if (!table) return `「${anchor}」后面没有表`
+      return table.rows.map(row => row[0].text.trim().replace(/^\*\*(.*)\*\*$/, '$1'))
     }
     const THREE = ['目标市场', '本次预算上限（美元）', '要找多少人']
     eq('product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条',
