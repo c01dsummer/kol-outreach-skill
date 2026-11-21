@@ -27,6 +27,7 @@ import { writeCsv } from './lib/csv.js'
 import { REVIEW_HEADERS, toReviewRow, sortForReviewOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
+import { MissingValueError } from './lib/safe-html.js'
 import { verifiedFacts } from './lib/draft-claims.js'
 import { accountKey, attachAssessments, currentEnrichmentView } from './lib/assessment.js'
 import { costView } from './lib/budget.js'
@@ -251,10 +252,19 @@ const meta = {
 }
 // P2.c：草稿里的数字与承诺词拿任务里已证实的产品事实对，对不上的在报告里标出，不拦（ADR-199）
 const facts = verifiedFacts(state.brand_calibration)
+// 报告先拼好再写：哪一格本该有值却缺了，报告不出、退 2、点名那一格，meta.json 与 report.html 都不动（P1.n，ADR-230）
+let page: string
+try { page = renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts }) }
+catch (e) {
+  if (!(e instanceof MissingValueError)) throw e
+  console.error(e.message)
+  console.error('上一份 meta.json 与 report.html（如果有）原样留着；先查名单与任务文件里这一项为什么缺。')
+  process.exit(EXIT.input)
+}
 // 交付物也走整体替换：render 被打断时，上一份完整的 meta.json / report.html 还在（D4）
 try {
 writeFileAtomic(join(dir, 'meta.json'), stringifyCostJson(meta, cost))
-writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts }))
+writeFileAtomic(join(dir, 'report.html'), page)
 } catch (e) { saveFailed(e) }
 
 console.log(stringifyCostJson({

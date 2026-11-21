@@ -10,24 +10,27 @@ import { normalizedAccountKey } from './review.js'
 import type { CostView } from './budget.js'
 import type { FeedbackSummary } from './manual-feedback-summary.js'
 import type { ReviewRound } from './review.js'
-import { html, joinHtml, type SafeHtml } from './safe-html.js'
+import { html, joinHtml, need, type SafeHtml } from './safe-html.js'
 
 // U12（ADR-228）：页面一律用 `html` 模板拼，插值默认转义，只有 `html`／`joinHtml` 拼出的片段原样插入。
-// 原先逐处手写 esc（缺值写空）与 escRaw（缺值印 undefined）；后者那几处现在写 `String(v)`，缺值照旧印出 undefined。
+// P1（ADR-230）：插值缺了（undefined、null）时 `html` 不写成空，整份报告不出、点名那一格。
+// 所以可能缺的格先在这里写明缺了显示什么（未查询、未知、无从确认……），本该总有的格过 `need`。
+// 本文件里拼文字一律走 `html`／`joinHtml`：不写不带 `html` 的模板字符串、不调 `String(…)`、不用 `+` 连字、
+// 不用 `.join(…)`、不写 `?? 0`／`?? ''`／`|| 0`／`|| ''` —— 这几样都会绕过缺值那一抛，由测试读本文件的语法树核（ADR-230）。
 
 /**
  * P1.m：名单上的粉丝数、作品数分三态显示 —— 有值写缩写的数，供应商给了怪值写 `未知`，没查到写 `未查询`。
  * 原先没查到也写「未知」，与怪值那一态就分不开了。
  */
-const creatorCountText = (c: Creator, field: 'followers' | 'post_count'): string =>
+const creatorCountText = (c: Creator, field: 'followers' | 'post_count'): string | SafeHtml =>
   c[field] !== undefined ? fmt(c[field]) : c.invalid_from_provider?.includes(field) ? '未知' : '未查询'
 
 /** P1：未知显示成「未知」，绝不显示成 0 —— 那是把没测量说成测量结果是零 */
-const fmt = (n?: number) =>
+const fmt = (n?: number): string | SafeHtml =>
   n === undefined ? '未知'
-  : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M'
-  : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K'
-  : String(n)
+  : n >= 1e6 ? html`${(n / 1e6).toFixed(1)}M`
+  : n >= 1e3 ? html`${(n / 1e3).toFixed(1)}K`
+  : html`${n}`
 
 const REASON: Record<string, string> = {
   private_account: '私密账号',
@@ -45,20 +48,20 @@ const REASON: Record<string, string> = {
   legacy_video_only_sample: '旧版仅视频窗口，无法判断最近发布或全作品发帖间隔',
 }
 
-const metricText = <T>(m: Measurement<T> | undefined, format: (value: T) => string): string => {
+const metricText = <T>(m: Measurement<T> | undefined, format: (value: T) => string | SafeHtml): string | SafeHtml => {
   if (!m) return '未查询'
-  if (m.status === 'unavailable') return `不可用 · ${REASON[m.reason] ?? m.reason}`
+  if (m.status === 'unavailable') return html`不可用 · ${REASON[m.reason] ?? m.reason}`
   return format(m.value)
 }
 
-const pct = (n: number) => `${(n * 100).toFixed(2)}%`
-const riskFlagText = (flag: AudienceRiskFlag): string => {
+const pct = (n: number) => html`${(n * 100).toFixed(2)}%`
+const riskFlagText = (flag: AudienceRiskFlag): SafeHtml => {
   const name = {
     engagement_rate_followers: '粉丝互动率',
     view_rate: '播粉比',
     following_ratio: '关注/粉丝比',
   }[flag.metric]
-  return `${name}${flag.direction === 'low' ? '偏低' : '偏高'}`
+  return html`${need(name, '受众风险依据里的指标名')}${flag.direction === 'low' ? '偏低' : '偏高'}`
 }
 
 const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string): SafeHtml => {
@@ -68,30 +71,26 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
   const activity = m?.activity_status
   const riskLevel = metricText(risk, value => value.level.toUpperCase())
   const flags = risk?.status === 'measured' && risk.value.flags.length
-    ? html`<div class="flags">依据：${risk.value.flags.map(riskFlagText).join(' · ')}</div>`
+    ? html`<div class="flags">依据：${joinHtml(risk.value.flags.map(riskFlagText), html` · `)}</div>`
     : ''
   const quote = a.collaboration_quote
   const quoteText = !quote ? '未查询'
-    : quote.status === 'unavailable' ? `不可用 · ${REASON[quote.reason] ?? quote.reason}`
-    : `${quote.value.currency} ${quote.value.amount} / ${quote.value.quantity} ${quote.value.format}` +
-      ` · ${quote.value.source} · ${quote.value.observed_at.slice(0, 10)}`
-  const ecpm = metricText(a.quote_efficiency?.implied_ecpm, value => {
-    const currency = quote?.status === 'measured' ? quote.value.currency : ''
-    return `${currency} ${value.toFixed(2)}`.trim()
-  })
-  const ecpe = metricText(a.quote_efficiency?.implied_ecpe, value => {
-    const currency = quote?.status === 'measured' ? quote.value.currency : ''
-    return `${currency} ${value.toFixed(2)}`.trim()
-  })
+    : quote.status === 'unavailable' ? html`不可用 · ${REASON[quote.reason] ?? quote.reason}`
+    : html`${quote.value.currency} ${quote.value.amount} / ${quote.value.quantity} ${quote.value.format} · ${quote.value.source} · ${quote.value.observed_at.slice(0, 10)}`
+  // 报价已测时金额前带币种；报价没测时只写数（报价那一格自己说未查询或不可用）
+  const money = (value: number) =>
+    quote?.status === 'measured' ? html`${quote.value.currency} ${value.toFixed(2)}` : html`${value.toFixed(2)}`
+  const ecpm = metricText(a.quote_efficiency?.implied_ecpm, money)
+  const ecpe = metricText(a.quote_efficiency?.implied_ecpe, money)
   const reelQuote = quote?.status === 'measured' && quote.value.format === 'instagram_reel'
   const ecpeEvidence = reelQuote && a.quote_efficiency?.implied_ecpe?.status === 'measured'
-    ? `（确认视频互动样本 ${a.quote_efficiency.implied_ecpe.sample_size} 条；${a.quote_efficiency.implied_ecpe.basis}）`
+    ? html`（确认视频互动样本 ${a.quote_efficiency.implied_ecpe.sample_size} 条；${a.quote_efficiency.implied_ecpe.basis}）`
     : reelQuote && a.quote_efficiency?.implied_ecpe?.status === 'unavailable' &&
       a.quote_efficiency.implied_ecpe.sample_size !== undefined
-      ? `（视频互动有效样本 ${a.quote_efficiency.implied_ecpe.sample_size} 条）` : ''
+      ? html`（视频互动有效样本 ${a.quote_efficiency.implied_ecpe.sample_size} 条）` : ''
   const sample = a.sample?.status === 'measured'
-    ? `${a.sample.value} 条 · ${a.sample.source.provider} · ${a.sample.observed_at.slice(0, 10)}`
-    : metricText(a.sample, value => `${value} 条`)
+    ? html`${a.sample.value} 条 · ${a.sample.source.provider} · ${a.sample.observed_at.slice(0, 10)}`
+    : metricText(a.sample, (value: number) => html`${value} 条`)
   const activityLabel = metricText(activity, value => ({
     active: '活跃', cooling: '降温', dormant: '停更',
   })[value])
@@ -106,13 +105,13 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
       <span>中位播放 <b>${metricText(m?.median_views, v => fmt(v))}</b></span>
       <span>播粉比 <b>${metricText(m?.view_rate, pct)}</b></span>
       <span>稳定度 <b>${metricText(m?.reach_consistency, pct)}</b></span>
-      <span>发帖间隔 <b>${metricText(m?.median_post_gap_days, v => `${v.toFixed(1)} 天`)}</b></span>
+      <span>发帖间隔 <b>${metricText(m?.median_post_gap_days, v => html`${v.toFixed(1)} 天`)}</b></span>
       <span>最后发布 <b>${metricText(m?.latest_post_at, v => v.slice(0, 10))}</b></span>
-      <span>距采样 <b>${metricText(m?.days_since_last_post, v => `${v.toFixed(1)} 天`)}</b></span>
-      <span>活跃状态 <b class="activity ${String(activity?.status === 'measured' ? activity.value : 'unknown')}">${activityLabel}</b></span>
-      <span>受众风险 <b class="risk ${String(risk?.status === 'measured' ? risk.value.level : 'unknown')}">${riskLevel}</b></span>
+      <span>距采样 <b>${metricText(m?.days_since_last_post, v => html`${v.toFixed(1)} 天`)}</b></span>
+      <span>活跃状态 <b class="activity ${activity?.status === 'measured' ? activity.value : 'unknown'}">${activityLabel}</b></span>
+      <span>受众风险 <b class="risk ${risk?.status === 'measured' ? risk.value.level : 'unknown'}">${riskLevel}</b></span>
     </div>${flags}
-    <div class="commercial">合作报价 ${quoteText} · 隐含 eCPM ${ecpm} · 隐含 eCPE ${ecpe + ecpeEvidence}</div>
+    <div class="commercial">合作报价 ${quoteText} · 隐含 eCPM ${ecpm} · 隐含 eCPE ${ecpe}${ecpeEvidence}</div>
   </div>`
 }
 
@@ -137,7 +136,7 @@ export const enrichedFlag = (creators: Creator[]): boolean =>
 
 /** D13.r / P5：金额文本原样展示；未知金额不能变成 $0 或 $null。 */
 const renderCost = (view: CostView): SafeHtml => {
-  const money = (value: string | null): string => value == null ? '无从确认' : `$${value}`
+  const money = (value: string | null): string | SafeHtml => value === null || value === undefined ? '无从确认' : html`$${value}`
   const status = {
     known: '已核费用账',
     'unknown-history': '历史费用未知',
@@ -158,10 +157,10 @@ const renderReviewDetails = (c: Creator): SafeHtml => {
   let main: string | undefined
   try { main = normalizedAccountKey(c.platform, c.handle) } catch { /* 无法规范化的身份不补键 */ }
   const identity = (key: string | undefined) => key === undefined ? '' : html` data-account-key="${key}"`
-  const provided = (value: unknown) => value === undefined ? '未提供' : value
-  const answer = (value: unknown) => value === undefined ? '未填写'
+  const provided = (value: {} | undefined) => value === undefined ? '未提供' : value
+  const answer = (value: {} | undefined) => value === undefined ? '未填写'
     : typeof value === 'string' && !value.trim() ? html`未填写<span>${value}</span>` : value
-  const fieldValue = (field: string, value: unknown) => html`<span data-review-field="${field}">${answer(value)}</span>`
+  const fieldValue = (field: string, value: {} | undefined) => html`<span data-review-field="${field}">${answer(value)}</span>`
   const agentFields = [
     ['observed_content', '观察内容'], ['work_evidence', '作品证据'],
     ['natural_integration', '自然植入'], ['mismatch_risk', '风险或未核问题'],
@@ -216,7 +215,7 @@ const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: rea
   if (summary === undefined || summary === null) {
     return html`${heading}<p class="sub">人工审核统计未提供</p></section>`
   }
-  const known = (value: unknown): string => value === undefined || value === null ? '无从确认' : String(value)
+  const known = (value: {} | undefined | null) => value === undefined || value === null ? '无从确认' : value
   const snapshots = new Map((rounds === undefined || rounds === null ? [] : rounds).map(round => [round.round_id, round]))
   const roundRows = summary.rounds?.map(round => html`<tr data-round-id="${round.round_id}">
     <td>${round.round_id}</td><td>${known(round.candidates)}</td><td>${known(round.reviewed)}</td>
@@ -224,7 +223,7 @@ const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: rea
   const tallyRow = (field: 'eligible' | 'adopted', label: string): SafeHtml => {
     const part = summary[field]
     const rate = part?.rate === undefined ? '无从确认' : part.rate === null ? '不可计算'
-      : part.rate === 0 ? '0%' : `${(part.rate * 100).toFixed(2)}%`
+      : part.rate === 0 ? '0%' : html`${(part.rate * 100).toFixed(2)}%`
     return html`<tr data-manual-field="${field}"><td>${label}</td><td>${known(part?.yes)}</td><td>${known(part?.no)}</td>
       <td>${known(part?.unknown)}</td><td>${known(part?.unreviewed)}</td><td>${known(part?.denominator)}</td><td>${rate}</td></tr>`
   }
@@ -232,8 +231,8 @@ const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: rea
     : joinHtml(rounds.map(round => {
       const rows = round.candidates?.map(candidate => html`<tr data-account-key="${candidate.account_key}">
         <td>${candidate.account_key}</td><td>${candidate.source_tasks === null || candidate.source_tasks === undefined || !candidate.source_tasks.length
-          ? '来源无从确认' : candidate.source_tasks.map(source =>
-            `task_index=${known(source.task_index)} · ${known(source.dimension)} · ${known(source.platform)} · ${known(source.keyword)}`).join('；')}</td></tr>`)
+          ? '来源无从确认' : joinHtml(candidate.source_tasks.map(source =>
+            html`task_index=${known(source.task_index)} · ${known(source.dimension)} · ${known(source.platform)} · ${known(source.keyword)}`), html`；`)}</td></tr>`)
       return html`<details class="assessment" open><summary>${known(round.round_id)} · 冻结账号与来源（历史池）</summary>
         ${rows === undefined ? html`<p class="sub">冻结账号与来源无从确认</p>` : html`<table><thead><tr><th>平台账号</th><th>原任务来源</th></tr></thead>
           <tbody>${rows.length ? joinHtml(rows) : html`<tr><td colspan="2">0 个冻结平台账号（空池）</td></tr>`}</tbody></table>`}</details>`
@@ -248,7 +247,7 @@ const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: rea
     <tbody>${tallyRow('eligible', '合格性')}${tallyRow('adopted', '是否采用')}</tbody></table>
     <h2>拒绝原因（账号数）</h2>${reasons.length ? html`<ul>${joinHtml(reasons)}</ul>` : html`<p>尚无人工拒绝原因</p>`}
     <h2>Agent 原记录与人工分歧</h2><p>${summary.disagreements.length
-      ? summary.disagreements.join('、') : '尚无可列的分歧账号'}</p>
+      ? joinHtml(summary.disagreements, html`、`) : '尚无可列的分歧账号'}</p>
     <p class="sub">仅比较完整 Agent 原判断与本平台明确人工答案，可能含历史判断；缺记录不能比较，不代表 Agent 准确率、采用改善或真实发信效果。</p>
     <h2>冻结账号与原任务来源</h2>${sources}</section>`
 }
@@ -268,8 +267,14 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
   const displayed = options.mode === 'review' ? sortForReviewOutput(creators) : creators
   const dual = options.mode === 'review' && options.filters === 'dual'
   // 公共旧视图保留第一个非空分层；新视图从完整交付名单开始。
+  // 产品名、目标市场在页面上缺了也会被 `html` 拒绝；先在这里过一遍，只为报错里写白话格名
+  need(meta.product, '交付信息里的产品名')
+  need(meta.market, '交付信息里的目标市场')
+  // 三层人数是 render 自己数的，本该总有；缺了不当 0（P1.b），整份不出、点名那一层
+  const tiers = need(meta.tiers, '交付信息里的三层人数')
+  const tierCount = (t: 'A' | 'B' | 'C'): number => need(tiers[t], `交付信息里 ${t} 级人数`)
   const def: 'A' | 'B' | 'C' =
-    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'
+    (['A', 'B', 'C'] as const).find(t => tierCount(t) > 0) ?? 'A'
 
   // P2：信里每一行对它登记的出处（博主资料、已证实的产品事实、发件人自己的话），并排给人看；没登记的也列出来。
   // 只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-210、ADR-215）。
@@ -302,27 +307,36 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
     return html`
     <div class="bio" data-draft-claims="unsourced">出处对不上：${lines.unsourced}（只查数字和承诺词，其余说法仍要自己看）</div>${posts}${sender}`
   }
-  const card = (c: Creator) => html`
-${dual ? html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"${c.effective_priority === undefined ? '' : html` data-priority="${c.effective_priority}"`}>`
-  : html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"${c.tier === def ? '' : html` style="display:none"`}>`}
+  const card = (c: Creator) => {
+    // 分层是排序后才有的，本该总有（ADR-230）；平台、账号、昵称、主页链接缺了由 `html` 点名
+    const tier = need(c.tier, `卡片上的分层（账号 ${c.handle}）`)
+    // 下面三格在卡片模板里缺了也会被 `html` 拒绝；先在这里过一遍，只为报错里写白话格名，不写那一格前后的标记
+    need(c.handle, '卡片上的账号')
+    need(c.nickname, `卡片上的昵称（账号 ${c.handle}）`)
+    need(c.profile_url, `卡片上的主页链接（账号 ${c.handle}）`)
+    return html`
+${dual ? html`<div class="card ${tier}" data-tier="${tier}"${c.effective_priority === undefined ? '' : html` data-priority="${c.effective_priority}"`}>`
+  : html`<div class="card ${tier}" data-tier="${tier}"${tier === def ? '' : html` style="display:none"`}>`}
   <div class="hd">
-    <span class="tier ${String(c.tier)}">${String(c.tier)}</span>
-    <span class="pf ${String(c.platform)}">${c.platform === 'tiktok' ? '♪ TikTok' : '◉ Instagram'}</span>
-    ${c.cross_platform ? html`<span class="xp" title="也在 ${c.linked_handle}">⇄ 双平台</span>` : ''}
+    <span class="tier ${tier}">${tier}</span>
+    <span class="pf ${c.platform}">${c.platform === 'tiktok' ? '♪ TikTok' : '◉ Instagram'}</span>
+    ${c.cross_platform ? html`<span class="xp" title="也在 ${c.linked_handle === undefined ? '关联账号无从确认' : c.linked_handle}">⇄ 双平台</span>` : ''}
     ${c.is_private ? html`<span class="priv">🔒 私密号</span>` : ''}
-    <span class="sc">${c.score === undefined ? '未知' : String(c.score)}</span>
+    <span class="sc">${c.score === undefined ? '未知' : c.score}</span>
   </div>
   <div class="handle"><a href="${c.profile_url}" target="_blank" rel="noopener">@${c.handle}</a></div>
   <div class="nm">${c.nickname}</div>
   <div class="st">
     <span>${creatorCountText(c, 'followers')} 粉丝</span><span>${creatorCountText(c, 'post_count')} 作品</span>
-    ${c.email ? html`<span class="em">${c.email}</span>` : html`<span class="no">无邮箱</span>`}
+    ${c.email === undefined ? html`<span class="no">邮箱未查询</span>`
+      : c.email === null || c.email === '' ? html`<span class="no">无邮箱</span>` : html`<span class="em">${c.email}</span>`}
   </div>
   ${options.mode === 'review' ? renderReviewDetails(c)
-    : c.fit_reason ? html`<div class="fit">${c.fit} ${c.fit_reason}</div>` : ''}
+    : c.fit_reason ? html`<div class="fit">${c.fit === undefined ? '未评' : c.fit} ${c.fit_reason}</div>` : ''}
   ${c.tier_adjustments?.length ? html`<div class="adjust">${joinHtml(c.tier_adjustments.map(a =>
-    `${a.from}→${a.to} ${a.reason}`), html`<br>`)}</div>` : ''}
-  ${c.bio ? html`<div class="bio">${c.bio}</div>` : ''}
+    html`${a.from}→${a.to} ${a.reason}`), html`<br>`)}</div>` : ''}
+  ${c.bio === undefined ? html`<div class="bio">简介未查询</div>`
+    : c.bio === null || c.bio === '' ? '' : html`<div class="bio">${c.bio}</div>`}
   <div class="bio">已观察发现来源：${formatDiscoverySources(c.discovery_sources)}</div>
   ${renderAssessment(c.account_assessment, c.platform === 'tiktok' ? 'TikTok' : 'Instagram')}
   ${c.linked_handle ? renderAssessment(c.linked_account_assessment,
@@ -332,6 +346,7 @@ ${dual ? html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"$
     <pre>${c.outreach_draft}</pre>
     <button onclick="cp(this)">复制</button></details>` : ''}
 </div>`
+  }
 
   const button = (group: string, value: string, label: string) =>
     html`<button type="button" class="tab${value === 'all' ? html` on` : ''}" data-filter="${group}" data-value="${value}" aria-pressed="${value === 'all'}">${label}</button>`
@@ -341,31 +356,32 @@ ${dual ? html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"$
     <div class="hd"><span>层级</span>${joinHtml(['all', 'A', 'B', 'C'].map(value => button('tier', value, value === 'all' ? '全部' : value)))}</div>
     <div class="empty" id="none" style="display:${displayed.length ? 'none' : ''}">当前筛选下没有候选</div>
   </div>` : html`<div class="tabs">
-  <button class="tab A${def === 'A' ? html` on` : ''}" data-f="A">A级 直接发信<span class="n">${String(meta.tiers.A)}</span></button>
-  <button class="tab B${def === 'B' ? html` on` : ''}" data-f="B">B级 先互动<span class="n">${String(meta.tiers.B)}</span></button>
-  <button class="tab C${def === 'C' ? html` on` : ''}" data-f="C">C级 观察池<span class="n">${String(meta.tiers.C)}</span></button>
+  <button class="tab A${def === 'A' ? html` on` : ''}" data-f="A">A级 直接发信<span class="n">${tierCount('A')}</span></button>
+  <button class="tab B${def === 'B' ? html` on` : ''}" data-f="B">B级 先互动<span class="n">${tierCount('B')}</span></button>
+  <button class="tab C${def === 'C' ? html` on` : ''}" data-f="C">C级 观察池<span class="n">${tierCount('C')}</span></button>
 </div>`
 
   // U3.b：关键词表现是下次调整策略的依据，**一个任务一行** —— 0 命中的与一次都没查过的
   // 也要在表上。P5.i：四态各说各的话，没查过的那一行不许带出一个看起来像测量值的数。
-  const foundText = (k: any): string =>
+  const foundText = (k: any): {} =>
     k.status === 'unknown' ? '无从确认'
     : k.status === 'unqueried' ? '未查询'
     // 问过、但那一次的条数没记下来（抛在记录之前）—— 仍然不写 0
     : k.found === null || k.found === undefined ? '未知'
-    : String(k.found)
+    : k.found
   /** 入围／语义通过：`null` 是无从确认，照 P5.i、U3.b 原文印「无从确认」；**不印 0** —— 那是把没测量说成零（ADR-218） */
-  const countText = (n: unknown): string => n === null || n === undefined ? '无从确认' : String(n)
+  const countText = (n: {} | null | undefined): {} => n === null || n === undefined ? '无从确认' : n
   // U11.m：旧调用未提供、来源未知和已查真零分别呈现。
-  const manualCountText = (n: unknown): string =>
-    n === undefined ? '未提供' : n === null ? '无从确认' : String(n)
-  const kwRows = joinHtml((meta.keywords ?? []).map((k: any) => html`
+  const manualCountText = (n: {} | null | undefined): {} =>
+    n === undefined ? '未提供' : n === null ? '无从确认' : n
+  // 关键词表从任务列表出发，一个任务一行（U3.b），本该总有；缺了不当空表
+  const kwRows = joinHtml(need(meta.keywords, '交付信息里的关键词表').map((k: any) => html`
     <tr><td>${taskOrdinal(k.task_index)}</td><td>${k.keyword}</td>
         <td>${k.platform ?? '未知'}</td><td>${k.dimension}</td>
         <td>${foundText(k)}</td><td>${countText(k.shortlisted)}</td>
         <td>${countText(k.fit_pass)}</td><td>${manualCountText(k.manual_reviewed)}</td></tr>`))
 
-  const notes: string[] = []
+  const notes: Array<string | SafeHtml> = []
   const missingEmailVerification = meta.capabilities
     ? meta.capabilities.email_verification.total === 0 ||
       meta.capabilities.email_verification.measured < meta.capabilities.email_verification.total
@@ -377,22 +393,18 @@ ${dual ? html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"$
   // P4/P5（ADR-15）：去重没跑，用户必须在发信之前知道。这一条排在最前面 ——
   // 其余几条是「数据可能不全」，这一条是「这份名单可能让你二次打扰同一个人」。
   if (meta.memory_status === 'unreadable_ignored') {
-    notes.push('本次名单未做「已联系 / 已推荐」去重（记忆文件读不出来，运行时显式跳过）—— ' +
-               '名单里可能包含你已经联系过、甚至已经拉黑的人。发信前请自行核对。')
+    notes.push('本次名单未做「已联系 / 已推荐」去重（记忆文件读不出来，运行时显式跳过）—— 名单里可能包含你已经联系过、甚至已经拉黑的人。发信前请自行核对。')
   } else if (meta.memory_status === 'unknown') {
     // 说「不知道」，不说「没问题」。**也不说是为什么不知道** —— unknown 有两个
     // 来源（早期采集、名单与状态没能一起落成），事后分不出是哪一个，
     // 而写死一个就是给用户一个编造的诊断（ADR-22 的老规矩：不许替下一步打包票；
     // 这一次是不许替上一步编原因）。措辞与来源无关（ADR-43）。
-    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认 —— ' +
-               '名单里可能包含你已经联系过的人。重跑一次采集即可得到确定答案。')
+    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认 —— 名单里可能包含你已经联系过的人。重跑一次采集即可得到确定答案。')
   }
   if (meta.memory_written === false) {
     // 不替用户断定原因：读不出来要去修 JSON，写不进去要去看权限或磁盘。
     // 写死成前者，会让磁盘满的人对着一份没坏的文件较劲（ADR-20）。
-    notes.push('本次推荐未记入跨任务记忆（原文件未被改动）—— ' +
-               `原因：${meta.memory_write_error ?? '未记录'}。` +
-               '在解决之前，下一批名单可能重复推荐这批人。')
+    notes.push(html`本次推荐未记入跨任务记忆（原文件未被改动）—— 原因：${meta.memory_write_error ?? '未记录'}。在解决之前，下一批名单可能重复推荐这批人。`)
   }
   if (missingEmailVerification) {
     notes.push('邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。')
@@ -405,7 +417,7 @@ ${dual ? html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"$
     notes.push('受众质量风险只依据近期公开互动异常，不是假粉率，也不能代表实际带货效果。')
   }
   if (publicCapability?.unqueried || publicCapability?.unavailable) {
-    notes.push(`公开指标边界：${publicCapability.unqueried} 个账号未查询，${publicCapability.unavailable} 个账号不可用。`)
+    notes.push(html`公开指标边界：${publicCapability.unqueried} 个账号未查询，${publicCapability.unavailable} 个账号不可用。`)
   }
 
   return html`<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8">
@@ -471,18 +483,18 @@ ${dual ? html`.tabs.dual{flex-direction:column}body{overflow-anchor:none}` : ''}
 .notes div{margin:3px 0}
 </style></head><body><div class="wrap">
 <h1>KOL 建联名单 · ${meta.product}</h1>
-<div class="sub">目标市场 ${meta.market} · ${(meta.platforms ?? []).join(' + ')}</div>
+<div class="sub">目标市场 ${meta.market} · ${joinHtml(need(meta.platforms, '交付信息里的平台列表'), html` + `)}</div>
 ${renderCost(meta)}
 
 <div class="stats">
-  <div class="stat"><div class="v">${String(meta.total)}</div><div class="l">总人数</div></div>
-  <div class="stat"><div class="v" style="color:#22c55e">${String(meta.tiers.A)}</div><div class="l">A 级</div></div>
-  <div class="stat"><div class="v" style="color:#f59e0b">${String(meta.tiers.B)}</div><div class="l">B 级</div></div>
-  <div class="stat"><div class="v" style="color:#94a3b8">${String(meta.tiers.C)}</div><div class="l">C 级</div></div>
-  <div class="stat"><div class="v">${String(meta.email_count)}</div><div class="l">有邮箱</div></div>
-  <div class="stat"><div class="v" style="color:#a78bfa">${String(meta.cross_platform_count)}</div><div class="l">跨平台</div></div>
-  <div class="stat"><div class="v">${String(meta.capabilities?.public_post_sample?.measured ?? '未知')}</div><div class="l">公开指标已测账号</div></div>
-  <div class="stat"><div class="v" style="color:#ef4444">${String(meta.high_risk_count ?? '未知')}</div><div class="l">高风险复核</div></div>
+  <div class="stat"><div class="v">${meta.total}</div><div class="l">总人数</div></div>
+  <div class="stat"><div class="v" style="color:#22c55e">${tierCount('A')}</div><div class="l">A 级</div></div>
+  <div class="stat"><div class="v" style="color:#f59e0b">${tierCount('B')}</div><div class="l">B 级</div></div>
+  <div class="stat"><div class="v" style="color:#94a3b8">${tierCount('C')}</div><div class="l">C 级</div></div>
+  <div class="stat"><div class="v">${meta.email_count}</div><div class="l">有邮箱</div></div>
+  <div class="stat"><div class="v" style="color:#a78bfa">${meta.cross_platform_count}</div><div class="l">跨平台</div></div>
+  <div class="stat"><div class="v">${meta.capabilities?.public_post_sample?.measured ?? '未知'}</div><div class="l">公开指标已测账号</div></div>
+  <div class="stat"><div class="v" style="color:#ef4444">${meta.high_risk_count ?? '未知'}</div><div class="l">高风险复核</div></div>
 </div>
 
 ${notes.length ? html`<div class="notes">${joinHtml(notes.map(n => html`<div>⚠️ ${n}</div>`))}</div>` : ''}
@@ -502,7 +514,7 @@ ${filters}
 <div class="cards" id="cards">${joinHtml(displayed.map(card))}</div>
 ${dual ? html`</div>` : ''}
 <p class="sub">仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数。</p>
-${dual ? '' : html`<div class="empty" id="none" style="display:${meta.tiers[def] ? 'none' : ''}">这一层没有人</div>`}
+${dual ? '' : html`<div class="empty" id="none" style="display:${tierCount(def) ? 'none' : ''}">这一层没有人</div>`}
 </div>
 <script>
 function cp(b){const t=b.previousElementSibling.textContent;

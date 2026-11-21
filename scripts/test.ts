@@ -172,7 +172,7 @@ import {
   TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
 } from './providers/tikhub-pricing.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
-import { SafeHtml, escapeText, html, joinHtml } from './lib/safe-html.js'
+import { MissingValueError, SafeHtml, escapeText, html, joinHtml, need } from './lib/safe-html.js'
 import { claimsLines, draftClaims, NO_FACTS, NOT_ENGLISH, UNMATCHED_BRACES } from './lib/draft-claims.js'
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
@@ -242,6 +242,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd4-p3-budget-memory', needs: [] },
   { id: 'invalid-values-by-source', needs: [] },
   { id: 'invalid-values-entry', needs: [] },
+  { id: 'p1n-render-entry', needs: [] },
   { id: 'p1-followers-sort', needs: [] },
   { id: 'd5-csv', needs: [] },
   { id: 'd2-d8-actual-paths', needs: [] },
@@ -8890,6 +8891,52 @@ function entryChecks(copy: string): void {
     writeFileSync(join(copy, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-10-01T00:00:00Z', creators: {} }))
     entryChecks(copy)
   } finally { rmSync(copy, { recursive: true, force: true }) }
+}
+})
+await group('p1n-render-entry', () => {
+suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名那一格、meta.json 与 report.html 原样留着（P1.n，作者写，ADR-230）')
+{
+  const root = mkdtempSync(join(tmpdir(), 'kol-p1n-entry-'))
+  try {
+    mkdirSync(join(root, 'memory'))
+    writeFileSync(join(root, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-10-01T00:00:00Z', creators: {} }))
+    const taskJson = (product: string): string => JSON.stringify({
+      product, market: 'US', target_count: 1,
+      tasks: [{ keyword: 'portable charger', dimension: 'category', platform: 'tiktok' }],
+      done: [0], answered: { '0': 1 }, found: { '0': 1 }, offsets: { '0': 0 }, pages: { '0': 1 },
+      created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z',
+    })
+    const person = (handle: string): Record<string, unknown> => ({
+      platform: 'tiktok', handle, nickname: 'Alice', bio: 'Tech reviews', bio_links: [], verified: false,
+      profile_url: `https://www.tiktok.com/@${handle}`, source_keyword: 'portable charger',
+      source_dimension: 'category', source_tasks: [0], followers: 80000,
+    })
+    const OLD_REPORT = '<p>上一份报告</p>\n', OLD_META = '{"上一份":true}\n'
+    const render = (name: string, creators: unknown[]) => {
+      const dir = join(root, name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'task.json'), taskJson(name))
+      writeFileSync(join(dir, 'creators.json'), JSON.stringify(creators, null, 2))
+      writeFileSync(join(dir, 'report.html'), OLD_REPORT)
+      writeFileSync(join(dir, 'meta.json'), OLD_META)
+      const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+      const r = spawnSync(exe, args, { cwd: root, encoding: 'utf8', timeout: 300000 })
+      return { status: r.status, stderr: String(r.stderr), report: rf(join(dir, 'report.html'), 'utf8'), meta: rf(join(dir, 'meta.json'), 'utf8') }
+    }
+    const fine = render('p1n-fine', [person('p1nok')])
+    eq('P1.n 入口：名单齐全时 render 以 0 结束（下面几条的阳性对照）', fine.status, 0)
+    ok('P1.n 入口：名单齐全时 report.html 与 meta.json 换成了新的', fine.report !== OLD_REPORT && fine.meta !== OLD_META)
+    const { nickname: _n, ...noNick } = person('p1nnick')
+    const nick = render('p1n-nick', [noNick])
+    eq('P1.n 入口：名单里有人缺昵称时 render 以退出码 2 结束', nick.status, 2)
+    ok('P1.n 入口：缺昵称时 stderr 说报告没有生成并点名昵称和账号', nick.stderr.includes('报告没有生成') && nick.stderr.includes('昵称') && nick.stderr.includes('p1nnick'))
+    ok('P1.n 入口：缺昵称时 report.html 与 meta.json 都还是上一份', nick.report === OLD_REPORT && nick.meta === OLD_META)
+    const { profile_url: _u, ...noUrl } = person('p1nurl')
+    const url = render('p1n-url', [noUrl])
+    eq('P1.n 入口：名单里有人缺主页链接时 render 以退出码 2 结束', url.status, 2)
+    ok('P1.n 入口：缺主页链接时 stderr 点名主页链接', url.stderr.includes('主页链接') && url.stderr.includes('p1nurl'))
+    criterion('P1.n')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 }
 })
 await group('p1-followers-sort', () => {
@@ -22617,160 +22664,521 @@ suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不
 await group('u12-safe-html', () => {
 suite('U12', '报告页面用同一种拼页面的写法拼成，插进去的取值默认转义')
 {
-  // 这一块由只读了 U12 准入读物包的隔离会话写成（ADR-228 第四节），搬进来时一字未改
-// ── U12.d：拼页面的写法默认转义一次；缺值写成空；只有它自己拼出来的片段原样；长得像片段的照样转义 ──
+  // 这一块由只读了 U12 准入读物包的隔离会话写成（ADR-228 第四节），搬进来时一字未改。
+  // ADR-230 改过两处：U12.d 退役、由 U12.e 接替，断言名的前缀跟着改成 U12.e；原第三节「缺值写成空」
+  // 与 U12.e 相反，整节删掉，缺值拒绝那一半的断言见本组后面那一块（另一个隔离会话写的）。
+// ── U12.e：拼页面的写法默认转义一次；只有它自己拼出来的片段原样；长得像片段的照样转义 ──
 // 期望值全部按五个字符实体手写：& → &amp;  < → &lt;  > → &gt;  " → &quot;  ' → &#39;
 
 // 一、五个字符各自转义一次（html 插值）
-eq('U12.d html 插值里的 & 转义一次', html`${'&'}`.html, '&amp;');
-eq('U12.d html 插值里的 < 转义一次', html`${'<'}`.html, '&lt;');
-eq('U12.d html 插值里的 > 转义一次', html`${'>'}`.html, '&gt;');
-eq('U12.d html 插值里的双引号转义一次', html`${'"'}`.html, '&quot;');
-eq('U12.d html 插值里的单引号转义一次', html`${"'"}`.html, '&#39;');
-eq('U12.d html 插值里五个字符连在一起各转义一次', html`${`&<>"'`}`.html, '&amp;&lt;&gt;&quot;&#39;');
-eq('U12.d html 插值里同一个字符出现多次时每一处都转义', html`${`<<&&>>""''`}`.html, '&lt;&lt;&amp;&amp;&gt;&gt;&quot;&quot;&#39;&#39;');
-eq('U12.d html 插值里夹在普通文字中间的五个字符各转义一次其余文字不动', html`${`甲&乙<丙>丁"戊'己`}`.html, '甲&amp;乙&lt;丙&gt;丁&quot;戊&#39;己');
-eq('U12.d html 插值是一段完整标记时整段当文字', html`${'<script>alert("x")</script>'}`.html, '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;');
-eq('U12.d html 插值本身写着字符实体时只转义一次不还原也不跳过', html`${'&lt;'}`.html, '&amp;lt;');
-eq('U12.d html 插值本身写着 &amp; 时只转义一次', html`${'&amp;'}`.html, '&amp;amp;');
-eq('U12.d html 插值没有那五个字符时原文不变', html`${'普通文字 abc 123'}`.html, '普通文字 abc 123');
-eq('U12.d html 插值是空字符串时写成空', html`${''}`.html, '');
+eq('U12.e html 插值里的 & 转义一次', html`${'&'}`.html, '&amp;');
+eq('U12.e html 插值里的 < 转义一次', html`${'<'}`.html, '&lt;');
+eq('U12.e html 插值里的 > 转义一次', html`${'>'}`.html, '&gt;');
+eq('U12.e html 插值里的双引号转义一次', html`${'"'}`.html, '&quot;');
+eq('U12.e html 插值里的单引号转义一次', html`${"'"}`.html, '&#39;');
+eq('U12.e html 插值里五个字符连在一起各转义一次', html`${`&<>"'`}`.html, '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.e html 插值里同一个字符出现多次时每一处都转义', html`${`<<&&>>""''`}`.html, '&lt;&lt;&amp;&amp;&gt;&gt;&quot;&quot;&#39;&#39;');
+eq('U12.e html 插值里夹在普通文字中间的五个字符各转义一次其余文字不动', html`${`甲&乙<丙>丁"戊'己`}`.html, '甲&amp;乙&lt;丙&gt;丁&quot;戊&#39;己');
+eq('U12.e html 插值是一段完整标记时整段当文字', html`${'<script>alert("x")</script>'}`.html, '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;');
+eq('U12.e html 插值本身写着字符实体时只转义一次不还原也不跳过', html`${'&lt;'}`.html, '&amp;lt;');
+eq('U12.e html 插值本身写着 &amp; 时只转义一次', html`${'&amp;'}`.html, '&amp;amp;');
+eq('U12.e html 插值没有那五个字符时原文不变', html`${'普通文字 abc 123'}`.html, '普通文字 abc 123');
+eq('U12.e html 插值是空字符串时写成空', html`${''}`.html, '');
 
 // 二、五个字符各自转义一次（escapeText）
-eq('U12.d escapeText 里的 & 转义一次', escapeText('&'), '&amp;');
-eq('U12.d escapeText 里的 < 转义一次', escapeText('<'), '&lt;');
-eq('U12.d escapeText 里的 > 转义一次', escapeText('>'), '&gt;');
-eq('U12.d escapeText 里的双引号转义一次', escapeText('"'), '&quot;');
-eq('U12.d escapeText 里的单引号转义一次', escapeText("'"), '&#39;');
-eq('U12.d escapeText 里五个字符连在一起各转义一次', escapeText(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
-eq('U12.d escapeText 里同一个字符出现多次时每一处都转义', escapeText('a<b<c&d&e'), 'a&lt;b&lt;c&amp;d&amp;e');
-eq('U12.d escapeText 的取值本身写着字符实体时只转义一次', escapeText('&quot;'), '&amp;quot;');
-eq('U12.d escapeText 没有那五个字符时原文不变', escapeText('普通文字 abc 123'), '普通文字 abc 123');
-
-// 三、缺值写成空
-eq('U12.d html 插值是 undefined 时写成空', html`${undefined}`.html, '');
-eq('U12.d html 插值是 null 时写成空', html`${null}`.html, '');
-eq('U12.d html 两段写死的文字之间插 undefined 时只剩写死的文字', html`<td>${undefined}</td>`.html, '<td></td>');
-eq('U12.d html 两段写死的文字之间插 null 时只剩写死的文字', html`<td>${null}</td>`.html, '<td></td>');
-eq('U12.d html 缺值和有值相邻时缺值不占位', html`${undefined}${'<'}${null}`.html, '&lt;');
-eq('U12.d escapeText 对 undefined 写成空', escapeText(undefined), '');
-eq('U12.d escapeText 对 null 写成空', escapeText(null), '');
-eq('U12.d joinHtml 只有一项且是 undefined 时写成空', joinHtml([undefined]).html, '');
-eq('U12.d joinHtml 只有一项且是 null 时写成空', joinHtml([null]).html, '');
+eq('U12.e escapeText 里的 & 转义一次', escapeText('&'), '&amp;');
+eq('U12.e escapeText 里的 < 转义一次', escapeText('<'), '&lt;');
+eq('U12.e escapeText 里的 > 转义一次', escapeText('>'), '&gt;');
+eq('U12.e escapeText 里的双引号转义一次', escapeText('"'), '&quot;');
+eq('U12.e escapeText 里的单引号转义一次', escapeText("'"), '&#39;');
+eq('U12.e escapeText 里五个字符连在一起各转义一次', escapeText(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.e escapeText 里同一个字符出现多次时每一处都转义', escapeText('a<b<c&d&e'), 'a&lt;b&lt;c&amp;d&amp;e');
+eq('U12.e escapeText 的取值本身写着字符实体时只转义一次', escapeText('&quot;'), '&amp;quot;');
+eq('U12.e escapeText 没有那五个字符时原文不变', escapeText('普通文字 abc 123'), '普通文字 abc 123');
 
 // 四、非字符串取值先转文字再转义
-eq('U12.d html 插值是数时写成它的文字', html`${42}`.html, '42');
-eq('U12.d html 插值是 0 时写成 0 不当缺值', html`${0}`.html, '0');
-eq('U12.d html 插值是负小数时写成它的文字', html`${-1.5}`.html, '-1.5');
-eq('U12.d html 插值是 true 时写成它的文字', html`${true}`.html, 'true');
-eq('U12.d html 插值是 false 时写成它的文字不当缺值', html`${false}`.html, 'false');
-eq('U12.d html 插值是字符串数组时转成文字后各元素里的标记被转义', html`${['<a>', '<b>']}`.html, '&lt;a&gt;,&lt;b&gt;');
-eq('U12.d html 插值是只有一个元素的数组时元素里的五个字符各转义一次', html`${[`&<>"'`]}`.html, '&amp;&lt;&gt;&quot;&#39;');
-eq('U12.d html 插值是自定义 toString 的对象时转成的文字被转义', html`${{ toString: () => `<i a="1" b='2'>&</i>` }}`.html, '&lt;i a=&quot;1&quot; b=&#39;2&#39;&gt;&amp;&lt;/i&gt;');
-eq('U12.d html 插值是 String 包装对象时照样转义', html`${new String('<b>')}`.html, '&lt;b&gt;');
-eq('U12.d escapeText 对数写成它的文字', escapeText(42), '42');
-eq('U12.d escapeText 对 0 写成 0 不当缺值', escapeText(0), '0');
-eq('U12.d escapeText 对 false 写成它的文字不当缺值', escapeText(false), 'false');
-eq('U12.d escapeText 对 true 写成它的文字', escapeText(true), 'true');
-eq('U12.d escapeText 对字符串数组转成文字后转义', escapeText(['<a>', '&']), '&lt;a&gt;,&amp;');
-eq('U12.d escapeText 对自定义 toString 的对象转成的文字转义', escapeText({ toString: () => '<b>"x"</b>' }), '&lt;b&gt;&quot;x&quot;&lt;/b&gt;');
-eq('U12.d joinHtml 里的数写成它的文字', joinHtml([1, 2, 3], html`,`).html, '1,2,3');
-eq('U12.d joinHtml 里自定义 toString 的对象转成的文字被转义', joinHtml([{ toString: () => '<b>' }]).html, '&lt;b&gt;');
+eq('U12.e html 插值是数时写成它的文字', html`${42}`.html, '42');
+eq('U12.e html 插值是 0 时写成 0 不当缺值', html`${0}`.html, '0');
+eq('U12.e html 插值是负小数时写成它的文字', html`${-1.5}`.html, '-1.5');
+eq('U12.e html 插值是 true 时写成它的文字', html`${true}`.html, 'true');
+eq('U12.e html 插值是 false 时写成它的文字不当缺值', html`${false}`.html, 'false');
+eq('U12.e html 插值是字符串数组时转成文字后各元素里的标记被转义', html`${['<a>', '<b>']}`.html, '&lt;a&gt;,&lt;b&gt;');
+eq('U12.e html 插值是只有一个元素的数组时元素里的五个字符各转义一次', html`${[`&<>"'`]}`.html, '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.e html 插值是自定义 toString 的对象时转成的文字被转义', html`${{ toString: () => `<i a="1" b='2'>&</i>` }}`.html, '&lt;i a=&quot;1&quot; b=&#39;2&#39;&gt;&amp;&lt;/i&gt;');
+eq('U12.e html 插值是 String 包装对象时照样转义', html`${new String('<b>')}`.html, '&lt;b&gt;');
+eq('U12.e escapeText 对数写成它的文字', escapeText(42), '42');
+eq('U12.e escapeText 对 0 写成 0 不当缺值', escapeText(0), '0');
+eq('U12.e escapeText 对 false 写成它的文字不当缺值', escapeText(false), 'false');
+eq('U12.e escapeText 对 true 写成它的文字', escapeText(true), 'true');
+eq('U12.e escapeText 对字符串数组转成文字后转义', escapeText(['<a>', '&']), '&lt;a&gt;,&amp;');
+eq('U12.e escapeText 对自定义 toString 的对象转成的文字转义', escapeText({ toString: () => '<b>"x"</b>' }), '&lt;b&gt;&quot;x&quot;&lt;/b&gt;');
+eq('U12.e joinHtml 里的数写成它的文字', joinHtml([1, 2, 3], html`,`).html, '1,2,3');
+eq('U12.e joinHtml 里自定义 toString 的对象转成的文字被转义', joinHtml([{ toString: () => '<b>' }]).html, '&lt;b&gt;');
 
 // 五、模板里写死的部分原样
-eq('U12.d html 没有插值时写死的标记原样', html`<p class="a" data-x='1'>甲 & 乙</p>`.html, `<p class="a" data-x='1'>甲 & 乙</p>`);
-eq('U12.d html 写死的字符实体原样不再转义', html`<p>&amp;&lt;&gt;&quot;&#39;</p>`.html, '<p>&amp;&lt;&gt;&quot;&#39;</p>');
-eq('U12.d html 空模板拼出空片段', html``.html, '');
-eq('U12.d html 写死的标记原样而中间的插值转义', html`<p class="k">${'<b>'}</p>`.html, '<p class="k">&lt;b&gt;</p>');
-eq('U12.d html 插值在写死的属性引号里时取值里的引号被转义而写死的引号原样', html`<a title="${'"><script>'}" data-n='${"'x'"}'>链接</a>`.html, `<a title="&quot;&gt;&lt;script&gt;" data-n='&#39;x&#39;'>链接</a>`);
-eq('U12.d html 多个插值各自转义且写死的部分顺序不变', html`<i>${'<'}</i>-<b>${'>'}</b>-<u>${'&'}</u>`.html, '<i>&lt;</i>-<b>&gt;</b>-<u>&amp;</u>');
-eq('U12.d html 相邻两个插值各自转义后紧挨着', html`${'<'}${'>'}`.html, '&lt;&gt;');
-eq('U12.d html 插值在模板开头和结尾时写死的中间部分原样', html`${'"'}<br>${"'"}`.html, '&quot;<br>&#39;');
+eq('U12.e html 没有插值时写死的标记原样', html`<p class="a" data-x='1'>甲 & 乙</p>`.html, `<p class="a" data-x='1'>甲 & 乙</p>`);
+eq('U12.e html 写死的字符实体原样不再转义', html`<p>&amp;&lt;&gt;&quot;&#39;</p>`.html, '<p>&amp;&lt;&gt;&quot;&#39;</p>');
+eq('U12.e html 空模板拼出空片段', html``.html, '');
+eq('U12.e html 写死的标记原样而中间的插值转义', html`<p class="k">${'<b>'}</p>`.html, '<p class="k">&lt;b&gt;</p>');
+eq('U12.e html 插值在写死的属性引号里时取值里的引号被转义而写死的引号原样', html`<a title="${'"><script>'}" data-n='${"'x'"}'>链接</a>`.html, `<a title="&quot;&gt;&lt;script&gt;" data-n='&#39;x&#39;'>链接</a>`);
+eq('U12.e html 多个插值各自转义且写死的部分顺序不变', html`<i>${'<'}</i>-<b>${'>'}</b>-<u>${'&'}</u>`.html, '<i>&lt;</i>-<b>&gt;</b>-<u>&amp;</u>');
+eq('U12.e html 相邻两个插值各自转义后紧挨着', html`${'<'}${'>'}`.html, '&lt;&gt;');
+eq('U12.e html 插值在模板开头和结尾时写死的中间部分原样', html`${'"'}<br>${"'"}`.html, '&quot;<br>&#39;');
 
 // 六、html 拼出来的片段原样插入、不再转义
 const u12dInner = html`<b title="t">${`&<>"'`}</b>`;
-eq('U12.d 内层片段自己的取值转义一次', u12dInner.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
-eq('U12.d html 拼出来的片段单独插进 html 时原样', html`${u12dInner}`.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
-eq('U12.d html 拼出来的片段插进 html 时标记原样且里面的取值不再转义', html`<p>${u12dInner}</p>`.html, '<p><b title="t">&amp;&lt;&gt;&quot;&#39;</b></p>');
+eq('U12.e 内层片段自己的取值转义一次', u12dInner.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.e html 拼出来的片段单独插进 html 时原样', html`${u12dInner}`.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.e html 拼出来的片段插进 html 时标记原样且里面的取值不再转义', html`<p>${u12dInner}</p>`.html, '<p><b title="t">&amp;&lt;&gt;&quot;&#39;</b></p>');
 const u12dMid = html`<li>${u12dInner}</li>`;
 const u12dOuter = html`<ul>${u12dMid}</ul>`;
 const u12dTop = html`<div>${u12dOuter}</div>`;
-eq('U12.d 片段嵌套两层时转义不累加', u12dMid.html, '<li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li>');
-eq('U12.d 片段嵌套三层时转义不累加', u12dOuter.html, '<ul><li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li></ul>');
-eq('U12.d 片段嵌套四层时转义不累加', u12dTop.html, '<div><ul><li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li></ul></div>');
-eq('U12.d 同一个模板里片段原样而旁边的字符串转义', html`${html`<b>x</b>`}${'<b>x</b>'}`.html, '<b>x</b>&lt;b&gt;x&lt;/b&gt;');
-eq('U12.d 同一个片段插两次时两处都原样', html`${u12dInner}|${u12dInner}`.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>|<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
-eq('U12.d 空片段插进 html 时什么都不多出来', html`<p>${html``}</p>`.html, '<p></p>');
-eq('U12.d 写死字符实体的片段插进 html 时实体不被再转义', html`<p>${html`&amp;&lt;`}</p>`.html, '<p>&amp;&lt;</p>');
-ok('U12.d html 拼出来的东西是 SafeHtml', html`<b>x</b>` instanceof SafeHtml);
-ok('U12.d joinHtml 拼出来的东西是 SafeHtml', joinHtml([html`<b>x</b>`]) instanceof SafeHtml);
+eq('U12.e 片段嵌套两层时转义不累加', u12dMid.html, '<li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li>');
+eq('U12.e 片段嵌套三层时转义不累加', u12dOuter.html, '<ul><li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li></ul>');
+eq('U12.e 片段嵌套四层时转义不累加', u12dTop.html, '<div><ul><li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li></ul></div>');
+eq('U12.e 同一个模板里片段原样而旁边的字符串转义', html`${html`<b>x</b>`}${'<b>x</b>'}`.html, '<b>x</b>&lt;b&gt;x&lt;/b&gt;');
+eq('U12.e 同一个片段插两次时两处都原样', html`${u12dInner}|${u12dInner}`.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>|<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.e 空片段插进 html 时什么都不多出来', html`<p>${html``}</p>`.html, '<p></p>');
+eq('U12.e 写死字符实体的片段插进 html 时实体不被再转义', html`<p>${html`&amp;&lt;`}</p>`.html, '<p>&amp;&lt;</p>');
+ok('U12.e html 拼出来的东西是 SafeHtml', html`<b>x</b>` instanceof SafeHtml);
+ok('U12.e joinHtml 拼出来的东西是 SafeHtml', joinHtml([html`<b>x</b>`]) instanceof SafeHtml);
 
 // 七、joinHtml：片段原样、普通字符串照样转义、分隔片段原样
-eq('U12.d joinHtml 里的片段原样', joinHtml([html`<b>1</b>`, html`<b>2</b>`], html`<br>`).html, '<b>1</b><br><b>2</b>');
-eq('U12.d joinHtml 里片段中已转义的取值不再转义', joinHtml([u12dInner, u12dInner], html`|`).html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>|<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
-eq('U12.d joinHtml 里的普通字符串照样转义', joinHtml(['<b>1</b>', '<b>2</b>'], html`<br>`).html, '&lt;b&gt;1&lt;/b&gt;<br>&lt;b&gt;2&lt;/b&gt;');
-eq('U12.d joinHtml 里普通字符串的五个字符各转义一次', joinHtml([`&<>"'`]).html, '&amp;&lt;&gt;&quot;&#39;');
-eq('U12.d joinHtml 里片段和普通字符串混排时片段原样字符串转义', joinHtml([html`<b>1</b>`, '<b>2</b>', html`<b>3</b>`], html`<hr>`).html, '<b>1</b><hr>&lt;b&gt;2&lt;/b&gt;<hr><b>3</b>');
-eq('U12.d joinHtml 的分隔片段里的标记原样', joinHtml(['a', 'b', 'c'], html`<span class="sep">·</span>`).html, 'a<span class="sep">·</span>b<span class="sep">·</span>c');
-eq('U12.d joinHtml 的分隔片段里已转义的取值不再转义', joinHtml(['a', 'b'], html`<i>${'&'}</i>`).html, 'a<i>&amp;</i>b');
-eq('U12.d joinHtml 的分隔片段里写死的字符实体不再转义', joinHtml(['a', 'b'], html` &amp; `).html, 'a &amp; b');
-eq('U12.d joinHtml 只有一项片段时原样', joinHtml([html`<b>1</b>`]).html, '<b>1</b>');
-eq('U12.d joinHtml 只有一项字符串时转义', joinHtml(['<b>1</b>']).html, '&lt;b&gt;1&lt;/b&gt;');
-eq('U12.d joinHtml 里的字符串本身写着字符实体时只转义一次', joinHtml(['&lt;', '&amp;'], html`,`).html, '&amp;lt;,&amp;amp;');
+eq('U12.e joinHtml 里的片段原样', joinHtml([html`<b>1</b>`, html`<b>2</b>`], html`<br>`).html, '<b>1</b><br><b>2</b>');
+eq('U12.e joinHtml 里片段中已转义的取值不再转义', joinHtml([u12dInner, u12dInner], html`|`).html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>|<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.e joinHtml 里的普通字符串照样转义', joinHtml(['<b>1</b>', '<b>2</b>'], html`<br>`).html, '&lt;b&gt;1&lt;/b&gt;<br>&lt;b&gt;2&lt;/b&gt;');
+eq('U12.e joinHtml 里普通字符串的五个字符各转义一次', joinHtml([`&<>"'`]).html, '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.e joinHtml 里片段和普通字符串混排时片段原样字符串转义', joinHtml([html`<b>1</b>`, '<b>2</b>', html`<b>3</b>`], html`<hr>`).html, '<b>1</b><hr>&lt;b&gt;2&lt;/b&gt;<hr><b>3</b>');
+eq('U12.e joinHtml 的分隔片段里的标记原样', joinHtml(['a', 'b', 'c'], html`<span class="sep">·</span>`).html, 'a<span class="sep">·</span>b<span class="sep">·</span>c');
+eq('U12.e joinHtml 的分隔片段里已转义的取值不再转义', joinHtml(['a', 'b'], html`<i>${'&'}</i>`).html, 'a<i>&amp;</i>b');
+eq('U12.e joinHtml 的分隔片段里写死的字符实体不再转义', joinHtml(['a', 'b'], html` &amp; `).html, 'a &amp; b');
+eq('U12.e joinHtml 只有一项片段时原样', joinHtml([html`<b>1</b>`]).html, '<b>1</b>');
+eq('U12.e joinHtml 只有一项字符串时转义', joinHtml(['<b>1</b>']).html, '&lt;b&gt;1&lt;/b&gt;');
+eq('U12.e joinHtml 里的字符串本身写着字符实体时只转义一次', joinHtml(['&lt;', '&amp;'], html`,`).html, '&amp;lt;,&amp;amp;');
 const u12dJoined = joinHtml([html`<li>${'<'}</li>`, html`<li>${'&'}</li>`], html``);
-eq('U12.d joinHtml 用空片段分隔时各项紧挨着', u12dJoined.html, '<li>&lt;</li><li>&amp;</li>');
-eq('U12.d joinHtml 拼出来的片段插进 html 时原样不再转义', html`<ul>${u12dJoined}</ul>`.html, '<ul><li>&lt;</li><li>&amp;</li></ul>');
-eq('U12.d joinHtml 拼出来的片段再插进 joinHtml 时原样不再转义', joinHtml([u12dJoined, u12dJoined], html`<hr>`).html, '<li>&lt;</li><li>&amp;</li><hr><li>&lt;</li><li>&amp;</li>');
-eq('U12.d joinHtml 拼出来的片段当分隔片段时原样', joinHtml(['a', 'b'], joinHtml([html`<br>`])).html, 'a<br>b');
-eq('U12.d html 套 joinHtml 再套 html 时转义不累加', html`<div>${joinHtml([html`<p>${html`<b>${'"'}</b>`}</p>`, `'`], html`<br>`)}</div>`.html, '<div><p><b>&quot;</b></p><br>&#39;</div>');
+eq('U12.e joinHtml 用空片段分隔时各项紧挨着', u12dJoined.html, '<li>&lt;</li><li>&amp;</li>');
+eq('U12.e joinHtml 拼出来的片段插进 html 时原样不再转义', html`<ul>${u12dJoined}</ul>`.html, '<ul><li>&lt;</li><li>&amp;</li></ul>');
+eq('U12.e joinHtml 拼出来的片段再插进 joinHtml 时原样不再转义', joinHtml([u12dJoined, u12dJoined], html`<hr>`).html, '<li>&lt;</li><li>&amp;</li><hr><li>&lt;</li><li>&amp;</li>');
+eq('U12.e joinHtml 拼出来的片段当分隔片段时原样', joinHtml(['a', 'b'], joinHtml([html`<br>`])).html, 'a<br>b');
+eq('U12.e html 套 joinHtml 再套 html 时转义不累加', html`<div>${joinHtml([html`<p>${html`<b>${'"'}</b>`}</p>`, `'`], html`<br>`)}</div>`.html, '<div><p><b>&quot;</b></p><br>&#39;</div>');
 
 // 八、长得像片段的别的东西照样当文字转义
-eq('U12.d 字符串本身是一段标记时插进 html 当文字转义', html`${'<b>x</b>'}`.html, '&lt;b&gt;x&lt;/b&gt;');
-eq('U12.d 片段的 html 字段取出来成了字符串再插进 html 时当文字转义', html`${html`<b>x</b>`.html}`.html, '&lt;b&gt;x&lt;/b&gt;');
-eq('U12.d 片段的 html 字段取出来再插时里面已转义的取值按文字再转义一次', html`${html`<b>${'&'}</b>`.html}`.html, '&lt;b&gt;&amp;amp;&lt;/b&gt;');
-eq('U12.d 片段的 html 字段取出来成了字符串再插进 joinHtml 时当文字转义', joinHtml([html`<b>x</b>`.html]).html, '&lt;b&gt;x&lt;/b&gt;');
-eq('U12.d escapeText 对一段标记字符串当文字转义', escapeText('<b>x</b>'), '&lt;b&gt;x&lt;/b&gt;');
-ok('U12.d 带 html 字段的普通对象插进 html 时字段里的标记不原样出现', !html`${{ html: '<b>x</b>' }}`.html.includes('<'));
-ok('U12.d 带 html 字段的普通对象插进 joinHtml 时字段里的标记不原样出现', !joinHtml([{ html: '<b>x</b>' }]).html.includes('<'));
-ok('U12.d 带 html 字段的普通对象交给 escapeText 时字段里的标记不原样出现', !escapeText({ html: '<b>x</b>' }).includes('<'));
-eq('U12.d 带 html 字段又自定义 toString 的对象插进 html 时按 toString 的文字转义', html`${{ html: '<b>x</b>', toString: () => '<i>y</i>' }}`.html, '&lt;i&gt;y&lt;/i&gt;');
-eq('U12.d 带 html 字段又自定义 toString 的对象插进 joinHtml 时按 toString 的文字转义', joinHtml([{ html: '<b>x</b>', toString: () => '<i>y</i>' }]).html, '&lt;i&gt;y&lt;/i&gt;');
-eq('U12.d 自定义 toString 返回标记的对象插进 html 时当文字转义', html`<p>${{ toString: () => '<script>x</script>' }}</p>`.html, '<p>&lt;script&gt;x&lt;/script&gt;</p>');
-eq('U12.d 自定义 toString 返回标记的对象插进 joinHtml 时当文字转义', joinHtml([{ toString: () => '<a>' }, { toString: () => '<b>' }], html`<br>`).html, '&lt;a&gt;<br>&lt;b&gt;');
+eq('U12.e 字符串本身是一段标记时插进 html 当文字转义', html`${'<b>x</b>'}`.html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.e 片段的 html 字段取出来成了字符串再插进 html 时当文字转义', html`${html`<b>x</b>`.html}`.html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.e 片段的 html 字段取出来再插时里面已转义的取值按文字再转义一次', html`${html`<b>${'&'}</b>`.html}`.html, '&lt;b&gt;&amp;amp;&lt;/b&gt;');
+eq('U12.e 片段的 html 字段取出来成了字符串再插进 joinHtml 时当文字转义', joinHtml([html`<b>x</b>`.html]).html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.e escapeText 对一段标记字符串当文字转义', escapeText('<b>x</b>'), '&lt;b&gt;x&lt;/b&gt;');
+ok('U12.e 带 html 字段的普通对象插进 html 时字段里的标记不原样出现', !html`${{ html: '<b>x</b>' }}`.html.includes('<'));
+ok('U12.e 带 html 字段的普通对象插进 joinHtml 时字段里的标记不原样出现', !joinHtml([{ html: '<b>x</b>' }]).html.includes('<'));
+ok('U12.e 带 html 字段的普通对象交给 escapeText 时字段里的标记不原样出现', !escapeText({ html: '<b>x</b>' }).includes('<'));
+eq('U12.e 带 html 字段又自定义 toString 的对象插进 html 时按 toString 的文字转义', html`${{ html: '<b>x</b>', toString: () => '<i>y</i>' }}`.html, '&lt;i&gt;y&lt;/i&gt;');
+eq('U12.e 带 html 字段又自定义 toString 的对象插进 joinHtml 时按 toString 的文字转义', joinHtml([{ html: '<b>x</b>', toString: () => '<i>y</i>' }]).html, '&lt;i&gt;y&lt;/i&gt;');
+eq('U12.e 自定义 toString 返回标记的对象插进 html 时当文字转义', html`<p>${{ toString: () => '<script>x</script>' }}</p>`.html, '<p>&lt;script&gt;x&lt;/script&gt;</p>');
+eq('U12.e 自定义 toString 返回标记的对象插进 joinHtml 时当文字转义', joinHtml([{ toString: () => '<a>' }, { toString: () => '<b>' }], html`<br>`).html, '&lt;a&gt;<br>&lt;b&gt;');
 const u12dForged = Object.create(SafeHtml.prototype);
 u12dForged.html = '<b>x</b>';
 u12dForged.toString = () => '<b>x</b>';
-eq('U12.d 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 html 时当文字转义', html`${u12dForged}`.html, '&lt;b&gt;x&lt;/b&gt;');
-eq('U12.d 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 joinHtml 时当文字转义', joinHtml([u12dForged]).html, '&lt;b&gt;x&lt;/b&gt;');
-ok('U12.d 把片段放进数组再插进 html 时不算片段标记不原样出现', !html`${[html`<b>x</b>`]}`.html.includes('<'));
-ok('U12.d 把片段放进数组再放进 joinHtml 的一项时不算片段标记不原样出现', !joinHtml([[html`<b>x</b>`]]).html.includes('<'));
-eq('U12.d 字符串数组插进 html 时不当成一串片段', html`<ul>${['<li>1</li>', '<li>2</li>']}</ul>`.html, '<ul>&lt;li&gt;1&lt;/li&gt;,&lt;li&gt;2&lt;/li&gt;</ul>');
+eq('U12.e 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 html 时当文字转义', html`${u12dForged}`.html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.e 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 joinHtml 时当文字转义', joinHtml([u12dForged]).html, '&lt;b&gt;x&lt;/b&gt;');
+ok('U12.e 把片段放进数组再插进 html 时不算片段标记不原样出现', !html`${[html`<b>x</b>`]}`.html.includes('<'));
+ok('U12.e 把片段放进数组再放进 joinHtml 的一项时不算片段标记不原样出现', !joinHtml([[html`<b>x</b>`]]).html.includes('<'));
+eq('U12.e 字符串数组插进 html 时不当成一串片段', html`<ul>${['<li>1</li>', '<li>2</li>']}</ul>`.html, '<ul>&lt;li&gt;1&lt;/li&gt;,&lt;li&gt;2&lt;/li&gt;</ul>');
 
-criterion('U12.d');
+criterion('U12.e');
 }
 {
   // 作者写（ADR-228 第五节，独立复核第一轮）：分隔参数也只认本模块造的片段；造出来的片段改不了
   const fakeSep = { html: '<hr>' } as unknown as SafeHtml
-  eq('U12.d joinHtml 的分隔参数是仿造的片段时当文字转义', joinHtml(['a', 'b'], fakeSep).html, 'a[object Object]b')
+  eq('U12.e joinHtml 的分隔参数是仿造的片段时当文字转义', joinHtml(['a', 'b'], fakeSep).html, 'a[object Object]b')
   const frozen = html`<i>x</i>`
   let rewrote = false
   try { (frozen as { html: string }).html = '<script>'; rewrote = frozen.html === '<script>' } catch { rewrote = false }
-  ok('U12.d 造出来的片段改不了里面的标记', !rewrote)
+  ok('U12.e 造出来的片段改不了里面的标记', !rewrote)
 }
 {
-  // 作者写（ADR-228 第六节，还 ADR-180 第 34、58、70 行）：ADR-180 结论「缺值时照旧印出原样，不悄悄变成空白」
-  // 原先靠 escRaw，现在靠那几处自己写 String(v)；去掉 String 缺值就变成空白（P1：缺值不被悄悄填成别的样子）。
-  // 期望按报告的标记手写，不借被测函数。
-  const page = renderHtml([mk('tiktok', 'a', { tier: undefined as never, platform: undefined as never })],
-    { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], tiers: {} as never,
-      ...testCostMeta(1, 2000000), enriched: false } as never)
-  ok('缺值照印原样：统计里总人数缺值时印 undefined 不印空白', page.includes('<div class="v">undefined</div><div class="l">总人数</div>'))
-  ok('缺值照印原样：统计里 A 级人数缺值时印 undefined 不印空白', page.includes('<div class="v" style="color:#22c55e">undefined</div><div class="l">A 级</div>'))
-  ok('缺值照印原样：统计里有邮箱人数缺值时印 undefined 不印空白', page.includes('<div class="v">undefined</div><div class="l">有邮箱</div>'))
-  ok('缺值照印原样：统计里跨平台人数缺值时印 undefined 不印空白', page.includes('<div class="v" style="color:#a78bfa">undefined</div><div class="l">跨平台</div>'))
-  ok('缺值照印原样：A 级标签页人数缺值时印 undefined 不印空白', page.includes('A级 直接发信<span class="n">undefined</span>'))
-  ok('缺值照印原样：卡片分层缺值时印 undefined 不印空白', page.includes('<span class="tier undefined">undefined</span>'))
-  ok('缺值照印原样：卡片平台缺值时样式类印 undefined 不印空白', page.includes('<span class="pf undefined">'))
+  // 作者写（ADR-230，接替 ADR-228 第六节那一块）：P1.n 里本该总有的几格，缺了时报告不出、报错点名那一格。
+  // 原先这几格缺值照印 undefined；需求所有者 2026-11-21 选「不出报告，点名哪一格缺了」。
+  // 期望只认「抛的是缺值那一种错、报错里有这一格的名字或前后写死的文字」，不借被测函数算期望。
+  const fullMeta = {
+    product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 1, tiers: { A: 1, B: 0, C: 0 },
+    email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false,
+  }
+  const one = (over: Partial<Creator> = {}) => [mk('tiktok', 'a', { tier: 'A', ...over })]
+  const outcome = (creators: Creator[], meta: object): string => {
+    try { renderHtml(creators, meta as never); return '报告照出了' }
+    catch (e) { return e instanceof MissingValueError ? e.message : `别的错：${e instanceof Error ? e.message : typeof e}` }
+  }
+  eq('缺值不写成空：夹具本身齐全时报告照出（下面几条的阳性对照）', outcome(one(), fullMeta), '报告照出了')
+  const total = outcome(one(), { ...fullMeta, total: undefined })
+  ok('缺值不写成空：统计里总人数缺了时报告不出、点名总人数那一格', total !== '报告照出了' && total.includes('总人数') && !total.startsWith('别的错'))
+  const tierA = outcome(one(), { ...fullMeta, tiers: { B: 0, C: 0 } })
+  ok('缺值不写成空：A 级人数缺了时报告不出、点名 A 级人数', tierA !== '报告照出了' && tierA.includes('A 级人数') && !tierA.startsWith('别的错'))
+  const tier = outcome(one({ tier: undefined }), fullMeta)
+  ok('缺值不写成空：卡片分层缺了时报告不出、点名卡片上的分层和账号', tier !== '报告照出了' && tier.includes('分层') && tier.includes('a') && !tier.startsWith('别的错'))
+  const platform = outcome(one({ platform: undefined as never }), fullMeta)
+  ok('缺值不写成空：卡片平台缺了时报告不出、点名平台样式那一格', platform !== '报告照出了' && platform.includes('class="pf ▯"') && !platform.startsWith('别的错'))
+  // P1.o 的两条变异要点名字面写死的断言（隔离会话那一块的断言名是循环里拼的），这里各补一条
+  const page = (over: Partial<Creator>) => renderHtml(one(over), fullMeta as never)
+  ok('P1.o 卡片上邮箱没查过时写邮箱未查询、不写无邮箱', page({ email: undefined }).includes('邮箱未查询') && !page({ email: undefined }).includes('无邮箱'))
+  ok('P1.o 卡片上简介没查过时写简介未查询', page({ bio: undefined }).includes('简介未查询') && !page({ bio: null }).includes('简介未查询'))
+}
+{
+  // 作者写（ADR-230）：U12.e 后半句「报告页面的代码里拼文字一律走这种写法」读 report.ts 的语法树核，不按字面搜。
+  // 这几样都能让缺值绕过 `html` 那一下拒绝：不带 html 的模板字符串、String(…)、+ 连字、.join(…) 会把缺值写成
+  // undefined 这几个字母；?? 0、?? ''、|| 0、|| '' 会把缺值写成 0 或空（P1.b 点名的那两种写法）。
+  // 例外只有一处：`need(取值, 格名)` 的格名是报错用的白话，不进页面，允许用模板字符串带上账号。
+  const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript')
+  const leaks = (source: string): string[] => {
+    const file = ts.createSourceFile('report.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const found: string[] = []
+    const at = (n: import('typescript').Node) => `第 ${file.getLineAndCharacterOfPosition(n.getStart(file)).line + 1} 行`
+    const isNeedName = (n: import('typescript').Node) => ts.isCallExpression(n.parent) && ts.isIdentifier(n.parent.expression) &&
+      n.parent.expression.text === 'need' && n.parent.arguments[1] === n
+    const fallbackLiteral = (n: import('typescript').Expression) =>
+      (ts.isNumericLiteral(n) && n.text === '0') || ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && n.text === '')
+    const walk = (n: import('typescript').Node): void => {
+      if (ts.isTemplateExpression(n) && !(ts.isTaggedTemplateExpression(n.parent) && ts.isIdentifier(n.parent.tag) && n.parent.tag.text === 'html') && !isNeedName(n))
+        found.push(`${at(n)}：不带 html 的模板字符串`)
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'String') found.push(`${at(n)}：String(…)`)
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'join') found.push(`${at(n)}：.join(…)`)
+      if (ts.isBinaryExpression(n)) {
+        const op = n.operatorToken.kind
+        if (op === ts.SyntaxKind.PlusToken || op === ts.SyntaxKind.PlusEqualsToken) found.push(`${at(n)}：+ 连字`)
+        if ((op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.BarBarToken) && fallbackLiteral(n.right))
+          found.push(`${at(n)}：${n.operatorToken.getText(file)} ${n.right.getText(file)}`)
+      }
+      ts.forEachChild(n, walk)
+    }
+    walk(file)
+    return found
+  }
+  eq('U12.e 报告页面代码里没有绕过缺值拒绝的拼字写法（读 report.ts 的语法树）', leaks(rf('scripts/lib/report.ts', 'utf8')), [])
+  // 检查自己会不会认：每一样各给一段玩具源码
+  eq('拼字写法检查认得出不带 html 的模板字符串', leaks('const a = `x${b}`'), ['第 1 行：不带 html 的模板字符串'])
+  eq('拼字写法检查认得出 String(…)', leaks('const a = String(b)'), ['第 1 行：String(…)'])
+  eq('拼字写法检查认得出 + 连字', leaks("const a = b + 'x'"), ['第 1 行：+ 连字'])
+  eq('拼字写法检查认得出 .join(…)', leaks("const a = b.join(',')"), ['第 1 行：.join(…)'])
+  eq('拼字写法检查认得出 ?? 0、?? \'\'、|| 0、|| \'\'', leaks("const a = b ?? 0\nconst c = d ?? ''\nconst e = f || 0\nconst g = h || ''"),
+    ['第 1 行：?? 0', "第 2 行：?? ''", '第 3 行：|| 0', "第 4 行：|| ''"])
+  eq('拼字写法检查放过 html 模板、need 的格名、?? 写明的说法', leaks("const a = html`x${b}`\nconst c = need(d, `格 ${e}`)\nconst f = g ?? '未知'"), [])
+}
+{
+  // 这一块由只读了 P1、U12 准入读物包的隔离会话写成（ADR-230 第七节），搬进来时一字未改
+// ===== P1.n / P1.o / U12.e（缺值那一半）：只按准入读物包（需求、签名、对外文档）写，不看实现 =====
+
+// ---------- 工具 ----------
+const U = undefined as unknown as {};
+const N = null as unknown as {};
+const caught = (f: () => unknown): unknown => {
+  try { f(); return undefined; } catch (e) { return e; }
+};
+const isMissing = (e: unknown): boolean => e instanceof MissingValueError;
+const whereOf = (e: unknown): string =>
+  e instanceof MissingValueError && typeof e.where === 'string' ? e.where : '';
+const countOf = (s: string, phrase: string): number => s.split(phrase).length - 1;
+/** 去掉 <script>、<style> 之后的标记里不许有 undefined、NaN；去掉标签后的可见文字里不许有 null */
+const leaks = (out: string): string[] => {
+  const markup = out
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, '');
+  const text = markup.replace(/<[^>]*>/g, ' ');
+  const found: string[] = [];
+  if (/undefined/.test(markup)) found.push('undefined');
+  if (/\bNaN\b/.test(markup)) found.push('NaN');
+  if (/\bnull\b/.test(text)) found.push('null');
+  return found;
+};
+/** v 为 undefined 时删掉这个键（同 JSON 里缺席），为 null 时写 null */
+const put = (obj: any, key: string, v: null | undefined): void => {
+  if (v === undefined) delete obj[key]; else obj[key] = v;
+};
+const tryRender = (cs: any[], meta: any, opt: any): { out?: string; err?: unknown } => {
+  try { return { out: renderHtml(cs as any, meta, opt) }; } catch (err) { return { err }; }
+};
+
+// ---------- 夹具（字段依据见 说明.md） ----------
+const EMAIL = 'alice@example.com';
+const BIO = 'Tech reviews daily';
+const baseCreator = (): any => ({
+  platform: 'tiktok',
+  handle: 'alice_q',
+  nickname: 'Alice Q',
+  followers: 12345,
+  post_count: 87,
+  bio: BIO,
+  email: EMAIL,
+  bio_links: [],
+  verified: false,
+  profile_url: 'https://www.tiktok.com/@alice_q',
+  source_keyword: 'portable charger',
+  source_dimension: 'category',
+  source_tasks: [0],
+  fit: '✅',
+  fit_reason: '测评充电宝',
+  tier: 'A',
+  score: 72,
+  outreach_draft: 'Subject: Hello Alice\n\nHi Alice, we love your reviews.',
+  eligibility: '合格',
+  adoption_priority: '优先联系',
+  observed_content: '充电宝测评',
+  work_evidence: '近期三条测评',
+  natural_integration: '出行场景',
+  mismatch_risk: '低',
+  review_status: '已评',
+  effective_priority: '优先联系',
+});
+const secondCreator = (): any => ({
+  ...baseCreator(),
+  platform: 'instagram',
+  handle: 'bob_q',
+  nickname: 'Bob Q',
+  profile_url: 'https://www.instagram.com/bob_q/',
+  tier: 'B',
+  score: 50,
+  email: 'bob@example.com',
+});
+const cap = () => ({ total: 1, measured: 0, unavailable: 0, unqueried: 1 });
+const baseMeta = (): any => ({
+  product: 'demo-charger',
+  timestamp: '202611210930',
+  market: 'US',
+  platforms: ['tiktok', 'instagram'],
+  keywords: [
+    { task_index: 0, keyword: 'portable charger', dimension: 'category', platform: 'tiktok',
+      status: 'queried', found: 5, shortlisted: 1, fit_pass: 1, manual_reviewed: 3 },
+  ],
+  total: 1,
+  tiers: { A: 1, B: 0, C: 0 },
+  email_count: 1,
+  cross_platform_count: 0,
+  requests: 3,
+  enriched: false,
+  memory_status: 'ok',
+  memory_written: true,
+  capabilities: {
+    email_verification: cap(), audience_geo: cap(), public_post_sample: cap(),
+    audience_quality_risk: cap(), creator_activity: cap(), collaboration_quote: cap(),
+  },
+  cost_status: 'known',
+  cost_scope: 'task',
+  cost_problems: [],
+  cost_basis: '固定公开基础价估算',
+  cost_estimate_usd: '0.03',
+  budget_usd: '2.00',
+  cost_http_200_usd: '0.03',
+  cost_unknown_result_usd: '0.00',
+  cost_pending_usd: '0.00',
+});
+const PROD = { mode: 'review', filters: 'dual' };
+const VIEWS: Array<[string, any, boolean]> = [
+  ['默认视图', undefined, false],
+  ['生产视图', PROD, true],
+];
+
+// ---------- 阳性对照：夹具齐全时报告照出 ----------
+const baseOut: Record<string, string> = {};
+for (const [vn, opt] of VIEWS) {
+  const r = tryRender([baseCreator()], baseMeta(), opt);
+  ok(`P1.n 阳性对照（${vn}）：夹具齐全时报告照出、不抛`, r.err === undefined && typeof r.out === 'string');
+  const out = r.out ?? '';
+  baseOut[vn] = out;
+  ok(`P1.n 阳性对照（${vn}）：报告里有账号`, out.includes('alice_q'));
+  ok(`P1.n 阳性对照（${vn}）：报告里有昵称`, out.includes('Alice Q'));
+  ok(`P1.n 阳性对照（${vn}）：报告里有主页链接`, out.includes('https://www.tiktok.com/@alice_q'));
+  ok(`P1.n 阳性对照（${vn}）：报告里有产品名`, out.includes('demo-charger'));
+  ok(`P1.n 阳性对照（${vn}）：副标题写目标市场`, out.includes('目标市场 US'));
+  ok(`P1.n 阳性对照（${vn}）：报告里有关键词`, out.includes('portable charger'));
+  eq(`P1.n 阳性对照（${vn}）：报告里没有 undefined、NaN、可见的 null`, leaks(out), []);
+  ok(`P1.o 阳性对照（${vn}）：邮箱有值时显示邮箱、不出两种缺值说法`,
+    out.includes(EMAIL) && !out.includes('邮箱未查询') && !out.includes('无邮箱'));
+  ok(`P1.o 阳性对照（${vn}）：简介有值时显示简介、不出「简介未查询」`,
+    out.includes(BIO) && !out.includes('简介未查询'));
+  ok(`P1.n 阳性对照（${vn}）：未提供人工审核统计时写明「人工审核统计未提供」`, out.includes('人工审核统计未提供'));
+}
+
+// ---------- P1.n 本该总有的格缺了：整份报告不出（函数层：抛 MissingValueError，点名那一格） ----------
+const MUST: Array<{ name: string; prodOnly: boolean; distinct: boolean; at: (c: any, m: any) => [any, string] }> = [
+  { name: '总人数（total）', prodOnly: false, distinct: true, at: (_c, m) => [m, 'total'] },
+  { name: '三层人数整张（tiers）', prodOnly: false, distinct: false, at: (_c, m) => [m, 'tiers'] },
+  { name: '三层人数里的 A', prodOnly: false, distinct: true, at: (_c, m) => [m.tiers, 'A'] },
+  { name: '三层人数里的 C（齐全时为 0）', prodOnly: false, distinct: false, at: (_c, m) => [m.tiers, 'C'] },
+  { name: '有邮箱人数（email_count）', prodOnly: false, distinct: true, at: (_c, m) => [m, 'email_count'] },
+  { name: '跨平台人数（cross_platform_count，齐全时为 0）', prodOnly: false, distinct: true, at: (_c, m) => [m, 'cross_platform_count'] },
+  { name: '平台列表（platforms）', prodOnly: false, distinct: true, at: (_c, m) => [m, 'platforms'] },
+  { name: '关键词表（keywords）', prodOnly: false, distinct: true, at: (_c, m) => [m, 'keywords'] },
+  { name: '产品名（product）', prodOnly: false, distinct: true, at: (_c, m) => [m, 'product'] },
+  { name: '目标市场（market）', prodOnly: false, distinct: true, at: (_c, m) => [m, 'market'] },
+  { name: '卡片上的分层（tier）', prodOnly: true, distinct: true, at: (c) => [c, 'tier'] },
+  { name: '卡片上的平台（platform）', prodOnly: false, distinct: true, at: (c) => [c, 'platform'] },
+  { name: '卡片上的账号（handle）', prodOnly: false, distinct: true, at: (c) => [c, 'handle'] },
+  { name: '卡片上的昵称（nickname）', prodOnly: false, distinct: true, at: (c) => [c, 'nickname'] },
+  { name: '卡片上的主页链接（profile_url）', prodOnly: false, distinct: true, at: (c) => [c, 'profile_url'] },
+];
+for (const [vn, opt, isProd] of VIEWS) {
+  const wheres: string[] = [];
+  for (const k of MUST) {
+    if (k.prodOnly && !isProd) continue;
+    for (const [vl, v] of [['缺席', undefined], ['null', null]] as Array<[string, null | undefined]>) {
+      const c = baseCreator();
+      const m = baseMeta();
+      const [target, key] = k.at(c, m);
+      put(target, key, v);
+      const r = tryRender([c], m, opt);
+      ok(`P1.n 本该总有的${k.name}为${vl}时（${vn}）整份报告不出：抛 MissingValueError 且 where 非空`,
+        r.out === undefined && isMissing(r.err) && whereOf(r.err).trim() !== '');
+      if (v === undefined && k.distinct) wheres.push(whereOf(r.err));
+    }
+  }
+  ok(`P1.n 本该总有的各格缺席时（${vn}）报错点名各不相同（不是一句笼统的「报告缺值」）`,
+    wheres.length > 0 && wheres.every((w) => w !== '') && new Set(wheres).size === wheres.length);
+}
+for (const [vn, opt] of VIEWS) {
+  const c2 = secondCreator();
+  delete c2.nickname;
+  const m = baseMeta();
+  m.total = 2;
+  m.tiers = { A: 1, B: 1, C: 0 };
+  m.email_count = 2;
+  const r = tryRender([baseCreator(), c2], m, opt);
+  ok(`P1.n 第二张卡片的昵称缺席时（${vn}）也整份不出：不是只查第一张`,
+    r.out === undefined && isMissing(r.err));
+}
+
+// ---------- P1.n 可能缺的格：写明缺值说法，报告照出 ----------
+type Maybe = { name: string; prodOnly: boolean; phrase: string; apply: (c: any, m: any) => void; refuseOk: boolean };
+const kw = (m: any, row: any): void => { m.keywords = [{ ...m.keywords[0], ...row }]; };
+const MAYBE: Maybe[] = [
+  { name: '粉丝数没查到（缺席）', prodOnly: false, phrase: '未查询', refuseOk: false, apply: (c) => { delete c.followers; } },
+  { name: '作品数没查到（缺席）', prodOnly: false, phrase: '未查询', refuseOk: false, apply: (c) => { delete c.post_count; } },
+  { name: '粉丝数是供应商给的怪值', prodOnly: false, phrase: '未知', refuseOk: false,
+    apply: (c) => { delete c.followers; c.invalid_from_provider = ['followers']; } },
+  { name: '分数没算过（缺席）', prodOnly: false, phrase: '未知', refuseOk: false, apply: (c) => { delete c.score; } },
+  { name: '有效建议缺席', prodOnly: true, phrase: '未提供', refuseOk: false, apply: (c) => { delete c.effective_priority; } },
+  { name: 'Agent 证据 observed_content 缺席', prodOnly: true, phrase: '未填写', refuseOk: false, apply: (c) => { delete c.observed_content; } },
+  { name: 'Agent 判断 eligibility 缺席', prodOnly: true, phrase: '未填写', refuseOk: false, apply: (c) => { delete c.eligibility; } },
+  { name: '关键词行没查过的「找到」', prodOnly: false, phrase: '未查询', refuseOk: false,
+    apply: (_c, m) => kw(m, { status: 'unqueried', found: null, shortlisted: null, fit_pass: null, manual_reviewed: null }) },
+  { name: '关键词行没查过的「入围」「语义通过」', prodOnly: false, phrase: '无从确认', refuseOk: false,
+    apply: (_c, m) => kw(m, { status: 'unqueried', found: null, shortlisted: null, fit_pass: null, manual_reviewed: null }) },
+  { name: '关键词行问过但条数没记下', prodOnly: false, phrase: '未知', refuseOk: false,
+    apply: (_c, m) => kw(m, { status: 'queried', found: null }) },
+  { name: '关键词行旧目录（无从确认）', prodOnly: false, phrase: '无从确认', refuseOk: false,
+    apply: (_c, m) => kw(m, { status: 'unknown', found: null, shortlisted: null, fit_pass: null, manual_reviewed: null }) },
+  { name: '关键词行人工已审缺字段', prodOnly: true, phrase: '未提供', refuseOk: false,
+    apply: (_c, m) => { delete m.keywords[0].manual_reviewed; } },
+  { name: '关键词行人工已审为 null', prodOnly: true, phrase: '无从确认', refuseOk: false,
+    apply: (_c, m) => kw(m, { manual_reviewed: null }) },
+  { name: '记忆没写进去且没给原因', prodOnly: false, phrase: '未记录', refuseOk: false,
+    apply: (_c, m) => { m.memory_written = false; } },
+  // null 那一态：签名类型上没有，运行时可能来自盘上 JSON；判据允许「写明说法」或「整份不出」二选一
+  { name: '粉丝数为 null', prodOnly: false, phrase: '未查询', refuseOk: true, apply: (c) => { c.followers = null; } },
+  { name: '作品数为 null', prodOnly: false, phrase: '未查询', refuseOk: true, apply: (c) => { c.post_count = null; } },
+  { name: '分数为 null', prodOnly: false, phrase: '未知', refuseOk: true, apply: (c) => { c.score = null; } },
+  { name: '有效建议为 null', prodOnly: true, phrase: '未提供', refuseOk: true, apply: (c) => { c.effective_priority = null; } },
+];
+for (const [vn, opt, isProd] of VIEWS) {
+  const base = baseOut[vn] ?? '';
+  for (const k of MAYBE) {
+    if (k.prodOnly && !isProd) continue;
+    const c = baseCreator();
+    const m = baseMeta();
+    k.apply(c, m);
+    const r = tryRender([c], m, opt);
+    const out = r.out ?? '';
+    const shown = r.err === undefined && base !== '' && countOf(out, k.phrase) > countOf(base, k.phrase);
+    if (k.refuseOk) {
+      ok(`P1.n 可能缺的${k.name}（${vn}）：要么写明「${k.phrase}」且不漏 undefined/null，要么整份不出`,
+        isMissing(r.err) || (shown && leaks(out).length === 0));
+    } else {
+      ok(`P1.n 可能缺的${k.name}（${vn}）：报告照出并多写一处「${k.phrase}」`, shown);
+      eq(`P1.n 可能缺的${k.name}（${vn}）：不漏出 undefined、NaN、可见的 null`, leaks(out), []);
+    }
+  }
+}
+
+// ---------- P1.o 卡片上邮箱、简介三态可分辨 ----------
+for (const [vn, opt] of VIEWS) {
+  const withEmail = (set: (c: any) => void): string => {
+    const c = baseCreator();
+    set(c);
+    return tryRender([c], baseMeta(), opt).out ?? '';
+  };
+  const eUndef = withEmail((c) => { delete c.email; });
+  ok(`P1.o 邮箱没查过（缺席）时（${vn}）显示「邮箱未查询」、不显示「无邮箱」`,
+    eUndef.includes('邮箱未查询') && !eUndef.includes('无邮箱'));
+  const eNull = withEmail((c) => { c.email = null; });
+  ok(`P1.o 邮箱查过没有（null）时（${vn}）显示「无邮箱」、不显示「邮箱未查询」`,
+    eNull.includes('无邮箱') && !eNull.includes('邮箱未查询'));
+  const eEmpty = withEmail((c) => { c.email = ''; });
+  ok(`P1.o 邮箱查过没有（空串）时（${vn}）显示「无邮箱」、不显示「邮箱未查询」`,
+    eEmpty.includes('无邮箱') && !eEmpty.includes('邮箱未查询'));
+  const eVal = withEmail((c) => { c.email = 'carol@example.org'; });
+  ok(`P1.o 邮箱有值时（${vn}）显示那个邮箱、两种缺值说法都不出`,
+    eVal.includes('carol@example.org') && !eVal.includes('无邮箱') && !eVal.includes('邮箱未查询'));
+
+  const bVal = withEmail((c) => { c.bio = 'Gadget nerd ZQX'; });
+  const emptyLine = bVal.split('Gadget nerd ZQX').join('');
+  const bUndef = withEmail((c) => { delete c.bio; });
+  ok(`P1.o 简介没查过（缺席）时（${vn}）显示「简介未查询」`, bUndef.includes('简介未查询'));
+  const bNull = withEmail((c) => { c.bio = null; });
+  ok(`P1.o 简介查过没写（null）时（${vn}）不显示「简介未查询」`, bNull !== '' && !bNull.includes('简介未查询'));
+  ok(`P1.o 简介查过没写（null）时（${vn}）不出简介那一行（不是留一行空简介）`, bNull !== '' && bNull !== emptyLine);
+  const bEmpty = withEmail((c) => { c.bio = ''; });
+  ok(`P1.o 简介查过没写（空串）时（${vn}）不显示「简介未查询」`, bEmpty !== '' && !bEmpty.includes('简介未查询'));
+  ok(`P1.o 简介查过没写（空串）时（${vn}）不出简介那一行（不是留一行空简介）`, bEmpty !== '' && bEmpty !== emptyLine);
+  ok(`P1.o 简介有值时（${vn}）显示简介、不显示「简介未查询」`,
+    bVal.includes('Gadget nerd ZQX') && !bVal.includes('简介未查询'));
+}
+
+// ---------- U12.e 插进去的取值缺了：拼页面那一步拒绝，报错点出哪一处 ----------
+{
+  const e1 = caught(() => html`<b>粉丝：${U}人</b>`);
+  ok('U12.e html 插值为 undefined 时拒绝：抛 MissingValueError', isMissing(e1));
+  ok('U12.e 缺值抛出的 MissingValueError 也是 Error', e1 instanceof Error);
+  ok('U12.e undefined 那一处的报错带前后写死的文字，▯ 标在缺的位置',
+    whereOf(e1).includes('粉丝：▯') && whereOf(e1).includes('▯人'));
+
+  const e2 = caught(() => html`<b>粉丝：${N}人</b>`);
+  ok('U12.e html 插值为 null 时拒绝：抛 MissingValueError', isMissing(e2));
+  ok('U12.e null 那一处的报错带前后写死的文字，▯ 标在缺的位置',
+    whereOf(e2).includes('粉丝：▯') && whereOf(e2).includes('▯人'));
+
+  const e3 = caught(() => html`<i>甲${1}乙${N}丙</i>`);
+  ok('U12.e 第二处缺时报错点的是第二处（乙▯丙），不是第一处', whereOf(e3).includes('乙▯丙') && !whereOf(e3).includes('甲▯'));
+  const e4 = caught(() => html`<i>甲${U}乙${2}丙</i>`);
+  ok('U12.e 第一处缺时报错点的是第一处（甲▯乙），不是第二处', whereOf(e4).includes('甲▯乙') && !whereOf(e4).includes('乙▯'));
+
+  ok('U12.e 嵌套片段里缺值时外层也拒绝', isMissing(caught(() => html`<p>${html`<b>${U}</b>`}</p>`)));
+
+  eq('U12.e html 插值 0 不算缺：照写 0', html`<b>${0}</b>`.html, '<b>0</b>');
+  eq('U12.e html 插值 false 不算缺：照写 false', html`<b>${false}</b>`.html, '<b>false</b>');
+  eq('U12.e html 插值空串不算缺：照写空', html`<b>${''}</b>`.html, '<b></b>');
+
+  ok('U12.e joinHtml 里有一项 undefined 时拒绝', isMissing(caught(() => joinHtml([html`<i>a</i>`, U]))));
+  ok('U12.e joinHtml 里有一项 null 时拒绝', isMissing(caught(() => joinHtml([html`<i>a</i>`, N]))));
+  ok('U12.e joinHtml 里文字项之间夹 null 时拒绝', isMissing(caught(() => joinHtml(['a', N, 'b'], html`|`))));
+  eq('U12.e joinHtml 里 0、false、空串不算缺', joinHtml([0, false, ''], html`|`).html, '0|false|');
+
+  ok('U12.e escapeText 取值 undefined、不给格名时也拒绝', isMissing(caught(() => escapeText(U))));
+  const e5 = caught(() => escapeText(N, '卡片上的昵称'));
+  ok('U12.e escapeText 取值 null 时拒绝，报错点出调用处写明的格名', isMissing(e5) && whereOf(e5).includes('卡片上的昵称'));
+  const e6 = caught(() => escapeText(U, () => '卡片上的邮箱'));
+  ok('U12.e escapeText 格名用函数给时，缺值报错点出函数算出的格名', isMissing(e6) && whereOf(e6).includes('卡片上的邮箱'));
+  eq('U12.e escapeText 取值 0 不算缺', escapeText(0), '0');
+  eq('U12.e escapeText 取值 false 不算缺', escapeText(false), 'false');
+  eq('U12.e escapeText 取值空串不算缺', escapeText(''), '');
+
+  const e7 = caught(() => need(undefined, '卡片上的分层'));
+  ok('U12.e need 取值 undefined 时拒绝，报错点出格名', isMissing(e7) && whereOf(e7).includes('卡片上的分层'));
+  const e8 = caught(() => need(null, '总人数'));
+  ok('U12.e need 取值 null 时拒绝，报错点出格名', isMissing(e8) && whereOf(e8).includes('总人数'));
+  eq('U12.e need 取值 0 原样交回、不当缺值', need(0, '跨平台人数'), 0);
+  eq('U12.e need 取值空串原样交回、不当缺值', need('', '产品名'), '');
+  eq('U12.e need 取值 false 原样交回、不当缺值', need(false, '某个布尔'), false);
+  const obj = { a: 1 };
+  ok('U12.e need 有值时交回同一个值、不另造', need(obj, '某个对象') === obj);
+}
+  criterion('P1.o')
 }
 })
 
