@@ -23651,24 +23651,27 @@ suite('D30', '发件人姓名：任务建好后用 sender 命令补进 task.json
 })
 
 // D31（ADR-230）：复评经验库放在本机 memory/ 下、不进仓库。这次只立了需求，Agent 还不读写经验库，能拿机器确证的只有 D31.b 这一条：
-// 仓库的忽略规则把 memory/ 下新建的经验库文件挡在 git 之外。不读 .gitignore 的文字去猜：把本仓库那份原样抄进玩具仓库，
-// 在 memory/ 下放几份经验库文件、在别处放对照文件，问 git 哪些文件算「已跟踪或没被忽略的新文件」，由 git 答。
+// 仓库的忽略规则把 memory/ 下新建的经验库文件挡在 git 之外。不读 .gitignore 的文字去猜：把本仓库那份（读当前目录下的，与本文件里别处读
+// package.json 一样）原样抄进玩具仓库，在 memory/ 下放几份经验库文件、在别处放对照文件，问 git 哪些文件算「已跟踪或没被忽略的新文件」，由 git 答。
+// 只认仓库这一份忽略规则：问的时候 HOME、XDG_CONFIG_HOME 指进临时目录，不读系统与用户级配置，用户级的忽略文件就读不到，
+// 本机若另有一份挡 memory/ 的全局忽略，也不能让这条假绿；继承来的 GIT_ 开头的变量一律去掉，免得问到别的仓库。
 await group('d31-store-outside-repo', () => {
 suite('D31', '复评经验库：memory/ 下的经验库文件不进仓库')
 {
-  const home = mkdtempSync(join(tmpdir(), 'kol-d31-store-')), toy = join(home, 'toy')
-  mkdirSync(toy)
+  const home = mkdtempSync(join(tmpdir(), 'kol-d31-store-')), toy = join(home, 'toy'), nobody = join(home, 'home')
+  mkdirSync(toy); mkdirSync(nobody)
   try {
-    const root = gitOrThrow(['rev-parse', '--show-toplevel']).trim()
     fixtureGitOrThrow(['init', '-q', '-b', 'main'], { cwd: toy })
-    writeFileSync(join(toy, '.gitignore'), rf(join(root, '.gitignore')))
+    writeFileSync(join(toy, '.gitignore'), rf('.gitignore'))
     // 经验库按品类一个文件，与 creators.json 同一目录（D31.a）；品类名可能是中文、带空格
     const STORE = ['memory/creators.json', 'memory/护肤.json', 'memory/home decor.json']
     // 对照：不在 memory/ 下的同名文件，git 必须列得出来，证明这一问真在列文件
     const CONTROL = ['skill/护肤.json', 'notes/memory.json']
     for (const f of [...STORE, ...CONTROL]) { mkdirSync(join(toy, dirname(f)), { recursive: true }); writeFileSync(join(toy, f), '{}\n') }
-    const listed = gitOrThrow(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: toy }).split('\0').filter(Boolean).sort()
-    eq('D31.b memory/ 下新建的经验库文件被仓库的忽略规则挡在 git 之外，不在 memory/ 下的对照文件照常列出',
+    const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')))
+    Object.assign(env, { HOME: nobody, XDG_CONFIG_HOME: nobody, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CONFIG_GLOBAL: '/dev/null' })
+    const listed = gitOrThrow(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: toy, env }).split('\0').filter(Boolean).sort()
+    eq('D31.b memory/ 下新建的经验库文件被仓库自己的忽略规则挡在 git 之外，不在 memory/ 下的对照文件照常列出',
       [STORE.filter(f => listed.includes(f)), CONTROL.filter(f => !listed.includes(f))], [[], []])
     criterion('D31.b')
   } finally { rmSync(home, { recursive: true, force: true }) }
