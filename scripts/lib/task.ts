@@ -226,9 +226,6 @@ export function loadEnrichment(dir: string): EnrichmentState | undefined {
 
 const ACTIVITY_STATUSES: readonly unknown[] = ['active', 'cooling', 'dormant']
 const RISK_LEVELS: readonly unknown[] = ['low', 'medium', 'high']
-const QUOTE_FORMATS: readonly unknown[] = ['tiktok_video', 'instagram_reel', 'instagram_post', 'mixed_bundle']
-const QUOTE_SOURCES: readonly unknown[] = ['creator_quote', 'public_rate_card']
-const PLATFORMS: readonly unknown[] = ['tiktok', 'instagram']
 /** 原样用的指标里，报告要印的数值格（latest_post_at 是日期串，另查） */
 const STORED_NUMBER_METRICS = ['median_views', 'median_engagements', 'engagement_rate_followers', 'engagement_rate_views',
   'view_rate', 'following_ratio', 'reach_consistency', 'median_post_gap_days', 'days_since_last_post'] as const
@@ -239,8 +236,9 @@ const text = (v: unknown): boolean => typeof v === 'string' && v.trim() !== ''
  * D21.v（ADR-227）：没有可用作品样本、平台又不是 instagram 的账号，render 直接用文件里存的活跃状态与风险等级
  *（有样本的会重算，Instagram 没样本的指标整个不用；哪些算「原样用」与 `currentEnrichmentView` 共用 `storedMetricsUsedAsIs`）。这两样手改坏了就拒收，不显示成空白、不当成别的等级。
  * P1.n（ADR-230）：报告上本该总有的格缺了整份不出；增强结果是 Agent 手写的（合作报价照 public-metrics.md 写进来），
- * 所以报告要印的几样在这里、写任何文件之前就查：每个账号的 handle；合作报价已测时的币种、金额、数量、平台、形式、
- * 来源、日期，不可用时的原因；原样用的指标已测时有数（日期那一格有日期串），不可用时有原因。缺了点名文件、账号、字段。
+ * 所以报告要印的几样在这里、写任何文件之前就查：每个账号的 handle，写了的粉丝数、关注数是数；合作报价、作品样本、
+ * 原样用的指标是三态包装，不可用时有原因；已测报价的币种、金额、数量、平台、形式、来源、日期都在（平台、形式、来源
+ * 只查有没有写，报告原样印）；已测样本是一串、有来源与日期；原样用的已测指标有数（日期那一格有日期串）。缺了点名文件、账号、字段。
  * 文件读不读得成不在这里。
  */
 export function enrichmentValueProblems(file: string, state: EnrichmentState | undefined): string[] {
@@ -251,19 +249,39 @@ export function enrichmentValueProblems(file: string, state: EnrichmentState | u
     const at = `${file} 里账号 ${shown(key)}`
     if (!text(account.handle))
       problems.push(`${at}没有 handle（读到 ${shown(account.handle)}），报告上这个账号的那一行要印它；补上账号名后再跑`)
-    const quote = account.collaboration_quote
-    if (isRecord(quote) && quote.status === 'measured') {
-      const v = isRecord(quote.value) ? quote.value : {}
-      const bad = [
-        !text(v.currency) && 'currency（币种）', !finite(v.amount) && 'amount（金额）', !finite(v.quantity) && 'quantity（数量）',
-        !PLATFORMS.includes(v.platform) && 'platform（平台）', !QUOTE_FORMATS.includes(v.format) && 'format（形式）',
-        !QUOTE_SOURCES.includes(v.source) && 'source（来源）', !text(v.observed_at) && 'observed_at（日期）',
-      ].filter((x): x is string => typeof x === 'string')
-      if (bad.length)
-        problems.push(`${at}的 collaboration_quote 标为已测，value 里 ${bad.join('、')} 缺了或不合规；照 public-metrics.md 补齐这条报价，或改成不可用并写明原因后再跑`)
+    for (const name of ['followers', 'following'] as const) {
+      // 缺席是「未知」，报告写明；写了就得是个数，null 或「8万」这种进了除法会印成 NaN%
+      if (name in account && !finite(account[name]))
+        problems.push(`${at}的 ${name} 写了却不是一个数（读到 ${shown(account[name])}）；不知道就删掉这个键，报告会写未知，改正后再跑`)
     }
-    if (isRecord(quote) && quote.status === 'unavailable' && !text(quote.reason))
-      problems.push(`${at}的 collaboration_quote 标为不可用，却没写 reason（原因）；补上原因后再跑`)
+    // 三态包装本身：缺席 = 未查询；在的话得是 measured 或 unavailable，不是裸值、空对象或拼错的 status
+    const wrapped = (where: string, m: unknown): m is Record<string, unknown> => {
+      if (m === undefined) return false
+      if (isRecord(m) && (m.status === 'measured' || m.status === 'unavailable')) {
+        if (m.status === 'unavailable' && !text(m.reason))
+          problems.push(`${at}的 ${where} 标为不可用，却没写 reason（原因）；补上原因后再跑`)
+        return m.status === 'measured'
+      }
+      problems.push(`${at}的 ${where} 不是三态包装（读到 ${shown(m)}），应是 {"status":"measured",…} 或 {"status":"unavailable","reason":…}；照 public-metrics.md 改正后再跑`)
+      return false
+    }
+    const quote = account.collaboration_quote
+    if (wrapped('collaboration_quote', quote)) {
+      const v = isRecord(quote.value) ? quote.value : {}
+      // 平台、形式、来源只查有没有写：报告原样印，算效率时不认得的形式按不可比处理
+      const bad = ([['currency', '币种', text], ['amount', '金额', finite], ['quantity', '数量', finite], ['platform', '平台', text],
+        ['format', '形式', text], ['source', '来源', text], ['observed_at', '日期', text]] as const)
+        .filter(([k, , okay]) => !okay(v[k])).map(([k, plain]) => `${k}（${plain}，读到 ${shown(v[k])}）`)
+      if (bad.length)
+        problems.push(`${at}的 collaboration_quote 标为已测，value 里 ${bad.join('、')} 缺了或不是该有的类型；照 public-metrics.md 补齐这条报价，或改成不可用并写明原因后再跑`)
+    }
+    const sample = account.sample
+    if (wrapped('sample', sample)) {
+      if (!Array.isArray(sample.value)) problems.push(`${at}的 sample 标为已测，value 却不是一串作品（读到 ${shown(sample.value)}）；重跑 enrich 后再跑`)
+      if (!(isRecord(sample.source) && text(sample.source.provider)))
+        problems.push(`${at}的 sample 标为已测，却没写 source.provider（样本来源）；重跑 enrich 后再跑`)
+      if (!text(sample.observed_at)) problems.push(`${at}的 sample 标为已测，却没写 observed_at（样本日期）；重跑 enrich 后再跑`)
+    }
     if (!storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue
     const metrics = account.metrics
     const activity = metrics.activity_status
@@ -272,15 +290,14 @@ export function enrichmentValueProblems(file: string, state: EnrichmentState | u
     const risk = metrics.audience_quality_risk
     if (isRecord(risk) && risk.status === 'measured' && !(isRecord(risk.value) && RISK_LEVELS.includes(risk.value.level)))
       problems.push(`${at}的 metrics.audience_quality_risk 标为已测，等级却是 ${shown(isRecord(risk.value) ? risk.value.level : risk.value)}，应是 "low"、"medium"、"high" 之一；改正这个账号后再跑`)
-    else if (isRecord(risk) && risk.status === 'measured' && isRecord(risk.value) && !Array.isArray(risk.value.flags))
-      problems.push(`${at}的 metrics.audience_quality_risk 标为已测，依据 flags 却不是一串（读到 ${shown(risk.value.flags)}）；没有依据就写空的一串 []，改正后再跑`)
+    else if (isRecord(risk) && risk.status === 'measured' && isRecord(risk.value) &&
+      !(Array.isArray(risk.value.flags) && risk.value.flags.every(f => isRecord(f) && typeof f.metric === 'string' && typeof f.direction === 'string')))
+      problems.push(`${at}的 metrics.audience_quality_risk 标为已测，依据 flags 却不是一串完整的依据（读到 ${shown(risk.value.flags)}）；没有依据就写空的一串 []，改正后再跑`)
     for (const name of [...STORED_NUMBER_METRICS, 'latest_post_at', 'activity_status', 'audience_quality_risk'] as const) {
       const m = metrics[name]
-      if (!isRecord(m)) continue
-      if (m.status === 'measured' && (name === 'latest_post_at' ? !text(m.value) : (STORED_NUMBER_METRICS as readonly string[]).includes(name) && !finite(m.value)))
+      if (!wrapped(`metrics.${name}`, m)) continue
+      if (name === 'latest_post_at' ? !text(m.value) : (STORED_NUMBER_METRICS as readonly string[]).includes(name) && !finite(m.value))
         problems.push(`${at}的 metrics.${name} 标为已测，值却是 ${shown(m.value)}，应是${name === 'latest_post_at' ? '一个日期' : '一个数'}；改正、或改成不可用并写明原因后再跑`)
-      if (m.status === 'unavailable' && !text(m.reason))
-        problems.push(`${at}的 metrics.${name} 标为不可用，却没写 reason（原因）；补上原因后再跑`)
     }
   }
   return problems
