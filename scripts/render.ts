@@ -28,6 +28,7 @@ import { REVIEW_HEADERS, toReviewRow, sortForReviewOutput, buildSheets } from '.
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { verifiedFacts } from './lib/draft-claims.js'
+import { readLessonsSeen } from './lib/lessons.js'
 import { accountKey, attachAssessments, currentEnrichmentView } from './lib/assessment.js'
 import { costView } from './lib/budget.js'
 import { sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
@@ -226,6 +227,9 @@ const meta = {
   // 所以报告里的措辞与来源无关，不替用户编一个原因（ADR-43）。
   // 缺失、null、拼错、新版本写下的新取值 —— 认不出的一律 unknown（ADR-47）
   memory_status: asMemoryStatus(memoryStatus),
+  // D31（ADR-230）：这次语义筛选前读了复评经验库的什么。来源是 `lessons read` 记在任务目录里的读取记录；
+  // 没有记录就是没读过，不写成「没有经验」（P1）
+  lessons: readLessonsSeen(dir),
   memory_written: writeBack.written,
   // 只在真的没写回时出现。原因有两类（读不出来 / 写不进去），
   // 报告要把原文带给用户，否则他会去修一份根本没坏的 JSON（ADR-20）。

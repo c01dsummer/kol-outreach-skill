@@ -12837,6 +12837,59 @@ group('sender-entry', [], () => {
   criterion('D30.h')
 })
 
+// D31（ADR-230）：`lessons` 的真入口契约（参数用法、stdout 只有一行 JSON 或一份 JSON、保存失败以 6 结束）。
+// 写什么、读什么由 scripts/test.ts 的 d31-lessons-write、d31-lessons-read、d31-lessons-broken 三组判；这里只管入口自己那一层
+group('lessons-entry', [], () => {
+  const entry = S('lessons.ts')
+  // 前缀与夹具名里不含「用法」「保存失败」：下面按这些词认输出，路径不能替它们作证
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'kol-lsn-')))
+  process.on('exit', () => rmSync(base, { recursive: true, force: true }))
+  const cwd = join(base, 'cwd'), task = join(base, 'task')
+  mkdirSync(join(cwd, 'skill'), { recursive: true }); mkdirSync(join(cwd, 'memory', 'lessons'), { recursive: true }); mkdirSync(task)
+  writeFileSync(join(cwd, 'skill', 'SKILL.md'), '# r\n')
+  writeFileSync(join(task, 'task.json'), '{"product":"p","market":"US","target_count":1,"tasks":[],"done":[],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}\n')
+  const STORE = '{\n  "version": 1,\n  "lessons": []\n}\n', store = join(cwd, 'memory', 'lessons', 'kx.json')
+  writeFileSync(store, STORE)
+  const draft = join(base, 'draft.json')
+  writeFileSync(draft, JSON.stringify({ situation: 's', lesson: 'l', attribution: '混杂',
+    evidence: { task: 't', platform: 'tiktok', handle: 'h', round_id: 'r', manual: 'm', agent: 'a' } }))
+  const bytes = (file: string) => existsSync(file) ? readFileSync(file, 'utf8') : undefined
+  const USAGE: [string, string[]][] = [
+    ['一个参数都没有', []], ['子命令不认识', ['nope']], ['list 多带 --dir', ['list', '--dir', task]],
+    ['add 开关写了两次', ['add', '--category', 'kx', '--entry', draft, '--confirmed-by-user', '--confirmed-by-user']],
+    ['add 多带 --dir', ['add', '--category', 'kx', '--entry', draft, '--confirmed-by-user', '--dir', task]],
+    ['read --dir 写了两次', ['read', '--dir', task, '--dir', task, '--category', 'kx']], ['read 缺 --category', ['read', '--dir', task]],
+    ['read 多带开关', ['read', '--dir', task, '--category', 'kx', '--confirmed-by-user']], ['--entry 缺值', ['add', '--category', 'kx', '--entry', '--confirmed-by-user']],
+    ['多余的位置参数', ['list', 'extra']]]
+  const usage = USAGE.map(([what, argv]) => {
+    const r = runBoth(`lessons 用法错误：${what}`, [entry, ...argv], cwd, { status: 2, soft: [0, 1, 6] })
+    return { what, ok: r.ok, pass: r.status === 2 && r.stdout === '' && r.stderr.includes('用法') && bytes(store) === STORE && !existsSync(join(task, 'lessons-read.json')) }
+  })
+  if (usage.every(u => u.ok)) {
+    named('lessons 子命令不认识、缺参数、参数重复、多出来或缺值时以 2 拒绝并给出用法，stdout 为空，经验库原字节，不写读取记录',
+      usage.every(u => u.pass), `不合的：${usage.filter(u => !u.pass).map(u => u.what).join('、') || '无'}`)
+  }
+  // 成功时 stdout 能整份解析成 JSON
+  const list = runBoth('lessons list', [entry, 'list'], cwd, { status: 0, soft: [1, 2] })
+  const parse = (s: string): unknown => { try { return JSON.parse(s) } catch { return undefined } }
+  if (list.ok) named('lessons list 以 0 结束，stdout 是一份 JSON：categories 列出已有品类名',
+    list.status === 0 && isDeepStrictEqual(parse(list.stdout), { categories: ['kx'] }), `退出=${list.status}，stdout=${JSON.stringify(list.stdout)}`)
+  // 读取记录保存失败：上一次留下的读取记录设成只读（root 跑也拒，见 lib/atomic.ts 的权限位那一问），
+  // 它记的是别的品类 —— 留着的话 render 会当成这一次读的
+  const recordFile = join(task, 'lessons-read.json')
+  writeFileSync(recordFile, '{"category":"旧品类","status":"ok","lessons":[]}\n'); chmodSync(recordFile, 0o444)
+  const rr = runBoth('lessons read 保存失败：旧读取记录只读', [entry, 'read', '--dir', task, '--category', 'kx'], cwd, { status: 6, soft: [0, 1, 2] })
+  if (rr.ok) named('lessons read 读取记录保存失败时以 6 结束，stdout 为空，删掉上一次留下的读取记录，stderr 写出「保存失败」与「没有读经验库」',
+    rr.status === 6 && rr.stdout === '' && !existsSync(recordFile) && rr.stderr.includes('保存失败') && rr.stderr.includes('没有读经验库'),
+    `退出=${rr.status}，记录还在=${existsSync(recordFile)}，stderr=${stderrTail(rr.stderr)}`)
+  // 保存失败：经验库文件只读（root 跑也拒，见 lib/atomic.ts 的权限位那一问）
+  chmodSync(store, 0o444)
+  const ro = runBoth('lessons add 保存失败：经验库只读', [entry, 'add', '--category', 'kx', '--entry', draft, '--confirmed-by-user'], cwd, { status: 6, soft: [0, 1, 2] })
+  if (ro.ok) named('lessons add 经验库存在但保存失败时以 6 结束，stdout 为空，经验库原字节，stderr 写出经验库路径与「保存失败」',
+    ro.status === 6 && ro.stdout === '' && bytes(store) === STORE && ro.stderr.includes(join('memory', 'lessons', 'kx.json')) && ro.stderr.includes('保存失败'),
+    `退出=${ro.status}，stderr=${stderrTail(ro.stderr)}`)
+})
+
 // ---- 零请求观察器的认证入口（ADR-70「零请求观察器与外层断网」）----
 // 在临时目录里真起一遍认证入口，验的是接线：跑得完，汇总与退出码对得上，列出的证据都在、SHA256 对得上。这一跑**不是认证**。
 // 断网起不起得来随机器：另起一个最小的 bwrap 断网问一句，起得来就要认证成立、逐项成立；起不来就要认证不成立、

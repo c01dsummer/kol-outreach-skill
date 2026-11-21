@@ -92,6 +92,8 @@ TikTok 走视频搜索，**IG 缺省走 Reels 搜索**，取得作品及作者�
 
 **开始评审之前：** 任务有 `brand_calibration` 时，collect 第一次建出任务目录后、写任何评审之前，运行一次 `npm run --silent calibration -- version --dir output/{task}`，把手写的 `version` 换成按内容算出的 `sha256:` 内容哈希；评审记下的品牌版本就是换过之后的这个值。任务建好后原地改了校准内容，也是改完运行一次这条命令换 version，不手写哈希；旧评审照旧待重评，须实际重评。这条命令不要与同一任务的 collect、enrich、render 同时运行（不加锁）。已有评审、version 还是手写标签的旧任务不必为换格式而运行：内容没变也会让全部旧评审待重评。退出码与没有校准时怎么转述见 `references/product-intake.md`。
 
+**先读复评经验（D31）：** 写任何评审之前，运行 `npm run --silent lessons -- list` 看已有的品类名，给本任务定一个品类名（能沿用就沿用，不为此问用户），再运行 `npm run --silent lessons -- read --dir output/{task} --category <品类名>`，把读到的经验当作这次判断的参考。没有这一品类、读不出来都照常往下做，报告的数据边界会替你说明。经验只影响你的内容判断，不改评分、分层与去重；重出的报告里有人工与你的分歧时，交付时主动按分歧附上经验草稿、用户确认后才写入，见 `references/semantic-fit.md`「复评经验」一节。
+
 **硬指标按规则算分**：粉丝区间、内容积累、有无邮箱、商务合作信号。这部分是客观的。
 
 **内容相关性靠你判断**：读 bio 与实际取得的作品证据，把各平台的合格性、采用建议、四项证据、兼容 `fit` 与可读理由保存到任务目录的 `agent-review.json`。任务有 `brand_calibration` 时按它判断，评审所用品牌版本取本次实际使用的 `task.json.brand_calibration.version`；没有校准输入就保持版本缺席。注明作品来自搜索命中还是另取的主页样本、产品怎样自然进入现有内容，以及主要风险或待核问题。`recent_posts` 是关键词筛过的搜索命中，不是近期主页清单；未取得作品时写「作品未查询」，不能仅因此判 ❌。
@@ -247,7 +249,7 @@ stderr 还会给出另一条路：加 `--ignore-memory` 强出名单。**不要�
 | `references/providers/_interface.md` | 数据源适配接口契约 |
 | `references/providers/tikhub.md` | TikHub 端点、参数、字段路径、双平台差异 |
 | `references/providers/external-enrichment.md` | 第三方增强供应商准入；当前无接入 |
-| `references/semantic-fit.md` | 语义契合判断标准、评分细则、A/B/C 分层 |
+| `references/semantic-fit.md` | 语义契合判断标准、评分细则、A/B/C 分层、复评经验的读与写 |
 | `references/public-metrics.md` | 公开指标、受众质量风险与合作报价口径 |
 | `references/outreach-draft.md` | 英文开发信写法与模板；放进用户自己邮箱的草稿箱（只存不发） |
 | `references/memory.md` | 记忆文件结构、跨平台同人识别 |
