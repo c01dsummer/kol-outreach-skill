@@ -433,6 +433,11 @@ export function recomputeCachedAssessment(
 }
 
 /** 直接 render 旧目录时，在内存中应用与 enrich 相同的样本范围和指标口径。 */
+/** 账号里存着的 metrics 会被原样用上（不靠样本重算、也不按 Instagram 清掉）的情形。
+ *  currentEnrichmentView 与 render 读入时的值检查（D21.v）共用这一条，两边对“哪些账号原样用”说法一致。 */
+export const storedMetricsUsedAsIs = (account: { sample?: unknown; platform?: unknown }): boolean =>
+  !account.sample && account.platform !== 'instagram'
+
 export function currentEnrichmentView(
   state: EnrichmentState | undefined,
   selectedKeys: ReadonlySet<string>,
@@ -441,9 +446,9 @@ export function currentEnrichmentView(
   const accounts: Record<string, AccountAssessment> = {}
   for (const [key, account] of Object.entries(state.accounts)) {
     if (!account.sample) {
-      accounts[key] = account.platform === 'instagram'
-        ? { ...account, metrics: undefined }
-        : { ...account }
+      accounts[key] = storedMetricsUsedAsIs(account)
+        ? { ...account }
+        : { ...account, metrics: undefined }
       continue
     }
     const { sample, metrics } = recomputeCachedAssessment(

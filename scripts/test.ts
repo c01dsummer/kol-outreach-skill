@@ -147,7 +147,7 @@ import { migrateLegacyAgentReviews, projectAgentReviews } from './lib/review-pro
 import { parseManualFeedbackCsv, type ManualFeedbackRow } from './lib/manual-feedback.js'
 import { planManualFeedbackTemplate, type ManualFeedbackTemplatePlan } from './lib/manual-feedback-template.js'
 import {
-  INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
+  INSTAGRAM_HASHTAG_ENDPOINT, TIKTOK_POSTS_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
 } from './providers/tikhub.js'
 import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
@@ -172,11 +172,12 @@ import {
   TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
 } from './providers/tikhub-pricing.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
+import { SafeHtml, escapeText, html, joinHtml } from './lib/safe-html.js'
 import { claimsLines, draftClaims, NO_FACTS, NOT_ENGLISH, UNMATCHED_BRACES } from './lib/draft-claims.js'
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
-  keywordRows, mergePage, needsProfile, pagesFetched, pendingKeywords, rankCreators, rawSeedFromLegacy,
+  keywordRows, mergePage, mergeProfile, needsProfile, pagesFetched, pendingKeywords, rankCreators, rawSeedFromLegacy,
   taskPlatforms, taskQueryStatus, tierCounts, resumeCostLine, underPageCap,
 } from './lib/pipeline.js'
 import {
@@ -194,7 +195,7 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
+import { enrichmentValueProblems, loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -208,6 +209,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-missing-values', needs: [] },
   { id: 'p1-profile-state', needs: [] },
   { id: 'p1-plays', needs: [] },
+  { id: 'p1-score-unqueried', needs: [] },
   { id: 'p2-placeholders', needs: [] },
   { id: 'p2-draft-claims', needs: [] },
   { id: 'p2-endorsement-claims', needs: [] },
@@ -237,6 +239,9 @@ const GROUPS: readonly Group[] = [
   { id: 'd17-config', needs: [] },
   { id: 'd19-resume', needs: [] },
   { id: 'd27-p3-entry', needs: ['d19-resume'] },
+  { id: 'd4-p3-budget-memory', needs: [] },
+  { id: 'invalid-values-by-source', needs: [] },
+  { id: 'invalid-values-entry', needs: [] },
   { id: 'p1-followers-sort', needs: [] },
   { id: 'd5-csv', needs: [] },
   { id: 'd2-d8-actual-paths', needs: [] },
@@ -307,6 +312,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-report-stat-counts', needs: [] },
   { id: 'u12-product-name-complete', needs: [] },
   { id: 'u12-report-escape', needs: [] },
+  { id: 'u12-safe-html', needs: [] },
   { id: 'd20-content-version', needs: [] },
   { id: 'd28-control', needs: [] },
   { id: 'd28-collect', needs: ['d28-control'] },
@@ -782,6 +788,253 @@ suite('P1', '没取到的播放数不得被判成爆款')
   eq('没取到的播放数不参与爆款判定', decided, [])
 }
 
+})
+await group('p1-score-unqueried', () => {
+suite('P1', '打分时未查询的项不给那一项的分（P1.j、P1.k、P1.l）')
+{
+// 由没读实现的隔离上下文照准入读物包写成（ADR-226 第四节），原文头注释照搬；搬入时只改了 base 一处与外面这层组。
+/**
+ * 隔离上下文写的测试 · P1.j / P1.k / P1.l
+ *
+ * 只依据：pack-P1/01-需求-P1.md 的判据原文、02-签名（lib/score.d.ts、lib/types.d.ts）、
+ * 03-对外文档/skill/references/semantic-fit.md。没读实现，没跑过。
+ *
+ * 期望值的出处（semantic-fit.md「第一步：硬指标算分（规则）」原句）：
+ *   「粉丝量在目标区间内          +20」
+ *   「发帖数 > 30（内容积累）     +10」
+ *   「最佳内容播放量 > 100k       +5」
+ * 区间出处（同一文件）：「粉丝数 < 5,000 | 排除」「粉丝数 > 5,000,000 | 排除」。
+ *
+ * 假定由宿主提供（本文件不定义）：
+ *   eq(label: string, got: unknown, want: unknown): void
+ *   ok(label: string, cond: boolean): void
+ *   criterion(id: string): void           —— 认领紧挨在前面的那一组断言
+ *   mk(platform, handle, extra): Creator  —— 只填签名里必填的字段，其余字段缺席
+ *
+ * 写法：全部用「同一个人只差一个字段」的差值对照。每一组对照里，另外两项在两侧
+ * 取同一个状态，所以只改坏一项（例如只让「作品数未查询也给分」）时，另外两条判据的
+ * 差值不变、断言不红。每条判据都在两种背景下各做一遍：
+ *   背景甲 —— 另外两项都缺席（未查询）
+ *   背景乙 —— 另外两项都「查到且合格」
+ * 这样「未查询被当成合格」只在别的项也有值时才发作的改坏，也照得到。
+ */
+
+// 文档原句里的三项分值
+const PTS_FOLLOWERS = 20 // 「粉丝量在目标区间内 +20」
+const PTS_POSTS = 10 //     「发帖数 > 30（内容积累） +10」
+const PTS_HOT = 5 //        「最佳内容播放量 > 100k +5」
+
+// 取值都离文档写的边界很远，不测边界本身（边界含不含不是这三条判据的事）
+const FOLLOWERS_OK = 50_000 //        5,000 与 5,000,000 之间
+const FOLLOWERS_TOO_FEW = 100 //      < 5,000
+const FOLLOWERS_TOO_MANY = 9_000_000 // > 5,000,000
+const POSTS_OK = 200 //               > 30
+const POSTS_TOO_FEW = 3 //            不多于 30
+const PLAYS_HOT = 500_000 //          > 100k
+const PLAYS_COLD = 1_000 //           不超过 100k
+
+/** 播放数取到了的一条作品 */
+const post = (plays: number): RecentPost => ({ desc: 'a post', plays })
+/** 播放数没取到的一条作品：plays 键缺席 */
+const postNoPlays = (): RecentPost => ({ desc: 'a post' })
+
+/**
+ * source_dimension 固定写 category：文档的分值表里只有竞品词、场景词来源加分，
+ * 两侧同值，差值里消掉；写死只是为了不依赖 mk 的缺省。
+ */
+const base = (handle: string, extra: Partial<Creator>): Creator => {
+  // 搬入时改：本文件的 mk 给粉丝数、作品数、作品填了缺省值；隔离作者假定它们缺席，所以先删掉这三个键再放 extra
+  const c: Partial<Creator> = mk('tiktok', handle, { source_dimension: 'category' })
+  delete c.followers; delete c.post_count; delete c.recent_posts
+  return { ...c, ...extra } as Creator
+}
+
+const score = (extra: Partial<Creator>): number => scoreCreator(base('p1_score', extra))
+
+// 两种背景。键缺席 = 未查询（types.d.ts：「这些字段可能是 undefined —— 那表示没查到」）
+const BG = {
+  甲: { 粉丝: {}, 作品数: {}, 作品: {} },
+  乙: {
+    粉丝: { followers: FOLLOWERS_OK },
+    作品数: { post_count: POSTS_OK },
+    作品: { recent_posts: [post(PLAYS_HOT)] },
+  },
+} satisfies Record<string, Record<string, Partial<Creator>>>
+
+// 背景甲（搬入时把循环展开：变异的 kills 要在源码里找得到字面的断言名）
+{
+  const bg = BG.甲
+  // ───────────────────────── P1.j 粉丝数未查询 ─────────────────────────
+  {
+    const rest = { ...bg.作品数, ...bg.作品 }
+    const unqueried = score({ ...rest }) //                      followers 键缺席
+    const explicitUndef = score({ ...rest, followers: undefined })
+    const qualified = score({ ...rest, followers: FOLLOWERS_OK })
+    const zero = score({ ...rest, followers: 0 })
+    const tooFew = score({ ...rest, followers: FOLLOWERS_TOO_FEW })
+    const tooMany = score({ ...rest, followers: FOLLOWERS_TOO_MANY })
+
+    // 正：查到且合格 比 未查询 正好多那一项
+    eq(`P1.j[背景甲] 粉丝数「查到且在区间内」比「未查询」正好多 +20`, qualified - unqueried, PTS_FOLLOWERS)
+    // 反：未查询 与 确实不合格 同分（这一项都不得分）
+    eq(`P1.j[背景甲] 粉丝数「未查询」与「确实是 0」同分`, unqueried, zero)
+    eq(`P1.j[背景甲] 粉丝数「未查询」与「确实低于下限」同分`, unqueried, tooFew)
+    eq(`P1.j[背景甲] 粉丝数「未查询」与「确实高于上限」同分`, unqueried, tooMany)
+    // 键缺席与显式 undefined 是同一个「未查询」
+    eq(`P1.j[背景甲] followers 键缺席与显式 undefined 同分`, unqueried, explicitUndef)
+    // 对照本身有效：确实不合格的人同样比合格的人少这一项（否则上面的「同分」可能是三者都给了分）
+    eq(`P1.j[背景甲] 对照有效：粉丝数「在区间内」比「确实是 0」正好多 +20`, qualified - zero, PTS_FOLLOWERS)
+    criterion('P1.j')
+  }
+
+  // ───────────────────────── P1.k 作品数未查询 ─────────────────────────
+  {
+    const rest = { ...bg.粉丝, ...bg.作品 }
+    const unqueried = score({ ...rest }) //                      post_count 键缺席
+    const explicitUndef = score({ ...rest, post_count: undefined })
+    const qualified = score({ ...rest, post_count: POSTS_OK })
+    const zero = score({ ...rest, post_count: 0 })
+    const tooFew = score({ ...rest, post_count: POSTS_TOO_FEW })
+
+    eq(`P1.k[背景甲] 作品数「查到且多于门槛」比「未查询」正好多 +10`, qualified - unqueried, PTS_POSTS)
+    eq(`P1.k[背景甲] 作品数「未查询」与「确实是 0」同分`, unqueried, zero)
+    eq(`P1.k[背景甲] 作品数「未查询」与「确实不多于门槛」同分`, unqueried, tooFew)
+    eq(`P1.k[背景甲] post_count 键缺席与显式 undefined 同分`, unqueried, explicitUndef)
+    eq(`P1.k[背景甲] 对照有效：作品数「多于门槛」比「确实是 0」正好多 +10`, qualified - zero, PTS_POSTS)
+    criterion('P1.k')
+  }
+
+  // ───────────────────────── P1.l 播放数没取到 ─────────────────────────
+  {
+    const rest = { ...bg.粉丝, ...bg.作品数 }
+    // 同一个人、同一条作品，只差这条作品的 plays：没取到 / 取到且超过门槛 / 取到且是 0 / 取到且不到门槛
+    const noPlays = score({ ...rest, recent_posts: [postNoPlays()] })
+    const explicitUndef = score({ ...rest, recent_posts: [{ desc: 'a post', plays: undefined }] })
+    const hot = score({ ...rest, recent_posts: [post(PLAYS_HOT)] })
+    const zero = score({ ...rest, recent_posts: [post(0)] })
+    const cold = score({ ...rest, recent_posts: [post(PLAYS_COLD)] })
+
+    eq(`P1.l[背景甲] 作品播放数「取到且超过门槛」比「没取到」正好多 +5`, hot - noPlays, PTS_HOT)
+    eq(`P1.l[背景甲] 播放数「没取到」与「确实是 0」同分`, noPlays, zero)
+    eq(`P1.l[背景甲] 播放数「没取到」与「确实不到门槛」同分`, noPlays, cold)
+    eq(`P1.l[背景甲] plays 键缺席与显式 undefined 同分`, noPlays, explicitUndef)
+    eq(`P1.l[背景甲] 对照有效：播放数「超过门槛」比「确实是 0」正好多 +5`, hot - zero, PTS_HOT)
+
+    // 几条作品全都没取到播放数：条数再多也不是爆款
+    const manyNoPlays = score({ ...rest, recent_posts: [postNoPlays(), postNoPlays(), postNoPlays()] })
+    eq(`P1.l[背景甲] 三条作品播放数都没取到，与一条没取到同分`, manyNoPlays, noPlays)
+
+    // 没取到的那条夹在取到了的中间：它既不算爆款，也不替别的作品得分或丢分
+    const mixedCold = score({ ...rest, recent_posts: [postNoPlays(), post(PLAYS_COLD), postNoPlays()] })
+    eq(`P1.l[背景甲] 没取到的作品与一条不到门槛的作品并列，仍不得「有爆款」那一项`, mixedCold, cold)
+    const mixedHot = score({ ...rest, recent_posts: [postNoPlays(), post(PLAYS_HOT)] })
+    eq(`P1.l[背景甲] 没取到的作品与一条真爆款并列，得分与只有那条真爆款相同`, mixedHot, hot)
+
+    // 作品整个没问过（recent_posts 缺席）同样没有取到任何播放数
+    const noPosts = score({ ...rest })
+    eq(`P1.l[背景甲] 作品未查询（recent_posts 缺席）与「有作品、播放数没取到」同分`, noPosts, noPlays)
+    criterion('P1.l')
+  }
+}
+// 背景乙（搬入时把循环展开：变异的 kills 要在源码里找得到字面的断言名）
+{
+  const bg = BG.乙
+  // ───────────────────────── P1.j 粉丝数未查询 ─────────────────────────
+  {
+    const rest = { ...bg.作品数, ...bg.作品 }
+    const unqueried = score({ ...rest }) //                      followers 键缺席
+    const explicitUndef = score({ ...rest, followers: undefined })
+    const qualified = score({ ...rest, followers: FOLLOWERS_OK })
+    const zero = score({ ...rest, followers: 0 })
+    const tooFew = score({ ...rest, followers: FOLLOWERS_TOO_FEW })
+    const tooMany = score({ ...rest, followers: FOLLOWERS_TOO_MANY })
+
+    // 正：查到且合格 比 未查询 正好多那一项
+    eq(`P1.j[背景乙] 粉丝数「查到且在区间内」比「未查询」正好多 +20`, qualified - unqueried, PTS_FOLLOWERS)
+    // 反：未查询 与 确实不合格 同分（这一项都不得分）
+    eq(`P1.j[背景乙] 粉丝数「未查询」与「确实是 0」同分`, unqueried, zero)
+    eq(`P1.j[背景乙] 粉丝数「未查询」与「确实低于下限」同分`, unqueried, tooFew)
+    eq(`P1.j[背景乙] 粉丝数「未查询」与「确实高于上限」同分`, unqueried, tooMany)
+    // 键缺席与显式 undefined 是同一个「未查询」
+    eq(`P1.j[背景乙] followers 键缺席与显式 undefined 同分`, unqueried, explicitUndef)
+    // 对照本身有效：确实不合格的人同样比合格的人少这一项（否则上面的「同分」可能是三者都给了分）
+    eq(`P1.j[背景乙] 对照有效：粉丝数「在区间内」比「确实是 0」正好多 +20`, qualified - zero, PTS_FOLLOWERS)
+    criterion('P1.j')
+  }
+
+  // ───────────────────────── P1.k 作品数未查询 ─────────────────────────
+  {
+    const rest = { ...bg.粉丝, ...bg.作品 }
+    const unqueried = score({ ...rest }) //                      post_count 键缺席
+    const explicitUndef = score({ ...rest, post_count: undefined })
+    const qualified = score({ ...rest, post_count: POSTS_OK })
+    const zero = score({ ...rest, post_count: 0 })
+    const tooFew = score({ ...rest, post_count: POSTS_TOO_FEW })
+
+    eq(`P1.k[背景乙] 作品数「查到且多于门槛」比「未查询」正好多 +10`, qualified - unqueried, PTS_POSTS)
+    eq(`P1.k[背景乙] 作品数「未查询」与「确实是 0」同分`, unqueried, zero)
+    eq(`P1.k[背景乙] 作品数「未查询」与「确实不多于门槛」同分`, unqueried, tooFew)
+    eq(`P1.k[背景乙] post_count 键缺席与显式 undefined 同分`, unqueried, explicitUndef)
+    eq(`P1.k[背景乙] 对照有效：作品数「多于门槛」比「确实是 0」正好多 +10`, qualified - zero, PTS_POSTS)
+    criterion('P1.k')
+  }
+
+  // ───────────────────────── P1.l 播放数没取到 ─────────────────────────
+  {
+    const rest = { ...bg.粉丝, ...bg.作品数 }
+    // 同一个人、同一条作品，只差这条作品的 plays：没取到 / 取到且超过门槛 / 取到且是 0 / 取到且不到门槛
+    const noPlays = score({ ...rest, recent_posts: [postNoPlays()] })
+    const explicitUndef = score({ ...rest, recent_posts: [{ desc: 'a post', plays: undefined }] })
+    const hot = score({ ...rest, recent_posts: [post(PLAYS_HOT)] })
+    const zero = score({ ...rest, recent_posts: [post(0)] })
+    const cold = score({ ...rest, recent_posts: [post(PLAYS_COLD)] })
+
+    eq(`P1.l[背景乙] 作品播放数「取到且超过门槛」比「没取到」正好多 +5`, hot - noPlays, PTS_HOT)
+    eq(`P1.l[背景乙] 播放数「没取到」与「确实是 0」同分`, noPlays, zero)
+    eq(`P1.l[背景乙] 播放数「没取到」与「确实不到门槛」同分`, noPlays, cold)
+    eq(`P1.l[背景乙] plays 键缺席与显式 undefined 同分`, noPlays, explicitUndef)
+    eq(`P1.l[背景乙] 对照有效：播放数「超过门槛」比「确实是 0」正好多 +5`, hot - zero, PTS_HOT)
+
+    // 几条作品全都没取到播放数：条数再多也不是爆款
+    const manyNoPlays = score({ ...rest, recent_posts: [postNoPlays(), postNoPlays(), postNoPlays()] })
+    eq(`P1.l[背景乙] 三条作品播放数都没取到，与一条没取到同分`, manyNoPlays, noPlays)
+
+    // 没取到的那条夹在取到了的中间：它既不算爆款，也不替别的作品得分或丢分
+    const mixedCold = score({ ...rest, recent_posts: [postNoPlays(), post(PLAYS_COLD), postNoPlays()] })
+    eq(`P1.l[背景乙] 没取到的作品与一条不到门槛的作品并列，仍不得「有爆款」那一项`, mixedCold, cold)
+    const mixedHot = score({ ...rest, recent_posts: [postNoPlays(), post(PLAYS_HOT)] })
+    eq(`P1.l[背景乙] 没取到的作品与一条真爆款并列，得分与只有那条真爆款相同`, mixedHot, hot)
+
+    // 作品整个没问过（recent_posts 缺席）同样没有取到任何播放数
+    const noPosts = score({ ...rest })
+    eq(`P1.l[背景乙] 作品未查询（recent_posts 缺席）与「有作品、播放数没取到」同分`, noPosts, noPlays)
+    criterion('P1.l')
+  }
+}
+
+// ─────────────── 三项互不串：三个「未查询」叠在一起，一项也不多给 ───────────────
+// 这一组不单独认领判据：任一项被改坏它都会红，只用来照「叠加时才发作」的改坏。
+{
+  const allUnqueried = score({})
+  const allKnownBad = score({ followers: 0, post_count: 0, recent_posts: [post(0)] })
+  const allQualified = score({
+    followers: FOLLOWERS_OK,
+    post_count: POSTS_OK,
+    recent_posts: [post(PLAYS_HOT)],
+  })
+  eq('P1.j+k+l 三项都「未查询」与三项都「确实不合格」同分', allUnqueried, allKnownBad)
+  eq(
+    'P1.j+k+l 三项都「查到且合格」比三项都「未查询」正好多 20+10+5',
+    allQualified - allUnqueried,
+    PTS_FOLLOWERS + PTS_POSTS + PTS_HOT,
+  )
+  ok('P1.j+k+l 打分不改写输入：未查询的字段打完分仍然缺席', (() => {
+    const c = base('p1_untouched', {})
+    scoreCreator(c)
+    return c.followers === undefined && c.post_count === undefined && c.recent_posts === undefined
+  })())
+}
+}
 })
 await group('p2-placeholders', () => {
 suite('P2', '开发信占位符必须原样保留到产出物')
@@ -7791,6 +8044,784 @@ suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改�
   tension('D27', 'P3')
 }
 
+})
+await group('d4-p3-budget-memory', () => {
+suite('D4', '钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3（D4 × P3）')
+{
+  // 需求方 2026-11-20 选定（ADR-226 第二节）：两件同时发生时先修记忆文件。断点照样先存好；
+  // stderr 另说钱也不够了、续跑命令带 --budget。阳性对照：同一份目录、记忆完好时以 3 停下，证明夹具真走到了「钱不够」那一路。
+  // 夹具与断言参照隔离上下文写的说明（ADR-226 第四节）；它建议的保存失败注入计数没采用，见那一节。
+  const root = mkdtempSync(join(tmpdir(), 'kol-d4-p3-'))
+  try {
+    const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
+    const person = (handle: string) => ({ platform: 'tiktok', handle, nickname: handle, followers: 10000, post_count: 50, bio: null,
+      bio_links: ['https://example.com'], verified: false, profile_url: '', source_keyword: 'local', source_dimension: 'category', recent_posts: [], fit: '✅' })
+    // 总上限 0、一个关键词还没抓过：第一次请求就付不起，零请求停下
+    const taskText = `{"product":"d4-p3","market":"US","target_count":9999,"budget_usd":0,`
+      + `"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok"}],"done":[],"offsets":{},"pages":{},"answered":{},"found":{},`
+      + `"created_at":"2026-01-01T00:00:00.000Z","updated_at":"2026-01-01T00:00:00.000Z","requests":0,"cost_ledger":${LEDGER('0')}}`
+    const healthy = JSON.stringify({ version: 1, updated_at: '2026-01-01', creators: {} })
+    const broken = '{"version":1,"updated_at":"2026-01-01","creators":{'
+    let made = 0
+    const runCollect = (memory: string) => {
+      const cwd = join(root, `run-${++made}`), taskDir = join(cwd, 'task'), file = join(taskDir, 'task.json'), memFile = join(cwd, 'memory', 'creators.json')
+      mkdirSync(join(cwd, 'memory'), { recursive: true }); mkdirSync(taskDir)
+      writeFileSync(file, taskText); writeFileSync(memFile, memory)
+      const people = [person('d4p3_a'), person('d4p3_b')]
+      for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(taskDir, name), JSON.stringify(people))
+      const ledger = join(cwd, 'attempts.tsv')
+      const argv = [join(process.cwd(), 'scripts', 'collect.ts'), '--resume', taskDir]
+      const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d4-p3', FAKE_FETCH_LEDGER: ledger,
+        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+      kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)}`
+      const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
+      let task: any
+      try { task = JSON.parse(rf(file, 'utf8')) } catch { task = undefined }
+      return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', task,
+        memoryKept: rf(memFile, 'utf8') === memory }
+    }
+    const control = runCollect(healthy)
+    // 对照那一跑的 stdout 必须真有一份汇总、写着因钱不够停下：下面「stdout 不出汇总」才不是因为这套夹具本来就打不出汇总
+    const stoppedBy = (stdout: string): unknown => { try { return JSON.parse(stdout).stopped } catch { return `读不成：${stdout.slice(0, 120)}` } }
+    eq('钱不够又读不出记忆夹具有效：同一份目录记忆完好时 collect 以 3 停下，stdout 汇总写着因钱不够停下',
+      [control.status, stoppedBy(control.stdout)], [3, 'budget'])
+    const both = runCollect(broken)
+    eq('钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，stdout 不出汇总',
+      [both.status, both.stdout.trim()], [7, ''])
+    ok('钱不够又读不出记忆：stderr 写明剩下的钱也不够付下一次请求了，修复命令带 --budget <新总上限>',
+      /剩下的钱也不够付下一次请求/.test(both.stderr) && /修好它再跑:.*--budget <新总上限>/.test(both.stderr))
+    // 总上限 0 的夹具里盘上的账与进度本来就不该变；「这一跑真的存过一次」看 updated_at：每次保存任务文件都会改写它
+    ok('钱不够又读不出记忆：断点照样保存（任务文件这一跑重新写过、读得回来，费用账与请求数不变），记忆文件一字未动',
+      both.task !== undefined && both.task.updated_at !== '2026-01-01T00:00:00.000Z'
+        && both.task.requests === 0 && both.task.cost_ledger?.limit_micro_usd === 0 && both.memoryKept)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+  tension('D4', 'P3')
+}
+
+})
+// 怪值那两组（invalid-values-by-source、invalid-values-entry）共用的两个小帮手，出自同一隔离会话
+const count = (text: string, needle: string): number => text.split(needle).length - 1
+
+/** RFC 4180 的最小解析：引号包裹、内部引号成对、字段里可以有逗号与换行。 */
+function parseCsv(text: string): string[][] {
+  const s = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+  const rows: string[][] = []
+  let row: string[] = []
+  let cur = ''
+  let quoted = false
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (quoted) {
+      if (ch === '"' && s[i + 1] === '"') { cur += '"'; i++ }
+      else if (ch === '"') quoted = false
+      else cur += ch
+    } else if (ch === '"') quoted = true
+    else if (ch === ',') { row.push(cur); cur = '' }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && s[i + 1] === '\n') i++
+      row.push(cur); cur = ''
+      rows.push(row); row = []
+    } else cur += ch
+  }
+  if (cur !== '' || row.length > 0) { row.push(cur); rows.push(row) }
+  return rows
+}
+await group('invalid-values-by-source', async () => {
+suite('P1', '供应商给的怪粉丝数、作品数显示未知；手改坏的名单与增强结果读入时拒收（P1.m、D21.u、D21.v）')
+{
+// 这一组建的临时目录都放在这一个根下，组末一起删（CodeRabbit 第一轮，作者改）
+const kol80Root = mkdtempSync(join(tmpdir(), 'kol80-'))
+// 下面整段出自只读准入读物包的隔离会话（ADR-227 第四节）。搬入时只改了两处：
+// 一、起 render 的方式（见入口级那一段开头）；二、读文件的函数名换成本文件的 rf。断言与期望一字未改。
+
+
+// ───────────────────────── 自己造的最小帮手 ─────────────────────────
+
+/** 最小的人。字段按 types.d.ts 的 Creator；不带粉丝数、作品数（＝未查询）。 */
+const person = (handle: string, extra: Partial<Creator> = {}): Creator => ({
+  platform: 'tiktok',
+  handle,
+  nickname: handle,
+  bio: null,
+  bio_links: [],
+  verified: false,
+  profile_url: `https://www.tiktok.com/@${handle}`,
+  source_keyword: 'portable charger',
+  source_dimension: 'category',
+  ...extra,
+})
+
+const flagged = (c: Partial<Creator>, item: 'followers' | 'post_count'): boolean =>
+  Array.isArray(c.invalid_from_provider) && c.invalid_from_provider.includes(item)
+
+
+/** 真写一份 CSV 再读回来，取这个人某一列的那一格 —— 看的是落到文件里的字。 */
+function csvCell(c: Creator, column: string): string {
+  const dir = mkdtempSync(join(kol80Root, 'csv-'))
+  const file = join(dir, 'kol.csv')
+  writeCsv(file, [...HEADERS], [toRow(c)])
+  const rows = parseCsv(rf(file, 'utf8'))
+  const i = rows[0].indexOf(column)
+  if (i < 0 || rows.length < 2) return `（CSV 里找不到列 ${column} 或数据行）`
+  return rows[1][i]
+}
+
+/** XLSX 的行来自 buildSheets；取这个人那一行某一列，过一遍 cell（P1.e 的三态口径）。 */
+function sheetCell(c: Creator, column: string): string {
+  for (const sheet of buildSheets([c])) {
+    const h = sheet.headers.indexOf('handle')
+    const i = sheet.headers.indexOf(column)
+    for (const row of sheet.rows) if (row[h] === c.handle) return cell(row[i])
+  }
+  return '（这个人不在任何 sheet 里）'
+}
+
+/** renderHtml 要的 meta：业务字段照 output-format.md 的例子，费用九个字段照 report.d.ts 的注释。 */
+const meta = (total: number): Record<string, unknown> => ({
+  product: 'kol80-demo',
+  timestamp: '202611200000',
+  market: 'US',
+  platforms: ['tiktok'],
+  keywords: [{
+    task_index: 0, keyword: 'portable charger', dimension: 'category', platform: 'tiktok',
+    status: 'queried', found: 1, shortlisted: 1, fit_pass: 1, manual_reviewed: 0,
+  }],
+  total,
+  tiers: { A: 0, B: total, C: 0 },
+  email_count: 0,
+  cross_platform_count: 0,
+  requests: 1,
+  enriched: false,
+  memory_status: 'ok',
+  memory_written: true,
+  capabilities: {
+    email_verification: { total, measured: 0, unavailable: 0, unqueried: total },
+    audience_geo: { total, measured: 0, unavailable: 0, unqueried: total },
+    public_post_sample: { total, measured: 0, unavailable: 0, unqueried: total },
+    audience_quality_risk: { total, measured: 0, unavailable: 0, unqueried: total },
+    creator_activity: { total, measured: 0, unavailable: 0, unqueried: total },
+    collaboration_quote: { total, measured: 0, unavailable: 0, unqueried: total },
+  },
+  cost_status: 'known',
+  cost_scope: 'task',
+  cost_problems: [],
+  cost_basis: '夹具',
+  cost_estimate_usd: '0.001',
+  budget_usd: '2',
+  cost_http_200_usd: '0.001',
+  cost_unknown_result_usd: '0',
+  cost_pending_usd: '0',
+})
+
+/** 交付用的人：分层、分数、判断都写上，四份 HTML 之间只差粉丝数那一处。 */
+const listed = (handle: string, extra: Partial<Creator> = {}): Creator =>
+  person(handle, { score: 10, tier: 'B', fit: '⚠️', fit_reason: '夹具', review_status: '未评', ...extra })
+
+const htmlOld = (c: Creator): string => renderHtml([c], meta(1))
+const htmlNew = (c: Creator): string => renderHtml([c], meta(1), { mode: 'review', filters: 'dual' })
+
+// ───────────────────────── 假供应商 ─────────────────────────
+
+/**
+ * 把 globalThis.fetch 换成恒回同一段正文的假响应，跑完还原。
+ * 正文用**原文**给，为的是能写出 1e999（JSON.parse 读成 Infinity，「有限」那一半）。
+ * 【猜】外层信封 {"code":200,"data":…}：tikhub.md 的字段路径都以 data. 开头，信封别的键没写。
+ */
+async function withFakeFetch<T>(bodyText: string, run: () => Promise<T>): Promise<T> {
+  const real = globalThis.fetch
+  globalThis.fetch = (async () =>
+    new Response(bodyText, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch
+  try { return await run() } finally { globalThis.fetch = real }
+}
+
+/** 【猜】进程级费用账、空状态起步、上限 2 美元 —— 包里没写 TikHub 在测试里怎么配预算。 */
+const hub = (): TikHub => new TikHub('kol80-test-key', startBudget({}, parseUsdMicros('2'), 'process'))
+
+/** TikTok profile：tikhub.md「data.userInfo.user.*」。counts 是原文片段，例如 `"followerCount":"12k"`。 */
+const ttProfile = (handle: string, counts: string): Promise<Partial<Creator>> =>
+  withFakeFetch(
+    `{"code":200,"data":{"statusCode":0,"userInfo":{"user":{"uniqueId":"${handle}","nickname":"${handle}",` +
+    `"signature":"hello","followingCount":10,"verified":false${counts === '' ? '' : ',' + counts}}}}}`,
+    () => hub().profileTikTok(handle),
+  )
+
+/** IG profile（V3）：tikhub.md「user 对象直接在 data 下」。V2 降级时假 fetch 回的是同一段。 */
+const igProfile = (handle: string, counts: string): Promise<Partial<Creator>> =>
+  withFakeFetch(
+    `{"code":200,"data":{"pk":"1","id":"1","username":"${handle}","full_name":"${handle}","biography":"hello",` +
+    `"following_count":10,"is_verified":false,"is_private":false,"external_url":null,"bio_links":[]` +
+    `${counts === '' ? '' : ',' + counts}}}`,
+    () => hub().profileInstagram(handle),
+  )
+
+/** 我自己的「补全并回去」：包里看不到 collect 怎么并 profile，这里只把补全交回的字段盖到人上。 */
+const afterProfile = (handle: string, got: Partial<Creator>): Creator =>
+  Object.assign(listed(handle), got, { platform: 'tiktok' as const, handle })
+
+// ───────────────────────── D21.u 的夹具 ─────────────────────────
+
+const record = (handle: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  platform: 'tiktok',
+  handle,
+  nickname: handle,
+  bio_links: [],
+  verified: false,
+  profile_url: `https://www.tiktok.com/@${handle}`,
+  source_keyword: 'portable charger',
+  source_dimension: 'category',
+  ...extra,
+})
+
+function dirWith(creators: unknown, raw?: unknown): string {
+  const dir = mkdtempSync(join(kol80Root, 'load-'))
+  writeFileSync(join(dir, 'creators.json'), JSON.stringify(creators, null, 2))
+  if (raw !== undefined) writeFileSync(join(dir, 'creators.raw.json'), JSON.stringify(raw, null, 2))
+  return dir
+}
+
+/** 【猜】读入函数拒绝＝抛错，问题清单在 message 里。交回 message；没拒绝交回 undefined。 */
+function refusal(dir: string): string | undefined {
+  try { loadReviewCreatorInputs(dir); return undefined }
+  // 只认读入拒收（ReviewInputError）；别的异常是读入函数自己崩了，不算拒收，照抛让这一组红（CodeRabbit 第一轮，作者改）
+  catch (e) { if (e instanceof ReviewInputError) return e.message; throw e }
+}
+const refused = (rec: Record<string, unknown>): boolean => refusal(dirWith([rec])) !== undefined
+
+/** 读得进来就交回 creators.json 的第一条；被拒就交回一句话（让 eq 红得看得懂）。 */
+function loaded(rec: Record<string, unknown>): unknown {
+  try { return loadReviewCreatorInputs(dirWith([rec])).previous[0] }
+  catch (e) { return `被拒绝了：${e instanceof Error ? e.message : String(e)}` }
+}
+const pick = (v: unknown): unknown => {
+  if (typeof v !== 'object' || v === null) return v
+  const o = v as Record<string, unknown>
+  return {
+    followers: o.followers, post_count: o.post_count, invalid_from_provider: o.invalid_from_provider,
+    has_followers: 'followers' in o, has_post_count: 'post_count' in o, has_flag: 'invalid_from_provider' in o,
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+async function main(): Promise<void> {
+  // ═══════════════════════════ P1.m ═══════════════════════════
+  criterion('P1.m')
+
+  // —— 一、供应商解析：TikTok profile ——
+  const ttStr = await ttProfile('tt_str', `"followerCount":"12k","videoCount":45`)
+  ok('P1.m TikTok 补全里粉丝数给了字符串时不写粉丝数', ttStr.followers === undefined)
+  ok('P1.m TikTok 补全里粉丝数给了字符串时粉丝数记进已查询但未取得有效值', flagged(ttStr, 'followers'))
+  eq('P1.m TikTok 补全里粉丝数给了字符串时同一响应里合法的作品数照常取到', ttStr.post_count, 45)
+  ok('P1.m TikTok 补全里只有粉丝数是怪值时作品数不被连带记成未取得有效值', !flagged(ttStr, 'post_count'))
+
+  const ttNumStr = await ttProfile('tt_numstr', `"followerCount":"80000","videoCount":45`)
+  ok('P1.m TikTok 补全里粉丝数是写成字符串的数字时也不折算成数', ttNumStr.followers === undefined)
+  ok('P1.m TikTok 补全里粉丝数是写成字符串的数字时记进已查询但未取得有效值', flagged(ttNumStr, 'followers'))
+
+  const ttNeg = await ttProfile('tt_neg', `"followerCount":-5,"videoCount":45`)
+  ok('P1.m TikTok 补全里粉丝数给了负数时不写粉丝数', ttNeg.followers === undefined)
+  ok('P1.m TikTok 补全里粉丝数给了负数时记进已查询但未取得有效值', flagged(ttNeg, 'followers'))
+
+  const ttFrac = await ttProfile('tt_frac', `"followerCount":80000.5,"videoCount":45`)
+  ok('P1.m TikTok 补全里粉丝数给了小数时不写粉丝数也不取整', ttFrac.followers === undefined)
+  ok('P1.m TikTok 补全里粉丝数给了小数时记进已查询但未取得有效值', flagged(ttFrac, 'followers'))
+
+  const ttInf = await ttProfile('tt_inf', `"followerCount":1e999,"videoCount":45`)
+  ok('P1.m TikTok 补全里粉丝数不是有限数时不写粉丝数', ttInf.followers === undefined)
+  ok('P1.m TikTok 补全里粉丝数不是有限数时记进已查询但未取得有效值', flagged(ttInf, 'followers'))
+
+  const ttPostStr = await ttProfile('tt_poststr', `"followerCount":80000,"videoCount":"40"`)
+  ok('P1.m TikTok 补全里作品数给了字符串时不写作品数', ttPostStr.post_count === undefined)
+  ok('P1.m TikTok 补全里作品数给了字符串时作品数记进已查询但未取得有效值', flagged(ttPostStr, 'post_count'))
+  eq('P1.m TikTok 补全里作品数给了字符串时同一响应里合法的粉丝数照常取到', ttPostStr.followers, 80000)
+  ok('P1.m TikTok 补全里只有作品数是怪值时粉丝数不被连带记成未取得有效值', !flagged(ttPostStr, 'followers'))
+
+  const ttPostNeg = await ttProfile('tt_postneg', `"followerCount":80000,"videoCount":-3`)
+  ok('P1.m TikTok 补全里作品数给了负数时不写作品数', ttPostNeg.post_count === undefined)
+  ok('P1.m TikTok 补全里作品数给了负数时记进已查询但未取得有效值', flagged(ttPostNeg, 'post_count'))
+
+  const ttPostFrac = await ttProfile('tt_postfrac', `"followerCount":80000,"videoCount":40.5`)
+  ok('P1.m TikTok 补全里作品数给了小数时不写作品数也不取整', ttPostFrac.post_count === undefined)
+  ok('P1.m TikTok 补全里作品数给了小数时记进已查询但未取得有效值', flagged(ttPostFrac, 'post_count'))
+
+  // 对照面：合法值、真 0、没给、给了 null
+  const ttGood = await ttProfile('tt_good', `"followerCount":80000,"videoCount":45`)
+  eq('P1.m TikTok 补全里粉丝数是合法整数时照常取到', ttGood.followers, 80000)
+  eq('P1.m TikTok 补全里作品数是合法整数时照常取到', ttGood.post_count, 45)
+  ok('P1.m TikTok 补全里两项都合法时不带已查询但未取得有效值的字段', !('invalid_from_provider' in ttGood) || ttGood.invalid_from_provider === undefined)
+
+  const ttZero = await ttProfile('tt_zero', `"followerCount":0,"videoCount":0`)
+  eq('P1.m TikTok 补全里粉丝数就是 0 时记成 0 不记成未取得有效值', [ttZero.followers, flagged(ttZero, 'followers')], [0, false])
+  eq('P1.m TikTok 补全里作品数就是 0 时记成 0 不记成未取得有效值', [ttZero.post_count, flagged(ttZero, 'post_count')], [0, false])
+
+  const ttAbsent = await ttProfile('tt_absent', '')
+  eq('P1.m TikTok 补全里粉丝数字段缺席时仍是未查询不记成未取得有效值', [ttAbsent.followers, flagged(ttAbsent, 'followers')], [undefined, false])
+  eq('P1.m TikTok 补全里作品数字段缺席时仍是未查询不记成未取得有效值', [ttAbsent.post_count, flagged(ttAbsent, 'post_count')], [undefined, false])
+
+  const ttNull = await ttProfile('tt_null', `"followerCount":null,"videoCount":null`)
+  eq('P1.m TikTok 补全里粉丝数为 null 时仍是未查询不记成未取得有效值', [ttNull.followers, flagged(ttNull, 'followers')], [undefined, false])
+  eq('P1.m TikTok 补全里作品数为 null 时仍是未查询不记成未取得有效值', [ttNull.post_count, flagged(ttNull, 'post_count')], [undefined, false])
+
+  // —— 二、供应商解析：Instagram profile ——
+  const igBad = await igProfile('ig_bad', `"follower_count":"9k","media_count":-1`)
+  eq('P1.m Instagram 补全里粉丝数给了字符串时不写值并记成未取得有效值', [igBad.followers, flagged(igBad, 'followers')], [undefined, true])
+  eq('P1.m Instagram 补全里作品数给了负数时不写值并记成未取得有效值', [igBad.post_count, flagged(igBad, 'post_count')], [undefined, true])
+
+  const igNullMedia = await igProfile('ig_nullmedia', `"follower_count":80000,"media_count":null`)
+  eq('P1.m Instagram 补全里作品数为 null 时仍是未查询不记成未取得有效值', [igNullMedia.post_count, flagged(igNullMedia, 'post_count')], [undefined, false])
+  eq('P1.m Instagram 补全里粉丝数是合法整数时照常取到', [igNullMedia.followers, flagged(igNullMedia, 'followers')], [80000, false])
+
+  const igGood = await igProfile('ig_good', `"follower_count":0,"media_count":45`)
+  eq('P1.m Instagram 补全里粉丝数就是 0 时记成 0 不记成未取得有效值', [igGood.followers, flagged(igGood, 'followers')], [0, false])
+  eq('P1.m Instagram 补全里作品数是合法整数时照常取到', [igGood.post_count, flagged(igGood, 'post_count')], [45, false])
+
+  // —— 二点五、作品样本接口顺带给的粉丝数（enrich 拿它算互动率这类比率）——
+  const ttSample = (follower: string): Promise<number | undefined> => withFakeFetch(
+    `{"code":200,"data":{"aweme_list":[{"aweme_id":"1","create_time":1700000000,"statistics":{"play_count":100,"digg_count":1,"comment_count":0,"share_count":0},` +
+    `"author":{"unique_id":"smp","follower_count":${follower},"following_count":10}}]}}`,
+    () => hub().recentPosts('smp', 'tiktok')).then(r => r.followers)
+  const igSample = (follower: string): Promise<number | undefined> => withFakeFetch(
+    `{"code":200,"data":{"data":{"user":{"username":"smp","follower_count":${follower},"following_count":10},"items":[{"id":"1","taken_at":1700000000,"like_count":1,"comment_count":0}]}}}`,
+    () => hub().recentPosts('smp', 'instagram')).then(r => r.followers)
+  eq('P1.m TikTok 作品样本里粉丝数给了负数时不当粉丝数用', await ttSample('-5'), undefined)
+  eq('P1.m TikTok 作品样本里粉丝数给了小数时不当粉丝数用也不取整', await ttSample('1500.5'), undefined)
+  eq('P1.m TikTok 作品样本里粉丝数是合法整数时照常取到', await ttSample('80000'), 80000)
+  eq('P1.m Instagram 作品样本里粉丝数给了负数时不当粉丝数用', await igSample('-5'), undefined)
+  eq('P1.m Instagram 作品样本里粉丝数是合法整数时照常取到', await igSample('80000'), 80000)
+
+  // —— 三、供应商解析：TikTok 视频搜索 ——
+  const searchTask: SearchTask = { keyword: 'portable charger', dimension: 'category', platform: 'tiktok' }
+  const searchItem = (handle: string, id: string, follower: string): string =>
+    `{"aweme_info":{"aweme_id":"${id}","desc":"review ${handle}","author":{"unique_id":"${handle}","uid":"${id}",` +
+    `"nickname":"${handle}","follower_count":${follower},"aweme_count":0},` +
+    `"statistics":{"play_count":1000,"digg_count":10,"comment_count":1,"share_count":1}}}`
+  const page = await withFakeFetch(
+    `{"code":200,"data":{"aweme_list":[],"has_more":0,"cursor":2,"search_item_list":[` +
+    `${searchItem('s_bad', '7300000000000000001', '"12k"')},${searchItem('s_ok', '7300000000000000002', '80000')}]}}`,
+    () => hub().search(searchTask, 'US', 0),
+  )
+  const sBad = page.creators.find(c => c.handle === 's_bad')
+  const sOk = page.creators.find(c => c.handle === 's_ok')
+  ok('P1.m 视频搜索里粉丝数给了字符串的作者仍然产出账号', sBad !== undefined)
+  eq('P1.m 视频搜索里粉丝数给了字符串时不写值并记成未取得有效值', sBad && [sBad.followers, flagged(sBad, 'followers')], [undefined, true])
+  eq('P1.m 视频搜索里粉丝数合法的作者照常取到粉丝数且不记成未取得有效值', sOk && [sOk.followers, flagged(sOk, 'followers')], [80000, false])
+  // 【猜】搜索结果里恒为 0 的作品数是「这里不填」（tikhub.md、M-P1-k），所以仍算未查询而不是未知
+  eq('P1.m 视频搜索里恒为 0 的作品数仍算未查询不记成未取得有效值', sOk && [sOk.post_count, flagged(sOk, 'post_count')], [undefined, false])
+
+  // 作者补（ADR-227 第五节，CodeRabbit 第一轮）：同一页里同一个作者出现两次时，后一条的读数按 P1.m 合进前一条
+  const dupPage = await withFakeFetch(
+    `{"code":200,"data":{"aweme_list":[],"has_more":0,"cursor":2,"search_item_list":[` +
+    `${searchItem('d_bad', '7300000000000000011', 'null')},${searchItem('d_bad', '7300000000000000012', '"12k"')},` +
+    `${searchItem('d_ok', '7300000000000000013', 'null')},${searchItem('d_ok', '7300000000000000014', '80000')},` +
+    `${searchItem('d_zero', '7300000000000000015', '0')},${searchItem('d_zero', '7300000000000000016', '90000')}]}}`,
+    () => hub().search(searchTask, 'US', 0),
+  )
+  const dup = (h: string) => dupPage.creators.find(c => c.handle === h)
+  eq('P1.m 视频搜索同一作者先缺粉丝数后给怪值时记成未取得有效值', [dup('d_bad')?.followers, dup('d_bad') && flagged(dup('d_bad')!, 'followers'), dup('d_bad')?.recent_posts?.length], [undefined, true, 2])
+  eq('P1.m 视频搜索同一作者先缺粉丝数后给有效值时用有效值且不记怪值', [dup('d_ok')?.followers, dup('d_ok') && flagged(dup('d_ok')!, 'followers')], [80000, false])
+  eq('P1.m 视频搜索同一作者先给了 0 后给别的值时保留先到的 0', dup('d_zero')?.followers, 0)
+
+  // 作者补（CodeRabbit 第一轮）：标为已测却缺了值时，D21.v 的报错照样指出文件、账号、字段，不因印不出 undefined 而崩
+  const noValue = ((): string[] => {
+    try {
+      return enrichmentValueProblems('E.json', { accounts: {
+        'tiktok:nv': { platform: 'tiktok', metrics: { activity_status: { status: 'measured' }, audience_quality_risk: { status: 'measured', value: {} } } },
+      } } as never)
+    } catch (e) { return [`查的时候崩了：${String(e)}`] }
+  })()
+  eq('D21.v 已测活跃状态缺了值时报一条且指出文件账号与字段', noValue.filter(s => s.includes('E.json') && s.includes('tiktok:nv') && s.includes('activity_status') && s.includes('缺席')).length, 1)
+  eq('D21.v 已测风险等级缺了等级时报一条且指出文件账号与字段', noValue.filter(s => s.includes('E.json') && s.includes('tiktok:nv') && s.includes('audience_quality_risk') && s.includes('缺席')).length, 1)
+
+  // —— 四、打分 ——
+  const sUnq = scoreCreator(person('score_unq'))
+  const sFolBad = scoreCreator(person('score_folbad', { invalid_from_provider: ['followers'] }))
+  const sFolGood = scoreCreator(person('score_folgood', { followers: 80000 }))
+  eq('P1.m 粉丝数已查询但未取得有效值的人打分与粉丝数未查询的人相同', sFolBad, sUnq)
+  ok('P1.m 粉丝数已查询但未取得有效值的人拿不到粉丝数落在区间那一项的分而合法值的人拿得到', sFolGood > sFolBad)
+
+  const sPostBad = scoreCreator(person('score_postbad', { invalid_from_provider: ['post_count'] }))
+  const sPostGood = scoreCreator(person('score_postgood', { post_count: 45 }))
+  eq('P1.m 作品数已查询但未取得有效值的人打分与作品数未查询的人相同', sPostBad, sUnq)
+  ok('P1.m 作品数已查询但未取得有效值的人拿不到作品数多于门槛那一项的分而合法值的人拿得到', sPostGood > sPostBad)
+
+  // 从供应商一路走到打分：怪值不许变成一个落在区间里的数
+  eq('P1.m 供应商粉丝数给了字符串时打分不给粉丝区间那一项的分', scoreCreator(afterProfile('e2e_a', ttNumStr)), scoreCreator(afterProfile('e2e_a', ttAbsent)) + (sPostGood - sUnq))
+  eq('P1.m 供应商粉丝数给了小数时打分不给粉丝区间那一项的分', scoreCreator(afterProfile('e2e_b', ttFrac)), scoreCreator(afterProfile('e2e_b', ttAbsent)) + (sPostGood - sUnq))
+  eq('P1.m 供应商作品数给了字符串时打分不给作品数那一项的分', scoreCreator(afterProfile('e2e_c', ttPostStr)), scoreCreator(afterProfile('e2e_c', ttAbsent)) + (sFolGood - sUnq))
+  eq('P1.m 供应商作品数给了小数时打分不给作品数那一项的分', scoreCreator(afterProfile('e2e_d', ttPostFrac)), scoreCreator(afterProfile('e2e_d', ttAbsent)) + (sFolGood - sUnq))
+  eq('P1.m 供应商两项都给了合法值时两项的分照常都拿到', scoreCreator(afterProfile('e2e_e', ttGood)), scoreCreator(afterProfile('e2e_e', ttAbsent)) + (sFolGood - sUnq) + (sPostGood - sUnq))
+
+  // —— 五、粉丝数闸门 ——
+  ok('P1.m 粉丝数已查询但未取得有效值的人过得了粉丝数闸门', passesFollowerGate(person('gate_bad', { invalid_from_provider: ['followers'] })) === true)
+  ok('P1.m 供应商粉丝数给了负数的人不因它被粉丝数闸门筛掉', passesFollowerGate(afterProfile('gate_neg', ttNeg)) === true)
+  ok('P1.m 供应商粉丝数给了字符串的人不因它被粉丝数闸门筛掉', passesFollowerGate(afterProfile('gate_str', ttStr)) === true)
+  ok('P1.m 供应商粉丝数不是有限数的人不因它被粉丝数闸门筛掉', passesFollowerGate(afterProfile('gate_inf', ttInf)) === true)
+  ok('P1.m 粉丝数未查询的人照常过粉丝数闸门', passesFollowerGate(person('gate_unq')) === true)
+  ok('P1.m 粉丝数确实低于下限的人照常被粉丝数闸门挡掉', passesFollowerGate(person('gate_low', { followers: 100 })) === false)
+  ok('P1.m 供应商说粉丝数就是 0 的人照常被粉丝数闸门挡掉', passesFollowerGate(afterProfile('gate_zero', ttZero)) === false)
+  ok('P1.m 粉丝数合法且在区间内的人照常过粉丝数闸门', passesFollowerGate(afterProfile('gate_good', ttGood)) === true)
+
+  // —— 六、交付表：CSV（真写文件再读回）——
+  const rowBad = listed('row_bad', { invalid_from_provider: ['followers', 'post_count'] })
+  const rowUnq = listed('row_unq')
+  const rowZero = listed('row_zero', { followers: 0, post_count: 0 })
+  const rowGood = listed('row_good', { followers: 80000, post_count: 45 })
+  const rowHalf = listed('row_half', { followers: 80000, invalid_from_provider: ['post_count'] })
+
+  eq('P1.m CSV 里粉丝数已查询但未取得有效值的那一格显示未知', csvCell(rowBad, 'followers'), '未知')
+  eq('P1.m CSV 里作品数已查询但未取得有效值的那一格显示未知', csvCell(rowBad, 'post_count'), '未知')
+  eq('P1.m CSV 里粉丝数未查询的那一格仍显示未查询', csvCell(rowUnq, 'followers'), '未查询')
+  eq('P1.m CSV 里作品数未查询的那一格仍显示未查询', csvCell(rowUnq, 'post_count'), '未查询')
+  eq('P1.m CSV 里粉丝数就是 0 的那一格仍显示 0', csvCell(rowZero, 'followers'), '0')
+  eq('P1.m CSV 里作品数就是 0 的那一格仍显示 0', csvCell(rowZero, 'post_count'), '0')
+  eq('P1.m CSV 里粉丝数合法的那一格仍显示那个数', csvCell(rowGood, 'followers'), '80000')
+  eq('P1.m CSV 里作品数合法的那一格仍显示那个数', csvCell(rowGood, 'post_count'), '45')
+  eq('P1.m CSV 里只有作品数未取得有效值时粉丝数那一格仍显示它的数', csvCell(rowHalf, 'followers'), '80000')
+  eq('P1.m CSV 里只有作品数未取得有效值时作品数那一格显示未知', csvCell(rowHalf, 'post_count'), '未知')
+  eq('P1.m CSV 里供应商粉丝数给了字符串的人那一格显示未知', csvCell(afterProfile('row_e2e_a', ttStr), 'followers'), '未知')
+  eq('P1.m CSV 里供应商作品数给了负数的人那一格显示未知', csvCell(afterProfile('row_e2e_b', ttPostNeg), 'post_count'), '未知')
+  eq('P1.m CSV 里供应商没给粉丝数的人那一格显示未查询', csvCell(afterProfile('row_e2e_c', ttAbsent), 'followers'), '未查询')
+  eq('P1.m CSV 里供应商粉丝数为 null 的人那一格显示未查询', csvCell(afterProfile('row_e2e_d', ttNull), 'followers'), '未查询')
+
+  // —— 七、交付表：XLSX（buildSheets 交给 writeXlsx 的行）——
+  eq('P1.m XLSX 里粉丝数已查询但未取得有效值的那一格显示未知', sheetCell(rowBad, 'followers'), '未知')
+  eq('P1.m XLSX 里作品数已查询但未取得有效值的那一格显示未知', sheetCell(rowBad, 'post_count'), '未知')
+  eq('P1.m XLSX 里粉丝数未查询的那一格仍显示未查询', sheetCell(rowUnq, 'followers'), '未查询')
+  eq('P1.m XLSX 里作品数未查询的那一格仍显示未查询', sheetCell(rowUnq, 'post_count'), '未查询')
+  eq('P1.m XLSX 里粉丝数就是 0 的那一格仍显示 0', sheetCell(rowZero, 'followers'), '0')
+  eq('P1.m XLSX 里作品数就是 0 的那一格仍显示 0', sheetCell(rowZero, 'post_count'), '0')
+  eq('P1.m XLSX 里粉丝数合法的那一格仍显示那个数', sheetCell(rowGood, 'followers'), '80000')
+  eq('P1.m XLSX 里作品数合法的那一格仍显示那个数', sheetCell(rowGood, 'post_count'), '45')
+
+  // —— 八、HTML 报告 ——
+  // 报告别处本来就可能有「未知」（没算分、条数没记下），所以不查「有没有」，
+  // 而是比四份只差粉丝数那一处的报告：未知那一份的「未知」要比另外三份都多。
+  const hBad = listed('html_who', { invalid_from_provider: ['followers'] })
+  const hUnq = listed('html_who')
+  const hZero = listed('html_who', { followers: 0 })
+  const hGood = listed('html_who', { followers: 80000 })
+
+  const oldBad = htmlOld(hBad), oldUnq = htmlOld(hUnq), oldZero = htmlOld(hZero), oldGood = htmlOld(hGood)
+  ok('P1.m 旧版 HTML 里粉丝数未取得有效值的人比粉丝数合法的同一人多显示出未知', count(oldBad, '未知') > count(oldGood, '未知'))
+  ok('P1.m 旧版 HTML 里粉丝数未取得有效值的人与粉丝数未查询的同一人显示不同', count(oldBad, '未知') > count(oldUnq, '未知'))
+  ok('P1.m 旧版 HTML 里粉丝数未取得有效值的人与粉丝数就是 0 的同一人显示不同', count(oldBad, '未知') > count(oldZero, '未知'))
+  ok('P1.m 旧版 HTML 里粉丝数未查询的人仍显示未查询而未取得有效值的人不显示成未查询', count(oldUnq, '未查询') > count(oldBad, '未查询'))
+  ok('P1.m 旧版 HTML 里粉丝数合法的人不因这条多出未知', count(oldGood, '未知') === count(oldZero, '未知'))
+
+  const newBad = htmlNew(hBad), newUnq = htmlNew(hUnq), newZero = htmlNew(hZero), newGood = htmlNew(hGood)
+  ok('P1.m 新版 HTML 里粉丝数未取得有效值的人比粉丝数合法的同一人多显示出未知', count(newBad, '未知') > count(newGood, '未知'))
+  ok('P1.m 新版 HTML 里粉丝数未取得有效值的人与粉丝数未查询的同一人显示不同', count(newBad, '未知') > count(newUnq, '未知'))
+  ok('P1.m 新版 HTML 里粉丝数未取得有效值的人与粉丝数就是 0 的同一人显示不同', count(newBad, '未知') > count(newZero, '未知'))
+  ok('P1.m 新版 HTML 里粉丝数未查询的人仍显示未查询而未取得有效值的人不显示成未查询', count(newUnq, '未查询') > count(newBad, '未查询'))
+
+  // —— 九、同一人后来的查询给了有效值 ——
+  const laterTask: SearchTask = { keyword: 'power bank', dimension: 'category', platform: 'tiktok' }
+  const pool = new Map<string, Creator>()
+  const first = person('later_who', { invalid_from_provider: ['followers', 'post_count'] })
+  mergePage(pool, [{ ...first }], 0, searchTask)
+  const seen = pool.get(creatorKey(first))
+  eq('P1.m 第一次查询两项都是怪值的人进累加器时两项都记着未取得有效值', seen && [seen.followers, flagged(seen, 'followers'), seen.post_count, flagged(seen, 'post_count')], [undefined, true, undefined, true])
+
+  mergePage(pool, [person('later_who', { followers: 80000 })], 1, laterTask)
+  const healed = pool.get(creatorKey(first))
+  eq('P1.m 同一人后来的查询给了有效粉丝数时以有效值为准', healed && healed.followers, 80000)
+  ok('P1.m 同一人后来的查询给了有效粉丝数后粉丝数不再记成未取得有效值', healed !== undefined && !flagged(healed, 'followers'))
+  ok('P1.m 同一人后来的查询只给了有效粉丝数时作品数仍记着未取得有效值', healed !== undefined && flagged(healed, 'post_count') && healed.post_count === undefined)
+  eq('P1.m 同一人后来的查询给了有效粉丝数后 CSV 那一格显示那个数不再显示未知', healed && csvCell({ ...healed, score: 10, tier: 'B' }, 'followers'), '80000')
+  eq('P1.m 同一人后来的查询没给有效作品数时 CSV 那一格仍显示未知', healed && csvCell({ ...healed, score: 10, tier: 'B' }, 'post_count'), '未知')
+  ok('P1.m 同一人后来的查询给了有效粉丝数后打分拿得到粉丝区间那一项的分', healed !== undefined && scoreCreator(healed) > scoreCreator(first))
+
+  // 反过来：先有效、后来怪值。【猜】判据只说了「怪值→有效」这一向；这里按 mergePage 注释的「保留已有字段」推。
+  const pool2 = new Map<string, Creator>()
+  const good = person('later_keep', { followers: 80000 })
+  mergePage(pool2, [{ ...good }], 0, searchTask)
+  mergePage(pool2, [person('later_keep', { invalid_from_provider: ['followers'] })], 1, laterTask)
+  const kept = pool2.get(creatorKey(good))
+  eq('P1.m 已有有效粉丝数的人后来的查询给了怪值时有效值仍在', kept && kept.followers, 80000)
+  ok('P1.m 已有有效粉丝数的人后来的查询给了怪值时不出现既有值又记成未取得有效值', kept !== undefined && !flagged(kept, 'followers'))
+
+  // 后来的查询什么都没给（未查询）：已记下的「未知」不退回「未查询」。【猜】同上，按「保留已有字段」推。
+  const pool3 = new Map<string, Creator>()
+  const odd = person('later_same', { invalid_from_provider: ['followers'] })
+  mergePage(pool3, [{ ...odd }], 0, searchTask)
+  mergePage(pool3, [person('later_same')], 1, laterTask)
+  const still = pool3.get(creatorKey(odd))
+  ok('P1.m 后来的查询没给粉丝数时已记下的未取得有效值不被抹回未查询', still !== undefined && flagged(still, 'followers') && still.followers === undefined)
+
+  // —— 十、补主页资料那一步（collect）与跨平台合并（作者补，非隔离会话所写）——
+  const healProfile = person('prof_heal', { invalid_from_provider: ['followers'] })
+  mergeProfile(healProfile, { followers: 80000 })
+  eq('P1.m 搜索给了怪粉丝数而补主页资料给了有效值时以有效值为准且不再记怪值', [healProfile.followers, flagged(healProfile, 'followers')], [80000, false])
+  const keepProfile = person('prof_keep', { invalid_from_provider: ['followers'] })
+  mergeProfile(keepProfile, {})
+  ok('P1.m 搜索给了怪粉丝数而补主页资料没给时仍记着未取得有效值', flagged(keepProfile, 'followers') && keepProfile.followers === undefined)
+  const newBadProfile = person('prof_new')
+  mergeProfile(newBadProfile, { invalid_from_provider: ['post_count'] })
+  ok('P1.m 搜索没给作品数而补主页资料给了怪值时记成未取得有效值', flagged(newBadProfile, 'post_count') && newBadProfile.post_count === undefined)
+  const goodProfile = person('prof_good', { followers: 80000 })
+  mergeProfile(goodProfile, { invalid_from_provider: ['followers'] })
+  ok('P1.m 搜索已给有效粉丝数而补主页资料给了怪值时有效值仍在且不记怪值', goodProfile.followers === 80000 && !flagged(goodProfile, 'followers'))
+
+  const xTt = person('x_same', { followers: 50000, linked_handle: 'instagram:x_same' })
+  const xIg = person('x_same', { platform: 'instagram', invalid_from_provider: ['followers'] })
+  const xMerged = mergeCrossPlatform([xTt, xIg]).find(c => c.merged_into === undefined)
+  ok('P1.m 跨平台同一人一侧粉丝数有效一侧是怪值时合并结果记成未取得有效值', xMerged !== undefined && xMerged.followers === undefined && flagged(xMerged, 'followers'))
+  const yTt = person('y_same', { followers: 50000, invalid_from_provider: ['post_count'], linked_handle: 'instagram:y_same' })
+  const yIg = person('y_same', { platform: 'instagram', followers: 30000, post_count: 12 })
+  const yMerged = mergeCrossPlatform([yTt, yIg]).find(c => c.merged_into === undefined)
+  ok('P1.m 跨平台同一人两侧粉丝数都有效时合并结果不记粉丝数是怪值', yMerged !== undefined && yMerged.followers === 80000 && !flagged(yMerged, 'followers'))
+
+  // ═══════════════════════════ D21.u ═══════════════════════════
+  criterion('D21.u')
+
+  ok('D21.u creators.json 里 followers 写成 null 时读入被拒绝', refused(record('u_a', { followers: null })))
+  ok('D21.u creators.json 里 followers 写成字符串时读入被拒绝', refused(record('u_b', { followers: '80000' })))
+  ok('D21.u creators.json 里 followers 写成负数时读入被拒绝', refused(record('u_c', { followers: -1 })))
+  ok('D21.u creators.json 里 followers 写成小数时读入被拒绝', refused(record('u_d', { followers: 80000.5 })))
+  ok('D21.u creators.json 里 post_count 写成 null 时读入被拒绝', refused(record('u_e', { post_count: null })))
+  ok('D21.u creators.json 里 post_count 写成字符串时读入被拒绝', refused(record('u_f', { post_count: '45' })))
+  ok('D21.u creators.json 里 post_count 写成负数时读入被拒绝', refused(record('u_g', { post_count: -3 })))
+  ok('D21.u creators.json 里 post_count 写成小数时读入被拒绝', refused(record('u_h', { post_count: 45.5 })))
+  ok('D21.u invalid_from_provider 不是数组时读入被拒绝', refused(record('u_i', { invalid_from_provider: 'followers' })))
+  ok('D21.u invalid_from_provider 写成对象时读入被拒绝', refused(record('u_i2', { invalid_from_provider: { followers: true } })))
+  ok('D21.u invalid_from_provider 里有 followers 与 post_count 之外的项时读入被拒绝', refused(record('u_j', { invalid_from_provider: ['following'] })))
+  ok('D21.u invalid_from_provider 里混进非字符串的项时读入被拒绝', refused(record('u_j2', { invalid_from_provider: ['followers', 7] })))
+  ok('D21.u invalid_from_provider 里同一项重复时读入被拒绝', refused(record('u_k', { invalid_from_provider: ['followers', 'followers'] })))
+  ok('D21.u invalid_from_provider 列了 followers 而 followers 同时写了值时读入被拒绝', refused(record('u_l', { followers: 80000, invalid_from_provider: ['followers'] })))
+  ok('D21.u invalid_from_provider 列了 post_count 而 post_count 同时写了 0 时读入被拒绝', refused(record('u_m', { post_count: 0, invalid_from_provider: ['post_count'] })))
+  ok('D21.u creators.raw.json 里 followers 写成字符串时读入被拒绝', refusal(dirWith([record('u_n')], [record('u_n', { followers: '12k' })])) !== undefined)
+  ok('D21.u creators.raw.json 里 invalid_from_provider 形状不对时读入被拒绝', refusal(dirWith([record('u_o')], [record('u_o', { invalid_from_provider: ['likes'] })])) !== undefined)
+
+  // 报法（同 D21.t）：一个目录里三处坏，两处在 creators.json、一处在 creators.raw.json
+  const multiDir = dirWith(
+    [record('u_first', { post_count: -7321 }), record('u_second', { followers: 80000 }), record('u_third', { followers: '12k' })],
+    [record('u_rawgood', { followers: 80000 }), record('u_rawbad', { invalid_from_provider: ['subscribers'] })],
+  )
+  const said = refusal(multiDir)
+  const text = said === undefined ? '' : said
+  ok('D21.u 多处不合规时读入被拒绝', said !== undefined)
+  ok('D21.u 拒绝时指出 creators.json 的文件路径', text.includes(join(multiDir, 'creators.json')))
+  ok('D21.u 拒绝时指出 creators.raw.json 的文件路径', text.includes(join(multiDir, 'creators.raw.json')))
+  ok('D21.u 拒绝时带出坏记录的平台与账号', text.includes('tiktok') && text.includes('u_third'))
+  ok('D21.u 拒绝时指出是 followers 这个字段并按 JSON 写法印出读到的字符串值', text.includes('followers') && text.includes('"12k"'))
+  ok('D21.u 拒绝时指出是 post_count 这个字段并按 JSON 写法印出读到的负数', text.includes('post_count') && text.includes('-7321'))
+  ok('D21.u 同一文件里有两处不合规时两处都报出来不是只报第一处', text.includes('u_first') && text.includes('u_third'))
+  ok('D21.u 两个文件都有不合规时累加器里那一处也在同一次报出来', text.includes('u_rawbad') && text.includes('invalid_from_provider') && text.includes('"subscribers"'))
+  ok('D21.u 拒绝时不把合规的记录也报成有问题', !text.includes('u_second') && !text.includes('u_rawgood'))
+  // 【猜】「第几条」的写法：按从 1 数、写成「第 N 条」
+  ok('D21.u 拒绝时说出坏记录是文件里的第几条', /第\s*3\s*条/.test(text) && /第\s*1\s*条/.test(text) && /第\s*2\s*条/.test(text))
+  // 【猜】「应是什么」的用词：判据原文用的是「非负整数」
+  ok('D21.u 拒绝时说出 followers 应是非负整数', text.includes('非负整数'))
+
+  // 对照面：合法的照常读进来，值一个字不变
+  eq('D21.u followers 与 post_count 都是非负整数的记录照常读入且值不变', pick(loaded(record('u_ok_a', { followers: 80000, post_count: 45 }))),
+    { followers: 80000, post_count: 45, invalid_from_provider: undefined, has_followers: true, has_post_count: true, has_flag: false })
+  eq('D21.u followers 与 post_count 都是 0 的记录照常读入且仍是 0', pick(loaded(record('u_ok_b', { followers: 0, post_count: 0 }))),
+    { followers: 0, post_count: 0, invalid_from_provider: undefined, has_followers: true, has_post_count: true, has_flag: false })
+  eq('D21.u followers 与 post_count 都缺席的记录照常读入且仍缺席不被补值', pick(loaded(record('u_ok_c'))),
+    { followers: undefined, post_count: undefined, invalid_from_provider: undefined, has_followers: false, has_post_count: false, has_flag: false })
+  eq('D21.u invalid_from_provider 列了 followers 且 followers 缺席的记录照常读入且标记保留', pick(loaded(record('u_ok_d', { invalid_from_provider: ['followers'] }))),
+    { followers: undefined, post_count: undefined, invalid_from_provider: ['followers'], has_followers: false, has_post_count: false, has_flag: true })
+  eq('D21.u invalid_from_provider 两项都列且两项都缺席的记录照常读入且标记保留', pick(loaded(record('u_ok_e', { invalid_from_provider: ['followers', 'post_count'] }))),
+    { followers: undefined, post_count: undefined, invalid_from_provider: ['followers', 'post_count'], has_followers: false, has_post_count: false, has_flag: true })
+  eq('D21.u invalid_from_provider 只列 followers 时另一项 post_count 写了合法值的记录照常读入', pick(loaded(record('u_ok_f', { post_count: 45, invalid_from_provider: ['followers'] }))),
+    { followers: undefined, post_count: 45, invalid_from_provider: ['followers'], has_followers: false, has_post_count: true, has_flag: true })
+  eq('D21.u invalid_from_provider 只列 post_count 时另一项 followers 写了合法值的记录照常读入', pick(loaded(record('u_ok_g', { followers: 80000, invalid_from_provider: ['post_count'] }))),
+    { followers: 80000, post_count: undefined, invalid_from_provider: ['post_count'], has_followers: true, has_post_count: false, has_flag: true })
+  const okBoth = dirWith([record('u_ok_h', { followers: 80000 })], [record('u_ok_h', { followers: 80000 }), record('u_ok_i', { invalid_from_provider: ['post_count'] })])
+  eq('D21.u 两个文件都合规时读入不被拒绝', refusal(okBoth), undefined)
+
+  // 入口级（真起 render）那一半在下一组 invalid-values-entry：起进程多，与这一组分开，变异各走各的组
+}
+
+await main()
+// 作者补的一条（不是隔离会话写的）：ADR-226 那张「打分时 null 算哪一态」的播放数那一半。粉丝数、作品数写成 null
+// 的读入时就拒收（上面 D21.u），播放数不在读入检查里，打分时 null 不能算超过爆款门槛
+{
+  const base: Creator = { platform: 'tiktok', handle: 'plays_null', nickname: 'n', bio: null, bio_links: [], verified: false,
+    profile_url: '', source_keyword: 'k', source_dimension: 'category' }
+  eq('P1.l 盘上播放数写成 null 的作品打分时不算爆款，与没有作品同分',
+    scoreCreator({ ...base, recent_posts: [{ desc: '', plays: null as unknown as number }] }) - scoreCreator({ ...base, recent_posts: [] }), 0)
+}
+rmSync(kol80Root, { recursive: true, force: true })
+}
+})
+await group('invalid-values-entry', () => {
+suite('D21', '怪值那条的入口一半：真起 render 看拒收与交付（P1.m、D21.u、D21.v，出自同一隔离会话）')
+{
+// ═════════════════════════════════════════════════════════════════════
+/**
+ * 入口级。起法照 output-format.md「导出（render）读哪几个文件」：
+ * 在**一次性的仓库副本**根目录跑 `npm run render -- --dir output/{task}`。
+ * 每个夹具用自己的产品名（＝目录名），免得前一个夹具记进记忆的人把后一个夹具的人滤掉。
+ */
+function entryChecks(copy: string): void {
+  const OUTPUTS = ['kol.csv', 'kol.xlsx', 'report.html', 'meta.json', 'agent-review.json']
+
+  const taskJson = (product: string): string => JSON.stringify({
+    product, market: 'US', target_count: 1,
+    tasks: [
+      { keyword: 'portable charger', dimension: 'category', platform: 'tiktok' },
+      { keyword: 'power bank', dimension: 'category', platform: 'instagram' },
+    ],
+    done: [0], answered: { '0': 1 }, found: { '0': 1 }, offsets: { '0': 0 }, pages: { '0': 1 },
+    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z',
+  })
+
+  /** output-format.md 最小任务目录里的那个人，换了账号名。 */
+  const alice = (handle: string, extra: Record<string, unknown> = { followers: 80000 }): Record<string, unknown> => ({
+    platform: 'tiktok', handle, nickname: 'Alice', bio: 'Tech reviews', bio_links: [], verified: false,
+    profile_url: `https://www.tiktok.com/@${handle}`, source_keyword: 'portable charger',
+    source_dimension: 'category', source_tasks: [0], fit: '✅', fit_reason: '测评充电宝', ...extra,
+  })
+
+  const source = { kind: 'public_api' as const, provider: 'tikhub', endpoint: TIKTOK_POSTS_ENDPOINT }
+  const at = '2026-10-01T00:00:00Z'
+  const na = (): unknown => unavailable<number>('insufficient_posts', source, at)
+
+  /** 没有作品样本（没有 sample 键）的 TikTok 账号；活跃状态与风险原样照传进来的写。 */
+  const account = (handle: string, activity: unknown, risk: unknown): Record<string, unknown> => ({
+    platform: 'tiktok', handle, followers: 80000, following: 100,
+    metrics: {
+      median_views: na(), median_engagements: na(), engagement_rate_followers: na(), engagement_rate_views: na(),
+      view_rate: na(), following_ratio: na(), reach_consistency: na(), median_post_gap_days: na(),
+      latest_post_at: na(), days_since_last_post: na(),
+      activity_status: activity, audience_quality_risk: risk,
+    },
+  })
+  const activityOf = (value: unknown): unknown => measured(value, source, at, 12, '夹具')
+  const riskOf = (level: unknown): unknown => measured({ level, flags: [], peer_size: 8 }, source, at, 12, '夹具')
+
+  interface Ran { status: number | null; stderr: string; dir: string; before: string }
+  function render(name: string, creators: unknown[], accounts?: Record<string, unknown>[] | string): Ran {
+    const dir = join(copy, name)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'task.json'), taskJson(name))
+    const before = JSON.stringify(creators, null, 2)
+    writeFileSync(join(dir, 'creators.json'), before)
+    if (typeof accounts === 'string') writeFileSync(join(dir, 'enrichment.json'), accounts)
+    else if (accounts !== undefined) {
+      const map: Record<string, unknown> = {}
+      for (const a of accounts) map[accountKey('tiktok', String(a.handle))] = a
+      writeFileSync(join(dir, 'enrichment.json'), JSON.stringify({ version: 1, updated_at: at, accounts: map }, null, 2))
+    }
+    const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+    const r = spawnSync(exe, args, { cwd: copy, encoding: 'utf8', timeout: 300000 })
+    return { status: r.status, stderr: String(r.stderr), dir, before }
+  }
+  const untouched = (r: Ran): boolean =>
+    OUTPUTS.every(f => !existsSync(join(r.dir, f))) && rf(join(r.dir, 'creators.json'), 'utf8') === r.before
+  const delivered = (r: Ran): boolean => ['kol.csv', 'kol.xlsx', 'report.html', 'meta.json'].every(f => existsSync(join(r.dir, f)))
+
+  // ═══════════════════════════ D21.v ═══════════════════════════
+  criterion('D21.v')
+
+  const vAct = render('kol80-v-act', [alice('kol80va')], [account('kol80va', activityOf('zombie'), riskOf('low'))])
+  eq('D21.v 没有作品样本的 TikTok 账号已测活跃状态不合法时 render 以退出码 2 拒绝', vAct.status, 2)
+  ok('D21.v 活跃状态不合法被拒绝时一个交付文件都没写且名单原字节不变', untouched(vAct))
+  ok('D21.v 活跃状态不合法被拒绝时指出 enrichment.json 的路径', vAct.stderr.includes('enrichment.json'))
+  ok('D21.v 活跃状态不合法被拒绝时按平台冒号账号指出是哪个账号', vAct.stderr.includes('tiktok:kol80va'))
+  ok('D21.v 活跃状态不合法被拒绝时按 JSON 写法印出读到的值', vAct.stderr.includes('"zombie"'))
+  // 【猜】「哪个字段」「应是什么」的写法：字段按 types.d.ts 的键名，应是什么按判据列的三个值
+  ok('D21.v 活跃状态不合法被拒绝时指出是活跃状态这个字段', vAct.stderr.includes('activity_status'))
+  ok('D21.v 活跃状态不合法被拒绝时说出应是 active cooling dormant 之一', vAct.stderr.includes('active') && vAct.stderr.includes('cooling') && vAct.stderr.includes('dormant'))
+
+  const vRisk = render('kol80-v-risk', [alice('kol80vb')], [account('kol80vb', activityOf('active'), riskOf('severe'))])
+  eq('D21.v 没有作品样本的 TikTok 账号已测风险等级不合法时 render 以退出码 2 拒绝', vRisk.status, 2)
+  ok('D21.v 风险等级不合法被拒绝时一个交付文件都没写且名单原字节不变', untouched(vRisk))
+  ok('D21.v 风险等级不合法被拒绝时指出文件账号并按 JSON 写法印出读到的值', vRisk.stderr.includes('enrichment.json') && vRisk.stderr.includes('tiktok:kol80vb') && vRisk.stderr.includes('"severe"'))
+  ok('D21.v 风险等级不合法被拒绝时指出是受众质量风险这个字段', vRisk.stderr.includes('audience_quality_risk'))
+  ok('D21.v 风险等级不合法被拒绝时说出应是 low medium high 之一', vRisk.stderr.includes('low') && vRisk.stderr.includes('medium') && vRisk.stderr.includes('high'))
+
+  const vBlank = render('kol80-v-blank', [alice('kol80vc')], [account('kol80vc', activityOf(''), riskOf('low'))])
+  eq('D21.v 已测活跃状态是空串时 render 拒绝而不是显示成空白', vBlank.status, 2)
+
+  const vCase = render('kol80-v-case', [alice('kol80vd')], [account('kol80vd', activityOf('active'), riskOf('High'))])
+  eq('D21.v 已测风险等级大小写不对时 render 拒绝而不是当成别的等级', vCase.status, 2)
+
+  const vMany = render('kol80-v-many', [alice('kol80ve'), alice('kol80vf')], [
+    account('kol80ve', activityOf('paused'), riskOf('critical')),
+    account('kol80vf', activityOf('retired'), riskOf('low')),
+  ])
+  eq('D21.v 一份 enrichment.json 里有三处不合法时 render 以退出码 2 拒绝', vMany.status, 2)
+  ok('D21.v 同一账号的活跃状态与风险等级都不合法时两处都报出来', vMany.stderr.includes('"paused"') && vMany.stderr.includes('"critical"'))
+  ok('D21.v 两个账号都有不合法值时后一个账号那一处也在同一次报出来', vMany.stderr.includes('tiktok:kol80vf') && vMany.stderr.includes('"retired"'))
+
+  // 查哪些账号与报告原样用哪些账号是同一条（storedMetricsUsedAsIs）：没有可用样本、平台又不是 instagram 就原样用，
+  // 所以 sample 写成 null、平台缺了或大小写不对的账号也得查
+  const vNull = render('kol80-v-null', [alice('kol80vl')], [{ ...account('kol80vl', activityOf('zombie'), riskOf('low')), sample: null }])
+  eq('D21.v sample 写成 null 的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vNull.status, 2)
+  const { platform: _dropped, ...noPlatform } = account('kol80vm', activityOf('zombie'), riskOf('low'))
+  const vNoPf = render('kol80-v-nopf', [alice('kol80vm')], [noPlatform])
+  eq('D21.v 缺了平台字段的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vNoPf.status, 2)
+  const vCasePf = render('kol80-v-casepf', [alice('kol80vn')], [{ ...account('kol80vn', activityOf('zombie'), riskOf('low')), platform: 'TikTok' }])
+  eq('D21.v 平台写成 TikTok 大小写不对的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vCasePf.status, 2)
+  const vIg = render('kol80-v-ig', [alice('kol80vo')], [{ ...account('kol80vo', activityOf('zombie'), riskOf('low')), platform: 'instagram' }])
+  eq('D21.v 没有样本的 Instagram 账号存着的指标报告本就不用所以不因本条拒绝', vIg.status, 0)
+
+  // 对照面
+  const vOk = render('kol80-v-ok', [alice('kol80vg')], [account('kol80vg', activityOf('active'), riskOf('low'))])
+  eq('D21.v 已测活跃状态与风险等级都合法时 render 照常以 0 结束', vOk.status, 0)
+  ok('D21.v 已测活跃状态与风险等级都合法时交付文件照常写出', delivered(vOk))
+
+  const vOk2 = render('kol80-v-ok2', [alice('kol80vh'), alice('kol80vi')], [
+    account('kol80vh', activityOf('cooling'), riskOf('medium')),
+    account('kol80vi', activityOf('dormant'), riskOf('high')),
+  ])
+  eq('D21.v cooling dormant medium high 这几个合法取值不被拒绝', vOk2.status, 0)
+
+  const vNa = render('kol80-v-na', [alice('kol80vj')], [account('kol80vj',
+    unavailable<string>('insufficient_posts', source, at), unavailable<unknown>('insufficient_peer_group', source, at))])
+  eq('D21.v 活跃状态与风险都标为不可用而不是已测时 render 不因本条拒绝', vNa.status, 0)
+
+  const vNone = render('kol80-v-none', [alice('kol80vk')])
+  eq('D21.v 没有 enrichment.json 时 render 照常以 0 结束', vNone.status, 0)
+
+  // enrichment.json 整个不是合法 JSON：以 2 拒绝并指出是哪个文件（作者补）
+  const vJson = render('kol80-v-json', [alice('kol80vq')], '{"accounts": {"tiktok:kol80vq": ')
+  eq('D21.v enrichment.json 不是合法 JSON 时 render 以退出码 2 拒绝', vJson.status, 2)
+  ok('D21.v enrichment.json 不是合法 JSON 时一个交付文件都没写且名单原字节不变', untouched(vJson))
+  ok('D21.v enrichment.json 不是合法 JSON 时报错指出是 enrichment.json 这个文件', vJson.stderr.includes('enrichment.json'))
+
+  // 名单与增强结果同时坏：一次报全（作者补）
+  const vBoth = render('kol80-v-both', [alice('kol80vp', { followers: -3 })], [account('kol80vp', activityOf('zombie'), riskOf('low'))])
+  eq('D21.v 名单与增强结果同时有不合法值时 render 以退出码 2 拒绝', vBoth.status, 2)
+  ok('D21.v 名单与增强结果同时有不合法值时两个文件的问题在同一次报出来', vBoth.stderr.includes('creators.json') && vBoth.stderr.includes('-3') && vBoth.stderr.includes('enrichment.json') && vBoth.stderr.includes('"zombie"'))
+
+  // ═══════════════════ D21.u：入口那一半（只起 render）═══════════════════
+  criterion('D21.u')
+  const uBad = render('kol80-u-bad', [alice('kol80ua'), alice('kol80ub', { followers: '12k' })])
+  eq('D21.u creators.json 里 followers 写成字符串时 render 以退出码 2 停下', uBad.status, 2)
+  ok('D21.u render 因 followers 不合规停下时一个交付文件都没写且名单原字节不变', untouched(uBad))
+  ok('D21.u render 因 followers 不合规停下时 stderr 带出文件账号字段与读到的值', uBad.stderr.includes('creators.json') && uBad.stderr.includes('kol80ub') && uBad.stderr.includes('followers') && uBad.stderr.includes('"12k"'))
+  const uFlag = render('kol80-u-flag', [alice('kol80uc', { followers: 80000, invalid_from_provider: ['followers'] })])
+  eq('D21.u creators.json 里 invalid_from_provider 列的那一项同时写了值时 render 以退出码 2 停下', uFlag.status, 2)
+  ok('D21.u render 因 invalid_from_provider 与值并存停下时一个交付文件都没写', untouched(uFlag))
+
+  // ═══════════════════ P1.m：入口那一半（真交付物）═══════════════════
+  criterion('P1.m')
+  const mBad = render('kol80-m-bad', [alice('kol80ma', { invalid_from_provider: ['followers'] })])
+  const mUnq = render('kol80-m-unq', [alice('kol80mb', {})])
+  eq('P1.m 名单里有粉丝数未取得有效值的人时 render 照常以 0 结束不把它当坏输入', mBad.status, 0)
+  eq('P1.m 名单里有粉丝数未查询的人时 render 照常以 0 结束', mUnq.status, 0)
+  const htmlBad = mBad.status === 0 ? rf(join(mBad.dir, 'report.html'), 'utf8') : ''
+  const htmlUnq = mUnq.status === 0 ? rf(join(mUnq.dir, 'report.html'), 'utf8') : ''
+  ok('P1.m render 出的 report.html 里粉丝数未取得有效值的人比未查询的人多显示出未知', count(htmlBad, '未知') > count(htmlUnq, '未知'))
+  // 【猜】生产 kol.csv 走评审表（render 引的是 REVIEW_HEADERS／toReviewRow），包里看不出评审表有没有粉丝数那一列
+  const cells = (r: Ran): string[] => r.status === 0 ? parseCsv(rf(join(r.dir, 'kol.csv'), 'utf8')).slice(1).flat() : []
+  ok('P1.m render 出的 kol.csv 里粉丝数未取得有效值的人有一格是未知而未查询的人没有', cells(mBad).includes('未知') && !cells(mUnq).includes('未知'))
+}
+
+  // ═══════════════════ 入口级（真起 render）═══════════════════
+  // 搬入时改的第一处：原件在一份一次性的仓库副本里起 `npm run render`；这里照本文件别的组的起法，
+  // 在临时目录里起 render（当前目录放一份空记忆），任务目录按绝对路径给
+  const copy = mkdtempSync(join(tmpdir(), 'kol-invalid-values-'))
+  try {
+    mkdirSync(join(copy, 'memory'))
+    writeFileSync(join(copy, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-10-01T00:00:00Z', creators: {} }))
+    entryChecks(copy)
+  } finally { rmSync(copy, { recursive: true, force: true }) }
+}
 })
 await group('p1-followers-sort', () => {
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
@@ -19014,6 +20045,18 @@ await group('u9-review-output', () => {
   eq('U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列', bounded(sorted.flatMap((c, i) => c.handle === matrixExpected[i] ? [] : [`${i}:${c.handle}/${matrixExpected[i]}`])), noFaults)
   ok('U9.b 排序返回独立名单', sorted !== matrix)
   ok('U9.b 排序保留输入每个字段及其缺席状态', isDeepStrictEqual(matrix, beforeMatrix))
+  // U9.l：同一有效建议、同一层里，没算过分的排在这一组最后（在 0 分之后），但不越过下一层、也不越过下一档建议。
+  // 期望是照判据手写的，不取上面那个 order：它与实现同一种写法，两边一起写反时这条要能独立地红（ADR-226）。
+  const lastInTier = api.sortForReviewOutput([
+    mk('tiktok', 'next-priority', { effective_priority: '备选', tier: 'A', score: 90 }),
+    mk('tiktok', 'next-tier', { effective_priority: '优先联系', tier: 'B', score: 90 }),
+    mk('tiktok', 'none', { effective_priority: '优先联系', tier: 'A' }),
+    mk('tiktok', 'zero', { effective_priority: '优先联系', tier: 'A', score: 0 }),
+    mk('tiktok', 'ten', { effective_priority: '优先联系', tier: 'A', score: 10 }),
+  ]).map(c => c.handle)
+  eq('U9.l 同一有效建议同一层里没算过分的排最后，在 0 分之后、下一层与下一档建议之前',
+    lastInTier, ['ten', 'zero', 'none', 'next-tier', 'next-priority'])
+  criterion('U9.l')
   const matrixSheets = api.buildSheets(matrix, { mode: 'review' })
   eq('U9.c 三层表内独立排序且不跨层移动', bounded(['A', 'B', 'C'].flatMap((tier, i) => {
     const got = matrixSheets[i].rows.map(r => String(r[headers.indexOf('handle')]))
@@ -19766,10 +20809,11 @@ await group('d21-task-reviews', () => {
     const deep = caught(() => loadReviewCreatorInputs(deepDir))
     ok('手改坏的记录：嵌套深到印不出原值时仍指出是哪条哪个字段', deep instanceof ReviewInputError && String(deep).includes('第 1 条') && String(deep).includes('bio_links') && String(deep).includes('印不出'))
     // 不多拒：形状对的记录原样读入；其余字段的类型、陌生平台名不在本条检查之内。
+    // f 原先拿 followers: 'many' 当「别的字段类型不对」的例子；D21.u（ADR-227）起粉丝数、作品数也查，换成关注数
     const passing = [
       fine('a'), fine('b', { recent_posts: null }), fine('c', { recent_posts: [] }),
       fine('d', { recent_posts: [{ id: '1', plays: 5 }], bio_links: ['https://a.example'] }),
-      fine('e', { platform: 'youtube' }), fine('f', { followers: 'many', nickname: 5, source_tasks: 'x' }),
+      fine('e', { platform: 'youtube' }), fine('f', { following: 'many', nickname: 5, source_tasks: 'x' }),
       fine('g', { discovery_sources: null }), fine('h', { discovery_sources: [{ endpoint: 'x' }] }),
     ]
     const passed = shaped('passing', passing)
@@ -21498,6 +22542,166 @@ suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不
   const mangled = freeText.flatMap(path => views.filter(([, o]) => !render(put(path, canary), o)?.includes(escapedOnce)).map(([name]) => `${name} ${path.join('.')}`))
   eq('U12自由文本换成金丝雀后两种视图都以转义一次的原文出现', mangled, [])
   criterion('U12.c')
+}
+})
+
+await group('u12-safe-html', () => {
+suite('U12', '报告页面用同一种拼页面的写法拼成，插进去的取值默认转义')
+{
+  // 这一块由只读了 U12 准入读物包的隔离会话写成（ADR-228 第四节），搬进来时一字未改
+// ── U12.d：拼页面的写法默认转义一次；缺值写成空；只有它自己拼出来的片段原样；长得像片段的照样转义 ──
+// 期望值全部按五个字符实体手写：& → &amp;  < → &lt;  > → &gt;  " → &quot;  ' → &#39;
+
+// 一、五个字符各自转义一次（html 插值）
+eq('U12.d html 插值里的 & 转义一次', html`${'&'}`.html, '&amp;');
+eq('U12.d html 插值里的 < 转义一次', html`${'<'}`.html, '&lt;');
+eq('U12.d html 插值里的 > 转义一次', html`${'>'}`.html, '&gt;');
+eq('U12.d html 插值里的双引号转义一次', html`${'"'}`.html, '&quot;');
+eq('U12.d html 插值里的单引号转义一次', html`${"'"}`.html, '&#39;');
+eq('U12.d html 插值里五个字符连在一起各转义一次', html`${`&<>"'`}`.html, '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.d html 插值里同一个字符出现多次时每一处都转义', html`${`<<&&>>""''`}`.html, '&lt;&lt;&amp;&amp;&gt;&gt;&quot;&quot;&#39;&#39;');
+eq('U12.d html 插值里夹在普通文字中间的五个字符各转义一次其余文字不动', html`${`甲&乙<丙>丁"戊'己`}`.html, '甲&amp;乙&lt;丙&gt;丁&quot;戊&#39;己');
+eq('U12.d html 插值是一段完整标记时整段当文字', html`${'<script>alert("x")</script>'}`.html, '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;');
+eq('U12.d html 插值本身写着字符实体时只转义一次不还原也不跳过', html`${'&lt;'}`.html, '&amp;lt;');
+eq('U12.d html 插值本身写着 &amp; 时只转义一次', html`${'&amp;'}`.html, '&amp;amp;');
+eq('U12.d html 插值没有那五个字符时原文不变', html`${'普通文字 abc 123'}`.html, '普通文字 abc 123');
+eq('U12.d html 插值是空字符串时写成空', html`${''}`.html, '');
+
+// 二、五个字符各自转义一次（escapeText）
+eq('U12.d escapeText 里的 & 转义一次', escapeText('&'), '&amp;');
+eq('U12.d escapeText 里的 < 转义一次', escapeText('<'), '&lt;');
+eq('U12.d escapeText 里的 > 转义一次', escapeText('>'), '&gt;');
+eq('U12.d escapeText 里的双引号转义一次', escapeText('"'), '&quot;');
+eq('U12.d escapeText 里的单引号转义一次', escapeText("'"), '&#39;');
+eq('U12.d escapeText 里五个字符连在一起各转义一次', escapeText(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.d escapeText 里同一个字符出现多次时每一处都转义', escapeText('a<b<c&d&e'), 'a&lt;b&lt;c&amp;d&amp;e');
+eq('U12.d escapeText 的取值本身写着字符实体时只转义一次', escapeText('&quot;'), '&amp;quot;');
+eq('U12.d escapeText 没有那五个字符时原文不变', escapeText('普通文字 abc 123'), '普通文字 abc 123');
+
+// 三、缺值写成空
+eq('U12.d html 插值是 undefined 时写成空', html`${undefined}`.html, '');
+eq('U12.d html 插值是 null 时写成空', html`${null}`.html, '');
+eq('U12.d html 两段写死的文字之间插 undefined 时只剩写死的文字', html`<td>${undefined}</td>`.html, '<td></td>');
+eq('U12.d html 两段写死的文字之间插 null 时只剩写死的文字', html`<td>${null}</td>`.html, '<td></td>');
+eq('U12.d html 缺值和有值相邻时缺值不占位', html`${undefined}${'<'}${null}`.html, '&lt;');
+eq('U12.d escapeText 对 undefined 写成空', escapeText(undefined), '');
+eq('U12.d escapeText 对 null 写成空', escapeText(null), '');
+eq('U12.d joinHtml 只有一项且是 undefined 时写成空', joinHtml([undefined]).html, '');
+eq('U12.d joinHtml 只有一项且是 null 时写成空', joinHtml([null]).html, '');
+
+// 四、非字符串取值先转文字再转义
+eq('U12.d html 插值是数时写成它的文字', html`${42}`.html, '42');
+eq('U12.d html 插值是 0 时写成 0 不当缺值', html`${0}`.html, '0');
+eq('U12.d html 插值是负小数时写成它的文字', html`${-1.5}`.html, '-1.5');
+eq('U12.d html 插值是 true 时写成它的文字', html`${true}`.html, 'true');
+eq('U12.d html 插值是 false 时写成它的文字不当缺值', html`${false}`.html, 'false');
+eq('U12.d html 插值是字符串数组时转成文字后各元素里的标记被转义', html`${['<a>', '<b>']}`.html, '&lt;a&gt;,&lt;b&gt;');
+eq('U12.d html 插值是只有一个元素的数组时元素里的五个字符各转义一次', html`${[`&<>"'`]}`.html, '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.d html 插值是自定义 toString 的对象时转成的文字被转义', html`${{ toString: () => `<i a="1" b='2'>&</i>` }}`.html, '&lt;i a=&quot;1&quot; b=&#39;2&#39;&gt;&amp;&lt;/i&gt;');
+eq('U12.d html 插值是 String 包装对象时照样转义', html`${new String('<b>')}`.html, '&lt;b&gt;');
+eq('U12.d escapeText 对数写成它的文字', escapeText(42), '42');
+eq('U12.d escapeText 对 0 写成 0 不当缺值', escapeText(0), '0');
+eq('U12.d escapeText 对 false 写成它的文字不当缺值', escapeText(false), 'false');
+eq('U12.d escapeText 对 true 写成它的文字', escapeText(true), 'true');
+eq('U12.d escapeText 对字符串数组转成文字后转义', escapeText(['<a>', '&']), '&lt;a&gt;,&amp;');
+eq('U12.d escapeText 对自定义 toString 的对象转成的文字转义', escapeText({ toString: () => '<b>"x"</b>' }), '&lt;b&gt;&quot;x&quot;&lt;/b&gt;');
+eq('U12.d joinHtml 里的数写成它的文字', joinHtml([1, 2, 3], html`,`).html, '1,2,3');
+eq('U12.d joinHtml 里自定义 toString 的对象转成的文字被转义', joinHtml([{ toString: () => '<b>' }]).html, '&lt;b&gt;');
+
+// 五、模板里写死的部分原样
+eq('U12.d html 没有插值时写死的标记原样', html`<p class="a" data-x='1'>甲 & 乙</p>`.html, `<p class="a" data-x='1'>甲 & 乙</p>`);
+eq('U12.d html 写死的字符实体原样不再转义', html`<p>&amp;&lt;&gt;&quot;&#39;</p>`.html, '<p>&amp;&lt;&gt;&quot;&#39;</p>');
+eq('U12.d html 空模板拼出空片段', html``.html, '');
+eq('U12.d html 写死的标记原样而中间的插值转义', html`<p class="k">${'<b>'}</p>`.html, '<p class="k">&lt;b&gt;</p>');
+eq('U12.d html 插值在写死的属性引号里时取值里的引号被转义而写死的引号原样', html`<a title="${'"><script>'}" data-n='${"'x'"}'>链接</a>`.html, `<a title="&quot;&gt;&lt;script&gt;" data-n='&#39;x&#39;'>链接</a>`);
+eq('U12.d html 多个插值各自转义且写死的部分顺序不变', html`<i>${'<'}</i>-<b>${'>'}</b>-<u>${'&'}</u>`.html, '<i>&lt;</i>-<b>&gt;</b>-<u>&amp;</u>');
+eq('U12.d html 相邻两个插值各自转义后紧挨着', html`${'<'}${'>'}`.html, '&lt;&gt;');
+eq('U12.d html 插值在模板开头和结尾时写死的中间部分原样', html`${'"'}<br>${"'"}`.html, '&quot;<br>&#39;');
+
+// 六、html 拼出来的片段原样插入、不再转义
+const u12dInner = html`<b title="t">${`&<>"'`}</b>`;
+eq('U12.d 内层片段自己的取值转义一次', u12dInner.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.d html 拼出来的片段单独插进 html 时原样', html`${u12dInner}`.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.d html 拼出来的片段插进 html 时标记原样且里面的取值不再转义', html`<p>${u12dInner}</p>`.html, '<p><b title="t">&amp;&lt;&gt;&quot;&#39;</b></p>');
+const u12dMid = html`<li>${u12dInner}</li>`;
+const u12dOuter = html`<ul>${u12dMid}</ul>`;
+const u12dTop = html`<div>${u12dOuter}</div>`;
+eq('U12.d 片段嵌套两层时转义不累加', u12dMid.html, '<li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li>');
+eq('U12.d 片段嵌套三层时转义不累加', u12dOuter.html, '<ul><li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li></ul>');
+eq('U12.d 片段嵌套四层时转义不累加', u12dTop.html, '<div><ul><li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li></ul></div>');
+eq('U12.d 同一个模板里片段原样而旁边的字符串转义', html`${html`<b>x</b>`}${'<b>x</b>'}`.html, '<b>x</b>&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d 同一个片段插两次时两处都原样', html`${u12dInner}|${u12dInner}`.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>|<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.d 空片段插进 html 时什么都不多出来', html`<p>${html``}</p>`.html, '<p></p>');
+eq('U12.d 写死字符实体的片段插进 html 时实体不被再转义', html`<p>${html`&amp;&lt;`}</p>`.html, '<p>&amp;&lt;</p>');
+ok('U12.d html 拼出来的东西是 SafeHtml', html`<b>x</b>` instanceof SafeHtml);
+ok('U12.d joinHtml 拼出来的东西是 SafeHtml', joinHtml([html`<b>x</b>`]) instanceof SafeHtml);
+
+// 七、joinHtml：片段原样、普通字符串照样转义、分隔片段原样
+eq('U12.d joinHtml 里的片段原样', joinHtml([html`<b>1</b>`, html`<b>2</b>`], html`<br>`).html, '<b>1</b><br><b>2</b>');
+eq('U12.d joinHtml 里片段中已转义的取值不再转义', joinHtml([u12dInner, u12dInner], html`|`).html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>|<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.d joinHtml 里的普通字符串照样转义', joinHtml(['<b>1</b>', '<b>2</b>'], html`<br>`).html, '&lt;b&gt;1&lt;/b&gt;<br>&lt;b&gt;2&lt;/b&gt;');
+eq('U12.d joinHtml 里普通字符串的五个字符各转义一次', joinHtml([`&<>"'`]).html, '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.d joinHtml 里片段和普通字符串混排时片段原样字符串转义', joinHtml([html`<b>1</b>`, '<b>2</b>', html`<b>3</b>`], html`<hr>`).html, '<b>1</b><hr>&lt;b&gt;2&lt;/b&gt;<hr><b>3</b>');
+eq('U12.d joinHtml 的分隔片段里的标记原样', joinHtml(['a', 'b', 'c'], html`<span class="sep">·</span>`).html, 'a<span class="sep">·</span>b<span class="sep">·</span>c');
+eq('U12.d joinHtml 的分隔片段里已转义的取值不再转义', joinHtml(['a', 'b'], html`<i>${'&'}</i>`).html, 'a<i>&amp;</i>b');
+eq('U12.d joinHtml 的分隔片段里写死的字符实体不再转义', joinHtml(['a', 'b'], html` &amp; `).html, 'a &amp; b');
+eq('U12.d joinHtml 只有一项片段时原样', joinHtml([html`<b>1</b>`]).html, '<b>1</b>');
+eq('U12.d joinHtml 只有一项字符串时转义', joinHtml(['<b>1</b>']).html, '&lt;b&gt;1&lt;/b&gt;');
+eq('U12.d joinHtml 里的字符串本身写着字符实体时只转义一次', joinHtml(['&lt;', '&amp;'], html`,`).html, '&amp;lt;,&amp;amp;');
+const u12dJoined = joinHtml([html`<li>${'<'}</li>`, html`<li>${'&'}</li>`], html``);
+eq('U12.d joinHtml 用空片段分隔时各项紧挨着', u12dJoined.html, '<li>&lt;</li><li>&amp;</li>');
+eq('U12.d joinHtml 拼出来的片段插进 html 时原样不再转义', html`<ul>${u12dJoined}</ul>`.html, '<ul><li>&lt;</li><li>&amp;</li></ul>');
+eq('U12.d joinHtml 拼出来的片段再插进 joinHtml 时原样不再转义', joinHtml([u12dJoined, u12dJoined], html`<hr>`).html, '<li>&lt;</li><li>&amp;</li><hr><li>&lt;</li><li>&amp;</li>');
+eq('U12.d joinHtml 拼出来的片段当分隔片段时原样', joinHtml(['a', 'b'], joinHtml([html`<br>`])).html, 'a<br>b');
+eq('U12.d html 套 joinHtml 再套 html 时转义不累加', html`<div>${joinHtml([html`<p>${html`<b>${'"'}</b>`}</p>`, `'`], html`<br>`)}</div>`.html, '<div><p><b>&quot;</b></p><br>&#39;</div>');
+
+// 八、长得像片段的别的东西照样当文字转义
+eq('U12.d 字符串本身是一段标记时插进 html 当文字转义', html`${'<b>x</b>'}`.html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d 片段的 html 字段取出来成了字符串再插进 html 时当文字转义', html`${html`<b>x</b>`.html}`.html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d 片段的 html 字段取出来再插时里面已转义的取值按文字再转义一次', html`${html`<b>${'&'}</b>`.html}`.html, '&lt;b&gt;&amp;amp;&lt;/b&gt;');
+eq('U12.d 片段的 html 字段取出来成了字符串再插进 joinHtml 时当文字转义', joinHtml([html`<b>x</b>`.html]).html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d escapeText 对一段标记字符串当文字转义', escapeText('<b>x</b>'), '&lt;b&gt;x&lt;/b&gt;');
+ok('U12.d 带 html 字段的普通对象插进 html 时字段里的标记不原样出现', !html`${{ html: '<b>x</b>' }}`.html.includes('<'));
+ok('U12.d 带 html 字段的普通对象插进 joinHtml 时字段里的标记不原样出现', !joinHtml([{ html: '<b>x</b>' }]).html.includes('<'));
+ok('U12.d 带 html 字段的普通对象交给 escapeText 时字段里的标记不原样出现', !escapeText({ html: '<b>x</b>' }).includes('<'));
+eq('U12.d 带 html 字段又自定义 toString 的对象插进 html 时按 toString 的文字转义', html`${{ html: '<b>x</b>', toString: () => '<i>y</i>' }}`.html, '&lt;i&gt;y&lt;/i&gt;');
+eq('U12.d 带 html 字段又自定义 toString 的对象插进 joinHtml 时按 toString 的文字转义', joinHtml([{ html: '<b>x</b>', toString: () => '<i>y</i>' }]).html, '&lt;i&gt;y&lt;/i&gt;');
+eq('U12.d 自定义 toString 返回标记的对象插进 html 时当文字转义', html`<p>${{ toString: () => '<script>x</script>' }}</p>`.html, '<p>&lt;script&gt;x&lt;/script&gt;</p>');
+eq('U12.d 自定义 toString 返回标记的对象插进 joinHtml 时当文字转义', joinHtml([{ toString: () => '<a>' }, { toString: () => '<b>' }], html`<br>`).html, '&lt;a&gt;<br>&lt;b&gt;');
+const u12dForged = Object.create(SafeHtml.prototype);
+u12dForged.html = '<b>x</b>';
+u12dForged.toString = () => '<b>x</b>';
+eq('U12.d 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 html 时当文字转义', html`${u12dForged}`.html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 joinHtml 时当文字转义', joinHtml([u12dForged]).html, '&lt;b&gt;x&lt;/b&gt;');
+ok('U12.d 把片段放进数组再插进 html 时不算片段标记不原样出现', !html`${[html`<b>x</b>`]}`.html.includes('<'));
+ok('U12.d 把片段放进数组再放进 joinHtml 的一项时不算片段标记不原样出现', !joinHtml([[html`<b>x</b>`]]).html.includes('<'));
+eq('U12.d 字符串数组插进 html 时不当成一串片段', html`<ul>${['<li>1</li>', '<li>2</li>']}</ul>`.html, '<ul>&lt;li&gt;1&lt;/li&gt;,&lt;li&gt;2&lt;/li&gt;</ul>');
+
+criterion('U12.d');
+}
+{
+  // 作者写（ADR-228 第五节，独立复核第一轮）：分隔参数也只认本模块造的片段；造出来的片段改不了
+  const fakeSep = { html: '<hr>' } as unknown as SafeHtml
+  eq('U12.d joinHtml 的分隔参数是仿造的片段时当文字转义', joinHtml(['a', 'b'], fakeSep).html, 'a[object Object]b')
+  const frozen = html`<i>x</i>`
+  let rewrote = false
+  try { (frozen as { html: string }).html = '<script>'; rewrote = frozen.html === '<script>' } catch { rewrote = false }
+  ok('U12.d 造出来的片段改不了里面的标记', !rewrote)
+}
+{
+  // 作者写（ADR-228 第六节，还 ADR-180 第 34、58、70 行）：ADR-180 结论「缺值时照旧印出原样，不悄悄变成空白」
+  // 原先靠 escRaw，现在靠那几处自己写 String(v)；去掉 String 缺值就变成空白（P1：缺值不被悄悄填成别的样子）。
+  // 期望按报告的标记手写，不借被测函数。
+  const page = renderHtml([mk('tiktok', 'a', { tier: undefined as never, platform: undefined as never })],
+    { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], tiers: {} as never,
+      ...testCostMeta(1, 2000000), enriched: false } as never)
+  ok('缺值照印原样：统计里总人数缺值时印 undefined 不印空白', page.includes('<div class="v">undefined</div><div class="l">总人数</div>'))
+  ok('缺值照印原样：统计里 A 级人数缺值时印 undefined 不印空白', page.includes('<div class="v" style="color:#22c55e">undefined</div><div class="l">A 级</div>'))
+  ok('缺值照印原样：统计里有邮箱人数缺值时印 undefined 不印空白', page.includes('<div class="v">undefined</div><div class="l">有邮箱</div>'))
+  ok('缺值照印原样：统计里跨平台人数缺值时印 undefined 不印空白', page.includes('<div class="v" style="color:#a78bfa">undefined</div><div class="l">跨平台</div>'))
+  ok('缺值照印原样：A 级标签页人数缺值时印 undefined 不印空白', page.includes('A级 直接发信<span class="n">undefined</span>'))
+  ok('缺值照印原样：卡片分层缺值时印 undefined 不印空白', page.includes('<span class="tier undefined">undefined</span>'))
+  ok('缺值照印原样：卡片平台缺值时样式类印 undefined 不印空白', page.includes('<span class="pf undefined">'))
 }
 })
 

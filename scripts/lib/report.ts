@@ -10,12 +10,17 @@ import { normalizedAccountKey } from './review.js'
 import type { CostView } from './budget.js'
 import type { FeedbackSummary } from './manual-feedback-summary.js'
 import type { ReviewRound } from './review.js'
+import { html, joinHtml, type SafeHtml } from './safe-html.js'
 
-const esc = (s: unknown) =>
-  String(s ?? '').replace(/[&<>"']/g, m =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]!))
-/** U12：原先原样插进模板的取值走这里 —— 和模板插值一样先转成文字（缺值照旧印出 undefined，不悄悄变成空白），再转义 */
-const escRaw = (v: unknown) => esc(String(v))
+// U12（ADR-228）：页面一律用 `html` 模板拼，插值默认转义，只有 `html`／`joinHtml` 拼出的片段原样插入。
+// 原先逐处手写 esc（缺值写空）与 escRaw（缺值印 undefined）；后者那几处现在写 `String(v)`，缺值照旧印出 undefined。
+
+/**
+ * P1.m：名单上的粉丝数、作品数分三态显示 —— 有值写缩写的数，供应商给了怪值写 `未知`，没查到写 `未查询`。
+ * 原先没查到也写「未知」，与怪值那一态就分不开了。
+ */
+const creatorCountText = (c: Creator, field: 'followers' | 'post_count'): string =>
+  c[field] !== undefined ? fmt(c[field]) : c.invalid_from_provider?.includes(field) ? '未知' : '未查询'
 
 /** P1：未知显示成「未知」，绝不显示成 0 —— 那是把没测量说成测量结果是零 */
 const fmt = (n?: number) =>
@@ -56,14 +61,14 @@ const riskFlagText = (flag: AudienceRiskFlag): string => {
   return `${name}${flag.direction === 'low' ? '偏低' : '偏高'}`
 }
 
-const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string): string => {
-  if (!a) return `<div class="assessment"><div class="at">${esc(label)} · 公开指标未查询</div></div>`
+const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string): SafeHtml => {
+  if (!a) return html`<div class="assessment"><div class="at">${label} · 公开指标未查询</div></div>`
   const m = a.metrics
   const risk = m?.audience_quality_risk
   const activity = m?.activity_status
   const riskLevel = metricText(risk, value => value.level.toUpperCase())
   const flags = risk?.status === 'measured' && risk.value.flags.length
-    ? `<div class="flags">依据：${risk.value.flags.map(riskFlagText).map(esc).join(' · ')}</div>`
+    ? html`<div class="flags">依据：${risk.value.flags.map(riskFlagText).join(' · ')}</div>`
     : ''
   const quote = a.collaboration_quote
   const quoteText = !quote ? '未查询'
@@ -91,23 +96,23 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
     active: '活跃', cooling: '降温', dormant: '停更',
   })[value])
 
-  return `<div class="assessment">
-    <div class="at">${esc(label)} · @${esc(a.handle)} · ${esc(fmt(a.followers))} 粉丝 ·
-      关注 ${esc(fmt(a.following))} · 样本 ${esc(sample)}</div>
-    ${a.sample?.status === 'measured' ? `<div class="scope">样本范围：${esc(sampleScopeText(a))}</div>` : ''}
+  return html`<div class="assessment">
+    <div class="at">${label} · @${a.handle} · ${fmt(a.followers)} 粉丝 ·
+      关注 ${fmt(a.following)} · 样本 ${sample}</div>
+    ${a.sample?.status === 'measured' ? html`<div class="scope">样本范围：${sampleScopeText(a)}</div>` : ''}
     <div class="metrics">
-      <span>粉丝互动率 <b>${esc(metricText(m?.engagement_rate_followers, pct))}</b></span>
-      <span>播放互动率 <b>${esc(metricText(m?.engagement_rate_views, pct))}</b></span>
-      <span>中位播放 <b>${esc(metricText(m?.median_views, v => fmt(v)))}</b></span>
-      <span>播粉比 <b>${esc(metricText(m?.view_rate, pct))}</b></span>
-      <span>稳定度 <b>${esc(metricText(m?.reach_consistency, pct))}</b></span>
-      <span>发帖间隔 <b>${esc(metricText(m?.median_post_gap_days, v => `${v.toFixed(1)} 天`))}</b></span>
-      <span>最后发布 <b>${esc(metricText(m?.latest_post_at, v => v.slice(0, 10)))}</b></span>
-      <span>距采样 <b>${esc(metricText(m?.days_since_last_post, v => `${v.toFixed(1)} 天`))}</b></span>
-      <span>活跃状态 <b class="activity ${escRaw(activity?.status === 'measured' ? activity.value : 'unknown')}">${esc(activityLabel)}</b></span>
-      <span>受众风险 <b class="risk ${escRaw(risk?.status === 'measured' ? risk.value.level : 'unknown')}">${esc(riskLevel)}</b></span>
+      <span>粉丝互动率 <b>${metricText(m?.engagement_rate_followers, pct)}</b></span>
+      <span>播放互动率 <b>${metricText(m?.engagement_rate_views, pct)}</b></span>
+      <span>中位播放 <b>${metricText(m?.median_views, v => fmt(v))}</b></span>
+      <span>播粉比 <b>${metricText(m?.view_rate, pct)}</b></span>
+      <span>稳定度 <b>${metricText(m?.reach_consistency, pct)}</b></span>
+      <span>发帖间隔 <b>${metricText(m?.median_post_gap_days, v => `${v.toFixed(1)} 天`)}</b></span>
+      <span>最后发布 <b>${metricText(m?.latest_post_at, v => v.slice(0, 10))}</b></span>
+      <span>距采样 <b>${metricText(m?.days_since_last_post, v => `${v.toFixed(1)} 天`)}</b></span>
+      <span>活跃状态 <b class="activity ${String(activity?.status === 'measured' ? activity.value : 'unknown')}">${activityLabel}</b></span>
+      <span>受众风险 <b class="risk ${String(risk?.status === 'measured' ? risk.value.level : 'unknown')}">${riskLevel}</b></span>
     </div>${flags}
-    <div class="commercial">合作报价 ${esc(quoteText)} · 隐含 eCPM ${esc(ecpm)} · 隐含 eCPE ${esc(ecpe + ecpeEvidence)}</div>
+    <div class="commercial">合作报价 ${quoteText} · 隐含 eCPM ${ecpm} · 隐含 eCPE ${ecpe + ecpeEvidence}</div>
   </div>`
 }
 
@@ -131,8 +136,8 @@ export const enrichedFlag = (creators: Creator[]): boolean =>
   creators.some(c => c.audience_geo !== undefined)
 
 /** D13.r / P5：金额文本原样展示；未知金额不能变成 $0 或 $null。 */
-const renderCost = (view: CostView): string => {
-  const money = (value: string | null): string => value == null ? '无从确认' : `$${esc(value)}`
+const renderCost = (view: CostView): SafeHtml => {
+  const money = (value: string | null): string => value == null ? '无从确认' : `$${value}`
   const status = {
     known: '已核费用账',
     'unknown-history': '历史费用未知',
@@ -141,22 +146,22 @@ const renderCost = (view: CostView): string => {
   }[view.cost_status]
   const scope = view.cost_scope === 'task' ? '任务总额度'
     : view.cost_scope === 'process' ? '本次进程额度' : '额度范围无从确认'
-  const problems = view.cost_problems.map(p =>
-    `<div>${esc(p.path)}：${esc(p.reason)}</div>`).join('')
-  return `<div class="sub">预算占用估算 ${money(view.cost_estimate_usd)} · 总上限 ${money(view.budget_usd)} · ${esc(status)} · ${scope}</div>
+  const problems = joinHtml(view.cost_problems.map(p =>
+    html`<div>${p.path}：${p.reason}</div>`))
+  return html`<div class="sub">预算占用估算 ${money(view.cost_estimate_usd)} · 总上限 ${money(view.budget_usd)} · ${status} · ${scope}</div>
 <div class="sub">HTTP 200 估算 ${money(view.cost_http_200_usd)} · 结果不明保守留存 ${money(view.cost_unknown_result_usd)} · 未结预留 ${money(view.cost_pending_usd)}</div>
-<div class="sub">${esc(view.cost_basis)}${problems}</div>`
+<div class="sub">${view.cost_basis}${problems}</div>`
 }
 
 /** U9：各平台原判断与人工作答并列；展示不补判断、不重算优先级。 */
-const renderReviewDetails = (c: Creator): string => {
+const renderReviewDetails = (c: Creator): SafeHtml => {
   let main: string | undefined
   try { main = normalizedAccountKey(c.platform, c.handle) } catch { /* 无法规范化的身份不补键 */ }
-  const identity = (key: string | undefined) => key === undefined ? '' : ` data-account-key="${esc(key)}"`
-  const provided = (value: unknown) => value === undefined ? '未提供' : esc(value)
+  const identity = (key: string | undefined) => key === undefined ? '' : html` data-account-key="${key}"`
+  const provided = (value: unknown) => value === undefined ? '未提供' : value
   const answer = (value: unknown) => value === undefined ? '未填写'
-    : typeof value === 'string' && !value.trim() ? `未填写<span>${esc(value)}</span>` : esc(value)
-  const fieldValue = (field: string, value: unknown) => `<span data-review-field="${esc(field)}">${answer(value)}</span>`
+    : typeof value === 'string' && !value.trim() ? html`未填写<span>${value}</span>` : value
+  const fieldValue = (field: string, value: unknown) => html`<span data-review-field="${field}">${answer(value)}</span>`
   const agentFields = [
     ['observed_content', '观察内容'], ['work_evidence', '作品证据'],
     ['natural_integration', '自然植入'], ['mismatch_risk', '风险或未核问题'],
@@ -170,19 +175,19 @@ const renderReviewDetails = (c: Creator): string => {
   const agent = (key: string | undefined, review: Partial<Creator>) => {
     const status = review.review_status === undefined ? '未评' : review.review_status
     const suggestion = status === '待重评' ? '历史建议（待重评，仅展示）' : 'Agent 原采用建议'
-    return `<div class="assessment" data-review-kind="agent"${identity(key)}>
-      <div class="at">Agent · ${key === undefined ? '账号无从确认' : esc(key)} · ${esc(status)}</div>
+    return html`<div class="assessment" data-review-kind="agent"${identity(key)}>
+      <div class="at">Agent · ${key === undefined ? '账号无从确认' : key} · ${status}</div>
       <div class="bio">合格性：${fieldValue('eligibility', review.eligibility)}</div>
       <div class="bio">${suggestion}：${fieldValue('adoption_priority', review.adoption_priority)}</div>
       <div class="bio">兼容内容判断：${fieldValue('fit', review.fit)} · ${fieldValue('fit_reason', review.fit_reason)}</div>
-      ${agentFields.map(([field, label]) => `<div class="bio">${label}：${fieldValue(field, review[field])}</div>`).join('')}
+      ${joinHtml(agentFields.map(([field, label]) => html`<div class="bio">${label}：${fieldValue(field, review[field])}</div>`))}
     </div>`
   }
   const manual = (key: string | undefined, row: Partial<Creator> | undefined,
-    round: string | undefined, reviewed?: boolean) => `<div class="assessment" data-review-kind="manual"${identity(key)}>
-      <div class="at">人工 · ${key === undefined ? '账号无从确认' : esc(key)} · 轮次 ${provided(round)}</div>
-      ${reviewed === undefined ? '' : `<div class="bio">主账号人工已填写：${esc(reviewed)}</div>`}
-      ${manualFields.map(([field, label]) => `<div class="bio">${label}：${fieldValue(field, row?.[field])}</div>`).join('')}
+    round: string | undefined, reviewed?: boolean) => html`<div class="assessment" data-review-kind="manual"${identity(key)}>
+      <div class="at">人工 · ${key === undefined ? '账号无从确认' : key} · 轮次 ${provided(round)}</div>
+      ${reviewed === undefined ? '' : html`<div class="bio">主账号人工已填写：${reviewed}</div>`}
+      ${joinHtml(manualFields.map(([field, label]) => html`<div class="bio">${label}：${fieldValue(field, row?.[field])}</div>`))}
     </div>`
   const linked = c.linked_agent_review
   let linkedKey = linked?.account_key
@@ -196,54 +201,54 @@ const renderReviewDetails = (c: Creator): string => {
   const linkedRows = c.manual_feedback_accounts?.filter(row => row.account_key !== main)
   const linkedRow = linkedRows?.find(row => row.account_key === linkedKey)
   const source = c.effective_priority_account_key
-  return `<div class="assessment" data-review-kind="effective"${identity(main)}${source === undefined ? '' : ` data-priority-account-key="${esc(source)}"`}>
+  return joinHtml([html`<div class="assessment" data-review-kind="effective"${identity(main)}${source === undefined ? '' : html` data-priority-account-key="${source}"`}>
       <div class="at">有效展示建议：${provided(c.effective_priority)}</div>
-      ${source === undefined ? '' : `<div class="bio">人工来源账号：${esc(source)}</div>`}
-    </div>` + agent(main, c) + manual(main, c, c.manual_round_id, c.manual_reviewed) +
-    (linkedKey === undefined ? '' : agent(linkedKey, linked === undefined ? {} : linked) + manual(linkedKey, linkedRow, linkedRow?.round_id)) +
-    (linkedRows?.filter(row => row.account_key !== linkedKey)
-      .map(row => manual(row.account_key, row, row.round_id)).join('') ?? '')
+      ${source === undefined ? '' : html`<div class="bio">人工来源账号：${source}</div>`}
+    </div>`, agent(main, c), manual(main, c, c.manual_round_id, c.manual_reviewed),
+    ...(linkedKey === undefined ? [] : [agent(linkedKey, linked === undefined ? {} : linked), manual(linkedKey, linkedRow, linkedRow?.round_id)]),
+    ...(linkedRows?.filter(row => row.account_key !== linkedKey)
+      .map(row => manual(row.account_key, row, row.round_id)) ?? [])])
 }
 
 /** U11：只格式化调用方提供的汇总与冻结来源；不由当前卡片重算，也不改筛选。 */
-const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: readonly ReviewRound[] | undefined): string => {
-  const heading = '<section id="feedback-summary"><h2>人工审核汇总</h2>'
+const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: readonly ReviewRound[] | undefined): SafeHtml => {
+  const heading = html`<section id="feedback-summary"><h2>人工审核汇总</h2>`
   if (summary === undefined || summary === null) {
-    return heading + '<p class="sub">人工审核统计未提供</p></section>'
+    return html`${heading}<p class="sub">人工审核统计未提供</p></section>`
   }
-  const known = (value: unknown): string => value === undefined || value === null ? '无从确认' : esc(value)
+  const known = (value: unknown): string => value === undefined || value === null ? '无从确认' : String(value)
   const snapshots = new Map((rounds === undefined || rounds === null ? [] : rounds).map(round => [round.round_id, round]))
-  const roundRows = summary.rounds?.map(round => `<tr data-round-id="${esc(round.round_id)}">
-    <td>${esc(round.round_id)}</td><td>${known(round.candidates)}</td><td>${known(round.reviewed)}</td>
-    <td>${known(round.unreviewed)}</td><td>${known(snapshots.get(round.round_id)?.created_at)}</td></tr>`).join('')
-  const tallyRow = (field: 'eligible' | 'adopted', label: string): string => {
+  const roundRows = summary.rounds?.map(round => html`<tr data-round-id="${round.round_id}">
+    <td>${round.round_id}</td><td>${known(round.candidates)}</td><td>${known(round.reviewed)}</td>
+    <td>${known(round.unreviewed)}</td><td>${known(snapshots.get(round.round_id)?.created_at)}</td></tr>`)
+  const tallyRow = (field: 'eligible' | 'adopted', label: string): SafeHtml => {
     const part = summary[field]
     const rate = part?.rate === undefined ? '无从确认' : part.rate === null ? '不可计算'
       : part.rate === 0 ? '0%' : `${(part.rate * 100).toFixed(2)}%`
-    return `<tr data-manual-field="${field}"><td>${label}</td><td>${known(part?.yes)}</td><td>${known(part?.no)}</td>
-      <td>${known(part?.unknown)}</td><td>${known(part?.unreviewed)}</td><td>${known(part?.denominator)}</td><td>${esc(rate)}</td></tr>`
+    return html`<tr data-manual-field="${field}"><td>${label}</td><td>${known(part?.yes)}</td><td>${known(part?.no)}</td>
+      <td>${known(part?.unknown)}</td><td>${known(part?.unreviewed)}</td><td>${known(part?.denominator)}</td><td>${rate}</td></tr>`
   }
-  const sources = rounds === undefined || rounds === null ? '<p class="sub">冻结账号与来源无从确认</p>'
-    : rounds.map(round => {
-      const rows = round.candidates?.map(candidate => `<tr data-account-key="${esc(candidate.account_key)}">
-        <td>${esc(candidate.account_key)}</td><td>${candidate.source_tasks === null || candidate.source_tasks === undefined || !candidate.source_tasks.length
+  const sources = rounds === undefined || rounds === null ? html`<p class="sub">冻结账号与来源无从确认</p>`
+    : joinHtml(rounds.map(round => {
+      const rows = round.candidates?.map(candidate => html`<tr data-account-key="${candidate.account_key}">
+        <td>${candidate.account_key}</td><td>${candidate.source_tasks === null || candidate.source_tasks === undefined || !candidate.source_tasks.length
           ? '来源无从确认' : candidate.source_tasks.map(source =>
-            `task_index=${known(source.task_index)} · ${known(source.dimension)} · ${known(source.platform)} · ${known(source.keyword)}`).join('；')}</td></tr>`).join('')
-      return `<details class="assessment" open><summary>${known(round.round_id)} · 冻结账号与来源（历史池）</summary>
-        ${rows === undefined ? '<p class="sub">冻结账号与来源无从确认</p>' : `<table><thead><tr><th>平台账号</th><th>原任务来源</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="2">0 个冻结平台账号（空池）</td></tr>'}</tbody></table>`}</details>`
-    }).join('')
-  const reasons = summary.reject_reasons.map(item => `<li>${esc(item.reason)}：${esc(item.count)} 个平台账号</li>`).join('')
-  return heading + `<p class="sub">任务所有冻结轮次，单位为平台账号，不是独立人数或本次可联系卡片。历史池不随联系过滤或候选筛选缩减。</p>
+            `task_index=${known(source.task_index)} · ${known(source.dimension)} · ${known(source.platform)} · ${known(source.keyword)}`).join('；')}</td></tr>`)
+      return html`<details class="assessment" open><summary>${known(round.round_id)} · 冻结账号与来源（历史池）</summary>
+        ${rows === undefined ? html`<p class="sub">冻结账号与来源无从确认</p>` : html`<table><thead><tr><th>平台账号</th><th>原任务来源</th></tr></thead>
+          <tbody>${rows.length ? joinHtml(rows) : html`<tr><td colspan="2">0 个冻结平台账号（空池）</td></tr>`}</tbody></table>`}</details>`
+    }))
+  const reasons = summary.reject_reasons.map(item => html`<li>${item.reason}：${item.count} 个平台账号</li>`)
+  return html`${heading}<p class="sub">任务所有冻结轮次，单位为平台账号，不是独立人数或本次可联系卡片。历史池不随联系过滤或候选筛选缩减。</p>
     <table><thead><tr><th>轮次</th><th>冻结账号</th><th>已审核</th><th>未审核</th><th>冻结时间</th></tr></thead>
-    <tbody>${roundRows === undefined ? '<tr><td colspan="5">审核轮次无从确认</td></tr>'
-      : roundRows || '<tr><td colspan="5">0 个冻结平台账号（空池）</td></tr>'}</tbody></table>
+    <tbody>${roundRows === undefined ? html`<tr><td colspan="5">审核轮次无从确认</td></tr>`
+      : roundRows.length ? joinHtml(roundRows) : html`<tr><td colspan="5">0 个冻结平台账号（空池）</td></tr>`}</tbody></table>
     <h2>明确结论与分母</h2><p class="sub">任一人工原字段实际填写即已审核；空白是未评，unknown 是已看但无法判断。两个比率各只用自身明确 yes/no 作分母。</p>
     <table><thead><tr><th>人工判断</th><th>yes</th><th>no</th><th>unknown</th><th>未作答</th><th>明确分母（yes + no）</th><th>比率</th></tr></thead>
     <tbody>${tallyRow('eligible', '合格性')}${tallyRow('adopted', '是否采用')}</tbody></table>
-    <h2>拒绝原因（账号数）</h2>${reasons ? `<ul>${reasons}</ul>` : '<p>尚无人工拒绝原因</p>'}
+    <h2>拒绝原因（账号数）</h2>${reasons.length ? html`<ul>${joinHtml(reasons)}</ul>` : html`<p>尚无人工拒绝原因</p>`}
     <h2>Agent 原记录与人工分歧</h2><p>${summary.disagreements.length
-      ? summary.disagreements.map(esc).join('、') : '尚无可列的分歧账号'}</p>
+      ? summary.disagreements.join('、') : '尚无可列的分歧账号'}</p>
     <p class="sub">仅比较完整 Agent 原判断与本平台明确人工答案，可能含历史判断；缺记录不能比较，不代表 Agent 准确率、采用改善或真实发信效果。</p>
     <h2>冻结账号与原任务来源</h2>${sources}</section>`
 }
@@ -273,14 +278,14 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
       ? draftSourceLine(c.outreach_draft, c.draft_sources, {
         bio: c.bio, posts: c.recent_posts?.map(p => p.desc), nickname: c.nickname, facts: options.facts,
       }) : undefined
-    return line === undefined ? '' : `
-    <div class="bio" data-draft-sources="lines">逐行出处：${esc(line)}（改写得准不准请对照原文自己看）</div>`
+    return line === undefined ? '' : html`
+    <div class="bio" data-draft-sources="lines">逐行出处：${line}（改写得准不准请对照原文自己看）</div>`
   }
   // U13.c：只在评审模式、草稿拆得出三态里「有草稿」那两档时出这一行；默认模式一个字节都不加（U9.a）。
   const subjectLine = (c: Creator) => {
     const subject = options.mode === 'review' ? draftSubject(c.outreach_draft) : undefined
-    return subject === undefined ? '' : `
-    <div class="bio" data-draft-subject="outreach_subject">主题：${esc(subject)}</div>`
+    return subject === undefined ? '' : html`
+    <div class="bio" data-draft-subject="outreach_subject">主题：${subject}</div>`
   }
   // P2.c：草稿里对不上产品资料的数字与承诺词；只有已证实的产品事实能让说法过关，
   // 只在这位博主作品文字里找得到的另列一行。只在评审模式出（U9.a），只标不拦，草稿原文不动（P2.b，ADR-199、ADR-209）。
@@ -289,56 +294,56 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
       ? claimsLines(c.outreach_draft, options.facts, (c.recent_posts ?? []).map(p => typeof p.desc === 'string' ? p.desc : ''),
         c.outreach_draft === undefined ? undefined : senderOwnSpans(c.outreach_draft, c.draft_sources)) : undefined
     if (lines === undefined) return ''
-    const posts = lines.postsOnly === undefined ? '' : `
-    <div class="bio" data-draft-claims="posts-only">只在博主作品里有：${esc(lines.postsOnly)}（确认是在引用博主，不是在说产品）</div>`
+    const posts = lines.postsOnly === undefined ? '' : html`
+    <div class="bio" data-draft-claims="posts-only">只在博主作品里有：${lines.postsOnly}（确认是在引用博主，不是在说产品）</div>`
     // ADR-215：Agent 标成约时间、联系方式的登记里的日期、钟点、电话三类移到这一行；普通数字、价钱、承诺词这些不移（draft-claims.ts 的 senderMovable）。
-    const sender = lines.senderOnly === undefined ? '' : `
-    <div class="bio" data-draft-claims="sender-only">只在发件人自己的话里：${esc(lines.senderOnly)}（确认是约时间、联系方式这类，不是产品说法）</div>`
-    return `
-    <div class="bio" data-draft-claims="unsourced">出处对不上：${esc(lines.unsourced)}（只查数字和承诺词，其余说法仍要自己看）</div>${posts}${sender}`
+    const sender = lines.senderOnly === undefined ? '' : html`
+    <div class="bio" data-draft-claims="sender-only">只在发件人自己的话里：${lines.senderOnly}（确认是约时间、联系方式这类，不是产品说法）</div>`
+    return html`
+    <div class="bio" data-draft-claims="unsourced">出处对不上：${lines.unsourced}（只查数字和承诺词，其余说法仍要自己看）</div>${posts}${sender}`
   }
-  const card = (c: Creator) => `
-${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.effective_priority === undefined ? '' : ` data-priority="${esc(c.effective_priority)}"`}>`
-  : `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.tier === def ? '' : ' style="display:none"'}>`}
+  const card = (c: Creator) => html`
+${dual ? html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"${c.effective_priority === undefined ? '' : html` data-priority="${c.effective_priority}"`}>`
+  : html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"${c.tier === def ? '' : html` style="display:none"`}>`}
   <div class="hd">
-    <span class="tier ${escRaw(c.tier)}">${escRaw(c.tier)}</span>
-    <span class="pf ${escRaw(c.platform)}">${c.platform === 'tiktok' ? '♪ TikTok' : '◉ Instagram'}</span>
-    ${c.cross_platform ? `<span class="xp" title="也在 ${esc(c.linked_handle)}">⇄ 双平台</span>` : ''}
-    ${c.is_private ? '<span class="priv">🔒 私密号</span>' : ''}
-    <span class="sc">${c.score === undefined ? '未知' : escRaw(c.score)}</span>
+    <span class="tier ${String(c.tier)}">${String(c.tier)}</span>
+    <span class="pf ${String(c.platform)}">${c.platform === 'tiktok' ? '♪ TikTok' : '◉ Instagram'}</span>
+    ${c.cross_platform ? html`<span class="xp" title="也在 ${c.linked_handle}">⇄ 双平台</span>` : ''}
+    ${c.is_private ? html`<span class="priv">🔒 私密号</span>` : ''}
+    <span class="sc">${c.score === undefined ? '未知' : String(c.score)}</span>
   </div>
-  <div class="handle"><a href="${esc(c.profile_url)}" target="_blank" rel="noopener">@${esc(c.handle)}</a></div>
-  <div class="nm">${esc(c.nickname)}</div>
+  <div class="handle"><a href="${c.profile_url}" target="_blank" rel="noopener">@${c.handle}</a></div>
+  <div class="nm">${c.nickname}</div>
   <div class="st">
-    <span>${esc(fmt(c.followers))} 粉丝</span><span>${esc(fmt(c.post_count))} 作品</span>
-    ${c.email ? `<span class="em">${esc(c.email)}</span>` : '<span class="no">无邮箱</span>'}
+    <span>${creatorCountText(c, 'followers')} 粉丝</span><span>${creatorCountText(c, 'post_count')} 作品</span>
+    ${c.email ? html`<span class="em">${c.email}</span>` : html`<span class="no">无邮箱</span>`}
   </div>
   ${options.mode === 'review' ? renderReviewDetails(c)
-    : c.fit_reason ? `<div class="fit">${esc(c.fit)} ${esc(c.fit_reason)}</div>` : ''}
-  ${c.tier_adjustments?.length ? `<div class="adjust">${c.tier_adjustments.map(a =>
-    esc(`${a.from}→${a.to} ${a.reason}`)).join('<br>')}</div>` : ''}
-  ${c.bio ? `<div class="bio">${esc(c.bio)}</div>` : ''}
-  <div class="bio">已观察发现来源：${esc(formatDiscoverySources(c.discovery_sources))}</div>
+    : c.fit_reason ? html`<div class="fit">${c.fit} ${c.fit_reason}</div>` : ''}
+  ${c.tier_adjustments?.length ? html`<div class="adjust">${joinHtml(c.tier_adjustments.map(a =>
+    `${a.from}→${a.to} ${a.reason}`), html`<br>`)}</div>` : ''}
+  ${c.bio ? html`<div class="bio">${c.bio}</div>` : ''}
+  <div class="bio">已观察发现来源：${formatDiscoverySources(c.discovery_sources)}</div>
   ${renderAssessment(c.account_assessment, c.platform === 'tiktok' ? 'TikTok' : 'Instagram')}
   ${c.linked_handle ? renderAssessment(c.linked_account_assessment,
     c.linked_handle.startsWith('tiktok:') ? 'TikTok（关联）' : 'Instagram（关联）') : ''}
-  ${c.previously_recommended ? `<div class="prev">曾推荐：${esc(c.previously_recommended)}</div>` : ''}
-  ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>${subjectLine(c)}${claimsLine(c)}${sourcesLine(c)}
-    <pre>${esc(c.outreach_draft)}</pre>
+  ${c.previously_recommended ? html`<div class="prev">曾推荐：${c.previously_recommended}</div>` : ''}
+  ${c.outreach_draft ? html`<details class="dr"><summary>开发信草稿</summary>${subjectLine(c)}${claimsLine(c)}${sourcesLine(c)}
+    <pre>${c.outreach_draft}</pre>
     <button onclick="cp(this)">复制</button></details>` : ''}
 </div>`
 
   const button = (group: string, value: string, label: string) =>
-    `<button type="button" class="tab${value === 'all' ? ' on' : ''}" data-filter="${group}" data-value="${esc(value)}" aria-pressed="${value === 'all'}">${esc(label)}</button>`
-  const filters = dual ? `<div class="tabs dual">
-    <div class="hd"><span>有效建议</span>${[['all', '全部'], ['优先联系', '优先联系'], ['备选', '备选'], ['待核实', '待核实'], ['暂不采用', '暂不采用'], ['missing', '未提供']]
-      .map(([value, label]) => button('priority', value, label)).join('')}</div>
-    <div class="hd"><span>层级</span>${['all', 'A', 'B', 'C'].map(value => button('tier', value, value === 'all' ? '全部' : value)).join('')}</div>
+    html`<button type="button" class="tab${value === 'all' ? html` on` : ''}" data-filter="${group}" data-value="${value}" aria-pressed="${value === 'all'}">${label}</button>`
+  const filters = dual ? html`<div class="tabs dual">
+    <div class="hd"><span>有效建议</span>${joinHtml([['all', '全部'], ['优先联系', '优先联系'], ['备选', '备选'], ['待核实', '待核实'], ['暂不采用', '暂不采用'], ['missing', '未提供']]
+      .map(([value, label]) => button('priority', value, label)))}</div>
+    <div class="hd"><span>层级</span>${joinHtml(['all', 'A', 'B', 'C'].map(value => button('tier', value, value === 'all' ? '全部' : value)))}</div>
     <div class="empty" id="none" style="display:${displayed.length ? 'none' : ''}">当前筛选下没有候选</div>
-  </div>` : `<div class="tabs">
-  <button class="tab A${def === 'A' ? ' on' : ''}" data-f="A">A级 直接发信<span class="n">${escRaw(meta.tiers.A)}</span></button>
-  <button class="tab B${def === 'B' ? ' on' : ''}" data-f="B">B级 先互动<span class="n">${escRaw(meta.tiers.B)}</span></button>
-  <button class="tab C${def === 'C' ? ' on' : ''}" data-f="C">C级 观察池<span class="n">${escRaw(meta.tiers.C)}</span></button>
+  </div>` : html`<div class="tabs">
+  <button class="tab A${def === 'A' ? html` on` : ''}" data-f="A">A级 直接发信<span class="n">${String(meta.tiers.A)}</span></button>
+  <button class="tab B${def === 'B' ? html` on` : ''}" data-f="B">B级 先互动<span class="n">${String(meta.tiers.B)}</span></button>
+  <button class="tab C${def === 'C' ? html` on` : ''}" data-f="C">C级 观察池<span class="n">${String(meta.tiers.C)}</span></button>
 </div>`
 
   // U3.b：关键词表现是下次调整策略的依据，**一个任务一行** —— 0 命中的与一次都没查过的
@@ -354,11 +359,11 @@ ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.e
   // U11.m：旧调用未提供、来源未知和已查真零分别呈现。
   const manualCountText = (n: unknown): string =>
     n === undefined ? '未提供' : n === null ? '无从确认' : String(n)
-  const kwRows = (meta.keywords ?? []).map((k: any) => `
-    <tr><td>${esc(taskOrdinal(k.task_index))}</td><td>${esc(k.keyword)}</td>
-        <td>${esc(k.platform ?? '未知')}</td><td>${esc(k.dimension)}</td>
-        <td>${esc(foundText(k))}</td><td>${esc(countText(k.shortlisted))}</td>
-        <td>${esc(countText(k.fit_pass))}</td><td>${esc(manualCountText(k.manual_reviewed))}</td></tr>`).join('')
+  const kwRows = joinHtml((meta.keywords ?? []).map((k: any) => html`
+    <tr><td>${taskOrdinal(k.task_index)}</td><td>${k.keyword}</td>
+        <td>${k.platform ?? '未知'}</td><td>${k.dimension}</td>
+        <td>${foundText(k)}</td><td>${countText(k.shortlisted)}</td>
+        <td>${countText(k.fit_pass)}</td><td>${manualCountText(k.manual_reviewed)}</td></tr>`))
 
   const notes: string[] = []
   const missingEmailVerification = meta.capabilities
@@ -403,9 +408,9 @@ ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.e
     notes.push(`公开指标边界：${publicCapability.unqueried} 个账号未查询，${publicCapability.unavailable} 个账号不可用。`)
   }
 
-  return `<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8">
+  return html`<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>KOL 建联名单 · ${esc(meta.product)}</title><style>
+<title>KOL 建联名单 · ${meta.product}</title><style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0b0f19;color:#e2e8f0;font:14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:24px}
 .wrap{max-width:1100px;margin:0 auto}
@@ -441,7 +446,7 @@ th{color:#64748b;font-weight:600;font-size:12px}
 .tab:hover{border-color:#334155;color:#e2e8f0}
 .tab.on{background:#1e293b;color:#f8fafc;border-color:#38bdf8}
 .tab .n{opacity:.6;margin-left:5px;font-size:12px}
-${dual ? '.tabs.dual{flex-direction:column}body{overflow-anchor:none}' : ''}
+${dual ? html`.tabs.dual{flex-direction:column}body{overflow-anchor:none}` : ''}
 .tab.A.on{border-color:#22c55e}.tab.B.on{border-color:#f59e0b}.tab.C.on{border-color:#64748b}
 .empty{color:#475569;text-align:center;padding:40px;font-size:14px}
 .sc{margin-left:auto;color:#64748b;font-size:12px}
@@ -465,22 +470,22 @@ ${dual ? '.tabs.dual{flex-direction:column}body{overflow-anchor:none}' : ''}
 .notes{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px;padding:12px;margin:20px 0;font-size:13px;color:#fbbf24}
 .notes div{margin:3px 0}
 </style></head><body><div class="wrap">
-<h1>KOL 建联名单 · ${esc(meta.product)}</h1>
-<div class="sub">目标市场 ${esc(meta.market)} · ${esc((meta.platforms ?? []).join(' + '))}</div>
+<h1>KOL 建联名单 · ${meta.product}</h1>
+<div class="sub">目标市场 ${meta.market} · ${(meta.platforms ?? []).join(' + ')}</div>
 ${renderCost(meta)}
 
 <div class="stats">
-  <div class="stat"><div class="v">${escRaw(meta.total)}</div><div class="l">总人数</div></div>
-  <div class="stat"><div class="v" style="color:#22c55e">${escRaw(meta.tiers.A)}</div><div class="l">A 级</div></div>
-  <div class="stat"><div class="v" style="color:#f59e0b">${escRaw(meta.tiers.B)}</div><div class="l">B 级</div></div>
-  <div class="stat"><div class="v" style="color:#94a3b8">${escRaw(meta.tiers.C)}</div><div class="l">C 级</div></div>
-  <div class="stat"><div class="v">${escRaw(meta.email_count)}</div><div class="l">有邮箱</div></div>
-  <div class="stat"><div class="v" style="color:#a78bfa">${escRaw(meta.cross_platform_count)}</div><div class="l">跨平台</div></div>
-  <div class="stat"><div class="v">${escRaw(meta.capabilities?.public_post_sample?.measured ?? '未知')}</div><div class="l">公开指标已测账号</div></div>
-  <div class="stat"><div class="v" style="color:#ef4444">${escRaw(meta.high_risk_count ?? '未知')}</div><div class="l">高风险复核</div></div>
+  <div class="stat"><div class="v">${String(meta.total)}</div><div class="l">总人数</div></div>
+  <div class="stat"><div class="v" style="color:#22c55e">${String(meta.tiers.A)}</div><div class="l">A 级</div></div>
+  <div class="stat"><div class="v" style="color:#f59e0b">${String(meta.tiers.B)}</div><div class="l">B 级</div></div>
+  <div class="stat"><div class="v" style="color:#94a3b8">${String(meta.tiers.C)}</div><div class="l">C 级</div></div>
+  <div class="stat"><div class="v">${String(meta.email_count)}</div><div class="l">有邮箱</div></div>
+  <div class="stat"><div class="v" style="color:#a78bfa">${String(meta.cross_platform_count)}</div><div class="l">跨平台</div></div>
+  <div class="stat"><div class="v">${String(meta.capabilities?.public_post_sample?.measured ?? '未知')}</div><div class="l">公开指标已测账号</div></div>
+  <div class="stat"><div class="v" style="color:#ef4444">${String(meta.high_risk_count ?? '未知')}</div><div class="l">高风险复核</div></div>
 </div>
 
-${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</div>`).join('')}</div>` : ''}
+${notes.length ? html`<div class="notes">${joinHtml(notes.map(n => html`<div>⚠️ ${n}</div>`))}</div>` : ''}
 
 <h2>关键词表现</h2>
 <p class="sub">「找到」是供应商返回条目；「入围」是当前交付人数，「语义通过」是入围中的原记录已标注通过数（生产按对应平台判断）；
@@ -492,19 +497,19 @@ ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</di
 ${renderFeedbackSummary(meta.feedback_summary, meta.review_rounds)}
 
 <h2>名单</h2>
-${dual ? '<div class="candidate-list">' : ''}
+${dual ? html`<div class="candidate-list">` : ''}
 ${filters}
-<div class="cards" id="cards">${displayed.map(card).join('')}</div>
-${dual ? '</div>' : ''}
+<div class="cards" id="cards">${joinHtml(displayed.map(card))}</div>
+${dual ? html`</div>` : ''}
 <p class="sub">仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数。</p>
-${dual ? '' : `<div class="empty" id="none" style="display:${meta.tiers[def] ? 'none' : ''}">这一层没有人</div>`}
+${dual ? '' : html`<div class="empty" id="none" style="display:${meta.tiers[def] ? 'none' : ''}">这一层没有人</div>`}
 </div>
 <script>
 function cp(b){const t=b.previousElementSibling.textContent;
 navigator.clipboard.writeText(t).then(()=>{b.textContent='已复制';setTimeout(()=>b.textContent='复制',1500)})}
 
 const cards=[...document.querySelectorAll('#cards .card')];
-${dual ? `const list=document.getElementById('cards');
+${dual ? html`const list=document.getElementById('cards');
 const selected={priority:'all',tier:'all'};
 const buttons=[...document.querySelectorAll('button.tab')];
 buttons.forEach(tab=>tab.addEventListener('click',()=>{
@@ -526,7 +531,7 @@ buttons.forEach(tab=>tab.addEventListener('click',()=>{
     if(hit) shown++;
   }
   document.getElementById('none').style.display=shown?'none':'';
-}));` : `document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{
+}));` : html`document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
   tab.classList.add('on');
   const f=tab.dataset.f;
@@ -538,5 +543,5 @@ buttons.forEach(tab=>tab.addEventListener('click',()=>{
   }
   document.getElementById('none').style.display = shown ? 'none' : '';
 }));`}
-</script></body></html>`
+</script></body></html>`.html
 }
