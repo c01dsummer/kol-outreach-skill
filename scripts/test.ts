@@ -329,6 +329,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd30-resume', needs: [] },
   { id: 'd30-render', needs: [] },
   { id: 'd30-set', needs: [] },
+  { id: 'd31-store-outside-repo', needs: [] },
   { id: 'h-ci-wallclock-core', needs: [] },
   { id: 'h-ci-wallclock-cpu', needs: [] },
   { id: 'h-ci-wallclock-unavailable', needs: [] },
@@ -23646,6 +23647,31 @@ suite('D30', '发件人姓名：任务建好后用 sender 命令补进 task.json
       bad, BAD.map(([what]) => [what, 2, true, true]))
     criterion('D30.g')
   } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+
+// D31（ADR-230）：复评经验库放在本机 memory/ 下、不进仓库。这次只立了需求，Agent 还不读写经验库，能拿机器确证的只有 D31.b 这一条：
+// 仓库的忽略规则把 memory/ 下新建的经验库文件挡在 git 之外。不读 .gitignore 的文字去猜：把本仓库那份原样抄进玩具仓库，
+// 在 memory/ 下放几份经验库文件、在别处放对照文件，问 git 哪些文件算「已跟踪或没被忽略的新文件」，由 git 答。
+await group('d31-store-outside-repo', () => {
+suite('D31', '复评经验库：memory/ 下的经验库文件不进仓库')
+{
+  const home = mkdtempSync(join(tmpdir(), 'kol-d31-store-')), toy = join(home, 'toy')
+  mkdirSync(toy)
+  try {
+    const root = gitOrThrow(['rev-parse', '--show-toplevel']).trim()
+    fixtureGitOrThrow(['init', '-q', '-b', 'main'], { cwd: toy })
+    writeFileSync(join(toy, '.gitignore'), rf(join(root, '.gitignore')))
+    // 经验库按品类一个文件，与 creators.json 同一目录（D31.a）；品类名可能是中文、带空格
+    const STORE = ['memory/creators.json', 'memory/护肤.json', 'memory/home decor.json']
+    // 对照：不在 memory/ 下的同名文件，git 必须列得出来，证明这一问真在列文件
+    const CONTROL = ['skill/护肤.json', 'notes/memory.json']
+    for (const f of [...STORE, ...CONTROL]) { mkdirSync(join(toy, dirname(f)), { recursive: true }); writeFileSync(join(toy, f), '{}\n') }
+    const listed = gitOrThrow(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: toy }).split('\0').filter(Boolean).sort()
+    eq('D31.b memory/ 下新建的经验库文件被仓库的忽略规则挡在 git 之外，不在 memory/ 下的对照文件照常列出',
+      [STORE.filter(f => listed.includes(f)), CONTROL.filter(f => !listed.includes(f))], [[], []])
+    criterion('D31.b')
+  } finally { rmSync(home, { recursive: true, force: true }) }
 }
 })
 
