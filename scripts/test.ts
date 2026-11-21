@@ -172,6 +172,7 @@ import {
   TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
 } from './providers/tikhub-pricing.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
+import { SafeHtml, escapeText, html, joinHtml } from './lib/safe-html.js'
 import { claimsLines, draftClaims, NO_FACTS, NOT_ENGLISH, UNMATCHED_BRACES } from './lib/draft-claims.js'
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
@@ -311,6 +312,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-report-stat-counts', needs: [] },
   { id: 'u12-product-name-complete', needs: [] },
   { id: 'u12-report-escape', needs: [] },
+  { id: 'u12-safe-html', needs: [] },
   { id: 'd20-content-version', needs: [] },
   { id: 'd28-control', needs: [] },
   { id: 'd28-collect', needs: ['d28-control'] },
@@ -22540,6 +22542,166 @@ suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不
   const mangled = freeText.flatMap(path => views.filter(([, o]) => !render(put(path, canary), o)?.includes(escapedOnce)).map(([name]) => `${name} ${path.join('.')}`))
   eq('U12自由文本换成金丝雀后两种视图都以转义一次的原文出现', mangled, [])
   criterion('U12.c')
+}
+})
+
+await group('u12-safe-html', () => {
+suite('U12', '报告页面用同一种拼页面的写法拼成，插进去的取值默认转义')
+{
+  // 这一块由只读了 U12 准入读物包的隔离会话写成（ADR-228 第四节），搬进来时一字未改
+// ── U12.d：拼页面的写法默认转义一次；缺值写成空；只有它自己拼出来的片段原样；长得像片段的照样转义 ──
+// 期望值全部按五个字符实体手写：& → &amp;  < → &lt;  > → &gt;  " → &quot;  ' → &#39;
+
+// 一、五个字符各自转义一次（html 插值）
+eq('U12.d html 插值里的 & 转义一次', html`${'&'}`.html, '&amp;');
+eq('U12.d html 插值里的 < 转义一次', html`${'<'}`.html, '&lt;');
+eq('U12.d html 插值里的 > 转义一次', html`${'>'}`.html, '&gt;');
+eq('U12.d html 插值里的双引号转义一次', html`${'"'}`.html, '&quot;');
+eq('U12.d html 插值里的单引号转义一次', html`${"'"}`.html, '&#39;');
+eq('U12.d html 插值里五个字符连在一起各转义一次', html`${`&<>"'`}`.html, '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.d html 插值里同一个字符出现多次时每一处都转义', html`${`<<&&>>""''`}`.html, '&lt;&lt;&amp;&amp;&gt;&gt;&quot;&quot;&#39;&#39;');
+eq('U12.d html 插值里夹在普通文字中间的五个字符各转义一次其余文字不动', html`${`甲&乙<丙>丁"戊'己`}`.html, '甲&amp;乙&lt;丙&gt;丁&quot;戊&#39;己');
+eq('U12.d html 插值是一段完整标记时整段当文字', html`${'<script>alert("x")</script>'}`.html, '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;');
+eq('U12.d html 插值本身写着字符实体时只转义一次不还原也不跳过', html`${'&lt;'}`.html, '&amp;lt;');
+eq('U12.d html 插值本身写着 &amp; 时只转义一次', html`${'&amp;'}`.html, '&amp;amp;');
+eq('U12.d html 插值没有那五个字符时原文不变', html`${'普通文字 abc 123'}`.html, '普通文字 abc 123');
+eq('U12.d html 插值是空字符串时写成空', html`${''}`.html, '');
+
+// 二、五个字符各自转义一次（escapeText）
+eq('U12.d escapeText 里的 & 转义一次', escapeText('&'), '&amp;');
+eq('U12.d escapeText 里的 < 转义一次', escapeText('<'), '&lt;');
+eq('U12.d escapeText 里的 > 转义一次', escapeText('>'), '&gt;');
+eq('U12.d escapeText 里的双引号转义一次', escapeText('"'), '&quot;');
+eq('U12.d escapeText 里的单引号转义一次', escapeText("'"), '&#39;');
+eq('U12.d escapeText 里五个字符连在一起各转义一次', escapeText(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.d escapeText 里同一个字符出现多次时每一处都转义', escapeText('a<b<c&d&e'), 'a&lt;b&lt;c&amp;d&amp;e');
+eq('U12.d escapeText 的取值本身写着字符实体时只转义一次', escapeText('&quot;'), '&amp;quot;');
+eq('U12.d escapeText 没有那五个字符时原文不变', escapeText('普通文字 abc 123'), '普通文字 abc 123');
+
+// 三、缺值写成空
+eq('U12.d html 插值是 undefined 时写成空', html`${undefined}`.html, '');
+eq('U12.d html 插值是 null 时写成空', html`${null}`.html, '');
+eq('U12.d html 两段写死的文字之间插 undefined 时只剩写死的文字', html`<td>${undefined}</td>`.html, '<td></td>');
+eq('U12.d html 两段写死的文字之间插 null 时只剩写死的文字', html`<td>${null}</td>`.html, '<td></td>');
+eq('U12.d html 缺值和有值相邻时缺值不占位', html`${undefined}${'<'}${null}`.html, '&lt;');
+eq('U12.d escapeText 对 undefined 写成空', escapeText(undefined), '');
+eq('U12.d escapeText 对 null 写成空', escapeText(null), '');
+eq('U12.d joinHtml 只有一项且是 undefined 时写成空', joinHtml([undefined]).html, '');
+eq('U12.d joinHtml 只有一项且是 null 时写成空', joinHtml([null]).html, '');
+
+// 四、非字符串取值先转文字再转义
+eq('U12.d html 插值是数时写成它的文字', html`${42}`.html, '42');
+eq('U12.d html 插值是 0 时写成 0 不当缺值', html`${0}`.html, '0');
+eq('U12.d html 插值是负小数时写成它的文字', html`${-1.5}`.html, '-1.5');
+eq('U12.d html 插值是 true 时写成它的文字', html`${true}`.html, 'true');
+eq('U12.d html 插值是 false 时写成它的文字不当缺值', html`${false}`.html, 'false');
+eq('U12.d html 插值是字符串数组时转成文字后各元素里的标记被转义', html`${['<a>', '<b>']}`.html, '&lt;a&gt;,&lt;b&gt;');
+eq('U12.d html 插值是只有一个元素的数组时元素里的五个字符各转义一次', html`${[`&<>"'`]}`.html, '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.d html 插值是自定义 toString 的对象时转成的文字被转义', html`${{ toString: () => `<i a="1" b='2'>&</i>` }}`.html, '&lt;i a=&quot;1&quot; b=&#39;2&#39;&gt;&amp;&lt;/i&gt;');
+eq('U12.d html 插值是 String 包装对象时照样转义', html`${new String('<b>')}`.html, '&lt;b&gt;');
+eq('U12.d escapeText 对数写成它的文字', escapeText(42), '42');
+eq('U12.d escapeText 对 0 写成 0 不当缺值', escapeText(0), '0');
+eq('U12.d escapeText 对 false 写成它的文字不当缺值', escapeText(false), 'false');
+eq('U12.d escapeText 对 true 写成它的文字', escapeText(true), 'true');
+eq('U12.d escapeText 对字符串数组转成文字后转义', escapeText(['<a>', '&']), '&lt;a&gt;,&amp;');
+eq('U12.d escapeText 对自定义 toString 的对象转成的文字转义', escapeText({ toString: () => '<b>"x"</b>' }), '&lt;b&gt;&quot;x&quot;&lt;/b&gt;');
+eq('U12.d joinHtml 里的数写成它的文字', joinHtml([1, 2, 3], html`,`).html, '1,2,3');
+eq('U12.d joinHtml 里自定义 toString 的对象转成的文字被转义', joinHtml([{ toString: () => '<b>' }]).html, '&lt;b&gt;');
+
+// 五、模板里写死的部分原样
+eq('U12.d html 没有插值时写死的标记原样', html`<p class="a" data-x='1'>甲 & 乙</p>`.html, `<p class="a" data-x='1'>甲 & 乙</p>`);
+eq('U12.d html 写死的字符实体原样不再转义', html`<p>&amp;&lt;&gt;&quot;&#39;</p>`.html, '<p>&amp;&lt;&gt;&quot;&#39;</p>');
+eq('U12.d html 空模板拼出空片段', html``.html, '');
+eq('U12.d html 写死的标记原样而中间的插值转义', html`<p class="k">${'<b>'}</p>`.html, '<p class="k">&lt;b&gt;</p>');
+eq('U12.d html 插值在写死的属性引号里时取值里的引号被转义而写死的引号原样', html`<a title="${'"><script>'}" data-n='${"'x'"}'>链接</a>`.html, `<a title="&quot;&gt;&lt;script&gt;" data-n='&#39;x&#39;'>链接</a>`);
+eq('U12.d html 多个插值各自转义且写死的部分顺序不变', html`<i>${'<'}</i>-<b>${'>'}</b>-<u>${'&'}</u>`.html, '<i>&lt;</i>-<b>&gt;</b>-<u>&amp;</u>');
+eq('U12.d html 相邻两个插值各自转义后紧挨着', html`${'<'}${'>'}`.html, '&lt;&gt;');
+eq('U12.d html 插值在模板开头和结尾时写死的中间部分原样', html`${'"'}<br>${"'"}`.html, '&quot;<br>&#39;');
+
+// 六、html 拼出来的片段原样插入、不再转义
+const u12dInner = html`<b title="t">${`&<>"'`}</b>`;
+eq('U12.d 内层片段自己的取值转义一次', u12dInner.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.d html 拼出来的片段单独插进 html 时原样', html`${u12dInner}`.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.d html 拼出来的片段插进 html 时标记原样且里面的取值不再转义', html`<p>${u12dInner}</p>`.html, '<p><b title="t">&amp;&lt;&gt;&quot;&#39;</b></p>');
+const u12dMid = html`<li>${u12dInner}</li>`;
+const u12dOuter = html`<ul>${u12dMid}</ul>`;
+const u12dTop = html`<div>${u12dOuter}</div>`;
+eq('U12.d 片段嵌套两层时转义不累加', u12dMid.html, '<li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li>');
+eq('U12.d 片段嵌套三层时转义不累加', u12dOuter.html, '<ul><li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li></ul>');
+eq('U12.d 片段嵌套四层时转义不累加', u12dTop.html, '<div><ul><li><b title="t">&amp;&lt;&gt;&quot;&#39;</b></li></ul></div>');
+eq('U12.d 同一个模板里片段原样而旁边的字符串转义', html`${html`<b>x</b>`}${'<b>x</b>'}`.html, '<b>x</b>&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d 同一个片段插两次时两处都原样', html`${u12dInner}|${u12dInner}`.html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>|<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.d 空片段插进 html 时什么都不多出来', html`<p>${html``}</p>`.html, '<p></p>');
+eq('U12.d 写死字符实体的片段插进 html 时实体不被再转义', html`<p>${html`&amp;&lt;`}</p>`.html, '<p>&amp;&lt;</p>');
+ok('U12.d html 拼出来的东西是 SafeHtml', html`<b>x</b>` instanceof SafeHtml);
+ok('U12.d joinHtml 拼出来的东西是 SafeHtml', joinHtml([html`<b>x</b>`]) instanceof SafeHtml);
+
+// 七、joinHtml：片段原样、普通字符串照样转义、分隔片段原样
+eq('U12.d joinHtml 里的片段原样', joinHtml([html`<b>1</b>`, html`<b>2</b>`], html`<br>`).html, '<b>1</b><br><b>2</b>');
+eq('U12.d joinHtml 里片段中已转义的取值不再转义', joinHtml([u12dInner, u12dInner], html`|`).html, '<b title="t">&amp;&lt;&gt;&quot;&#39;</b>|<b title="t">&amp;&lt;&gt;&quot;&#39;</b>');
+eq('U12.d joinHtml 里的普通字符串照样转义', joinHtml(['<b>1</b>', '<b>2</b>'], html`<br>`).html, '&lt;b&gt;1&lt;/b&gt;<br>&lt;b&gt;2&lt;/b&gt;');
+eq('U12.d joinHtml 里普通字符串的五个字符各转义一次', joinHtml([`&<>"'`]).html, '&amp;&lt;&gt;&quot;&#39;');
+eq('U12.d joinHtml 里片段和普通字符串混排时片段原样字符串转义', joinHtml([html`<b>1</b>`, '<b>2</b>', html`<b>3</b>`], html`<hr>`).html, '<b>1</b><hr>&lt;b&gt;2&lt;/b&gt;<hr><b>3</b>');
+eq('U12.d joinHtml 的分隔片段里的标记原样', joinHtml(['a', 'b', 'c'], html`<span class="sep">·</span>`).html, 'a<span class="sep">·</span>b<span class="sep">·</span>c');
+eq('U12.d joinHtml 的分隔片段里已转义的取值不再转义', joinHtml(['a', 'b'], html`<i>${'&'}</i>`).html, 'a<i>&amp;</i>b');
+eq('U12.d joinHtml 的分隔片段里写死的字符实体不再转义', joinHtml(['a', 'b'], html` &amp; `).html, 'a &amp; b');
+eq('U12.d joinHtml 只有一项片段时原样', joinHtml([html`<b>1</b>`]).html, '<b>1</b>');
+eq('U12.d joinHtml 只有一项字符串时转义', joinHtml(['<b>1</b>']).html, '&lt;b&gt;1&lt;/b&gt;');
+eq('U12.d joinHtml 里的字符串本身写着字符实体时只转义一次', joinHtml(['&lt;', '&amp;'], html`,`).html, '&amp;lt;,&amp;amp;');
+const u12dJoined = joinHtml([html`<li>${'<'}</li>`, html`<li>${'&'}</li>`], html``);
+eq('U12.d joinHtml 用空片段分隔时各项紧挨着', u12dJoined.html, '<li>&lt;</li><li>&amp;</li>');
+eq('U12.d joinHtml 拼出来的片段插进 html 时原样不再转义', html`<ul>${u12dJoined}</ul>`.html, '<ul><li>&lt;</li><li>&amp;</li></ul>');
+eq('U12.d joinHtml 拼出来的片段再插进 joinHtml 时原样不再转义', joinHtml([u12dJoined, u12dJoined], html`<hr>`).html, '<li>&lt;</li><li>&amp;</li><hr><li>&lt;</li><li>&amp;</li>');
+eq('U12.d joinHtml 拼出来的片段当分隔片段时原样', joinHtml(['a', 'b'], joinHtml([html`<br>`])).html, 'a<br>b');
+eq('U12.d html 套 joinHtml 再套 html 时转义不累加', html`<div>${joinHtml([html`<p>${html`<b>${'"'}</b>`}</p>`, `'`], html`<br>`)}</div>`.html, '<div><p><b>&quot;</b></p><br>&#39;</div>');
+
+// 八、长得像片段的别的东西照样当文字转义
+eq('U12.d 字符串本身是一段标记时插进 html 当文字转义', html`${'<b>x</b>'}`.html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d 片段的 html 字段取出来成了字符串再插进 html 时当文字转义', html`${html`<b>x</b>`.html}`.html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d 片段的 html 字段取出来再插时里面已转义的取值按文字再转义一次', html`${html`<b>${'&'}</b>`.html}`.html, '&lt;b&gt;&amp;amp;&lt;/b&gt;');
+eq('U12.d 片段的 html 字段取出来成了字符串再插进 joinHtml 时当文字转义', joinHtml([html`<b>x</b>`.html]).html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d escapeText 对一段标记字符串当文字转义', escapeText('<b>x</b>'), '&lt;b&gt;x&lt;/b&gt;');
+ok('U12.d 带 html 字段的普通对象插进 html 时字段里的标记不原样出现', !html`${{ html: '<b>x</b>' }}`.html.includes('<'));
+ok('U12.d 带 html 字段的普通对象插进 joinHtml 时字段里的标记不原样出现', !joinHtml([{ html: '<b>x</b>' }]).html.includes('<'));
+ok('U12.d 带 html 字段的普通对象交给 escapeText 时字段里的标记不原样出现', !escapeText({ html: '<b>x</b>' }).includes('<'));
+eq('U12.d 带 html 字段又自定义 toString 的对象插进 html 时按 toString 的文字转义', html`${{ html: '<b>x</b>', toString: () => '<i>y</i>' }}`.html, '&lt;i&gt;y&lt;/i&gt;');
+eq('U12.d 带 html 字段又自定义 toString 的对象插进 joinHtml 时按 toString 的文字转义', joinHtml([{ html: '<b>x</b>', toString: () => '<i>y</i>' }]).html, '&lt;i&gt;y&lt;/i&gt;');
+eq('U12.d 自定义 toString 返回标记的对象插进 html 时当文字转义', html`<p>${{ toString: () => '<script>x</script>' }}</p>`.html, '<p>&lt;script&gt;x&lt;/script&gt;</p>');
+eq('U12.d 自定义 toString 返回标记的对象插进 joinHtml 时当文字转义', joinHtml([{ toString: () => '<a>' }, { toString: () => '<b>' }], html`<br>`).html, '&lt;a&gt;<br>&lt;b&gt;');
+const u12dForged = Object.create(SafeHtml.prototype);
+u12dForged.html = '<b>x</b>';
+u12dForged.toString = () => '<b>x</b>';
+eq('U12.d 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 html 时当文字转义', html`${u12dForged}`.html, '&lt;b&gt;x&lt;/b&gt;');
+eq('U12.d 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 joinHtml 时当文字转义', joinHtml([u12dForged]).html, '&lt;b&gt;x&lt;/b&gt;');
+ok('U12.d 把片段放进数组再插进 html 时不算片段标记不原样出现', !html`${[html`<b>x</b>`]}`.html.includes('<'));
+ok('U12.d 把片段放进数组再放进 joinHtml 的一项时不算片段标记不原样出现', !joinHtml([[html`<b>x</b>`]]).html.includes('<'));
+eq('U12.d 字符串数组插进 html 时不当成一串片段', html`<ul>${['<li>1</li>', '<li>2</li>']}</ul>`.html, '<ul>&lt;li&gt;1&lt;/li&gt;,&lt;li&gt;2&lt;/li&gt;</ul>');
+
+criterion('U12.d');
+}
+{
+  // 作者写（ADR-228 第五节，独立复核第一轮）：分隔参数也只认本模块造的片段；造出来的片段改不了
+  const fakeSep = { html: '<hr>' } as unknown as SafeHtml
+  eq('U12.d joinHtml 的分隔参数是仿造的片段时当文字转义', joinHtml(['a', 'b'], fakeSep).html, 'a[object Object]b')
+  const frozen = html`<i>x</i>`
+  let rewrote = false
+  try { (frozen as { html: string }).html = '<script>'; rewrote = frozen.html === '<script>' } catch { rewrote = false }
+  ok('U12.d 造出来的片段改不了里面的标记', !rewrote)
+}
+{
+  // 作者写（ADR-228 第六节，还 ADR-180 第 34、58、70 行）：ADR-180 结论「缺值时照旧印出原样，不悄悄变成空白」
+  // 原先靠 escRaw，现在靠那几处自己写 String(v)；去掉 String 缺值就变成空白（P1：缺值不被悄悄填成别的样子）。
+  // 期望按报告的标记手写，不借被测函数。
+  const page = renderHtml([mk('tiktok', 'a', { tier: undefined as never, platform: undefined as never })],
+    { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], tiers: {} as never,
+      ...testCostMeta(1, 2000000), enriched: false } as never)
+  ok('缺值照印原样：统计里总人数缺值时印 undefined 不印空白', page.includes('<div class="v">undefined</div><div class="l">总人数</div>'))
+  ok('缺值照印原样：统计里 A 级人数缺值时印 undefined 不印空白', page.includes('<div class="v" style="color:#22c55e">undefined</div><div class="l">A 级</div>'))
+  ok('缺值照印原样：统计里有邮箱人数缺值时印 undefined 不印空白', page.includes('<div class="v">undefined</div><div class="l">有邮箱</div>'))
+  ok('缺值照印原样：统计里跨平台人数缺值时印 undefined 不印空白', page.includes('<div class="v" style="color:#a78bfa">undefined</div><div class="l">跨平台</div>'))
+  ok('缺值照印原样：A 级标签页人数缺值时印 undefined 不印空白', page.includes('A级 直接发信<span class="n">undefined</span>'))
+  ok('缺值照印原样：卡片分层缺值时印 undefined 不印空白', page.includes('<span class="tier undefined">undefined</span>'))
+  ok('缺值照印原样：卡片平台缺值时样式类印 undefined 不印空白', page.includes('<span class="pf undefined">'))
 }
 })
 
