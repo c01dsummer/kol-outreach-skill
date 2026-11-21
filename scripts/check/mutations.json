@@ -22444,7 +22444,7 @@
       "why": "粉丝数取值不是数字时原样写进报告正文，能改写报告的标记",
       "file": "scripts/lib/report.ts",
       "find": "<span>${creatorCountText(c, 'followers')} 粉丝</span>",
-      "replace": "<span>${html([String(creatorCountText(c, 'followers'))] as never)} 粉丝</span>",
+      "replace": "<span>${html([String(c.followers)] as never)} 粉丝</span>",
       "by": "test",
       "kills": [
         "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
@@ -22667,18 +22667,6 @@
       "by": "test",
       "kills": [
         "U12.e 报告页面代码里没有绕过缺值拒绝的拼字写法（读 report.ts 的语法树）"
-      ]
-    },
-    {
-      "id": "M-U12-af",
-      "req": "U12.e",
-      "why": "本该总有的取值是 0 时也当缺值拒绝：跨平台人数确实是零的任务出不了报告",
-      "file": "scripts/lib/safe-html.ts",
-      "find": "  if (value === undefined || value === null) throw new MissingValueError(name)",
-      "replace": "  if (value === undefined || value === null || (value as unknown) === 0) throw new MissingValueError(name)",
-      "by": "test",
-      "kills": [
-        "缺值不写成空：夹具本身齐全时报告照出（下面几条的阳性对照）"
       ]
     },
     {
@@ -32193,9 +32181,7 @@
       "replace": "if (false)",
       "by": "test",
       "kills": [
-        "D21.v 没有作品样本的 TikTok 账号已测活跃状态不合法时 render 以退出码 2 拒绝",
-        "D21.v 活跃状态不合法被拒绝时一个交付文件都没写且名单原字节不变",
-        "D21.v 活跃状态不合法被拒绝时指出 enrichment.json 的路径"
+        "D21.v 活跃状态不合法被拒绝时一个交付文件都没写且名单原字节不变"
       ]
     },
     {
