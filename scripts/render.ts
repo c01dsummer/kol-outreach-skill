@@ -252,7 +252,7 @@ const meta = {
 }
 // P2.c：草稿里的数字与承诺词拿任务里已证实的产品事实对，对不上的在报告里标出，不拦（ADR-199）
 const facts = verifiedFacts(state.brand_calibration)
-// 报告先拼好再写：哪一格本该有值却缺了，报告不出、退 2、点名那一格，meta.json 与 report.html 都不动（P1.n，ADR-230）
+// 报告先拼好再写：哪一格本该有值却缺了，报告不出、退 2、点名那一格，meta.json 与 report.html 都不动（P1.n，ADR-231）
 let page: string
 try { page = renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts }) }
 catch (e) {

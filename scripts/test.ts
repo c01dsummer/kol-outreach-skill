@@ -8839,7 +8839,7 @@ function entryChecks(copy: string): void {
   eq('D21.v 缺了平台字段的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vNoPf.status, 2)
   const vCasePf = render('kol80-v-casepf', [alice('kol80vn')], [{ ...account('kol80vn', activityOf('zombie'), riskOf('low')), platform: 'TikTok' }])
   eq('D21.v 平台写成 TikTok 大小写不对的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vCasePf.status, 2)
-  // 作者补（ADR-230）：报告拼到活跃状态那一格时缺值也会拒绝、照样退 2，所以只看退出码分不出是读入时拒的还是拼报告时拒的；
+  // 作者补（ADR-231）：报告拼到活跃状态那一格时缺值也会拒绝、照样退 2，所以只看退出码分不出是读入时拒的还是拼报告时拒的；
   // 读入时拒才是「写任何文件之前」，拼报告时名单表格已经换新了
   ok('D21.v sample 写成 null、缺平台、平台大小写不对的账号活跃状态不合法时都在读入处拒绝、一个交付文件都没写',
     [vNull, vNoPf, vCasePf].every(untouched))
@@ -8911,7 +8911,7 @@ function entryChecks(copy: string): void {
 }
 })
 await group('p1n-render-entry', () => {
-suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名那一格、meta.json 与 report.html 原样留着（P1.n，作者写，ADR-230）')
+suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名那一格、meta.json 与 report.html 原样留着（P1.n，作者写，ADR-231）')
 {
   const root = mkdtempSync(join(tmpdir(), 'kol-p1n-entry-'))
   try {
@@ -8954,7 +8954,7 @@ suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名�
     eq('P1.n 入口：名单里有人缺主页链接时 render 以退出码 2 结束', url.status, 2)
     ok('P1.n 入口：缺主页链接时 stderr 点名主页链接', url.stderr.includes('主页链接') && url.stderr.includes('p1nurl'))
     // 独立复核挑出（作者补）：合作报价是 Agent 照 public-metrics.md 手写进 enrichment.json 的，漏写一项也是本该总有的格缺了：
-    // 报告不出，报错点名账号与那一格，不能只给「…▯…」。名单表格这时已经写了（ADR-230 第六节那张欠条）
+    // 报告不出，报错点名账号与那一格，不能只给「…▯…」。名单表格这时已经写了（ADR-231 第六节那张欠条）
     const quote = (value: object) => ({ version: 1, updated_at: '2026-10-01T00:00:00Z', accounts: { 'tiktok:p1nquote': {
       platform: 'tiktok', handle: 'p1nquote', collaboration_quote: { status: 'measured', value, source: { provider: 'manual' },
         observed_at: '2026-10-01T00:00:00Z', sample_size: 1, basis: '博主报价' } } } })
@@ -22696,7 +22696,7 @@ await group('u12-safe-html', () => {
 suite('U12', '报告页面用同一种拼页面的写法拼成，插进去的取值默认转义')
 {
   // 这一块由只读了 U12 准入读物包的隔离会话写成（ADR-228 第四节），搬进来时一字未改。
-  // ADR-230 改过两处：U12.d 退役、由 U12.e 接替，断言名的前缀跟着改成 U12.e；原第三节「缺值写成空」
+  // ADR-231 改过两处：U12.d 退役、由 U12.e 接替，断言名的前缀跟着改成 U12.e；原第三节「缺值写成空」
   // 与 U12.e 相反，整节删掉，缺值拒绝那一半的断言见本组后面那一块（另一个隔离会话写的）。
 // ── U12.e：拼页面的写法默认转义一次；只有它自己拼出来的片段原样；长得像片段的照样转义 ──
 // 期望值全部按五个字符实体手写：& → &amp;  < → &lt;  > → &gt;  " → &quot;  ' → &#39;
@@ -22827,7 +22827,7 @@ criterion('U12.e');
   ok('U12.e 造出来的片段改不了里面的标记', !rewrote)
 }
 {
-  // 作者写（ADR-230，接替 ADR-228 第六节那一块）：P1.n 里本该总有的几格，缺了时报告不出、报错点名那一格。
+  // 作者写（ADR-231，接替 ADR-228 第六节那一块）：P1.n 里本该总有的几格，缺了时报告不出、报错点名那一格。
   // 原先这几格缺值照印 undefined；需求所有者 2026-11-21 选「不出报告，点名哪一格缺了」。
   // 期望只认「抛的是缺值那一种错、报错里有这一格的名字或前后写死的文字」，不借被测函数算期望。
   const fullMeta = {
@@ -22875,7 +22875,7 @@ criterion('U12.e');
     [null, ''].every(bio => bioRows(page({ bio })) === bioRows(page({ bio: 'x' })) - 1) && page({ bio: 'x' }).includes('<div class="bio">x</div>'))
 }
 {
-  // 作者写（ADR-230）：U12.e 后半句「报告页面的代码里拼文字一律走这种写法」读 report.ts 的语法树核，不按字面搜。
+  // 作者写（ADR-231）：U12.e 后半句「报告页面的代码里拼文字一律走这种写法」读 report.ts 的语法树核，不按字面搜。
   // 这几样都能让缺值绕过 `html` 那一下拒绝：不带 html 的模板字符串、String(…)、+ 连字、.join(…) 会把缺值写成
   // undefined 这几个字母；?? 0、?? ''、|| 0、|| '' 会把缺值写成 0 或空（P1.b 点名的那两种写法）。
   // 例外只有一处：`need(取值, 格名)` 的格名是报错用的白话，不进页面，允许用模板字符串带上账号。
@@ -22915,7 +22915,7 @@ criterion('U12.e');
   eq('拼字写法检查放过 html 模板、need 的格名、?? 写明的说法', leaks("const a = html`x${b}`\nconst c = need(d, `格 ${e}`)\nconst f = g ?? '未知'"), [])
 }
 {
-  // 这一块由只读了 P1、U12 准入读物包的隔离会话写成（ADR-230 第七节），搬进来时一字未改
+  // 这一块由只读了 P1、U12 准入读物包的隔离会话写成（ADR-231 第七节），搬进来时一字未改
 // ===== P1.n / P1.o / U12.e（缺值那一半）：只按准入读物包（需求、签名、对外文档）写，不看实现 =====
 
 // ---------- 工具 ----------

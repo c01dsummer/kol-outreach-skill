@@ -13,10 +13,10 @@ import type { ReviewRound } from './review.js'
 import { html, joinHtml, need, type SafeHtml } from './safe-html.js'
 
 // U12（ADR-228）：页面一律用 `html` 模板拼，插值默认转义，只有 `html`／`joinHtml` 拼出的片段原样插入。
-// P1（ADR-230）：插值缺了（undefined、null）时 `html` 不写成空，整份报告不出、点名那一格。
+// P1（ADR-231）：插值缺了（undefined、null）时 `html` 不写成空，整份报告不出、点名那一格。
 // 所以可能缺的格先在这里写明缺了显示什么（未查询、未知、无从确认……），本该总有的格过 `need`。
 // 本文件里拼文字一律走 `html`／`joinHtml`：不写不带 `html` 的模板字符串、不调 `String(…)`、不用 `+` 连字、
-// 不用 `.join(…)`、不写 `?? 0`／`?? ''`／`|| 0`／`|| ''` —— 这几样都会绕过缺值那一抛，由测试读本文件的语法树核（ADR-230）。
+// 不用 `.join(…)`、不写 `?? 0`／`?? ''`／`|| 0`／`|| ''` —— 这几样都会绕过缺值那一抛，由测试读本文件的语法树核（ADR-231）。
 
 /**
  * P1.m：名单上的粉丝数、作品数分三态显示 —— 有值写缩写的数，供应商给了怪值写 `未知`，没查到写 `未查询`。
@@ -49,7 +49,7 @@ const REASON: Record<string, string> = {
 }
 
 /**
- * 已测时先过 `need` 再格式化：取值缺了在格式化之前就拒绝、点名账号与那一格（P1.n，ADR-230）。
+ * 已测时先过 `need` 再格式化：取值缺了在格式化之前就拒绝、点名账号与那一格（P1.n，ADR-231）。
  * 不先查的话，缺值进了乘法、`toFixed` 之后成了 0.00% 或 NaN%，`html` 那一下看不出它缺过。
  */
 const metricText = <T>(m: Measurement<T> | undefined, who: string, name: string,
@@ -317,7 +317,7 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
     <div class="bio" data-draft-claims="unsourced">出处对不上：${lines.unsourced}（只查数字和承诺词，其余说法仍要自己看）</div>${posts}${sender}`
   }
   const card = (c: Creator) => {
-    // 分层是排序后才有的，本该总有（ADR-230）；平台、账号、昵称、主页链接缺了由 `html` 点名
+    // 分层是排序后才有的，本该总有（ADR-231）；平台、账号、昵称、主页链接缺了由 `html` 点名
     const tier = need(c.tier, `卡片上的分层（账号 ${c.handle}）`)
     // 下面三格在卡片模板里缺了也会被 `html` 拒绝；先在这里过一遍，只为报错里写白话格名，不写那一格前后的标记
     need(c.handle, '卡片上的账号')
