@@ -26627,7 +26627,7 @@
     },
     {
       "id": "M-D31-x",
-      "req": "D31.g",
+      "req": "D31",
       "why": "写入时保存失败报成输入问题：用户以为是草稿不合格，去改草稿，其实是磁盘或权限出了事",
       "file": "scripts/lessons.ts",
       "find": "不能当成已写入。`)\n    process.exit(EXIT.save)",
@@ -26639,7 +26639,7 @@
     },
     {
       "id": "M-D31-y",
-      "req": "D31.g",
+      "req": "D31",
       "why": "「用户已确认」开关写两次也照收：参数写法不对时不给用法，Agent 不知道自己拼错了命令",
       "file": "scripts/lessons.ts",
       "find": "  if (arg === '--confirmed-by-user') { if (flags.has(arg)) usage(); flags.add(arg); continue }",
