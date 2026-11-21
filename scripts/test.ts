@@ -65,7 +65,7 @@ import {
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { cwdUnder, judgeCwds, judgeShares, scanShares } from './check/share-rule.js'
-import { DEPTH, addedLines, fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, markSite, type Field as UseField } from './check/field-use-rule.js'
+import { DEPTH, addedLines, fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile, markSite, outOfSight, wholeFile, type Field as UseField } from './check/field-use-rule.js'
 import {
   beginMutation, blockingWait, syncGitImports, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -353,6 +353,9 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ticket-refs', needs: [] },
   { id: 'h-ticket-refs-entry', needs: [] },
   { id: 'h-ticket-refs-entry-edges', needs: [] },
+  { id: 'h-field-use-entry', needs: [] },
+  { id: 'h-field-use-entry-git', needs: [] },
+  { id: 'h-field-use-entry-inputs', needs: [] },
   { id: 'h-child-process-sites', needs: [] },
   { id: 'h-child-process-judge', needs: [] },
   { id: 'h-child-process-entry-test-files', needs: [] },
@@ -17104,7 +17107,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   const { fs: toy, files: toyFiles } = fieldToy()
   const vias = (fs: readonly UseField[], file?: string) => fs.filter(f => file === undefined || f.file === `scripts/check/${file}`).map(f => f.via).sort()
   const toyOf = (via: string) => toy.find(f => f.via === via)
-  const textOf = (f: UseField | undefined, files = toyFiles) => f?.sites.map(s => files[s.file].slice(s.start, s.end))
+  const textOf = (f: UseField | undefined, files = toyFiles) => f?.sites.map(s => files[s.file]?.slice(s.start, s.end)) // 文件对不上时给 undefined、不崩：变异把赋值处的文件写错时要由断言红，不是让验证者死在半路
   // 期望里有 undefined 的用严格深比较：eq 按 JSON 比，数组里的 undefined 与 null 分不开
   const strict = (got: unknown, want: unknown): [unknown, unknown] => [isDeepStrictEqual(got, want) ? got : { 严格比对不等: got }, want]
   eq('字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条）',
@@ -17119,6 +17122,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   eq('字段：行号从 1 起，指向属性名那一行；交回的每一项带着它所在的文件', [toyOf('quiet().quiet')?.line, toyOf('listed().second')?.line, toyOf('whole().nest[].w2')?.file], [16, 9, 'scripts/check/b.ts'])
 
   // 赋值处：问「跳到定义」，只认跳到恰好一个字段的
+  eq('字段：赋值处带着它所在的文件，相对仓库根写', toyOf('make().ok')?.sites.map(s => s.file), ['scripts/check/s.ts', 'scripts/check/s.ts'])
   eq('字段：赋值处 —— 对象字面量里写它的那一项（简写也算）、x.f = …、x[\'f\'] += …；变量的初始值、比较不算；带 readonly 的照样认',
     ['make().ok', 'make().n', 'make().late'].map(k => textOf(toyOf(k))), [['ok: x > 0', 'r.ok = false'], ['n'], ['late: 0', 'r.late = 1', "r['late'] += 1", 'r[`late`] = 2']])
   eq('字段：名字按解析后的比，不按源码原文 —— 声明写普通名、赋值写转义，或反过来，都认得到',
@@ -17128,24 +17132,29 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
   eq('字段：判别联合按判别值分到成员，赋值处只算到那一个成员的字段上；没分开的联合（两个成员都有 value、没有判别值）一处都不算',
     [textOf(toyOf('shape().x')), textOf(toyOf('shape().w')), toy.filter(f => f.via === 'shape().kind').map(f => textOf(f)!.length).sort(), toy.filter(f => f.via === 'amb().value').map(f => f.sites.length)],
     [['x: 1'], [], [0, 1], [0, 0]])
-  eq('字段：别的文件里给它赋值也算（lib 下的算，验证者里的不算），赋值处带着自己所在的文件', toyOf('lonely().bb')?.sites.map(s => [s.file, toyFiles[s.file].slice(s.start, s.end)]).sort(),
+  eq('字段：别的文件里给它赋值也算（lib 下的算，验证者里的不算），赋值处带着自己所在的文件', toyOf('lonely().bb')?.sites.map(s => [s.file, toyFiles[s.file]?.slice(s.start, s.end)]).sort(),
     [['scripts/check/c.ts', 'bb: 1'], ['scripts/lib/e.ts', 'bb: 3']])
 
   // 新加的行：文件名是 git 列出来的（原样作键），每个文件一份 git diff -U0 的输出，只读块头
   const added = (diffs: [string, string][]) => { try { return [...addedLines(diffs)].map(([f, ls]) => [f, [...ls]]) } catch (e) { return String(e) } }
-  eq('新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；没改动的文件没有；文件名原样作键（表情符号、制表符都不动）',
+  eq('新加的行：块头写的新文件那一边第 c 行起 d 行；d 省略是 1、为 0 的只删不加；正文里以 + 开头、后面像块头的行不当成块头；只改权限的没有新加的行；文件名原样作键（表情符号、制表符都不动）',
     added([
       ['scripts/check/a.ts', ['diff --git a/scripts/check/a.ts b/scripts/check/a.ts', 'index 1111111..2222222 100644', '--- a/scripts/check/a.ts', '+++ b/scripts/check/a.ts',
         '@@ -3 +3,2 @@', '-old', '+new3', '+@@ -1 +99 @@ 正文里像块头的新增行', '@@ -10 +12 @@ export function f() {', '-x', '+y12', '\\ No newline at end of file', ''].join('\n')],
       ['scripts/check/mode.ts', 'diff --git a/scripts/check/mode.ts b/scripts/check/mode.ts\nold mode 100644\nnew mode 100755\n'],
       ['scripts/check/gone.ts', 'diff --git a/scripts/check/gone.ts b/scripts/check/gone.ts\n--- a/scripts/check/gone.ts\n+++ b/scripts/check/gone.ts\n@@ -5,2 +4,0 @@\n-p\n-q\n'],
-      ['scripts/check/same.ts', ''],
       ['scripts/check/😀\t.ts', 'diff --git "a/scripts/check/😀\\t.ts" "b/scripts/check/😀\\t.ts"\nnew file mode 100644\n--- /dev/null\n+++ "b/scripts/check/😀\\t.ts"\n@@ -0,0 +1,2 @@\n+one\n+two\n'],
     ]), [['scripts/check/a.ts', [3, 4, 12]], ['scripts/check/😀\t.ts', [1, 2]]])
-  eq('新加的行：读不懂的抛错，不悄悄当成没改 —— 带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的',
-    ['\u001b[1mdiff --git a/x b/x\u001b[m\n@@ -1 +1 @@\n-a\n+b\n', 'x: 3 lines changed\n', 'diff -u a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n', 'diff --git a/x b/x\n@@ -1 +a @@\n+b\n',
+  eq('新加的行：读不懂的抛错，不悄悄当成没改 —— 答空的（git 列了它，单问却没输出）、带颜色的、外部 diff 工具的、不是 git 的 diff、块头不是块头样子的、块头断了的、合并时的三方块头、被当成二进制的',
+    ['', '\u001b[1mdiff --git a/x b/x\u001b[m\n@@ -1 +1 @@\n-a\n+b\n', 'x: 3 lines changed\n', 'diff -u a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n', 'diff --git a/x b/x\n@@ -1 +a @@\n+b\n',
       'diff --git a/x b/x\n@@ -1,0 +2,3\n', 'diff --git a/x b/x\n@@@ -1 -1 +1,2 @@@\n++b\n', 'diff --git a/x b/x\nnew file mode 100644\nBinary files /dev/null and b/x differ\n']
-      .map(t => { const r = added([['x', t]]); return typeof r === 'string' && r.includes('读不懂的 diff') }), [true, true, true, true, true, true, true])
+      .map(t => { const r = added([['x', t]]); return typeof r === 'string' && r.includes('读不懂的 diff') }), [true, true, true, true, true, true, true, true])
+  eq('没加进 git 的文件：整份算新加，行号只数换行符，末尾换行后的空段也算一行', [[...wholeFile('')], [...wholeFile('a')], [...wholeFile('a\nb\n')], [...wholeFile('a\r\nb')]],
+    [[1], [1], [1, 2, 3], [1, 2]])
+  const asked: string[] = []
+  eq('判定文件的行号能不能用：git 看不见的、符号链接的交回原因（看不见时不再问是不是链接），都没有交回 undefined',
+    [outOfSight('f.ts', false, () => { asked.push('f.ts'); return true }), outOfSight('g.ts', true, () => true), outOfSight('h.ts', true, () => false), asked],
+    ['f.ts 在类型检查的范围里，git 却看不见它（被忽略了，或名字两边写法不一样）', 'g.ts 是一个符号链接：git 说的是链接本身改了哪几行，字段却在它指向的文件里，行号对不上', undefined, []])
   eq('变异的位置：find 在文件里恰好一次才有；两次、没有、空的都没有', [markSite('f', 'ab cd ab', 'cd', 'x'), markSite('f', 'ab cd ab', 'ab', 'x'), markSite('f', 'ab', 'x', 'y'), markSite('f', 'ab', '', 'y')],
     [{ file: 'f', start: 3, end: 5 }, undefined, undefined, undefined])
   eq('变异的位置：find 与 replace 相同的开头和结尾不算改动；只插入的剩一个空段，落在插入点', [markSite('f', '__a + b__', 'a + b', 'a - b'), markSite('f', '__a + b__', 'a + b', 'a + b + c'), markSite('f', 'xaay', 'aa', 'a')],
@@ -24406,6 +24415,143 @@ await group('h-ticket-refs-entry-edges', () => {
     const bare = run(root)
     eq('入口：不是 git 仓库时说无从判断，以 1 退出', [bare.status, String(bare.stderr).startsWith('✗ 外部工单号：无从判断')], [1, true])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+/** 字段断言闸门入口的玩具仓库：主干上两个旧字段（old 有变异守着，keep 没有），分支 work 上什么都没改；起入口用的环境不读本机 git 配置 */
+function fieldUseToy(root: string, opts: { branch?: boolean } = {}) {
+  const entry = cxJoin(process.cwd(), 'scripts/check/field-use.ts')
+  const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CEILING_DIRECTORIES: cxTmpdir() }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) delete gitEnv[k]
+  const run = (cwd: string, extraEnv?: NodeJS.ProcessEnv) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 120_000, env: { ...gitEnv, ...extraEnv } })
+  const g = (...args: string[]) => fixtureGit(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root })
+  const put = (path: string, text: string) => { cxMkdirSync(cxJoin(root, path, '..'), { recursive: true }); cxWriteFileSync(cxJoin(root, path), text) }
+  const muts = (...m: [string, string][]) => put('scripts/check/mutations.json', JSON.stringify({ mutations: m.map(([find, replace], i) => ({ id: `M-T-${i}`, file: 'scripts/check/a.ts', find, replace })) }))
+  /** a.ts：`fresh` 给了就在 keep 下面加一个字段 fresh（声明在第 4 行），带上行尾注释 */
+  const a = (fresh?: string) => put('scripts/check/a.ts', fresh === undefined
+    ? 'export interface Out {\n  old: number\n  keep: number\n}\nexport function f(): Out {\n  return { old: 1, keep: 0 }\n}\n'
+    : `export interface Out {\n  old: number\n  keep: number\n  fresh: number${fresh}\n}\nexport function f(): Out {\n  return { old: 1, keep: 0, fresh: 2 }\n}\n`)
+  put('tsconfig.json', JSON.stringify({ compilerOptions: { strict: true, noEmit: true, target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', types: [] }, include: ['scripts/**/*.ts'] }))
+  a(); muts(['old: 1', 'old: 0'])
+  g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base')
+  if (opts.branch !== false) { g('commit', '-q', '--allow-empty', '-m', 'second'); g('checkout', '-q', '-b', 'work'); g('commit', '-q', '--allow-empty', '-m', 'work') }
+  return { run, g, put, muts, a }
+}
+
+/** PATH 最前面放一个包一层的 git：`when` 是一段 shell 判断（拿 "$a" 逐个看参数），成立时照 `then` 做，否则转给真 git */
+function fakeGitDir(when: string, then: string): string {
+  const realGit = (process.env.PATH ?? '').split(':').map(d => cxJoin(d || '.', 'git')).find(f => { try { accessSync(f, fsConstants.X_OK); return statSync(f).isFile() } catch { return false } })
+  if (realGit === undefined) throw new Error('PATH 上找不到能执行的 git：假 git 那一层没东西可转')
+  const dir = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-field-use-bin-'))
+  cxWriteFileSync(cxJoin(dir, 'git'), `#!/bin/sh\nfor a in "$@"; do ${when} && ${then}; done\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 })
+  return dir
+}
+
+await group('h-field-use-entry', () => {
+  harness('字段断言闸门的入口：在玩具仓库里真起，新字段没有变异守着以 1 退出，补了变异或写了有理由的豁免以 0 退出，主干上只报数；检查链里接着它')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-field-use-'))
+  try {
+    const { run, g, put, muts, a } = fieldUseToy(root)
+    const quiet = run(root)
+    eq('字段断言入口：分支上什么都没改时以 0 退出，说新加 0 个字段', [quiet.status, String(quiet.stdout).includes('新加 0 个字段')], [0, true])
+    // 给返回类型加一个字段（还没提交）：没有变异改到给它赋值的地方，红，点出它；旁边没动的旧字段 keep 不算新
+    a('')
+    const bare = run(root)
+    eq('字段断言入口：新加的字段没有变异守着（改动还没提交）以 1 退出，点出文件、行号与字段；旁边没改的旧字段不报',
+      [bare.status, String(bare.stderr).includes('scripts/check/a.ts 第 4 行 f().fresh 是新加的字段'), String(bare.stderr).includes('f().keep')], [1, true, false])
+    // 补一条改到它赋值处的变异：守住了，绿
+    muts(['old: 1', 'old: 0'], ['fresh: 2', 'fresh: 3'])
+    const held = run(root)
+    eq('字段断言入口：补一条改到它赋值处的变异以 0 退出，说新加 1 个字段', [held.status, String(held.stdout).includes('新加 1 个字段')], [0, true])
+    // 没变异、写有理由的豁免：绿，打 ⊘；空理由：红
+    muts(['old: 1', 'old: 0'])
+    a(' // 字段不入断言：只能从输出行验')
+    const waived = run(root)
+    a(' // 字段不入断言：')
+    const blank = run(root)
+    eq('字段断言入口：写了有理由的豁免以 0 退出、打 ⊘ 与理由；豁免没写理由以 1 退出',
+      [waived.status, String(waived.stdout).includes('⊘ 字段断言：scripts/check/a.ts 第 4 行 f().fresh 靠豁免放行（只能从输出行验）'), blank.status, String(blank.stderr).includes('写了豁免标记却没写理由')], [0, true, 1, true])
+    // 还没加进 git 的新文件：整份算新加，里面每一行的字段都算
+    a()
+    put('scripts/check/b.ts', 'export function h() {\n  return {\n    neu: 1,\n    more: 2,\n  }\n}\n')
+    const untracked = run(root)
+    eq('字段断言入口：还没加进 git 的新文件里的字段整份算新加（头几行以后的也算），以 1 退出、点出它们',
+      [untracked.status, String(untracked.stderr).includes('scripts/check/b.ts 第 3 行 h().neu 是新加的字段'), String(untracked.stderr).includes('scripts/check/b.ts 第 4 行 h().more 是新加的字段')], [1, true, true])
+    cxRmSync(cxJoin(root, 'scripts/check/b.ts'))
+    // 主干上：新字段直接提交在 main 上，只报数，以 0 退出
+    g('checkout', '-q', '-f', 'main'); a(''); g('commit', '-qam', 'more')
+    const trunk = run(root)
+    eq('字段断言入口：HEAD 就在主干上时有没守着的新字段也只报数，以 0 退出', [trunk.status, String(trunk.stdout).includes('只报数不判定'), String(trunk.stdout).includes('1 个没有变异守着')], [0, true, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+  const check = (JSON.parse(rf('package.json', 'utf8')) as { scripts: Record<string, string> }).scripts
+  eq('字段断言检查链：package.json 里 fields 起的是这个入口，check 里紧跟类型检查', [check.fields, check.check.includes('npm run typecheck && npm run fields &&')], ['tsx scripts/check/field-use.ts', true])
+})
+
+await group('h-field-use-entry-git', () => {
+  harness('字段断言闸门的入口问 git：环境与当前目录改不了答案，git 答不上来、答空、找不到主干都说无从判断')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-field-use-git-'))
+  try {
+    const { run, g, put, a } = fieldUseToy(root)
+    a('')
+    const literal = run(root, { GIT_LITERAL_PATHSPECS: '1' })
+    eq('字段断言入口：环境里开着按字面读路径，照样认出那个新字段、以 1 退出', [literal.status, String(literal.stderr).includes('第 4 行 f().fresh 是新加的字段')], [1, true])
+    const context = run(root, { GIT_DIFF_OPTS: '-u5' })
+    eq('字段断言入口：环境里把 diff 的上下文改成五行，新字段旁边没改的旧字段照样不算新加',
+      [context.status, String(context.stderr).includes('第 4 行 f().fresh 是新加的字段'), String(context.stderr).includes('f().keep')], [1, true, false])
+    put('scripts/check/b.ts', 'export function h() {\n  return { neu: 1 }\n}\n')
+    const deeper = run(cxJoin(root, 'scripts'))
+    eq('字段断言入口：在子目录里跑也从仓库根问 —— 改过的文件与还没加进 git 的新文件都点得出来，以 1 退出',
+      [deeper.status, String(deeper.stderr).includes('scripts/check/a.ts 第 4 行 f().fresh'), String(deeper.stderr).includes('scripts/check/b.ts 第 2 行 h().neu')], [1, true, true])
+    cxRmSync(cxJoin(root, 'scripts/check/b.ts'))
+    const bins: string[] = []
+    try {
+      bins.push(fakeGitDir('[ "$a" = -U0 ]', 'exit 0'))
+      const empty = run(root, { PATH: `${bins[0]}:${process.env.PATH ?? ''}` })
+      eq('字段断言入口：git 说文件改过、单问它却答空时说无从判断，以 1 退出', [empty.status, String(empty.stderr).includes('✗ 字段断言：无从判断 —— 读不懂的 diff：scripts/check/a.ts 的输出不以「diff --git 」开头（git 把它列在改过的文件里，单问它却答空）')], [1, true])
+      bins.push(fakeGitDir('[ "$a" = --name-only ]', '{ echo "假装列不出来" >&2; exit 128; }'))
+      const failed = run(root, { PATH: `${bins[1]}:${process.env.PATH ?? ''}` })
+      eq('字段断言入口：git 列改过的文件时出错退出，说无从判断、带上 git 的原话，以 1 退出',
+        [failed.status, String(failed.stderr).includes('✗ 字段断言：无从判断 —— 列改过的文件：git 没答上来'), String(failed.stderr).includes('假装列不出来')], [1, true, true])
+    } finally { for (const b of bins) cxRmSync(b, { recursive: true, force: true }) }
+    g('update-ref', '-d', 'refs/heads/main')
+    const noTrunk = run(root)
+    eq('字段断言入口：找不到主干引用时说无从判断，以 1 退出', [noTrunk.status, String(noTrunk.stderr).startsWith('✗ 字段断言：无从判断') && String(noTrunk.stderr).includes('主干')], [1, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-field-use-entry-inputs', () => {
+  harness('字段断言闸门的入口读的几样东西：git 看不见、符号链接、tsconfig 有错、变异表读不出、一个字段都没有、不是仓库、只有一个提交')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-field-use-in-'))
+  try {
+    const { run, g, put, a } = fieldUseToy(root)
+    const cannot = (r: ReturnType<typeof run>, what: string) => [r.status, String(r.stderr).startsWith('✗ 字段断言：无从判断') && String(r.stderr).includes(what)]
+    put('scripts/check/b.ts', 'export function h() {\n  return { neu: 1 }\n}\n'); put('.gitignore', 'scripts/check/b.ts\n')
+    eq('字段断言入口：字段所在的文件被 git 忽略时说无从判断，以 1 退出', cannot(run(root), 'scripts/check/b.ts'), [1, true])
+    cxRmSync(cxJoin(root, '.gitignore')); cxRmSync(cxJoin(root, 'scripts/check/b.ts'))
+    put('scripts/lib/impl.ts', 'export function h() {\n  return {\n    neu: 1,\n  }\n}\n'); symlinkSync('../lib/impl.ts', cxJoin(root, 'scripts/check/b.ts'))
+    g('add', '.'); g('commit', '-q', '-m', 'link')
+    eq('字段断言入口：判定文件是符号链接时说无从判断，以 1 退出', cannot(run(root), 'scripts/check/b.ts 是一个符号链接'), [1, true])
+    cxRmSync(cxJoin(root, 'scripts/check/b.ts')); g('add', '-A', 'scripts/check'); g('commit', '-q', '-m', 'unlink')
+    put('tsconfig.json', '{ "compilerOptions": { "strict": tru }')
+    eq('字段断言入口：tsconfig.json 写坏了（读不出）时说无从判断，以 1 退出', cannot(run(root), 'tsconfig.json 读不出'), [1, true])
+    put('tsconfig.json', JSON.stringify({ compilerOptions: { target: 'NoSuchTarget' }, include: ['scripts/**/*.ts'] }))
+    eq('字段断言入口：tsconfig.json 读得出、选项有错时说无从判断，以 1 退出', cannot(run(root), 'tsconfig.json 有错'), [1, true])
+    g('checkout', '-q', '--', 'tsconfig.json')
+    put('scripts/check/mutations.json', '{ "mutations": [] }')
+    eq('字段断言入口：变异登记表读不出一组变异时说无从判断，以 1 退出', cannot(run(root), '变异登记表'), [1, true])
+    g('checkout', '-q', '--', 'scripts/check/mutations.json')
+    put('scripts/check/a.ts', 'export const nothing = 1\n')
+    eq('字段断言入口：一个字段都没取到时说无从判断，以 1 退出', cannot(run(root), '一个字段都没取到'), [1, true])
+    a()
+    cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
+    eq('字段断言入口：不是 git 仓库时说无从判断，以 1 退出', cannot(run(root), ''), [1, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+  const one = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-field-use-one-'))
+  try {
+    const { run } = fieldUseToy(one, { branch: false })
+    const lone = run(one)
+    eq('字段断言入口：主干上只有一个提交时说不适用，以 0 结束', [lone.status, String(lone.stdout).includes('✓ 字段断言：不适用')], [0, true])
+  } finally { cxRmSync(one, { recursive: true, force: true }) }
 })
 
 await group('h-child-process-sites', () => {

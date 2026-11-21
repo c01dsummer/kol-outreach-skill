@@ -192,14 +192,15 @@ export function markSite(file: string, text: string, find: string, replace: stri
  * - 每个文件各问一次 `git diff -U0 … -- <文件>`，值就是它的输出。`-U0` 下块里没有上下文行，块头 `@@ -a,b +c,d @@` 写的新文件那一边
  *   第 c 行起的 d 行（d 省略时为 1）就是这一块新加的行；d 为 0 的块只删不加。统一 diff 格式里正文每行都带一个前缀字符（`+`、`-`、空格、`\`），
  *   所以以 `@@` 开头的行一定是块头。
- * 读不懂的抛错（入口报「无从判断」、红）：非空的输出不以 `diff --git ` 开头（带颜色的、外部 diff 工具的），以 `@@` 开头的行不是块头的样子，
+ * 读不懂的抛错（入口报「无从判断」、红）：输出不以 `diff --git ` 开头（带颜色的、外部 diff 工具的；答空的也算 —— 列出来的文件一定有输出，
+ *   只改权限的也有文件头、删掉的有一个只删的块，答空说明路径没对上，不能当成没改），以 `@@` 开头的行不是块头的样子，
  * 或 git 把它当成二进制文件（文件里有空字节、`.gitattributes` 写了 `-diff`；入口带 `--text`，仍这样说就红，不当成没改）。
  * 带了上下文行（没用 `-U0`）时上下文行也会算成新加的 —— 只会多报红。
  */
 export function addedLines(diffs: Iterable<readonly [string, string]>): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>()
   for (const [file, diff] of diffs) {
-    if (diff !== '' && !diff.startsWith('diff --git ')) throw new Error(`读不懂的 diff：${file} 的输出不以「diff --git 」开头`)
+    if (!diff.startsWith('diff --git ')) throw new Error(`读不懂的 diff：${file} 的输出不以「diff --git 」开头${diff === '' ? '（git 把它列在改过的文件里，单问它却答空）' : ''}`)
     for (const l of diff.split('\n')) {
       if (l.startsWith('Binary files ')) throw new Error(`读不懂的 diff：${file} 被 git 当成二进制文件，改了哪几行说不出来`)
       if (!l.startsWith('@@')) continue
@@ -210,6 +211,23 @@ export function addedLines(diffs: Iterable<readonly [string, string]>): Map<stri
     }
   }
   return out
+}
+
+/** 还没加进 git 的文件整份算新加：第 1 行到最后一行（行号与 `fieldsOf` 同一算法，只数换行符，末尾换行后的空段也算一行） */
+export function wholeFile(text: string): Set<number> {
+  return new Set(Array.from({ length: text.split('\n').length }, (_, i) => i + 1))
+}
+
+/**
+ * 类型检查范围里的一个判定文件，git 对它说的行号能不能用：不能用时交回为什么（入口报「无从判断」、红），能用交回 undefined。
+ * - git 看不见它（被忽略了，或名字两边写法不一样）：它的改动列不出来，里面的字段永远不算新；
+ * - 它是符号链接：git 的 diff 只有链接指向的那一行，TypeScript 读的却是指向的文件，两边的行号对不上。
+ * `symlink` 只在 git 看得见时才问。
+ */
+export function outOfSight(file: string, seen: boolean, symlink: () => boolean): string | undefined {
+  if (!seen) return `${file} 在类型检查的范围里，git 却看不见它（被忽略了，或名字两边写法不一样）`
+  if (symlink()) return `${file} 是一个符号链接：git 说的是链接本身改了哪几行，字段却在它指向的文件里，行号对不上`
+  return undefined
 }
 
 export interface FieldVerdict {

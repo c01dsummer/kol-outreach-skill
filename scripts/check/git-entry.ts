@@ -1,5 +1,5 @@
 /**
- * git 入口（ADR-220）：已挪过来的检查脚本调 git 都经这里（还没挪的见登记表），不直接碰 `node:child_process`（ADR-217 的闸门管着），
+ * git 入口（ADR-220）：检查脚本调 git 都经这里（ADR-223 起待挪名单已清空），不直接碰 `node:child_process`（ADR-217 的闸门管着），
  * 通用启动函数也不替它们起 git（ADR-219）。
  *
  * 只答下面 `QUESTIONS` 里列出的那几问（每一行由评审看过是只读的、输出能给机器读）。一问是一串参数的形状：写死的字面量逐个比，`<修订>`、`<值>` 这两种空位
@@ -37,11 +37,16 @@ export const QUESTIONS: readonly (readonly string[])[] = [
   ['diff', '--numstat', '-z', REV, REV],
   ['diff', '--numstat', '-z', '-w', REV, REV],
   ['diff', '--name-only', '--no-renames', '-z', REV],
+  // 字段断言闸门：改过的文件（`--no-relative` 压住本机的 `diff.relative`）、单个文件新加了哪几行（只读块头，算法钉死），ADR-198 第四节
+  ['diff', '--name-only', '--no-renames', '--no-relative', '-z', REV],
+  ['diff', '--no-renames', '--no-relative', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--diff-algorithm=myers', '--indent-heuristic', '-U0', '--inter-hunk-context=0', REV, '--', PATHS],
   // 列文件：受控文件、技能目录的索引条目、起子进程闸门的全部文件
   ['ls-files', '-z'],
   ['ls-files', '-s', '-z', '--', PATHS],
   ['ls-files', '-z', '--full-name', '--cached', '--others', '--exclude-standard', '--', ':(top)'],
   ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+  // 字段断言闸门：还没加进 git 的新文件（整份算新加），ADR-198 第四节
+  ['ls-files', '-z', '--full-name', '--others', '--exclude-standard', '--', PATHS],
   // 变异锚点一次读暂存区与 HEAD 上的一组对象（从标准输入读）
   ['cat-file', '--batch'],
   // 打包时核输入有没有没提交的改动
