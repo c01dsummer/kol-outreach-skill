@@ -385,6 +385,8 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 
 两条都会同时出现在 HTML 报告的数据边界里。见 `references/memory.md` 与 ADR-15。
 
+`lessons` 是这次语义筛选前读复评经验库的情况，取自任务目录里 `lessons read` 留下的 `lessons-read.json`：`status` 为 `not_read`（没有这份记录，没读过）、`record_unreadable`（记录本身读不出来，带 `detail`）、`absent`（没有这一品类的经验库）、`unreadable`（那一份读不出来，带 `detail`）或 `ok`（`lessons` 里逐条列 `index`、`state`、`situation`，可以为空）。读没读、读到什么都不改名单、分层与评分。见 `references/semantic-fit.md`「复评经验」。
+
 ### HTML 报告里数据边界的原句
 
 报告上方统计数字下面那一块黄色提醒就是数据边界，每句单独一行、前面带「⚠️ 」。按下面的顺序出现，条件不满足的那句不出；去重那两句之一出现时排在最前面。
@@ -396,6 +398,12 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 | `memory_written` 是 `false` | 本次推荐未记入跨任务记忆（原文件未被改动）—— 原因：`memory_write_error` 的原文（没有时写「未记录」）。在解决之前，下一批名单可能重复推荐这批人。 |
 | `capabilities.email_verification` 的 `total` 是 0，或 `measured` 小于 `total`（没有 `capabilities` 时看 `enriched` 是 `false`） | 邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。 |
 | `capabilities.audience_geo` 同上 | 未配置增强层，无法确认这批人的粉丝是否在目标市场。 |
+| `lessons.status` 是 `not_read`（任务目录里没有 `lessons-read.json`） | 本次没有读复评经验库（任务目录里没有读取记录），语义筛选没有参考以前确认过的经验。 |
+| `lessons.status` 是 `absent` | 还没有「{category}」这一品类的复评经验库，本次没有可参考的经验。 |
+| `lessons.status` 是 `ok`、`lessons.lessons` 为空 | 复评经验库「{category}」里还没有一条经验，本次没有可参考的经验。 |
+| `lessons.status` 是 `ok`、有经验 | 本次语义筛选前读了复评经验库「{category}」的 {n} 条经验：第 1 条「{situation}」（{state}）；…。其中 {k} 条不是按现行规则写的（写于规则改动之前或版本未知），照常参考。（「其中」那半句只在 k 不是 0 时出） |
+| `lessons.status` 是 `unreadable` | 复评经验库「{category}」读不出来，本次没有参考经验（原文件没有改动）：{detail} |
+| `lessons.status` 是 `record_unreadable` | 复评经验库的读取记录读不出来（{detail}），本次参考了哪些经验无从确认。 |
 | `capabilities.public_post_sample` 的 `measured` 或 `unavailable` 不是 0 | 受众质量风险只依据近期公开互动异常，不是假粉率，也不能代表实际带货效果。 |
 | `capabilities.public_post_sample` 的 `unqueried` 或 `unavailable` 不是 0 | 公开指标边界：{unqueried} 个账号未查询，{unavailable} 个账号不可用。 |
 

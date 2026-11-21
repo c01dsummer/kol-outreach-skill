@@ -7,7 +7,7 @@
  * 单开一层子目录，是因为品类名由用户的产品定，直接放在 `memory/` 下，一个叫 creators 的品类就会撞上已联系名单。
  *
  * 三态与记忆文件同一个规矩（ADR-15）：没有这个文件是「没有」，读不出来是「看不到」，两者分开；
- * 看不到时不当成没有，也不拿任何东西去盖掉原文件（D31.q、D31.r）。
+ * 看不到时不当成没有，也不拿任何东西去盖掉原文件（D31.t、D31.u）。
  */
 import { createHash } from 'node:crypto'
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
@@ -25,9 +25,9 @@ export function useSkillDir(path: string): void { SKILL = path }
 
 /** 一条经验的归因：这次分歧能不能就归到这一条；一次改了几样、或只有一个例子，写「混杂」（D31.d） */
 export const ATTRIBUTIONS = ['能归到这一条', '混杂'] as const
-/** 规则版本取不到时记的值（D31.g） */
+/** 规则版本取不到时记的值（D31.i） */
 export const UNKNOWN_VERSION = '未知'
-/** 读的时候一条经验相对现行规则的三种状态（D31.h） */
+/** 读的时候一条经验相对现行规则的三种状态（D31.j） */
 export const VERSION_STATES = ['同一版本', '写于规则改动之前', '版本未知'] as const
 export type VersionState = typeof VERSION_STATES[number]
 
@@ -49,7 +49,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typ
 const VERSION_RE = /^[0-9a-f]{64}$/
 
 /**
- * 品类名能不能当文件名用。品类名原样当文件名（读同名那一份，D31.j），所以只拦会让它指到别处或建不成文件的写法：
+ * 品类名能不能当文件名用。品类名原样当文件名（读同名那一份，D31.l），所以只拦会让它指到别处或建不成文件的写法：
  * 带路径分隔符、以点开头（`.`、`..`、隐藏文件）、控制字符、首尾空白（同名比的是原字，首尾空白肉眼看不出，宁可拒）。
  */
 export function categoryProblem(name: unknown): string | undefined {
@@ -112,7 +112,7 @@ function storeProblem(text: string): { problem: string } | { lessons: Lesson[] }
   return { lessons: doc.lessons as Lesson[] }
 }
 
-/** 读一个品类的经验库：没有、读不出来、读到了，三态分开（D31.j、D31.q） */
+/** 读一个品类的经验库：没有、读不出来、读到了，三态分开（D31.l、D31.t） */
 export function readLessons(category: string): LessonsRead {
   let text: string
   try { text = readFileSync(lessonsFile(category), 'utf8') }
@@ -126,7 +126,7 @@ export function readLessons(category: string): LessonsRead {
 
 /**
  * 现行 Skill 规则文字的版本标识：`skill/` 下每一项按路径排序，文件取字节、符号链接取它指向的路径，
- * 一起算 SHA-256。不问 git：装到用户机器上的 Skill 多半不是一个仓库。任何一项读不出来，整个记「未知」（D31.g）——
+ * 一起算 SHA-256。不问 git：装到用户机器上的 Skill 多半不是一个仓库。任何一项读不出来，整个记「未知」（D31.i）——
  * 少读一份就算出的标识，会把一次改动算成「同一版本」。
  */
 export function currentRuleVersion(): string {
@@ -151,13 +151,13 @@ export function currentRuleVersion(): string {
   } catch { return UNKNOWN_VERSION }
 }
 
-/** 一条经验相对现行规则的状态（D31.h）：任一边取不到就是版本未知；都在时相同、不同各一态 */
+/** 一条经验相对现行规则的状态（D31.j）：任一边取不到就是版本未知；都在时相同、不同各一态 */
 export function versionState(written: string, current: string): VersionState {
   if (written === UNKNOWN_VERSION || current === UNKNOWN_VERSION) return '版本未知'
   return written === current ? '同一版本' : '写于规则改动之前'
 }
 
-/** 已有经验库的品类名（给新任务定品类名时先看这张，能沿用就沿用，D31.k）。目录不存在就是一个都没有 */
+/** 已有经验库的品类名（给新任务定品类名时先看这张，能沿用就沿用，D31.m）。目录不存在就是一个都没有 */
 export function listCategories(): string[] {
   let names: string[]
   try { names = readdirSync(DIR) }
@@ -169,8 +169,8 @@ export class LessonRejected extends Error {}
 
 /**
  * 追加一条经验。`draft` 是 Agent 起草、用户确认过的那四项（局面、教训、证据、归因）；
- * 规则版本与写入时刻由这里填，草稿里带了就拒 —— 不许起草的一方替这条经验报版本（D31.g）。
- * 五项不齐不写（D31.d）；原文件读不出来不写，也不新建一份去盖它（D31.r）。
+ * 规则版本与写入时刻由这里填，草稿里带了就拒 —— 不许起草的一方替这条经验报版本（D31.e）。
+ * 五项不齐不写（D31.d）；原文件读不出来不写，也不新建一份去盖它（D31.u）。
  */
 export function addLesson(category: string, draft: unknown, now: string): { file: string; count: number } {
   const badName = categoryProblem(category)
@@ -214,7 +214,7 @@ export function lessonsRecord(category: string, read: LessonsRead, current: stri
 
 /**
  * render 眼里这次任务读经验库的情况。比 `LessonsRecord` 多两态：任务目录里没有读取记录（没读过，不是「没有经验」，P1），
- * 读取记录本身读不出来（读过什么无从确认）。都要在数据边界里各说各的（D31.q、D31.s、D31.t、D31.u）。
+ * 读取记录本身读不出来（读过什么无从确认）。都要在数据边界里各说各的（D31.t、D31.v、D31.w）。
  */
 export type LessonsSeen =
   | { status: 'not_read' }
@@ -250,7 +250,7 @@ export function readLessonsSeen(dir: string): LessonsSeen {
 }
 
 /**
- * 数据边界里关于经验库的那一句（D31.i、D31.q、D31.s、D31.t、D31.u）。每一态各说各的：
+ * 数据边界里关于经验库的那一句（D31.k、D31.t、D31.v、D31.w）。每一态各说各的：
  * 没读过、没有这一品类、有这一份但零条、读不出来、读取记录读不出来、读了几条，不压成同一句。
  */
 export function lessonsBoundaryNote(seen: LessonsSeen): string {

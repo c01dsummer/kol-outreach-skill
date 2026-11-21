@@ -133,7 +133,7 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
  * 一条（地域），它不认领任何判据。selfcheck 另起真 render 端到端核「人人带着也仍为 false」，
  * 这几条变异只跑 test.ts，够不着它。
  */
-/** 有人工与 Agent 分歧时，报告在分歧那一节下面加的一句（D31.l）：起草交给 Agent 在对话里做，用户确认后才进库 */
+/** 有人工与 Agent 分歧时，报告在分歧那一节下面加的一句（D31.p）：起草交给 Agent 在对话里做，用户确认后才进库 */
 export const LESSON_DRAFT_HINT = '这些分歧可以沉淀成复评经验：在对话里请 Agent 按分歧起草，你确认收下以后才会写进这一品类的经验库，下一个同品类任务在语义筛选前会先读它。'
 
 export const enrichedFlag = (creators: Creator[]): boolean =>

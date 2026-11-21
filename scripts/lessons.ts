@@ -3,17 +3,17 @@
  * 复评经验库（D31，ADR-230）的三个动作。都不开账、不发请求、不读写已联系名单。
  *
  *   npm run lessons -- list
- *     列出已有经验库的品类名（给新任务定品类名时先看这张，能沿用就沿用，D31.k）。
+ *     列出已有经验库的品类名（给新任务定品类名时先看这张，能沿用就沿用，D31.m）。
  *
  *   npm run lessons -- read --dir output/<任务目录> --category <品类名>
- *     语义筛选前读同名那一份（D31.j），把每条经验连同它相对现行规则的状态打到 stdout（D31.h），
- *     并在任务目录里记下这次读了什么（lessons-read.json），render 据此在数据边界里写明（D31.i、D31.q、D31.s、D31.t）。
- *     没有那一份、读不出来都照常以 0 结束 —— 经验只是参考，缺了照常跑（D31.j、D31.q）；读不出来时原文件一字不动（D31.r）。
+ *     语义筛选前读同名那一份（D31.l），把每条经验连同它相对现行规则的状态打到 stdout（D31.j），
+ *     并在任务目录里记下这次读了什么（lessons-read.json），render 据此在数据边界里写明（D31.k、D31.t、D31.v、D31.w）。
+ *     没有那一份、读不出来都照常以 0 结束 —— 经验只是参考，缺了照常跑（D31.l、D31.t）；读不出来时原文件一字不动（D31.u）。
  *
  *   npm run lessons -- add --category <品类名> --entry <草稿 JSON 文件> --confirmed-by-user
- *     把一条用户在对话里确认收下的经验追加进库（D31.f）。不带 --confirmed-by-user 不写：
+ *     把一条用户在对话里确认收下的经验追加进库（D31.g）。不带 --confirmed-by-user 不写：
  *     这个开关是 Agent 替用户按下的，机器核不了用户真说过没有，只防 Agent 顺手就写（ADR-230 第五节）。
- *     五项不齐不写（D31.d），库读不出来不写（D31.r）。
+ *     五项不齐不写（D31.d），库读不出来不写（D31.u）。
  *
  * 退出码沿用 ADR-193 那张表：0 做完；1 保存失败以外的运行错误；2 输入问题；6 保存失败。
  */
@@ -68,7 +68,7 @@ if (action === 'list') {
 
 if (action === 'add') {
   if (!flags.has('--confirmed-by-user')) {
-    console.error('没有写入：只收用户在对话里明确确认收下的经验。用户确认后再带 --confirmed-by-user 写入（D31.f）。')
+    console.error('没有写入：只收用户在对话里明确确认收下的经验。用户确认后再带 --confirmed-by-user 写入（D31.g）。')
     process.exit(EXIT.input)
   }
   const entryFile = resolve(opts.get('--entry') as string)

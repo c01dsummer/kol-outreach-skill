@@ -26344,6 +26344,240 @@
       ]
     },
     {
+      "id": "M-D31-a",
+      "req": "D31.a",
+      "why": "品类名带路径分隔符也收：经验库文件会写到别的目录去，或建不出来",
+      "file": "scripts/lib/lessons.ts",
+      "find": "  if (/[/\\\\]/.test(s)) return '带路径分隔符'\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D31.a 合规的品类名（中文、带空格、80 个字以内）收；空的、首尾空白、带路径分隔符、以点开头、带控制字符、超过 80 个字、不是字符串的都拒",
+        "D31.a 品类名不合规（带路径分隔符、以点开头、只有空白）时 add 与 read 都以 2 退出，经验库目录里不多文件；合规的追加写进同一个文件"
+      ]
+    },
+    {
+      "id": "M-D31-b",
+      "req": "D31.a",
+      "why": "经验库直接放在 memory/ 下、不单开一层：一个叫 creators 的品类会撞上已联系名单",
+      "file": "scripts/lib/lessons.ts",
+      "find": "let DIR = 'memory/lessons'",
+      "replace": "let DIR = 'memory'",
+      "by": "test",
+      "kills": [
+        "D31.a 经验库默认放在 memory/lessons/ 下，每个品类一个以品类名命名的 .json 文件",
+        "D31.c add 只在 memory/lessons/ 下写这一品类的文件：当前目录下多出来的只有 memory/lessons/护肤.json，skill/ 一字不变"
+      ]
+    },
+    {
+      "id": "M-D31-c",
+      "req": "D31.d",
+      "why": "归因不查：既不是「能归到这一条」也不是「混杂」的经验照样收",
+      "file": "scripts/lib/lessons.ts",
+      "find": "  if (!(ATTRIBUTIONS as readonly unknown[]).includes(v.attribution)) out.push(",
+      "replace": "  if (false as boolean) out.push(",
+      "by": "test",
+      "kills": [
+        "D31.d 五项齐全（规则版本是 64 位十六进制或「未知」）的经验没有毛病；缺任一项、证据缺任一格、平台或归因不在可选之内、规则版本写法不对的都报出毛病",
+        "D31.d 草稿缺局面、教训、证据、归因任一项时 add 以 2 退出，不写入"
+      ]
+    },
+    {
+      "id": "M-D31-d",
+      "req": "D31.e",
+      "why": "草稿自带规则版本或写入时间时不拒，悄悄换成写入那一刻的值：起草的一方以为自己报的版本记下了",
+      "file": "scripts/lib/lessons.ts",
+      "find": "  if (isObject(draft) && (Object.hasOwn(draft, 'rule_version') || Object.hasOwn(draft, 'added_at'))) {",
+      "replace": "  if (false as boolean) {",
+      "by": "test",
+      "kills": [
+        "D31.e 草稿自带规则版本或写入时间时整条不写入（以 2 退出）；不带时由 add 在写入那一刻填上：规则版本是当前 skill/ 的指纹，写入时间是一个时刻"
+      ]
+    },
+    {
+      "id": "M-D31-e",
+      "req": "D31.g",
+      "why": "写入经验不再要「用户已确认」开关：Agent 起草完顺手就写进库",
+      "file": "scripts/lessons.ts",
+      "find": "  if (!flags.has('--confirmed-by-user')) {",
+      "replace": "  if (false as boolean) {",
+      "by": "test",
+      "kills": [
+        "D31.g add 不带「用户已确认」开关时以 2 退出，经验库没有建出来，当前目录下文件一个不多"
+      ]
+    },
+    {
+      "id": "M-D31-f",
+      "req": "D31.i",
+      "why": "规则版本只看 skill/ 里有哪些文件、不看内容：改了规则文字，以前的经验仍被当成同一版本",
+      "file": "scripts/lib/lessons.ts",
+      "find": "      hash.update(body)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D31.i 规则版本是 skill/ 全部内容的 64 位十六进制指纹：同样的内容两次一样，改一个字节、多一个文件、改文件名、符号链接改指向都变，改回去复原；skill/ 读不出来时是「未知」"
+      ]
+    },
+    {
+      "id": "M-D31-g",
+      "req": "D31.i",
+      "why": "skill/ 读不出来时不记「未知」，记一个看着正常的指纹：取不到版本被当成取到了",
+      "file": "scripts/lib/lessons.ts",
+      "find": "  } catch { return UNKNOWN_VERSION }",
+      "replace": "  } catch { return createHash('sha256').digest('hex') }",
+      "by": "test",
+      "kills": [
+        "D31.i 规则版本是 skill/ 全部内容的 64 位十六进制指纹：同样的内容两次一样，改一个字节、多一个文件、改文件名、符号链接改指向都变，改回去复原；skill/ 读不出来时是「未知」"
+      ]
+    },
+    {
+      "id": "M-D31-h",
+      "req": "D31.j",
+      "why": "任一边版本「未知」时不归到版本未知，按两边字面比：未知的经验被说成写于规则改动之前",
+      "file": "scripts/lib/lessons.ts",
+      "find": "  if (written === UNKNOWN_VERSION || current === UNKNOWN_VERSION) return '版本未知'\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D31.j 每条经验相对现行规则落在且只落在三种状态之一：两边相同是同一版本，两边都在但不同是写于规则改动之前，任一边「未知」是版本未知"
+      ]
+    },
+    {
+      "id": "M-D31-i",
+      "req": "D31.k",
+      "why": "读的时候不比版本，每条都说成同一版本：规则改过之后的旧经验不在数据边界里露出来",
+      "file": "scripts/lib/lessons.ts",
+      "find": "lessons: read.lessons.map((l, i) => ({ index: i + 1, state: versionState(l.rule_version, current), situation: l.situation })) }",
+      "replace": "lessons: read.lessons.map((l, i) => ({ index: i + 1, state: '同一版本' as VersionState, situation: l.situation })) }",
+      "by": "test",
+      "kills": [
+        "D31.k skill/ 改过之后读，以前写的经验照常读出（以 0 结束，全文都在），每条标成「写于规则改动之前」，读取记录里也这样列着"
+      ]
+    },
+    {
+      "id": "M-D31-j",
+      "req": "D31.l",
+      "why": "没有同名的经验库时记成「有这一份但零条」：新品类被说成已经有一份空经验库",
+      "file": "scripts/lib/lessons.ts",
+      "find": "    if (isAbsence(e)) return { status: 'absent' }\n",
+      "replace": "    if (isAbsence(e)) return { status: 'ok', lessons: [] }\n",
+      "by": "test",
+      "kills": [
+        "D31.l read 只读与品类名同名的那一份：没有同名的（旁边有名字相近的也不算）时以 0 结束，记下「没有这一品类的经验库」，一条经验也不读"
+      ]
+    },
+    {
+      "id": "M-D31-k",
+      "req": "D31.m",
+      "why": "经验库目录还不存在时列名报错：第一次用的人起品类名前就卡住",
+      "file": "scripts/lib/lessons.ts",
+      "find": "  catch (e) { if (isAbsence(e)) return []; throw e }",
+      "replace": "  catch (e) { throw e }",
+      "by": "test",
+      "kills": [
+        "D31.m list 列出经验库里已有的品类名；经验库目录还不存在时列出空表、以 0 结束"
+      ]
+    },
+    {
+      "id": "M-D31-l",
+      "req": "D31.p",
+      "why": "没有人工与 Agent 的分歧时报告也提示沉淀经验：没有可沉淀的东西却催用户去做",
+      "file": "scripts/lib/report.ts",
+      "find": "    ${summary.disagreements.length ? html`<p>${LESSON_DRAFT_HINT}</p>` : ''}",
+      "replace": "    ${html`<p>${LESSON_DRAFT_HINT}</p>`}",
+      "by": "test",
+      "kills": [
+        "D31.p 人工复评有分歧时报告在分歧那一段后面提示可以沉淀成经验、确认后才写入；没有分歧时不出这段提示"
+      ]
+    },
+    {
+      "id": "M-D31-m",
+      "req": "D31.t",
+      "why": "经验库读不出来时当成没有：报告说「还没有这一品类的经验库」，坏掉的文件没人知道",
+      "file": "scripts/lib/lessons.ts",
+      "find": "  return 'problem' in r ? { status: 'unreadable', detail: r.problem } : { status: 'ok', lessons: r.lessons }",
+      "replace": "  return 'problem' in r ? { status: 'absent' } : { status: 'ok', lessons: r.lessons }",
+      "by": "test",
+      "kills": [
+        "D31.t 经验库那一份存在却读不出来（坏 JSON、重复的键、结构不对、有一条不合格）时 read 照常以 0 结束，读取记录写成「读不出来」并带上原因，不写成没有或零条，stderr 也说了"
+      ]
+    },
+    {
+      "id": "M-D31-n",
+      "req": "D31.u",
+      "why": "经验库读不出来时照样写入：只剩新的这一条，原来的经验全被盖掉",
+      "file": "scripts/lib/lessons.ts",
+      "find": "  if (read.status === 'unreadable') throw new LessonRejected(",
+      "replace": "  if (false as boolean) throw new LessonRejected(",
+      "by": "test",
+      "kills": [
+        "D31.u 经验库读不出来时 read 不动它，add 拒绝写入、以 2 退出，原文件一字不变"
+      ]
+    },
+    {
+      "id": "M-D31-o",
+      "req": "D31.v",
+      "why": "数据边界里只列读到的第一条经验：后面读进来的几条用户看不到",
+      "file": "scripts/lib/lessons.ts",
+      "find": "      const list = seen.lessons.map(l => `第 ${l.index} 条「${l.situation}」（${l.state}）`).join('；')",
+      "replace": "      const list = seen.lessons.slice(0, 1).map(l => `第 ${l.index} 条「${l.situation}」（${l.state}）`).join('；')",
+      "by": "test",
+      "kills": [
+        "D31.v 数据边界写明读进来的每一条经验（局面原文），按读到的次序一条不落"
+      ]
+    },
+    {
+      "id": "M-D31-p",
+      "req": "D31.k",
+      "why": "数据边界里列经验时不写它属哪种状态：规则改动之前写的经验看着与现行的一样",
+      "file": "scripts/lib/lessons.ts",
+      "find": "      const list = seen.lessons.map(l => `第 ${l.index} 条「${l.situation}」（${l.state}）`).join('；')",
+      "replace": "      const list = seen.lessons.map(l => `第 ${l.index} 条「${l.situation}」`).join('；')",
+      "by": "test",
+      "kills": [
+        "D31.k 写于规则改动之前、版本未知的经验照样列出，每条紧跟着写明它属哪种状态"
+      ]
+    },
+    {
+      "id": "M-D31-q",
+      "req": "D31.w",
+      "why": "「有这一份但没有一条经验」写成「没有这一品类的经验库」：两种情形在数据边界里说成同一句",
+      "file": "scripts/lib/lessons.ts",
+      "find": "      if (seen.lessons.length === 0) return `复评经验库「${seen.category}」里还没有一条经验，本次没有可参考的经验。`",
+      "replace": "      if (seen.lessons.length === 0) return `还没有「${seen.category}」这一品类的复评经验库，本次没有可参考的经验。`",
+      "by": "test",
+      "kills": [
+        "D31.w 没读过、读取记录读不出来、没有这一品类、有这一份但零条、这一份读不出来、读了几条，数据边界里六句各不相同，读不出来的两句各带上原因",
+        "D31.w 五种情形在报告里的那一句互不相同"
+      ]
+    },
+    {
+      "id": "M-D31-r",
+      "req": "D31.w",
+      "why": "任务目录里没有读取记录时说成读取记录读不出来：没读过被说成读过但记录坏了",
+      "file": "scripts/lib/lessons.ts",
+      "find": "    if (isAbsence(e)) return { status: 'not_read' }\n",
+      "replace": "    if (isAbsence(e)) return { status: 'record_unreadable', detail: String(e) }\n",
+      "by": "test",
+      "kills": [
+        "D31.w 任务目录里没有读取记录是「没读过」，记录读不出来、形状不对是「读取记录读不出来」，好的记录原样读回",
+        "D31.w 没读过、没有这一品类、零条、这一份读不出来，render 都照常以 0 结束，meta.json 各记各的，报告的数据边界里各出各的那一句"
+      ]
+    },
+    {
+      "id": "M-D31-s",
+      "req": "D31.v",
+      "why": "render 不把这次读了什么带进交付：数据边界里没有经验库那一句",
+      "file": "scripts/render.ts",
+      "find": "  lessons: readLessonsSeen(dir),\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D31.v render 把任务目录里的读取记录原样带进 meta.json，报告的数据边界里有读了哪几条的那一句（每条的局面与状态都在）",
+        "D31.w 没读过、没有这一品类、零条、这一份读不出来，render 都照常以 0 结束，meta.json 各记各的，报告的数据边界里各出各的那一句"
+      ]
+    },
+    {
       "id": "M-H186-ca",
       "req": "harness",
       "why": "入口进程的环境里有测试观察记录文件那个变量就判隔离故障：观察器自己每一跑都设它，起的每一跑都判不了",
@@ -32282,6 +32516,36 @@
       "scope": "「任何位置」这个全称",
       "why": "扫写法那道纪律 lint 2026-09-18 撤了（ADR-77）—— 它自称全量扫描，实现却是一张手写的敏感字段表，漏过 `score` 与 `null`。判据正文按「编号不改含义」原样保留，但**没有任何检查能兑现「任何位置」这个全称**：要兑现它得回到扫源码，而那正是撤掉的东西。显式登记为缺口，不假装它被守住。",
       "mitigation": "机器可执行的那部分按路径拆成 P1.e（取值）、P1.f（排序）、P1.g（入池）三条，各有认领与负片；`docs/CONVENTIONS.md` 第 2 条写明写代码时要避开的形状。见 ADR-77。"
+    },
+    {
+      "req": "D31.f",
+      "scope": "整条（不收可以直接照抄的现成句子）",
+      "why": "「能不能直接照抄进开发信或评审理由」要读句子本身才判得出，同一句话两个人判未必一样；机器只能查五项在不在、写法对不对，查不了一句话是局面还是现成句子。",
+      "mitigation": "起草的规矩写在 skill/references/semantic-fit.md「复评经验」一节，经验在写入前要用户在对话里看过、明确收下；改这段判断类文字照真实任务回归办法（docs/REGRESSION.md）由人看。见 ADR-230。"
+    },
+    {
+      "req": "D31.h",
+      "scope": "整条（用户在对话里明确确认后才带「用户已确认」开关）",
+      "why": "「用户确认」发生在对话里，写入命令看不到对话；这个开关是 Agent 替用户按下的，机器核不了用户真说过没有。命令能守住的那一半（不带开关不写）由 D31.g 认领。",
+      "mitigation": "skill/references/semantic-fit.md「复评经验」一节写明没明确确认就不能带开关；经验库只在用户本机，写错了一条用户能在文件里看到、删掉。见 ADR-230。"
+    },
+    {
+      "req": "D31.n",
+      "scope": "整条（定品类名时先看已有名字，能沿用就沿用）",
+      "why": "「能不能沿用」是 Agent 对这次产品落在哪一类的判断，没有一个对错可以由机器比；命令能做的那一半（列出已有名字）由 D31.m 认领。",
+      "mitigation": "skill/SKILL.md 语义筛选一节与 semantic-fit.md「复评经验」一节写明先跑列名、能沿用就一字不差地沿用。见 ADR-230。"
+    },
+    {
+      "req": "D31.o",
+      "scope": "整条（不为定品类名追问用户）",
+      "why": "问不问用户发生在对话里，命令与报告都看不到。",
+      "mitigation": "skill/SKILL.md 与 semantic-fit.md「复评经验」一节写明不为定品类名问用户。见 ADR-230。"
+    },
+    {
+      "req": "D31.q",
+      "scope": "整条（不为攒经验主动索要复评表或回填）",
+      "why": "索不索要发生在对话里，命令与报告都看不到；报告只在已有分歧时出一句提示（D31.p），那是给用户看的、不是向用户要东西。",
+      "mitigation": "semantic-fit.md「复评经验」一节写明不主动要复评表或回填；与 S3、memory.md「不要主动追问上批结果」一段同一条规矩。见 ADR-230。"
     }
   ]
 }
