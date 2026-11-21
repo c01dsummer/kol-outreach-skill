@@ -1797,11 +1797,12 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   {
     // 读表交给 marked（按 GitHub 的 Markdown 规则解析），不手写规则：手写的读表连着两轮漏掉 GitHub 的写法
     // （行首省略竖线、整行没有竖线也算一行），需求所有者 2026-11-21 定改用现成库（ADR-231 第十一节）。
-    // 整份文档交给 marked 解析，再在它给的顶层块里找：代码块里的示例不会被当成锚点或表格；
+    // 整份文档交给 marked 解析，再在它给的顶层块里找：代码块里的示例、注释里的字不会被当成锚点或表格；
     // 锚点是标题时，只在它这一节里找（遇到同级或更高级的标题就停），锚点是段落时，只认紧接着的那张表。
     const firstTableAfter = (text: string, anchor: string): string[] | string => {
       const blocks = marked.lexer(text)
-      const hits = blocks.flatMap((b, i) => b.type !== 'code' && b.raw.includes(anchor) ? [i] : [])
+      // 锚点只认真的标题或段落：代码块、HTML 注释等别的块里写着同样的字不算
+      const hits = blocks.flatMap((b, i) => (b.type === 'heading' || b.type === 'paragraph') && b.raw.includes(anchor) ? [i] : [])
       if (hits.length !== 1) return `「${anchor}」在正文块里出现 ${hits.length} 次`
       const head = blocks[hits[0]]
       let table: Tokens.Table | undefined

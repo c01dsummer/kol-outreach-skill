@@ -1830,6 +1830,18 @@
       ]
     },
     {
+      "id": "M-F1-g",
+      "req": "F1.a",
+      "why": "「必须问的三个」那个标题改成了 HTML 注释，网页上不显示，表还紧跟在后面",
+      "file": "skill/references/product-intake.md",
+      "find": "## 必须问的三个（F1）\n",
+      "replace": "<!-- ## 必须问的三个（F1） -->\n",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
       "id": "M-P4-b",
       "req": "P4",
       "why": "记忆过滤跑在粉丝闸门之前 —— filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模",
