@@ -99,7 +99,7 @@ type KindOf<V> = { [k in keyof Kinds]: [Kinds[k]] extends [V] ? [V] extends [Kin
 type Must<T> = { [K in keyof T]-?: {} extends Pick<T, K> ? never : K }[keyof T]
 type Table<T> = { [K in keyof T]-?: K extends Must<T> ? KindOf<T[K]> : `${KindOf<Exclude<T[K], undefined>> | 'opaque'}?` }
 const CREATOR: Table<Creator> = {
-  platform: 'platform', handle: 'str', user_id: 'str?', nickname: 'str', followers: 'num?', following: 'num?', post_count: 'num?',
+  platform: 'platform', handle: 'str', user_id: 'str?', nickname: 'str', followers: 'num?', following: 'num?', post_count: 'num?', invalid_from_provider: 'opaque?',
   bio: 'str|null?', bio_links: 'str[]', verified: 'bool', is_private: 'bool?', avatar: 'str?', profile_url: 'str',
   source_keyword: 'str', source_dimension: 'dimension', source_tasks: 'num[]?', discovery_sources: 'opaque?', recent_posts: 'posts?',
   email: 'str|null?', email_verified: 'bool?', audience_geo: 'geo?', fake_follower_score: 'num?',

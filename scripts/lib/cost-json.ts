@@ -106,7 +106,7 @@ type Level = Map<string, string | Level>
 
 /** 每个数字在原文里的写法，按「所在的对象或数组 → 键（数组是下标的字符串）」记，与带回调的 JSON.parse 交给回调的 this、key 与 source 相同（D13、D19.g）。
  * 先逐个记号扫一遍原文搭出各层（与 scanDuplicateKeys 同一种走法），再对着 JSON.parse 读出的对象逐层配上；两步都用列表代替递归，
- * 读得进来多深都走得完（ADR-228）。文本须是 JSON.parse 已接受的。 */
+ * 读得进来多深都走得完（ADR-229）。文本须是 JSON.parse 已接受的。 */
 function numberSources(text: string, parsed: object): WeakMap<object, Map<string, string>> {
   const root: Level = new Map()
   const open: { level: Level; key?: string; index?: number }[] = []
@@ -159,7 +159,7 @@ export function assertCostJsonRuntime(): void {
 }
 
 export function readCostDocument<T extends object = CostState>(text: string): T {
-  // 不带回调的 JSON.parse 不递归；带回调的那一种在 V8 里逐层递归，能读多深看机器栈大小（ADR-228）
+  // 不带回调的 JSON.parse 不递归；带回调的那一种在 V8 里逐层递归，能读多深看机器栈大小（ADR-229）
   const parsed: unknown = JSON.parse(text)
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new CostError('invalid-money', '任务或配置必须是 JSON 对象')
@@ -169,7 +169,7 @@ export function readCostDocument<T extends object = CostState>(text: string): T 
   const state = parsed as Record<string, unknown>
   const rootToken = tokens.get(parsed)?.get('budget_usd')
   if (rootToken !== undefined) roots.set(parsed, { value: state.budget_usd, token: rootToken })
-  // 费用子树里的每个数字换成精确金额；待办列表代替递归，子树多深都走得完（ADR-228）
+  // 费用子树里的每个数字换成精确金额；待办列表代替递归，子树多深都走得完（ADR-229）
   const preserveCostNumbers = (holder: Record<string, unknown> | unknown[], key: string): void => {
     for (const pending: [Record<string, unknown> | unknown[], string][] = [[holder, key]]; pending.length;) {
       const [at, field] = pending.pop()!
@@ -253,7 +253,7 @@ type Writing = { holder: object; keys: string[]; next: number; parts: string[]; 
  * 照 ECMAScript SerializeJSONProperty 的步骤写出（toJSON、replacer、拆包装对象、JSON.rawJSON 的原文、数组里写不出的值写 null、
  * 对象里的跳过、成环抛 TypeError），对 JSON.parse 读出的数据加上这几样，与 `JSON.stringify(value, replacer, 2)` 逐字节相同；
  * 刻意造出来的怪对象（原型换成包装类的普通对象、回调交回自带 toJSON 的包装对象）不保证相同，任务数据到不了那里。只是用列表代替递归：
- * 内置的那个逐层递归，任务里挂着深的嵌套时写回就栈溢出，能写多深看机器栈大小（ADR-228）。标量与键名的写法仍交给内置的 JSON.stringify。
+ * 内置的那个逐层递归，任务里挂着深的嵌套时写回就栈溢出，能写多深看机器栈大小（ADR-229）。标量与键名的写法仍交给内置的 JSON.stringify。
  */
 function stringifyDeep(value: object, replacer: (this: object, key: string, item: unknown) => unknown): string {
   const ancestors = new Set<object>()

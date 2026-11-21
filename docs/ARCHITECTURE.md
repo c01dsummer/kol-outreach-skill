@@ -132,21 +132,24 @@
 | `scripts/lib/exit-codes.ts` | 逻辑 | D6 D14 D4 F3 | 四个入口共用的退出码名字（ADR-193），每个数对着调用方该做的一件事；`saving` 给一段保存抛的错误打不可枚举的记号、原样抛出，入口凭 `isSaveFailure` 分到保存失败 |
 | `scripts/lib/budget.ts` | 逻辑 | D13 D14 P3 F7 | 连接价目与费用账，延迟检查付费资格；同一 state 同步账目/次数，由任务入口注入费用保存回调（回调同时得知是哪个保存点、哪一次尝试），预留和终态保存失败锁定该实例；process 预算不落盘；每次预留尝试经 `obs.ts` 报一条记录（kol-test-observer/v1，平时关着）；钱不够付下一次请求停下时 collect、enrich 共用的收尾三行也在这里拼（`budgetStopLines`） |
 | `scripts/lib/obs.ts` | 逻辑 | — | 契约 kol-test-observer/v1（`output-format.md` 末节，需求方逐字确认，ADR-186、ADR-187）：设了 `KOL_TEST_OBSERVER_EVENTS` 时以追加方式打开它指的文件（最后一行没有换行就先补一个），同步写就绪记录与每次预留尝试的预留记录；这时 collect 启动时只读一次 `.kol-save-fault.json`，选中保存点的第 k 次抛出、与磁盘写失败同一条路，并写命中记录，没生效就在退出时写未命中记录。记录只写进那个文件、不带前缀，stdout 与 stderr 不因此多写；文件打不开、写不进时以 1 退出；没设时什么也不读、不写。入口第一句调它，保存点由 `budget.ts` 的保存回调与 collect 收尾那次断点保存报给它 |
-| `scripts/lib/cost-json.ts` | 逻辑 | D13 D14 P3、D19 P1 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件；向恢复进度校验提供原始 JSON 数字 token，读入时留住源文本、判重复时才扫出每一层对象里的重复键及每一处原文（D19.k 只取根与根下一层）；整份写回时，读入根上没被改动的非费用数字按原文写出，费用三棵子树只走 D13 的专用路径；读入、找原文、查重复与写出都不逐层递归，能走多深不看机器栈大小（ADR-228）；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
+| `scripts/lib/cost-json.ts` | 逻辑 | D13 D14 P3、D19 P1 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件；向恢复进度校验提供原始 JSON 数字 token，读入时留住源文本、判重复时才扫出每一层对象里的重复键及每一处原文（D19.k 只取根与根下一层）；整份写回时，读入根上没被改动的非费用数字按原文写出，费用三棵子树只走 D13 的专用路径；读入、找原文、查重复与写出都不逐层递归，能走多深不看机器栈大小（ADR-229）；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句；几个邮箱列几个，按出现先后用 `, ` 连成一个值 |
 | `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本范围归一化 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；新抓与缓存重算在这里共用窗口与媒体范围契约，入口脚本只负责调用与落盘 |
 | `scripts/lib/rows.ts` | 逻辑 | P1 P2 U5 U7 U9 | 旧行与排序保持；显式评审输出消费已投影判断，旧列前缀后追加评审列，按有效建议再按原层级和分数排序；草稿占位符原样穿透 |
 | `scripts/lib/csv.ts` | 逻辑 | D5 D4 | UTF-8 with BOM 与转义；名单里可能被当成公式的文字格先加 `'`；落盘走整体替换 |
 | `scripts/lib/xlsx.ts` | 逻辑 | U5 U9 D4 | 零依赖 ZIP 与 CRC32；空分层也建 sheet；显式评审模式复用三层表、表内按有效建议排序，落盘走整体替换 |
-| `scripts/lib/report.ts` | 逻辑 | P1 P2 P5 U2 U3 U4 U9 U10 U11 U12 | 单文件内联 HTML，取值一律在输出处转义；展示平台各自的判断、证据和人工来源；显式双筛选默认全部交付候选，保留阅读位置与数据边界；旧公共单层视图由 U9.a 兼容 |
+| `scripts/lib/report.ts` | 逻辑 | P1 P2 P5 U2 U3 U4 U9 U10 U11 U12 | 单文件内联 HTML，用 `safe-html.ts` 的 `html` 模板拼，取值默认转义；展示平台各自的判断、证据和人工来源；显式双筛选默认全部交付候选，保留阅读位置与数据边界；旧公共单层视图由 U9.a 兼容 |
+| `scripts/lib/safe-html.ts` | 逻辑 | U12 | 报告网页的默认转义：带标签的模板 `html` 把插进去的取值一律转义，只有它自己拼出来的片段（`SafeHtml`）原样插入；`joinHtml` 把一串片段连起来 |
 | `scripts/lib/draft-claims.ts` | 逻辑 | P2 | 扫开发信草稿里带数字的说法和固定词表里的承诺词，只拿已证实的产品事实对，列出对不上的，只在该账号作品文字里有的另列；只给评审 HTML 标出，不改草稿、不拦交付（ADR-199、ADR-209） |
 | `scripts/lib/draft-sources.ts` | 逻辑 | P2 | 拿评审正本里登记的出处，核开发信每一句所引原文是否真在他的简介、作品文案、昵称或任务里已证实的产品事实里，并列出有字没登记的行；另交出标成约时间、联系方式的登记的那几段字的位置，给数字扫描挪行用；只给评审 HTML 并排列出，不改草稿、不拦交付（ADR-210、ADR-215） |
 | `scripts/lib/task.ts` | 逻辑 | D6 D4 D14 D21 D23 D29 U9 | 任务目录的读写；新任务的目录名由产品名拼成，含 `/`、`\` 或 NUL 的产品名拼不成（`productDirProblem`，D29）；费用检查点只替换盘上任务的账目与次数，保留根预算和业务字段；**累加器与交付物是两个文件**，名单与去重状态分三步落盘，肯定的声明最后写 |
 | `scripts/lib/types.ts` | 逻辑 | P1 D1 D8 D11 | 三态模型的定义处 —— 它把「没查到」和「查了没有」在类型层面分开；**D1 的身份键与支持的平台列表只此一份**，采集去重、记忆读写、账号评估都调它 —— 各写一份表达式时的「一致」只是巧合 |
+| `scripts/lib/counts.ts` | 逻辑 | P1 | 同一个人又被查到一次时，粉丝数、作品数两项读数与「未取得有效值」记号怎么合；搜索页内去重与跨关键词合并共用 |
 | `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 D11 D18 P1 | 唯一的数据源实现；IG 主页返回项在这里逐条带出肯定视频证据，不替下游决定报价或把无证据项删掉；响应结构走探测 cascade，识别不出时暴露顶层 key |
 | `scripts/check/size.ts` | 检查 | — | 把「一个改动 = 一个能一次读完的 diff」变成能报错的检查；量的是分支相对主干的新增行，基线算不出来时说「无从判断」而不是放行；**量两遍**（一遍照实定文件清单、一遍忽略行内空白定计数），折掉多少逐类打出来 |
 | `scripts/check/size-rule.ts` | 检查 | — | 上面那条闸门的**判定**本身。四类分开算、豁免必须指名类别；**「量新增行带哪些 git 参数」也在这里**（`GIT_CONFIG` 与两个 `NUMSTAT`；`GIT_CONFIG` 本身后来挪进 `git-config.ts`，这里原样转出，ADR-221）—— 它决定这道闸门看得见多少改动，所以是判定，由一个真 git 仓库的夹具钉住（ADR-98）；**「从哪个提交量起」也在这里**（`resolveBaseline`：主干候选的先后、浅克隆、在主干上退回上一版、这条分支自己的提交），git 由入口传进来，测试喂假应答；抽出来是为了它能被测 |
-| `scripts/check/field-use-rule.ts` | 检查 | — | 上面那条闸门的**判定**（ADR-198）。字段按位置认、不按名字认：哪些是字段（`scripts/check/` 下非验证者文件里每个导出函数的返回类型逐层展开到的、声明在这些文件里的属性，一处声明一个）、给它赋值的是哪几处（问 TypeScript 语言服务的「跳到定义」）、哪些算测到了（有一条被测试打红的变异改的那段和一处赋值重叠；不读测试源码）、哪些是新增（声明那一行是 `git diff` 里新加的行：文件名由 git 列出、原样作键，`addedLines` 只读每个文件 `git diff -U0` 的块头）、`字段不入断言：<理由>` 的豁免与红不红。`typescript` 按需加载。变异改坏的是不是这个字段的值只核到位置重叠、打印的文字不是字段，见 ADR-198 第三节 |
+| `scripts/check/field-use.ts` | 检查 | — | 字段断言闸门的入口（`npm run fields`，检查链里紧跟类型检查，ADR-198 第四节、第六节）：只问 git、读文件、建语言服务、读变异登记表、打印、交回退出码（只设不退），判断都交给下一行的判定。要用的每件事实找谁要照 ADR-198 第四节那张表：起点与体量闸门同一个 `resolveBaseline`；git 都经 git 入口问，路径与输出都按仓库根算（在哪个子目录跑都一样），起 git 前从环境里去掉 `GIT_DIFF_OPTS` 与四个 `GIT_*_PATHSPECS`；改过的文件逐个问 `-U0`，交给 `addedLines`（答空也算读不懂、无从判断）；没加进 git 的新文件由 `wholeFile` 整份算新加；类型检查范围里的判定文件 git 看不见（被忽略）或是符号链接，`outOfSight` 说出原因，就是无从判断；语言服务拿仓库根的 `tsconfig.json` 建；变异的位置用语言服务程序里的同一份正文定。主干上只报数、退 0。需求测试组 `h-field-use-entry`、`h-field-use-entry-git`、`h-field-use-entry-inputs` 在玩具 git 仓库里真起它 |
+| `scripts/check/field-use-rule.ts` | 检查 | — | 上面那条闸门的**判定**（ADR-198）。字段按位置认、不按名字认：哪些是字段（`scripts/check/` 下非验证者文件里每个导出函数的返回类型逐层展开到的、声明在这些文件里的属性，一处声明一个）、给它赋值的是哪几处（问 TypeScript 语言服务的「跳到定义」）、哪些算测到了（有一条被测试打红的变异改的那段和一处赋值重叠；不读测试源码）、哪些是新增（声明那一行是 `git diff` 里新加的行：文件名由 git 列出、原样作键，`addedLines` 只读每个文件 `git diff -U0` 的块头，列出来却答空的抛错；没加进 git 的整份算新加，`wholeFile`；git 看不见或是符号链接的判定文件行号不能用，`outOfSight`）、`字段不入断言：<理由>` 的豁免与红不红。`typescript` 按需加载。变异改坏的是不是这个字段的值只核到位置重叠、打印的文字不是字段，见 ADR-198 第三节 |
 | `scripts/check/shard-load.ts` | 检查 | — | 变异负载闸门的入口（`npm run shard-load`，检查链紧跟体量闸门，ADR-203）：读当前树的变异清单与秒数文件 `shard-weights.json`，照变异一步的分法（`jobs-rule.ts` 的 `shardKey`、`shardPlan`，一摞的秒数取 `pileWeigher`）算三份各自的验证者秒数；读 PR 基线（与体量闸门同一个 `resolveBaseline`；主干上是上一版）那份清单与那时的源码，按同一份秒数文件算总秒数；从这条分支自己的提交信息末段读 `mutation-growth-ok:` 豁免；读 `.github/workflows/check.yml` 与 `package.json` 的 `check` 核接线。判法全交给 `shardLoadGate`，照它交回的打、退出；另报有几条变异落在默认值上。不起验证者；自检组 `shard-load-entry` 在玩具 git 仓库上真起它 |
 | `scripts/check/shard-load-rule.ts` | 检查 | — | 上面那条闸门与变异分份的**判定**（ADR-203）：秒数文件的形状（`readWeights`）、一摞的秒数（`pileSeconds`：一次基线 + 条数 × 一条，文件里没有的配置按验证者取默认，整跑的每一条按那个验证者各配置基线之和，认不得的验证者抛错；`pileWeigher` 是变异一步与闸门共用的称法）、从成本报告派生秒数文件（`weightsFromReports`、`weightsText`）；三道线（最重一份比平均高过 25%、最重一份预计过 14 分钟即 4,421 验证者秒、一次 PR 让总秒数涨过 5%），PR 上越线就红、主干上只报数，只有涨幅那一道能用 `mutation-growth-ok: <理由>` 豁免；问不出在不在主干上、`check.yml` 接线对不上（`workflowWiringFaults`：整份去掉整行注释与空行后与钉死的 `WORKFLOW_PIN` 逐行相同，份数、worker 数与 chain 那一串按常量与 `package.json` 的 `check` 填；不从文字猜 YAML 的结构）主干上也红；PR 基线读不出来判红，不当成没涨。纯函数 |
 | `scripts/check/shard-weights.ts` | 检查 | — | 回写秒数文件的入口（`npm run shard-weights -- <日志>…`，ADR-203 第五节）：从给定的 CI 变异 job 日志里认出 `MUTATION_COST_JSON` 的 summary 那几段，同一份报告只收一次，交 `weightsFromReports` 算、照 `weightsText` 写回 `scripts/check/shard-weights.json`；一份都读不到或算不出来不写、以 1 退出。不在检查链里；自检组 `shard-load-entry` 在玩具目录上真起它 |
@@ -520,7 +523,7 @@ probe 的成功与普通错误行照配置带出 `ig_route`：写了才有这个
 
 collect 恢复已有任务还要校验原始进度（D19、ADR-117）：`done` 为不重复且在任务范围内的安全整数数组；
 四张可选统计表存在时必须以标准十进制任务索引为键，值为非负安全整数，仅 `found` 的项允许 null。
-进度数字按读入时的原 token 并按精确十进制值判定（原 token 由不递归的扫描从源文本里找回，读得进来多深都走得完，ADR-228），允许 `1.0`、`1e0`，
+进度数字按读入时的原 token 并按精确十进制值判定（原 token 由不递归的扫描从源文本里找回，读得进来多深都走得完，ADR-229），允许 `1.0`、`1e0`，
 拒绝经 Number 舍入或下溢后才成为整数的原文；错误显示非法 token，不把溢出数写成 null。
 根上五个进度键、或四张表里同一个键（按解码后的键名比）写了不止一次也判不合规：JSON 读入只留最后一处，
 判据回到源文本找出每一处，诊断按文件里的先后列出原文，对象与数组只标类型（D19.k–l、ADR-140）。
@@ -650,6 +653,7 @@ JSON 摘要、CSV/XLSX 与 HTML 都带出范围状态，使历史视频窗口与
 | `undefined` | **没查过** |
 | `null` | 查过，确实没有 |
 | 有值 | 查过，就是它 |
+| 名单上的粉丝数、作品数缺席，且名字列在 `invalid_from_provider` 里 | 查过，供应商给了值但不是有限非负整数（**已查询但未取得有效值**），交付里显示 `未知`；与没查过（显示 `未查询`）分开（P1.m，ADR-227） |
 | `recent_posts` 的空数组 | **例外：读作没查过**，与缺席同一态。今天没有生产者，全是盘上旧数据里 IG 那条兜底路径凭空写的（ADR-102） |
 | `Measurement<T>` | `measured`（带 source / observed_at / sample_size / basis）· `unavailable`（带 reason）· **字段整个缺席 = 未查询** |
 | `meta.json` 的 `capabilities` | 每种能力分别统计 `measured` / `unavailable` / `unqueried`，三个数不合并 |

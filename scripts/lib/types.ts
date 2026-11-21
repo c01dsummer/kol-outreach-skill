@@ -281,6 +281,11 @@ export interface Creator {
   following?: number
   post_count?: number
   /**
+   * P1.m：供应商给了、却不是有限非负整数的那几项（「已查询但未取得有效值」）。列在这里的项本身缺席，
+   * 打分与粉丝数闸门照未查询处理，交付物显示 `未知` 而不是 `未查询`。没有这种项时整个字段缺席。
+   */
+  invalid_from_provider?: Array<'followers' | 'post_count'>
+  /**
    * **三态，和 `email` 同一个模型**（P1.a）：`undefined` 是没查过，`null` 是
    * 查过、对方没写简介，字符串是查过且写了。
    *

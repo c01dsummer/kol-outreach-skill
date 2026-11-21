@@ -3,6 +3,7 @@ import { linkCrossPlatform, mergeCrossPlatform } from './identity.js'
 import { mergeRecentPosts } from './posts.js'
 import { mergeDiscoverySources } from './discovery.js'
 import { taskLabel } from './task-label.js'
+import { mergeCounts } from './counts.js'
 import {
   passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty, applyAudienceRiskPenalty,
 } from './score.js'
@@ -540,6 +541,25 @@ export function keywordRows(
 }
 
 /**
+ * P1.m（ADR-227）：把补主页资料拿到的 `p` 盖到名单上的人 `c` 上（collect 补全那一步）。
+ * 昵称、粉丝数、作品数这次没给就留原来的；哪一次给了有效值就以它为准；最后仍没有值、
+ * 而搜索或这次主页给过怪值的，才记「未取得有效值」。
+ */
+export function mergeProfile(c: Creator, p: Partial<Creator>): void {
+  const before = c.invalid_from_provider
+  Object.assign(c, {
+    ...p,
+    nickname: p.nickname ?? c.nickname,
+    followers: p.followers ?? c.followers,
+    post_count: p.post_count ?? c.post_count,
+  })
+  const invalid = (['followers', 'post_count'] as const).filter(k =>
+    c[k] === undefined && [...(p.invalid_from_provider ?? []), ...(before ?? [])].includes(k))
+  if (invalid.length) c.invalid_from_provider = invalid
+  else delete c.invalid_from_provider
+}
+
+/**
  * 把一页搜索结果并进累加器，交回**新增了几个人**。
  *
  * **归人就在这里落笔**：同一个人被第二个任务搜到时保留已有字段，作品稳定取并集；那个任务的下标要追加进
@@ -567,6 +587,7 @@ export function mergePage(creators: Map<string, Creator>, page: readonly Partial
       // D11 / P1.e：后来取得的作品并入已有证据；同 id 保留先到记录，缺 id 不吞掉。
       seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)
       seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources, p.discovery_sources)
+      mergeCounts(seen, p)
       continue
     }
     creators.set(k, { ...(p as Creator), recent_posts: mergeRecentPosts(undefined, p.recent_posts), source_keyword: t.keyword,
