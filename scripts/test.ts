@@ -332,7 +332,9 @@ const GROUPS: readonly Group[] = [
   { id: 'd30-set', needs: [] },
   { id: 'd31-store-outside-repo', needs: [] },
   { id: 'd31-lessons-lib', needs: [] },
-  { id: 'd31-lessons-command', needs: [] },
+  { id: 'd31-lessons-write', needs: [] },
+  { id: 'd31-lessons-read', needs: [] },
+  { id: 'd31-lessons-broken', needs: [] },
   { id: 'd31-lessons-render', needs: [] },
   { id: 'h-ci-wallclock-core', needs: [] },
   { id: 'h-ci-wallclock-cpu', needs: [] },
@@ -23790,31 +23792,38 @@ suite('D31', '复评经验库：品类名、五项、规则版本与三种状态
 })
 
 // D31（ADR-230）：真起 scripts/lessons.ts。当前目录是一个临时目录，里头只有一份小 skill/、一份已联系名单和一个任务目录；
-// 经验库、规则版本都按当前目录算，与用户机器上一样。期望只来自 D31 各条原文与下面写进夹具的字面值
-await group('d31-lessons-command', () => {
-suite('D31', '复评经验库：lessons 命令的读、写与列名')
-{
-  const root = mkdtempSync(join(tmpdir(), 'kol-d31-cmd-'))
-  try {
-    const cwd = join(root, 'cwd'), task = join(root, 'task'), stamp = '2026-10-01T00:00:00Z'
-    mkdirSync(join(cwd, 'skill', 'references'), { recursive: true }); mkdirSync(join(cwd, 'memory')); mkdirSync(task)
-    writeFileSync(join(cwd, 'skill', 'SKILL.md'), '# rules v1\n'); writeFileSync(join(cwd, 'skill', 'references', 'semantic-fit.md'), 'fit\n')
-    const CREATORS = '{"version":1,"updated_at":"2026-10-01T00:00:00Z","creators":{"tiktok:seen":{"contacted":true,"blocked":false,"replied":true}}}\n'
-    writeFileSync(join(cwd, 'memory', 'creators.json'), CREATORS)
-    writeFileSync(join(task, 'task.json'), JSON.stringify({ product: 'p', market: 'US', target_count: 1, tasks: [], done: [], created_at: stamp, updated_at: stamp }))
-    const run = (...args: string[]) => {
-      const [exe, a] = prebuiltCommand([fileURLToPath(new URL('./lessons.ts', import.meta.url)), ...args])
-      return spawnSync(exe, a, { cwd, encoding: 'utf8', timeout: 30000 })
-    }
-    let n = 0
-    const draft = (v: unknown) => { const f = join(root, `draft-${n++}.json`); writeFileSync(f, JSON.stringify(v)); return f }
-    const json = (text: string | null | undefined): any => { try { return JSON.parse(text ?? '') } catch { return undefined } }
-    const files = (dir: string): string[] => existsSync(dir) ? (readdirSync(dir, { recursive: true }) as string[]).filter(p => !statSync(join(dir, p)).isDirectory()).sort() : []
-    const skillBytes = () => files(join(cwd, 'skill')).map(p => [p, rf(join(cwd, 'skill', p), 'utf8')])
-    const store = join(cwd, 'memory', 'lessons', '护肤.json')
-    const DRAFT = { situation: '简介写测评、近期视频全是开箱', lesson: '按测评号判，不按生活方式号判',
-      evidence: { task: 'output/护肤-1', platform: 'tiktok', handle: 'ana', round_id: 'r1', manual: '不采纳', agent: '采纳' }, attribution: '能归到这一条' }
+// 经验库、规则版本都按当前目录算，与用户机器上一样。期望只来自 D31 各条原文与下面写进夹具的字面值。
+// 按变异点名的用例拆成写、读、读不出来三组（每组起入口的次数乘点名它的变异条数有上限，ADR-145）；参数用法与保存失败那几样是入口契约，在自检组 lessons-entry
+const D31_DRAFT = { situation: '简介写测评、近期视频全是开箱', lesson: '按测评号判，不按生活方式号判',
+  evidence: { task: 'output/护肤-1', platform: 'tiktok', handle: 'ana', round_id: 'r1', manual: '不采纳', agent: '采纳' }, attribution: '能归到这一条' }
+const D31_CREATORS = '{"version":1,"updated_at":"2026-10-01T00:00:00Z","creators":{"tiktok:seen":{"contacted":true,"blocked":false,"replied":true}}}\n'
+const d31Fixture = (prefix: string) => {
+  const root = mkdtempSync(join(tmpdir(), prefix))
+  const cwd = join(root, 'cwd'), task = join(root, 'task'), stamp = '2026-10-01T00:00:00Z'
+  mkdirSync(join(cwd, 'skill', 'references'), { recursive: true }); mkdirSync(join(cwd, 'memory')); mkdirSync(task)
+  writeFileSync(join(cwd, 'skill', 'SKILL.md'), '# rules v1\n'); writeFileSync(join(cwd, 'skill', 'references', 'semantic-fit.md'), 'fit\n')
+  writeFileSync(join(cwd, 'memory', 'creators.json'), D31_CREATORS)
+  writeFileSync(join(task, 'task.json'), JSON.stringify({ product: 'p', market: 'US', target_count: 1, tasks: [], done: [], created_at: stamp, updated_at: stamp }))
+  const runIn = (dir: string, ...args: string[]) => {
+    const [exe, a] = prebuiltCommand([fileURLToPath(new URL('./lessons.ts', import.meta.url)), ...args])
+    return spawnSync(exe, a, { cwd: dir, encoding: 'utf8', timeout: 30000 })
+  }
+  let n = 0
+  const draft = (v: unknown) => { const f = join(root, `draft-${n++}.json`); writeFileSync(f, JSON.stringify(v)); return f }
+  const json = (text: string | null | undefined): any => { try { return JSON.parse(text ?? '') } catch { return undefined } }
+  const files = (dir: string): string[] => existsSync(dir) ? (readdirSync(dir, { recursive: true }) as string[]).filter(p => !statSync(join(dir, p)).isDirectory()).sort() : []
+  const store = join(cwd, 'memory', 'lessons', '护肤.json')
+  const record = () => json(existsSync(join(task, 'lessons-read.json')) ? rf(join(task, 'lessons-read.json'), 'utf8') : '')
+  return { root, cwd, task, stamp, run: (...args: string[]) => runIn(cwd, ...args), runIn, draft, json, files, store, record }
+}
 
+await group('d31-lessons-write', () => {
+suite('D31', '复评经验库：lessons add 写什么、不写什么')
+{
+  const { root, cwd, task, stamp, run, draft, json, files, store } = d31Fixture('kol-d31-write-')
+  try {
+    const DRAFT = D31_DRAFT
+    const skillBytes = () => files(join(cwd, 'skill')).map(p => [p, rf(join(cwd, 'skill', p), 'utf8')])
     const before = files(cwd), skillBefore = skillBytes()
     const unconfirmed = run('add', '--category', '护肤', '--entry', draft(DRAFT))
     eq('D31.g add 不带「用户已确认」开关时以 2 退出，经验库没有建出来，当前目录下文件一个不多',
@@ -23844,16 +23853,29 @@ suite('D31', '复评经验库：lessons 命令的读、写与列名')
     eq('D31.c add 只在 memory/lessons/ 下写这一品类的文件：当前目录下多出来的只有 memory/lessons/护肤.json，skill/ 一字不变',
       [files(cwd).filter(p => !before.includes(p)), isDeepStrictEqual(skillBytes(), skillBefore)], [[join('memory', 'lessons', '护肤.json')], true])
     criterion('D31.c')
-    const second = run('add', '--category', '护肤', '--entry', draft({ ...DRAFT, situation: '第二种局面', attribution: '混杂', state: '同一版本', index: 99 }), '--confirmed-by-user')
+    const second = run('add', '--category', '护肤', '--entry', draft({ ...DRAFT, situation: '第二种局面', attribution: '混杂' }), '--confirmed-by-user')
     eq('D31.a 品类名不合规（带路径分隔符、以点开头、只有空白）时 add 与 read 都以 2 退出，经验库目录里不多文件；合规的追加写进同一个文件',
-      [['a/b', '..', ' '].flatMap(bad => [run('add', '--category', bad, '--entry', draft(DRAFT), '--confirmed-by-user').status, run('read', '--dir', task, '--category', bad).status]),
+      [[run('add', '--category', 'a/b', '--entry', draft(DRAFT), '--confirmed-by-user').status, run('read', '--dir', task, '--category', '..').status,
+        run('add', '--category', ' ', '--entry', draft(DRAFT), '--confirmed-by-user').status],
         files(join(cwd, 'memory', 'lessons')), second.status, json(existsSync(store) ? rf(store, 'utf8') : '')?.lessons?.map((l: any) => l.situation)],
-      [[2, 2, 2, 2, 2, 2], ['护肤.json'], 0, [DRAFT.situation, '第二种局面']])
+      [[2, 2, 2], ['护肤.json'], 0, [DRAFT.situation, '第二种局面']])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
 
+await group('d31-lessons-read', () => {
+suite('D31', '复评经验库：lessons list 与 read 读到什么')
+{
+  const { root, cwd, task, run, runIn, draft, json, store, record } = d31Fixture('kol-d31-read-')
+  try {
+    const DRAFT = D31_DRAFT
+    // 夹具：两条经验写进「护肤」；第二条多带 state、index 两个键（经验库是可手改的文件），读的输出里不能冒充算出来的状态
+    run('add', '--category', '护肤', '--entry', draft(DRAFT), '--confirmed-by-user')
+    run('add', '--category', '护肤', '--entry', draft({ ...DRAFT, situation: '第二种局面', attribution: '混杂', state: '同一版本', index: 99 }), '--confirmed-by-user')
+    const refused = run('add', '--category', '护肤', '--entry', draft(DRAFT))
     const listed = run('list')
     const emptyCwd = join(root, 'empty'); mkdirSync(emptyCwd)
-    const [lexe, largs] = prebuiltCommand([fileURLToPath(new URL('./lessons.ts', import.meta.url)), 'list'])
-    const listedEmpty = spawnSync(lexe, largs, { cwd: emptyCwd, encoding: 'utf8', timeout: 30000 })
+    const listedEmpty = runIn(emptyCwd, 'list')
     mkdirSync(join(cwd, 'memory', 'lessons'), { recursive: true }); writeFileSync(join(cwd, 'memory', 'lessons', 'home decor.json'), '{"version":1,"lessons":[]}\n')
     const listedTwo = run('list')
     eq('D31.m list 列出经验库里已有的品类名；经验库目录还不存在时列出空表、以 0 结束',
@@ -23861,16 +23883,17 @@ suite('D31', '复评经验库：lessons 命令的读、写与列名')
       [0, ['护肤'], 0, [], ['home decor', '护肤']])
     criterion('D31.m')
 
-    const record = () => json(existsSync(join(task, 'lessons-read.json')) ? rf(join(task, 'lessons-read.json'), 'utf8') : '')
     const same = run('read', '--dir', task, '--category', '护肤'), sameOut = json(same.stdout), sameRecord = record()
     writeFileSync(join(cwd, 'skill', 'SKILL.md'), '# rules v2\n')
     const stale = run('read', '--dir', task, '--category', '护肤'), staleOut = json(stale.stdout), staleRecord = record()
     eq('D31.k skill/ 改过之后读，以前写的经验照常读出（以 0 结束，全文都在），每条标成「写于规则改动之前」，读取记录里也这样列着',
-      [same.status, sameOut?.lessons?.map((l: any) => [l.situation, l.lesson, l.state]), stale.status, staleOut?.lessons?.map((l: any) => [l.situation, l.lesson, l.state]),
+      [same.status, sameOut?.lessons?.map((l: any) => [l.index, l.situation, l.lesson, l.state]), stale.status,
+        staleOut?.lessons?.map((l: any) => [l.index, l.situation, l.lesson, l.state]),
         staleRecord?.lessons?.map((l: any) => [l.index, l.state, l.situation]), sameRecord?.lessons?.map((l: any) => l.state)],
-      [0, [[DRAFT.situation, DRAFT.lesson, '同一版本'], ['第二种局面', DRAFT.lesson, '同一版本']], 0,
-        [[DRAFT.situation, DRAFT.lesson, '写于规则改动之前'], ['第二种局面', DRAFT.lesson, '写于规则改动之前']],
+      [0, [[1, DRAFT.situation, DRAFT.lesson, '同一版本'], [2, '第二种局面', DRAFT.lesson, '同一版本']], 0,
+        [[1, DRAFT.situation, DRAFT.lesson, '写于规则改动之前'], [2, '第二种局面', DRAFT.lesson, '写于规则改动之前']],
         [[1, '写于规则改动之前', DRAFT.situation], [2, '写于规则改动之前', '第二种局面']], ['同一版本', '同一版本']])
+    criterion('D31.k')
 
     // D31.l：只读同名那一份。旁边放一份名字相近的，读「美妆」时它不算数
     writeFileSync(join(cwd, 'memory', 'lessons', '美妆 2.json'), existsSync(store) ? rf(store, 'utf8') : '')
@@ -23880,15 +23903,27 @@ suite('D31', '复评经验库：lessons 命令的读、写与列名')
       [0, 'absent', '美妆', [], 'ok', '护肤'])
     criterion('D31.l')
     const noTask = run('read', '--dir', join(root, 'not-a-task'), '--category', '护肤')
+    eq('lessons read 的 --dir 不是任务目录（没有 task.json）时以 2 退出，不写读取记录', [noTask.status, existsSync(join(root, 'not-a-task', 'lessons-read.json'))], [2, false])
+    eq('D31.s 跑完 list、read、add（含被拒的），memory/creators.json 一字不变',
+      [refused.status, rf(join(cwd, 'memory', 'creators.json'), 'utf8')], [2, D31_CREATORS])
+    criterion('D31.s')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
 
-    // D31.t、D31.u：这一份读不出来
+await group('d31-lessons-broken', () => {
+suite('D31', '复评经验库：那一份读不出来时读照常、写拒绝、原文件不动')
+{
+  const { root, cwd, task, run, draft, record } = d31Fixture('kol-d31-broken-')
+  try {
+    mkdirSync(join(cwd, 'memory', 'lessons'))
     const BROKEN: [string, string][] = [['坏 JSON', '{"version":1,"lessons":['], ['重复的键', '{"version":1,"lessons":[],"lessons":[]}'],
-      ['lessons 不是数组', '{"version":1,"lessons":{}}'], ['有一条不合格', JSON.stringify({ version: 1, lessons: [{ ...DRAFT }] })], ['根是数组', '[]'], ['认不得的版本', '{"version":9,"lessons":[]}']]
+      ['lessons 不是数组', '{"version":1,"lessons":{}}'], ['有一条不合格', JSON.stringify({ version: 1, lessons: [{ ...D31_DRAFT }] })], ['根是数组', '[]'], ['认不得的版本', '{"version":9,"lessons":[]}']]
     const broken = BROKEN.map(([what, text], i) => {
       const category = `坏${i}`, file = join(cwd, 'memory', 'lessons', `${category}.json`)
       writeFileSync(file, text)
       const r = run('read', '--dir', task, '--category', category), rec = record()
-      const a = run('add', '--category', category, '--entry', draft(DRAFT), '--confirmed-by-user')
+      const a = run('add', '--category', category, '--entry', draft(D31_DRAFT), '--confirmed-by-user')
       return { what, r, rec, a, kept: rf(file, 'utf8') === text }
     })
     eq('D31.t 经验库那一份存在却读不出来（坏 JSON、重复的键、结构不对、有一条不合格、认不得的版本）时 read 照常以 0 结束，读取记录写成「读不出来」并带上原因，不写成没有或零条，stderr 也说了',
@@ -23898,17 +23933,6 @@ suite('D31', '复评经验库：lessons 命令的读、写与列名')
     eq('D31.u 经验库读不出来时 read 不动它，add 拒绝写入、以 2 退出，原文件一字不变',
       broken.map(b => [b.what, b.a.status, b.kept]), BROKEN.map(([what]) => [what, 2, true]))
     criterion('D31.u')
-    eq('lessons read 的 --dir 不是任务目录（没有 task.json）时以 2 退出，不写读取记录', [noTask.status, existsSync(join(root, 'not-a-task', 'lessons-read.json'))], [2, false])
-    const readStore = () => existsSync(store) ? rf(store, 'utf8') : undefined, storeNow = readStore(), f = draft(DRAFT)
-    const USAGE: string[][] = [[], ['nope'], ['list', '--dir', task], ['add', '--category', '护肤', '--entry', f, '--confirmed-by-user', '--confirmed-by-user'],
-      ['add', '--category', '护肤', '--entry', f, '--confirmed-by-user', '--dir', task], ['read', '--dir', task, '--dir', task, '--category', '护肤'], ['read', '--dir', task],
-      ['read', '--dir', task, '--category', '护肤', '--confirmed-by-user'], ['add', '--category', '护肤', '--entry', '--confirmed-by-user']]
-    eq('lessons 子命令不认识、缺参数、参数重复或多出来时以 2 退出，经验库原字节',
-      USAGE.map(args => [args.join(' '), run(...args).status]).concat([['经验库', readStore() === storeNow ? 1 : 0]]), USAGE.map(args => [args.join(' '), 2]).concat([['经验库', 1]]))
-
-    eq('D31.s 跑完 list、read、add（含被拒的），memory/creators.json 一字不变',
-      rf(join(cwd, 'memory', 'creators.json'), 'utf8'), CREATORS)
-    criterion('D31.s')
   } finally { rmSync(root, { recursive: true, force: true }) }
 }
 })

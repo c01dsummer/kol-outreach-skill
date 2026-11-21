@@ -26626,6 +26626,30 @@
       ]
     },
     {
+      "id": "M-D31-x",
+      "req": "D31.g",
+      "why": "写入时保存失败报成输入问题：用户以为是草稿不合格，去改草稿，其实是磁盘或权限出了事",
+      "file": "scripts/lessons.ts",
+      "find": "不能当成已写入。`)\n    process.exit(EXIT.save)",
+      "replace": "不能当成已写入。`)\n    process.exit(EXIT.input)",
+      "by": "selfcheck",
+      "kills": [
+        "lessons add 经验库存在但保存失败时以 6 结束，stdout 为空，经验库原字节，stderr 写出经验库路径与「保存失败」"
+      ]
+    },
+    {
+      "id": "M-D31-y",
+      "req": "D31.g",
+      "why": "「用户已确认」开关写两次也照收：参数写法不对时不给用法，Agent 不知道自己拼错了命令",
+      "file": "scripts/lessons.ts",
+      "find": "  if (arg === '--confirmed-by-user') { if (flags.has(arg)) usage(); flags.add(arg); continue }",
+      "replace": "  if (arg === '--confirmed-by-user') { flags.add(arg); continue }",
+      "by": "selfcheck",
+      "kills": [
+        "lessons 子命令不认识、缺参数、参数重复、多出来或缺值时以 2 拒绝并给出用法，stdout 为空，经验库原字节，不写读取记录"
+      ]
+    },
+    {
       "id": "M-H186-ca",
       "req": "harness",
       "why": "入口进程的环境里有测试观察记录文件那个变量就判隔离故障：观察器自己每一跑都设它，起的每一跑都判不了",
