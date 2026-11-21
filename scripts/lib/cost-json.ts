@@ -11,6 +11,7 @@ type SourceContext = { source?: string }
 type ExactJSON = {
   parse(text: string, reviver: (this: object, key: string, value: unknown, context?: SourceContext) => unknown): unknown
   rawJSON?: (text: string) => unknown
+  isRawJSON?: (value: unknown) => boolean
 }
 const exactJSON = JSON as unknown as ExactJSON
 const roots = new WeakMap<object, { value: unknown; token: string }>()
@@ -32,6 +33,12 @@ function stringEnd(text: string, at: number): number {
     while (text.charCodeAt(quote - 1 - slashes) === 92) slashes++
     if (slashes % 2 === 0) return quote + 1
   }
+}
+
+/** 键按解码后的名字比："0" 与 "\u0030" 是同一个键；没有反斜杠的键原文就是解码后的名字。at、end 是键记号的左引号与右引号之后 */
+function keyName(text: string, at: number, end: number): string {
+  const body = text.slice(at + 1, end - 1)
+  return body.includes('\\') ? JSON.parse(text.slice(at, end)) as string : body
 }
 
 const blank = (c: number) => c === 32 || c === 10 || c === 13 || c === 9
@@ -66,10 +73,9 @@ function scanDuplicateKeys(text: string): KeyDuplicate[] {
       const end = stringEnd(text, i)
       let next = end
       while (blank(text.charCodeAt(next))) next++
-      // 后面跟着冒号的是键。键按解码后的名字比："0" 与 "\u0030" 是同一个键；没有反斜杠的键原文就是解码后的名字
+      // 后面跟着冒号的是键，按解码后的名字比
       if (text.charCodeAt(next) === 58) {
-        const body = text.slice(i + 1, end - 1)
-        top!.key = body.includes('\\') ? JSON.parse(text.slice(i, end)) as string : body
+        top!.key = keyName(text, i, end)
         i = next + 1
         continue
       }
@@ -94,6 +100,56 @@ function scanDuplicateKeys(text: string): KeyDuplicate[] {
   return out
 }
 
+/** 一层容器里每个键或下标最后一处的值：数字、字符串与字面量记原文，对象与数组记下一层。同一个键再写一次就盖掉前一处，
+ * 与 JSON.parse 只留最后一处相同 —— 被盖掉的那一处若是容器，它不在读出的对象里，里面的数字也就不记。 */
+type Level = Map<string, string | Level>
+
+/** 每个数字在原文里的写法，按「所在的对象或数组 → 键（数组是下标的字符串）」记，与带回调的 JSON.parse 交给回调的 this、key 与 source 相同（D13、D19.g）。
+ * 先逐个记号扫一遍原文搭出各层（与 scanDuplicateKeys 同一种走法），再对着 JSON.parse 读出的对象逐层配上；两步都用列表代替递归，
+ * 读得进来多深都走得完（ADR-229）。文本须是 JSON.parse 已接受的。 */
+function numberSources(text: string, parsed: object): WeakMap<object, Map<string, string>> {
+  const root: Level = new Map()
+  const open: { level: Level; key?: string; index?: number }[] = []
+  for (let i = 0; i < text.length;) {
+    const c = text.charCodeAt(i)
+    if (blank(c) || c === 44 || c === 58) { i++; continue } // 空白、逗号、冒号
+    const top = open.at(-1)
+    if (c === 125 || c === 93) { open.pop(); i++; continue } // } ]
+    let value: string | Level
+    if (c === 34) {
+      const end = stringEnd(text, i)
+      let next = end
+      while (blank(text.charCodeAt(next))) next++
+      if (text.charCodeAt(next) === 58) { // 后面跟着冒号的是键，按解码后的名字记
+        top!.key = keyName(text, i, end)
+        i = next + 1
+        continue
+      }
+      value = text.slice(i, end); i = end
+    } else if (c === 123 || c === 91) { value = top ? new Map() : root; i++ }
+    else {
+      let end = i + 1
+      for (let d = text.charCodeAt(end); end < text.length && !blank(d) && d !== 44 && d !== 93 && d !== 125; d = text.charCodeAt(++end));
+      value = text.slice(i, end); i = end
+    }
+    if (top) top.level.set(top.index === undefined ? top.key! : String(top.index++), value)
+    if (typeof value !== 'string') open.push(c === 91 ? { level: value, index: 0 } : { level: value })
+  }
+  const tokens = new WeakMap<object, Map<string, string>>()
+  for (const pending: [Level, Record<string, unknown>][] = [[root, parsed as Record<string, unknown>]]; pending.length;) {
+    const [level, holder] = pending.pop()!
+    for (const [key, value] of level) {
+      if (typeof value !== 'string') pending.push([value, holder[key] as Record<string, unknown>])
+      else if (value.charCodeAt(0) === 45 || (value.charCodeAt(0) >= 48 && value.charCodeAt(0) <= 57)) { // - 或数字开头的是数字
+        let fields = tokens.get(holder)
+        if (!fields) { fields = new Map(); tokens.set(holder, fields) }
+        fields.set(key, value)
+      }
+    }
+  }
+  return tokens
+}
+
 /** 缺少原生精确 JSON 能力时，不允许有损写回或新增付费。 */
 export function assertCostJsonRuntime(): void {
   let source: string | undefined
@@ -103,36 +159,34 @@ export function assertCostJsonRuntime(): void {
 }
 
 export function readCostDocument<T extends object = CostState>(text: string): T {
-  const tokens = new WeakMap<object, Map<string, string>>()
-  const parsed = exactJSON.parse(text, function(key, value, context) {
-    if (typeof value === 'number' && context?.source !== undefined) {
-      let fields = tokens.get(this)
-      if (!fields) { fields = new Map(); tokens.set(this, fields) }
-      fields.set(key, context.source)
-    }
-    return value
-  })
+  // 不带回调的 JSON.parse 不递归；带回调的那一种在 V8 里逐层递归，能读多深看机器栈大小（ADR-229）
+  const parsed: unknown = JSON.parse(text)
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new CostError('invalid-money', '任务或配置必须是 JSON 对象')
+  const tokens = numberSources(text, parsed)
   sourceTokens.set(parsed, tokens)
   sourceTexts.set(parsed, text)
   const state = parsed as Record<string, unknown>
   const rootToken = tokens.get(parsed)?.get('budget_usd')
   if (rootToken !== undefined) roots.set(parsed, { value: state.budget_usd, token: rootToken })
+  // 费用子树里的每个数字换成精确金额；待办列表代替递归，子树多深都走得完（ADR-229）
   const preserveCostNumbers = (holder: Record<string, unknown> | unknown[], key: string): void => {
-    const record = holder as Record<string, unknown>, value = record[key]
-    const token = tokens.get(holder)?.get(key)
-    if (typeof value === 'number' && token !== undefined) {
-      // 将原系数的指数减六后交给同一个精确整数转换，不先舍入成 number。
-      const parts = /^(-?\d+(?:\.\d+)?)(?:[eE]([+-]?\d+))?$/.exec(token)!
-      try { record[key] = parseUsdMicros(`${parts[1]}e${BigInt(parts[2] ?? '0') - 6n}`) }
-      catch {
-        const unavailable = Object.freeze({})
-        unavailableNumbers.set(unavailable, token)
-        record[key] = unavailable
+    for (const pending: [Record<string, unknown> | unknown[], string][] = [[holder, key]]; pending.length;) {
+      const [at, field] = pending.pop()!
+      const record = at as Record<string, unknown>, value = record[field]
+      const token = tokens.get(at)?.get(field)
+      if (typeof value === 'number' && token !== undefined) {
+        // 将原系数的指数减六后交给同一个精确整数转换，不先舍入成 number。
+        const parts = /^(-?\d+(?:\.\d+)?)(?:[eE]([+-]?\d+))?$/.exec(token)!
+        try { record[field] = parseUsdMicros(`${parts[1]}e${BigInt(parts[2] ?? '0') - 6n}`) }
+        catch {
+          const unavailable = Object.freeze({})
+          unavailableNumbers.set(unavailable, token)
+          record[field] = unavailable
+        }
+      } else if (value !== null && typeof value === 'object') {
+        for (const child of Object.keys(value)) pending.push([value as Record<string, unknown>, child])
       }
-    } else if (value !== null && typeof value === 'object') {
-      for (const child of Object.keys(value)) preserveCostNumbers(value as Record<string, unknown>, child)
     }
   }
   for (const key of ['requests', 'cost_ledger'])
@@ -192,6 +246,63 @@ const moneyFields = ['cost_estimate_usd', 'budget_usd', 'cost_http_200_usd',
   'cost_unknown_result_usd', 'cost_pending_usd'] as const
 const costRootKeys = new Set(['requests', 'cost_ledger', 'budget_usd'])
 
+/** 一层正在写出的容器：还没写的键、已写好的各项、这一层的缩进。 */
+type Writing = { holder: object; keys: string[]; next: number; parts: string[]; array: boolean; indent: string; prefix: string }
+
+/**
+ * 照 ECMAScript SerializeJSONProperty 的步骤写出（toJSON、replacer、拆包装对象、JSON.rawJSON 的原文、数组里写不出的值写 null、
+ * 对象里的跳过、成环抛 TypeError），对 JSON.parse 读出的数据加上这几样，与 `JSON.stringify(value, replacer, 2)` 逐字节相同；
+ * 刻意造出来的怪对象（原型换成包装类的普通对象、回调交回自带 toJSON 的包装对象）不保证相同，任务数据到不了那里。只是用列表代替递归：
+ * 内置的那个逐层递归，任务里挂着深的嵌套时写回就栈溢出，能写多深看机器栈大小（ADR-229）。标量与键名的写法仍交给内置的 JSON.stringify。
+ */
+function stringifyDeep(value: object, replacer: (this: object, key: string, item: unknown) => unknown): string {
+  const ancestors = new Set<object>()
+  /** 一个位置上的值：标量写成文本，写不出的交回 undefined，容器交回待写的一层 */
+  const property = (holder: object, key: string, indent: string, prefix: string): string | undefined | Writing => {
+    let item: unknown = (holder as Record<string, unknown>)[key]
+    if (item !== null && (typeof item === 'object' || typeof item === 'function' || typeof item === 'bigint')) {
+      const toJSON = (item as { toJSON?: unknown }).toJSON
+      if (typeof toJSON === 'function') item = toJSON.call(item, key)
+    }
+    item = replacer.call(holder, key, item)
+    if (item === null || typeof item !== 'object' || exactJSON.isRawJSON?.(item)
+      || item instanceof Number || item instanceof String || item instanceof Boolean || item instanceof BigInt)
+      return JSON.stringify(item)
+    if (ancestors.has(item)) throw new TypeError('Converting circular structure to JSON')
+    ancestors.add(item)
+    const array = Array.isArray(item)
+    return { holder: item, keys: array ? Array.from({ length: (item as unknown[]).length }, (_, i) => String(i)) : Object.keys(item),
+      next: 0, parts: [], array, indent: indent + '  ', prefix }
+  }
+  const close = (level: Writing): string => {
+    ancestors.delete(level.holder)
+    const [open, end] = level.array ? ['[', ']'] : ['{', '}']
+    if (!level.parts.length) return open + end
+    const outer = level.indent.slice(2)
+    return `${open}\n${level.indent}${level.parts.join(`,\n${level.indent}`)}\n${outer}${end}`
+  }
+  const top = property({ '': value }, '', '', '')
+  if (typeof top !== 'object') return top as string
+  const open: Writing[] = [top]
+  for (;;) {
+    const level = open.at(-1)!
+    if (level.next === level.keys.length) {
+      const text = level.prefix + close(level)
+      open.pop()
+      const parent = open.at(-1)
+      if (!parent) return text
+      parent.parts.push(text)
+      continue
+    }
+    const key = level.keys[level.next++]
+    const prefix = level.array ? '' : `${JSON.stringify(key)}: `
+    const got = property(level.holder, key, level.indent, prefix)
+    if (got === undefined) { if (level.array) level.parts.push('null') }
+    else if (typeof got === 'string') level.parts.push(prefix + got)
+    else open.push(got)
+  }
+}
+
 /** 写出任务或配置 JSON：费用字段按 D13 精确写出；整份写回 readCostDocument 读入的根时，没被改动的非费用数字照原文写回（D19.g、ADR-138）。 */
 export function stringifyCostJson(value: object, view?: CostView): string {
   assertCostJsonRuntime()
@@ -214,7 +325,7 @@ export function stringifyCostJson(value: object, view?: CostView): string {
   const tokens = sourceTokens.get(value)
   // 顶层费用三棵子树只走上面的 D13 专用路径，下层随写出往下传；下层与费用同名的键不算。
   const costHolders = new WeakSet<object>()
-  return JSON.stringify(result, function(this: object, key: string, item: unknown) {
+  return stringifyDeep(result, function(this: object, key: string, item: unknown) {
     const cost = this === result ? costRootKeys.has(key) : costHolders.has(this)
     if (item !== null && typeof item === 'object') {
       const token = unavailableNumbers.get(item)
@@ -226,5 +337,5 @@ export function stringifyCostJson(value: object, view?: CostView): string {
       if (token !== undefined && Object.is(item, Number(token))) return exactJSON.rawJSON!(token)
     }
     return item
-  }, 2)
+  })
 }
