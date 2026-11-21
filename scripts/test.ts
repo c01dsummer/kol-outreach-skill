@@ -1782,15 +1782,26 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   tension('F9', 'P3')
 
   // ── F9 × F1：不新增必问项 ─────────────────────────────────────────────
-  // 第一页保证是机械的，不要用户回答任何新问题。F1.a 量的是 product-intake.md
-  // 「必须问的三个」那一节的表：加粗的问题逐字就是这三条，多一行、少一行、改了问法都红。
+  // 第一页保证是机械的，不要用户回答任何新问题。F1.a 量的是两张表：product-intake.md「必须问的三个」那一节、
+  // SKILL.md「只问这三个」后面那一张。每一张的数据行（表头与分隔行之外的每一行）第一格去掉加粗后，
+  // 逐字就是这三条：多一行（加不加粗都算）、少一行、改了问法都红。
   // 逐字比，不按关键词认 —— 改了问法要有人回来看一眼它还是不是同一个问题。
   {
-    const section = rf('skill/references/product-intake.md', 'utf8').split(/^## /m)
-      .filter(s => s.startsWith('必须问的三个'))
-    const asks = section.length === 1 ? [...section[0].matchAll(/^\| \*\*(.+?)\*\* \|/gm)].map(m => m[1]) : ['找到这一节的次数', section.length]
+    const firstTableAfter = (text: string, anchor: string): string[] | string => {
+      const at = text.split(anchor)
+      if (at.length !== 2) return `「${anchor}」出现 ${at.length - 1} 次`
+      const lines = at[1].split('\n')
+      const start = lines.findIndex(l => l.trimStart().startsWith('|'))
+      if (start < 0) return `「${anchor}」后面没有表`
+      const end = lines.findIndex((l, i) => i > start && !l.trimStart().startsWith('|'))
+      return lines.slice(start + 2, end < 0 ? lines.length : end)
+        .map(l => l.trim().replace(/^\|/, '').split('|')[0].trim().replace(/^\*\*(.*)\*\*$/, '$1'))
+    }
+    const THREE = ['目标市场', '本次预算上限（美元）', '要找多少人']
     eq('product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条',
-       asks, ['目标市场', '本次预算上限（美元）', '要找多少人'])
+       firstTableAfter(rf('skill/references/product-intake.md', 'utf8'), '\n## 必须问的三个'), THREE)
+    eq('SKILL.md「只问这三个」那张表列了且只列了目标市场、预算上限、要找多少人三条',
+       firstTableAfter(rf('skill/SKILL.md', 'utf8'), '**只问这三个**'), THREE)
   }
   criterion('F1.a')
   tension('F9', 'F1')
@@ -8826,6 +8837,10 @@ function entryChecks(copy: string): void {
   eq('D21.v 缺了平台字段的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vNoPf.status, 2)
   const vCasePf = render('kol80-v-casepf', [alice('kol80vn')], [{ ...account('kol80vn', activityOf('zombie'), riskOf('low')), platform: 'TikTok' }])
   eq('D21.v 平台写成 TikTok 大小写不对的账号已测活跃状态不合法时 render 也以退出码 2 拒绝', vCasePf.status, 2)
+  // 作者补（ADR-230）：报告拼到活跃状态那一格时缺值也会拒绝、照样退 2，所以只看退出码分不出是读入时拒的还是拼报告时拒的；
+  // 读入时拒才是「写任何文件之前」，拼报告时名单表格已经换新了
+  ok('D21.v sample 写成 null、缺平台、平台大小写不对的账号活跃状态不合法时都在读入处拒绝、一个交付文件都没写',
+    [vNull, vNoPf, vCasePf].every(untouched))
   const vIg = render('kol80-v-ig', [alice('kol80vo')], [{ ...account('kol80vo', activityOf('zombie'), riskOf('low')), platform: 'instagram' }])
   eq('D21.v 没有样本的 Instagram 账号存着的指标报告本就不用所以不因本条拒绝', vIg.status, 0)
 
@@ -8912,16 +8927,18 @@ suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名�
       source_dimension: 'category', source_tasks: [0], followers: 80000,
     })
     const OLD_REPORT = '<p>上一份报告</p>\n', OLD_META = '{"上一份":true}\n'
-    const render = (name: string, creators: unknown[]) => {
+    const render = (name: string, creators: unknown[], enrichment?: object) => {
       const dir = join(root, name)
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'task.json'), taskJson(name))
       writeFileSync(join(dir, 'creators.json'), JSON.stringify(creators, null, 2))
+      if (enrichment) writeFileSync(join(dir, 'enrichment.json'), JSON.stringify(enrichment))
       writeFileSync(join(dir, 'report.html'), OLD_REPORT)
       writeFileSync(join(dir, 'meta.json'), OLD_META)
       const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
       const r = spawnSync(exe, args, { cwd: root, encoding: 'utf8', timeout: 300000 })
-      return { status: r.status, stderr: String(r.stderr), report: rf(join(dir, 'report.html'), 'utf8'), meta: rf(join(dir, 'meta.json'), 'utf8') }
+      return { status: r.status, stderr: String(r.stderr), report: rf(join(dir, 'report.html'), 'utf8'), meta: rf(join(dir, 'meta.json'), 'utf8'),
+        creators: rf(join(dir, 'creators.json'), 'utf8'), sent: JSON.stringify(creators, null, 2) }
     }
     const fine = render('p1n-fine', [person('p1nok')])
     eq('P1.n 入口：名单齐全时 render 以 0 结束（下面几条的阳性对照）', fine.status, 0)
@@ -8935,6 +8952,20 @@ suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名�
     const url = render('p1n-url', [noUrl])
     eq('P1.n 入口：名单里有人缺主页链接时 render 以退出码 2 结束', url.status, 2)
     ok('P1.n 入口：缺主页链接时 stderr 点名主页链接', url.stderr.includes('主页链接') && url.stderr.includes('p1nurl'))
+    // 独立复核挑出（作者补）：合作报价是 Agent 照 public-metrics.md 手写进 enrichment.json 的，漏写一项也是本该总有的格缺了。
+    // 要在写任何文件之前就拒收、点名文件账号字段 —— 不能等拼到报告那一格才说「…▯…」，那时名单表格已经换新了。
+    const quote = (value: object) => ({ version: 1, updated_at: '2026-10-01T00:00:00Z', accounts: { 'tiktok:p1nquote': {
+      platform: 'tiktok', handle: 'p1nquote', collaboration_quote: { status: 'measured', value, source: { provider: 'manual' },
+        observed_at: '2026-10-01T00:00:00Z', sample_size: 1, basis: '博主报价' } } } })
+    const fullQuote = { amount: 300, platform: 'tiktok', format: 'tiktok_video', quantity: 1, source: 'creator_quote', observed_at: '2026-10-01T00:00:00Z' }
+    const quoted = render('p1n-quote-ok', [person('p1nquote')], quote({ ...fullQuote, currency: 'USD' }))
+    eq('P1.n 入口：合作报价齐全时 render 以 0 结束（下面一条的阳性对照）', quoted.status, 0)
+    const noCurrency = render('p1n-quote-currency', [person('p1nquote')], quote(fullQuote))
+    eq('P1.n 入口：增强结果里合作报价缺币种时 render 以退出码 2 结束', noCurrency.status, 2)
+    ok('P1.n 入口：合作报价缺币种时 stderr 点名 enrichment.json、账号与币种',
+      noCurrency.stderr.includes('enrichment.json') && noCurrency.stderr.includes('p1nquote') && noCurrency.stderr.includes('currency（币种）'))
+    ok('P1.n 入口：合作报价缺币种时名单、report.html 与 meta.json 都没动',
+      noCurrency.creators === noCurrency.sent && noCurrency.report === OLD_REPORT && noCurrency.meta === OLD_META)
     criterion('P1.n')
   } finally { rmSync(root, { recursive: true, force: true }) }
 }
@@ -22815,6 +22846,20 @@ criterion('U12.e');
   ok('缺值不写成空：A 级人数缺了时报告不出、点名 A 级人数', tierA !== '报告照出了' && tierA.includes('A 级人数') && !tierA.startsWith('别的错'))
   const tier = outcome(one({ tier: undefined }), fullMeta)
   ok('缺值不写成空：卡片分层缺了时报告不出、点名卡片上的分层和账号', tier !== '报告照出了' && tier.includes('分层') && tier.includes('a') && !tier.startsWith('别的错'))
+  // 独立复核挑出（作者补）：已测指标的值缺了，不能先乘 100 再插进页面、印成 0.00% 或 NaN%
+  const measuredAs = (value: unknown) => ({ status: 'measured', value, source: { provider: 'tikhub' }, observed_at: '2026-10-01T00:00:00Z', sample_size: 3, basis: 'x' })
+  const withMetric = (metric: string, value: unknown) => one({ account_assessment: { platform: 'tiktok', handle: 'a', metrics: { [metric]: measuredAs(value) } } as never })
+  const engNull = outcome(withMetric('engagement_rate_followers', null), fullMeta)
+  ok('缺值不写成空：已测粉丝互动率的值为 null 时报告不出、点名账号与粉丝互动率', engNull !== '报告照出了' && engNull.includes('粉丝互动率') && engNull.includes('a') && !engNull.startsWith('别的错'))
+  const viewGone = outcome(withMetric('view_rate', undefined), fullMeta)
+  ok('缺值不写成空：已测播粉比没有值时报告不出、点名播粉比', viewGone !== '报告照出了' && viewGone.includes('播粉比') && !viewGone.startsWith('别的错'))
+  eq('缺值不写成空：已测粉丝互动率有值时照出（上两条的阳性对照）', outcome(withMetric('engagement_rate_followers', 0.05), fullMeta), '报告照出了')
+  // 独立复核挑出（作者补）：数组插进页面照 String 用逗号连，但逐项查缺值，[1, undefined] 不连成「1,」
+  const arrayOutcome = (value: unknown): string => {
+    try { return html`<i>${value as never}</i>`.html } catch (e) { return e instanceof MissingValueError ? '拒绝' : '别的错' }
+  }
+  eq('U12.e 数组插值里有一项缺了时拒绝', [arrayOutcome([1, undefined, 3]), arrayOutcome([null]), arrayOutcome(new Array(2))], ['拒绝', '拒绝', '拒绝'])
+  eq('U12.e 数组插值各项齐全时照逗号连、逐项转义', arrayOutcome([1, '<b>']), '<i>1,&lt;b&gt;</i>')
   const platform = outcome(one({ platform: undefined as never }), fullMeta)
   ok('缺值不写成空：卡片平台缺了时报告不出、点名平台样式那一格', platform !== '报告照出了' && platform.includes('class="pf ▯"') && !platform.startsWith('别的错'))
   // P1.o 的两条变异要点名字面写死的断言（隔离会话那一块的断言名是循环里拼的），这里各补一条

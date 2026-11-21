@@ -48,10 +48,15 @@ const REASON: Record<string, string> = {
   legacy_video_only_sample: '旧版仅视频窗口，无法判断最近发布或全作品发帖间隔',
 }
 
-const metricText = <T>(m: Measurement<T> | undefined, format: (value: T) => string | SafeHtml): string | SafeHtml => {
+/**
+ * 已测时先过 `need` 再格式化：取值缺了在格式化之前就拒绝、点名账号与那一格（P1.n，ADR-230）。
+ * 不先查的话，缺值进了乘法、`toFixed` 之后成了 0.00% 或 NaN%，`html` 那一下看不出它缺过。
+ */
+const metricText = <T>(m: Measurement<T> | undefined, who: string, name: string,
+  format: (value: T) => string | SafeHtml): string | SafeHtml => {
   if (!m) return '未查询'
-  if (m.status === 'unavailable') return html`不可用 · ${REASON[m.reason] ?? m.reason}`
-  return format(m.value)
+  if (m.status === 'unavailable') return html`不可用 · ${REASON[m.reason] ?? need(m.reason, `增强结果里账号 ${who} 的${name}不可用的原因`)}`
+  return format(need(m.value, `增强结果里账号 ${who} 的${name}`))
 }
 
 const pct = (n: number) => html`${(n * 100).toFixed(2)}%`
@@ -66,22 +71,24 @@ const riskFlagText = (flag: AudienceRiskFlag): SafeHtml => {
 
 const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string): SafeHtml => {
   if (!a) return html`<div class="assessment"><div class="at">${label} · 公开指标未查询</div></div>`
+  const who = need(a.handle, `增强结果里${label}那一行的账号`)
   const m = a.metrics
   const risk = m?.audience_quality_risk
   const activity = m?.activity_status
-  const riskLevel = metricText(risk, value => value.level.toUpperCase())
+  const riskLevel = metricText(risk, who, '受众风险', value => value.level.toUpperCase())
   const flags = risk?.status === 'measured' && risk.value.flags.length
     ? html`<div class="flags">依据：${joinHtml(risk.value.flags.map(riskFlagText), html` · `)}</div>`
     : ''
   const quote = a.collaboration_quote
   const quoteText = !quote ? '未查询'
-    : quote.status === 'unavailable' ? html`不可用 · ${REASON[quote.reason] ?? quote.reason}`
-    : html`${quote.value.currency} ${quote.value.amount} / ${quote.value.quantity} ${quote.value.format} · ${quote.value.source} · ${quote.value.observed_at.slice(0, 10)}`
+    : quote.status === 'unavailable'
+      ? html`不可用 · ${REASON[quote.reason] ?? need(quote.reason, `增强结果里账号 ${who} 的合作报价不可用的原因`)}`
+      : html`${need(quote.value.currency, `增强结果里账号 ${who} 的合作报价币种`)} ${need(quote.value.amount, `增强结果里账号 ${who} 的合作报价金额`)} / ${need(quote.value.quantity, `增强结果里账号 ${who} 的合作报价数量`)} ${need(quote.value.format, `增强结果里账号 ${who} 的合作报价形式`)} · ${need(quote.value.source, `增强结果里账号 ${who} 的合作报价来源`)} · ${need(quote.value.observed_at, `增强结果里账号 ${who} 的合作报价日期`).slice(0, 10)}`
   // 报价已测时金额前带币种；报价没测时只写数（报价那一格自己说未查询或不可用）
   const money = (value: number) =>
     quote?.status === 'measured' ? html`${quote.value.currency} ${value.toFixed(2)}` : html`${value.toFixed(2)}`
-  const ecpm = metricText(a.quote_efficiency?.implied_ecpm, money)
-  const ecpe = metricText(a.quote_efficiency?.implied_ecpe, money)
+  const ecpm = metricText(a.quote_efficiency?.implied_ecpm, who, '隐含 eCPM', money)
+  const ecpe = metricText(a.quote_efficiency?.implied_ecpe, who, '隐含 eCPE', money)
   const reelQuote = quote?.status === 'measured' && quote.value.format === 'instagram_reel'
   const ecpeEvidence = reelQuote && a.quote_efficiency?.implied_ecpe?.status === 'measured'
     ? html`（确认视频互动样本 ${a.quote_efficiency.implied_ecpe.sample_size} 条；${a.quote_efficiency.implied_ecpe.basis}）`
@@ -89,25 +96,25 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
       a.quote_efficiency.implied_ecpe.sample_size !== undefined
       ? html`（视频互动有效样本 ${a.quote_efficiency.implied_ecpe.sample_size} 条）` : ''
   const sample = a.sample?.status === 'measured'
-    ? html`${a.sample.value} 条 · ${a.sample.source.provider} · ${a.sample.observed_at.slice(0, 10)}`
-    : metricText(a.sample, (value: number) => html`${value} 条`)
-  const activityLabel = metricText(activity, value => ({
+    ? html`${a.sample.value} 条 · ${need(a.sample.source?.provider, `增强结果里账号 ${who} 的作品样本来源`)} · ${need(a.sample.observed_at, `增强结果里账号 ${who} 的作品样本日期`).slice(0, 10)}`
+    : metricText(a.sample, who, '作品样本', (value: number) => html`${value} 条`)
+  const activityLabel = metricText(activity, who, '活跃状态', value => ({
     active: '活跃', cooling: '降温', dormant: '停更',
   })[value])
 
   return html`<div class="assessment">
-    <div class="at">${label} · @${a.handle} · ${fmt(a.followers)} 粉丝 ·
+    <div class="at">${label} · @${who} · ${fmt(a.followers)} 粉丝 ·
       关注 ${fmt(a.following)} · 样本 ${sample}</div>
     ${a.sample?.status === 'measured' ? html`<div class="scope">样本范围：${sampleScopeText(a)}</div>` : ''}
     <div class="metrics">
-      <span>粉丝互动率 <b>${metricText(m?.engagement_rate_followers, pct)}</b></span>
-      <span>播放互动率 <b>${metricText(m?.engagement_rate_views, pct)}</b></span>
-      <span>中位播放 <b>${metricText(m?.median_views, v => fmt(v))}</b></span>
-      <span>播粉比 <b>${metricText(m?.view_rate, pct)}</b></span>
-      <span>稳定度 <b>${metricText(m?.reach_consistency, pct)}</b></span>
-      <span>发帖间隔 <b>${metricText(m?.median_post_gap_days, v => html`${v.toFixed(1)} 天`)}</b></span>
-      <span>最后发布 <b>${metricText(m?.latest_post_at, v => v.slice(0, 10))}</b></span>
-      <span>距采样 <b>${metricText(m?.days_since_last_post, v => html`${v.toFixed(1)} 天`)}</b></span>
+      <span>粉丝互动率 <b>${metricText(m?.engagement_rate_followers, who, '粉丝互动率', pct)}</b></span>
+      <span>播放互动率 <b>${metricText(m?.engagement_rate_views, who, '播放互动率', pct)}</b></span>
+      <span>中位播放 <b>${metricText(m?.median_views, who, '中位播放', v => fmt(v))}</b></span>
+      <span>播粉比 <b>${metricText(m?.view_rate, who, '播粉比', pct)}</b></span>
+      <span>稳定度 <b>${metricText(m?.reach_consistency, who, '稳定度', pct)}</b></span>
+      <span>发帖间隔 <b>${metricText(m?.median_post_gap_days, who, '发帖间隔', v => html`${v.toFixed(1)} 天`)}</b></span>
+      <span>最后发布 <b>${metricText(m?.latest_post_at, who, '最后发布', v => v.slice(0, 10))}</b></span>
+      <span>距采样 <b>${metricText(m?.days_since_last_post, who, '距采样', v => html`${v.toFixed(1)} 天`)}</b></span>
       <span>活跃状态 <b class="activity ${activity?.status === 'measured' ? activity.value : 'unknown'}">${activityLabel}</b></span>
       <span>受众风险 <b class="risk ${risk?.status === 'measured' ? risk.value.level : 'unknown'}">${riskLevel}</b></span>
     </div>${flags}

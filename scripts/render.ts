@@ -258,7 +258,7 @@ try { page = renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts
 catch (e) {
   if (!(e instanceof MissingValueError)) throw e
   console.error(e.message)
-  console.error('上一份 meta.json 与 report.html（如果有）原样留着；先查名单与任务文件里这一项为什么缺。')
+  console.error('上一份 meta.json 与 report.html（如果有）原样留着；先查名单（creators.json）、任务文件（task.json）、增强结果（enrichment.json）里这一项为什么缺。')
   process.exit(EXIT.input)
 }
 // 交付物也走整体替换：render 被打断时，上一份完整的 meta.json / report.html 还在（D4）

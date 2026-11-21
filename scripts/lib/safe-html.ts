@@ -9,7 +9,7 @@
  *   （P1：缺值不悄悄写成空，也不替它编一个；需求所有者 2026-11-21 选「不出报告，点名哪一格缺了」，ADR-230）。
  *   可能缺的格，调用处自己先写明缺了显示什么（如 `x === undefined ? '未查询' : x`），再插进来。
  *   类型上插值收 `{}`（不含 undefined、null），可能缺的取值不先处理，类型检查当场红；`any` 的取值类型拦不住，靠运行时这一抛。
- *   其余值按 `String(v)` 转成文字（数组照 `String` 用逗号连）。
+ *   其余值按 `String(v)` 转成文字；数组照 `String` 用逗号连，但逐项查缺值（空位也算缺），不让 `[1, undefined]` 连成 `1,`。
  * - 一串片段拼起来用 `joinHtml`，不要对数组插值：数组按文字处理，里面的片段会被转义。
  * - `SafeHtml` 只由 `html` 和 `joinHtml` 造，造出来就冻住；认片段查本模块自己的登记，仿造的对象当文字转义。
  *   挡不住的口子：把 `html` 当普通函数、手造一个字符串数组传进去（`html([s] as never)`）。这不是写错一处会碰上的，
@@ -38,9 +38,10 @@ export const need = <T>(value: T | undefined | null, name: string): T => {
   return value
 }
 
-/** 取值转成文字再转义；缺值（undefined、null）抛 `MissingValueError`，`where` 是报错里点名的那一格（要用时才算） */
+/** 取值转成文字再转义；缺值（undefined、null，数组里任一项或空位）抛 `MissingValueError`，`where` 是报错里点名的那一格（要用时才算） */
 export const escapeText = (value: {}, where: string | (() => string) = '▯'): string => {
   if (value === undefined || value === null) throw new MissingValueError(typeof where === 'string' ? where : where())
+  if (Array.isArray(value)) return Array.from(value as unknown[], item => escapeText(item as {}, where)).join(',')
   return String(value).replace(/[&<>"']/g, ch => ESCAPES[ch]!)
 }
 
@@ -77,6 +78,6 @@ export function html(strings: TemplateStringsArray, ...values: readonly {}[]): S
 /** 把一串片段（或文字，文字照样转义）用分隔片段连起来；哪一项缺了抛 `MissingValueError` */
 export function joinHtml(items: readonly {}[], separator?: SafeHtml): SafeHtml {
   // 分隔也走 piece：只认本模块造的片段，仿造的（`meta` 一类 any 取值不用强转就能塞进来）照样当文字转义
-  return make(items.map((item, i) => piece(item, () => `一串里的第 ${i + 1} 项（共 ${items.length} 项）`))
+  return make(Array.from(items, (item, i) => piece(item, () => `一串里的第 ${i + 1} 项（共 ${items.length} 项）`))
     .join(separator === undefined ? '' : piece(separator, () => '一串的分隔')))
 }

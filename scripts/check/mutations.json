@@ -1758,6 +1758,30 @@
       ]
     },
     {
+      "id": "M-F1-a",
+      "req": "F1.a",
+      "why": "开工前的必问表多了一问（不加粗也算）：用户在第一页要多答一个问题",
+      "file": "skill/references/product-intake.md",
+      "find": "| **要找多少人** | 采集深度、停止条件 |",
+      "replace": "| 品类 | 关键词方向 | 读商品页推 |\n| **要找多少人** | 采集深度、停止条件 |",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
+      "id": "M-F1-b",
+      "req": "F1.a",
+      "why": "Skill 主文件里那张只问三个的表多了一问，与必问表说法不一",
+      "file": "skill/SKILL.md",
+      "find": "| 要找多少人 | 决定采集深度和停止条件 |",
+      "replace": "| 要找多少人 | 决定采集深度和停止条件 |\n| 品类 | 决定关键词方向 |",
+      "by": "test",
+      "kills": [
+        "SKILL.md「只问这三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
       "id": "M-P4-b",
       "req": "P4",
       "why": "记忆过滤跑在粉丝闸门之前 —— filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模",
@@ -22455,8 +22479,8 @@
       "req": "U12.e",
       "why": "把一串东西连成页面片段时，里面的普通文字不转义、当成标记原样拼进去",
       "file": "scripts/lib/safe-html.ts",
-      "find": "make(items.map((item, i) => piece(item, () => `一串里的第 ${i + 1} 项（共 ${items.length} 项）`))",
-      "replace": "make(items.map(v => v instanceof SafeHtml ? v.html : String(v ?? ''))",
+      "find": "make(Array.from(items, (item, i) => piece(item, () => `一串里的第 ${i + 1} 项（共 ${items.length} 项）`))",
+      "replace": "make(Array.from(items, v => v instanceof SafeHtml ? v.html : String(v ?? ''))",
       "by": "test",
       "kills": [
         "U12.e joinHtml 里的普通字符串照样转义"
@@ -22626,8 +22650,8 @@
       "req": "U12.e",
       "why": "报告代码里有人又用 + 连字：缺值连成 undefined 这几个字母",
       "file": "scripts/lib/report.ts",
-      "find": "隐含 eCPE ${ecpe}${ecpeEvidence}</div>",
-      "replace": "隐含 eCPE ${ecpe + String(ecpeEvidence)}</div>",
+      "find": ": html`${n}`",
+      "replace": ": html`${'' + n}`",
       "by": "test",
       "kills": [
         "U12.e 报告页面代码里没有绕过缺值拒绝的拼字写法（读 report.ts 的语法树）"
@@ -22643,6 +22667,30 @@
       "by": "test",
       "kills": [
         "U12.e 报告页面代码里没有绕过缺值拒绝的拼字写法（读 report.ts 的语法树）"
+      ]
+    },
+    {
+      "id": "M-U12-af",
+      "req": "U12.e",
+      "why": "本该总有的取值是 0 时也当缺值拒绝：跨平台人数确实是零的任务出不了报告",
+      "file": "scripts/lib/safe-html.ts",
+      "find": "  if (value === undefined || value === null) throw new MissingValueError(name)",
+      "replace": "  if (value === undefined || value === null || (value as unknown) === 0) throw new MissingValueError(name)",
+      "by": "test",
+      "kills": [
+        "缺值不写成空：夹具本身齐全时报告照出（下面几条的阳性对照）"
+      ]
+    },
+    {
+      "id": "M-U12-ag",
+      "req": "U12.e",
+      "why": "数组插进页面时不逐项查缺值：一串里夹着缺的那一项被连成空，报告照出",
+      "file": "scripts/lib/safe-html.ts",
+      "find": "  if (Array.isArray(value)) return Array.from(value as unknown[], item => escapeText(item as {}, where)).join(',')\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "U12.e 数组插值里有一项缺了时拒绝"
       ]
     },
     {
@@ -23755,8 +23803,8 @@
       "req": "U12.a",
       "why": "播粉比不可用时的原因原样写进报告正文，增强结果被写坏时能改写报告的标记",
       "file": "scripts/lib/report.ts",
-      "find": "<span>播粉比 <b>${metricText(m?.view_rate, pct)}</b></span>",
-      "replace": "<span>播粉比 <b>${html([String(metricText(m?.view_rate, pct))] as never)}</b></span>",
+      "find": "<span>播粉比 <b>${metricText(m?.view_rate, who, '播粉比', pct)}</b></span>",
+      "replace": "<span>播粉比 <b>${html([m?.view_rate?.status === 'unavailable' ? m.view_rate.reason : '未查询'] as never)}</b></span>",
       "by": "test",
       "kills": [
         "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
@@ -32323,17 +32371,41 @@
       ]
     },
     {
+      "id": "M-P1-bf",
+      "req": "P1.n",
+      "why": "增强结果里手写的合作报价缺了币种，读入时不拦：名单表格先换新，报告拼到那一格才拒绝，报错只给前后标记、不点文件与字段",
+      "file": "scripts/lib/task.ts",
+      "find": "!text(v.currency) && 'currency（币种）', ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P1.n 入口：合作报价缺币种时 stderr 点名 enrichment.json、账号与币种",
+        "P1.n 入口：合作报价缺币种时名单、report.html 与 meta.json 都没动"
+      ]
+    },
+    {
+      "id": "M-P1-bg",
+      "req": "P1.n",
+      "why": "已测指标的值缺了不先拒绝就格式化：粉丝互动率印成 0.00%，播粉比印成 NaN%，报告照出",
+      "file": "scripts/lib/report.ts",
+      "find": "return format(need(m.value, `增强结果里账号 ${who} 的${name}`))",
+      "replace": "return format(m.value)",
+      "by": "test",
+      "kills": [
+        "缺值不写成空：已测粉丝互动率的值为 null 时报告不出、点名账号与粉丝互动率",
+        "缺值不写成空：已测播粉比没有值时报告不出、点名播粉比"
+      ]
+    },
+    {
       "id": "M-D21-bm",
       "req": "D21.v",
       "why": "读入检查只查平台恰好写成 tiktok、又完全没有 sample 键的账号，可报告还会原样用 sample 是 null、缺平台或平台大小写不对的账号存着的指标，这些账号里手改坏的值又能漏过去显示成空白",
       "file": "scripts/lib/task.ts",
-      "find": "if (!isRecord(account) || !storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue",
-      "replace": "if (!isRecord(account) || account.platform !== 'tiktok' || account.sample !== undefined || !isRecord(account.metrics)) continue",
+      "find": "if (!storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue",
+      "replace": "if (account.platform !== 'tiktok' || account.sample !== undefined || !isRecord(account.metrics)) continue",
       "by": "test",
       "kills": [
-        "D21.v sample 写成 null 的账号已测活跃状态不合法时 render 也以退出码 2 拒绝",
-        "D21.v 缺了平台字段的账号已测活跃状态不合法时 render 也以退出码 2 拒绝",
-        "D21.v 平台写成 TikTok 大小写不对的账号已测活跃状态不合法时 render 也以退出码 2 拒绝"
+        "D21.v sample 写成 null、缺平台、平台大小写不对的账号活跃状态不合法时都在读入处拒绝、一个交付文件都没写"
       ]
     },
     {
