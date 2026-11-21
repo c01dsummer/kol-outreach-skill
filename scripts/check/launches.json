@@ -124,7 +124,7 @@
     {"config":"[\"test\",[\"d4t-ignore-memory\"]]","launches":0,"maxPaid":null,"running":3,"stopping":0},
     {"config":"[\"test\",[\"d4t-independent-claim\"]]","launches":1,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"d5-csv\"]]","launches":0,"maxPaid":null,"running":7,"stopping":0},
-    {"config":"[\"test\",[\"d6-pipeline\"]]","launches":0,"maxPaid":null,"running":30,"stopping":0},
+    {"config":"[\"test\",[\"d6-pipeline\"]]","launches":0,"maxPaid":null,"running":31,"stopping":0},
     {"config":"[\"test\",[\"d6-provider\"]]","launches":0,"maxPaid":null,"running":11,"stopping":0},
     {"config":"[\"test\",[\"d7-email\"]]","launches":0,"maxPaid":null,"running":9,"stopping":0},
     {"config":"[\"test\",[\"d8-public\"]]","launches":0,"maxPaid":null,"running":15,"stopping":0},
