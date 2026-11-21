@@ -80,6 +80,8 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
     ? html`<div class="flags">依据：${joinHtml(risk.value.flags.map(riskFlagText), html` · `)}</div>`
     : ''
   const quote = a.collaboration_quote
+  // 已测却没有 value：先点名，不让下面读字段时以 TypeError 崩掉（CodeRabbit 第一轮）
+  if (quote?.status === 'measured') need(quote.value, `增强结果里账号 ${who} 的合作报价内容`)
   const quoteText = !quote ? '未查询'
     : quote.status === 'unavailable'
       ? html`不可用 · ${REASON[quote.reason] ?? need(quote.reason, `增强结果里账号 ${who} 的合作报价不可用的原因`)}`

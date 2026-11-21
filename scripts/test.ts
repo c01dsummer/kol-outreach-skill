@@ -1790,10 +1790,12 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
     const firstTableAfter = (text: string, anchor: string): string[] | string => {
       const at = text.split(anchor)
       if (at.length !== 2) return `「${anchor}」出现 ${at.length - 1} 次`
+      // GFM 表格：表头一行、分隔一行，之后到空行为止的每一行都是数据行，行首的竖线可省（CodeRabbit 第一轮）
       const lines = at[1].split('\n')
-      const start = lines.findIndex(l => l.trimStart().startsWith('|'))
+      const start = lines.findIndex(l => l.includes('|'))
       if (start < 0) return `「${anchor}」后面没有表`
-      const end = lines.findIndex((l, i) => i > start && !l.trimStart().startsWith('|'))
+      if (!/^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[start + 1] ?? '')) return `「${anchor}」后面那张表的第二行不是分隔行`
+      const end = lines.findIndex((l, i) => i > start && (l.trim() === '' || !l.includes('|')))
       return lines.slice(start + 2, end < 0 ? lines.length : end)
         .map(l => l.trim().replace(/^\|/, '').split('|')[0].trim().replace(/^\*\*(.*)\*\*$/, '$1'))
     }
@@ -22851,6 +22853,9 @@ criterion('U12.e');
   ok('缺值不写成空：已测粉丝互动率的值为 null 时报告不出、点名账号与粉丝互动率', engNull !== '报告照出了' && engNull.includes('粉丝互动率') && engNull.includes('a') && !engNull.startsWith('别的错'))
   const viewGone = outcome(withMetric('view_rate', undefined), fullMeta)
   ok('缺值不写成空：已测播粉比没有值时报告不出、点名播粉比', viewGone !== '报告照出了' && viewGone.includes('播粉比') && !viewGone.startsWith('别的错'))
+  // CodeRabbit 第一轮：报价标为已测却没有 value，点名那一格，不以 TypeError 崩掉
+  const quoteNull = outcome(one({ account_assessment: { platform: 'tiktok', handle: 'a', collaboration_quote: measuredAs(null) } as never }), fullMeta)
+  ok('缺值不写成空：已测合作报价没有内容时报告不出、点名账号与合作报价内容', quoteNull.includes('合作报价内容') && quoteNull.includes('a') && !quoteNull.startsWith('别的错'))
   eq('缺值不写成空：已测粉丝互动率有值时照出（上两条的阳性对照）', outcome(withMetric('engagement_rate_followers', 0.05), fullMeta), '报告照出了')
   // 独立复核挑出（作者补）：数组插进页面照 String 用逗号连，但逐项查缺值，[1, undefined] 不连成「1,」
   const arrayOutcome = (value: unknown): string => {
@@ -22864,6 +22869,10 @@ criterion('U12.e');
   const page = (over: Partial<Creator>) => renderHtml(one(over), fullMeta as never)
   ok('P1.o 卡片上邮箱没查过时写邮箱未查询、不写无邮箱', page({ email: undefined }).includes('邮箱未查询') && !page({ email: undefined }).includes('无邮箱'))
   ok('P1.o 卡片上简介没查过时写简介未查询', page({ bio: undefined }).includes('简介未查询') && !page({ bio: null }).includes('简介未查询'))
+  // CodeRabbit 第一轮：查过对方没写时，简介那一行整行不出（不是留一行空的）
+  const bioRows = (html: string) => html.split('<div class="bio">').length - 1
+  ok('P1.o 卡片上简介查过为空（null、空串）时不出简介那一行（比有简介时整好少一行）',
+    [null, ''].every(bio => bioRows(page({ bio })) === bioRows(page({ bio: 'x' })) - 1) && page({ bio: 'x' }).includes('<div class="bio">x</div>'))
 }
 {
   // 作者写（ADR-230）：U12.e 后半句「报告页面的代码里拼文字一律走这种写法」读 report.ts 的语法树核，不按字面搜。

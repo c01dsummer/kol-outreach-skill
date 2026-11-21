@@ -1782,6 +1782,18 @@
       ]
     },
     {
+      "id": "M-F1-c",
+      "req": "F1.a",
+      "why": "必问表多了一行不带行首竖线的问题，网页上照样显示成第四问",
+      "file": "skill/references/product-intake.md",
+      "find": "| **要找多少人** | 采集深度、停止条件 |",
+      "replace": "| **要找多少人** | 采集深度、停止条件 |\n发件人姓名 | 用于署名 | 不预填",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
       "id": "M-P4-b",
       "req": "P4",
       "why": "记忆过滤跑在粉丝闸门之前 —— filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模",
@@ -32379,6 +32391,30 @@
       "kills": [
         "缺值不写成空：已测粉丝互动率的值为 null 时报告不出、点名账号与粉丝互动率",
         "缺值不写成空：已测播粉比没有值时报告不出、点名播粉比"
+      ]
+    },
+    {
+      "id": "M-P1-bh",
+      "req": "P1.o",
+      "why": "简介查过对方没写时留一行空的简介，看着像简介丢了",
+      "file": "scripts/lib/report.ts",
+      "find": "c.bio === null || c.bio === '' ? '' : html`<div class=\"bio\">${c.bio}</div>`",
+      "replace": "c.bio === null || c.bio === '' ? html`<div class=\"bio\"></div>` : html`<div class=\"bio\">${c.bio}</div>`",
+      "by": "test",
+      "kills": [
+        "P1.o 卡片上简介查过为空（null、空串）时不出简介那一行（比有简介时整好少一行）"
+      ]
+    },
+    {
+      "id": "M-P1-bi",
+      "req": "P1.n",
+      "why": "合作报价标为已测却没有内容时不先点名，读字段时以内部错误崩掉、看不出是哪个账号",
+      "file": "scripts/lib/report.ts",
+      "find": "  if (quote?.status === 'measured') need(quote.value, `增强结果里账号 ${who} 的合作报价内容`)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "缺值不写成空：已测合作报价没有内容时报告不出、点名账号与合作报价内容"
       ]
     },
     {
