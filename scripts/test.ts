@@ -1779,6 +1779,20 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   ok('还欠着第一页时，续跑口径说的是要花钱，不是免费',
      keywordsResumeWillRun(st({ offsets: {} }), 99).length === 2)
   tension('F9', 'P3')
+
+  // ── F9 × F1：不新增必问项 ─────────────────────────────────────────────
+  // 第一页保证是机械的，不要用户回答任何新问题。F1.a 量的是 product-intake.md
+  // 「必须问的三个」那一节的表：加粗的问题逐字就是这三条，多一行、少一行、改了问法都红。
+  // 逐字比，不按关键词认 —— 改了问法要有人回来看一眼它还是不是同一个问题。
+  {
+    const section = rf('skill/references/product-intake.md', 'utf8').split(/^## /m)
+      .filter(s => s.startsWith('必须问的三个'))
+    const asks = section.length === 1 ? [...section[0].matchAll(/^\| \*\*(.+?)\*\* \|/gm)].map(m => m[1]) : ['找到这一节的次数', section.length]
+    eq('product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条',
+       asks, ['目标市场', '本次预算上限（美元）', '要找多少人'])
+  }
+  criterion('F1.a')
+  tension('F9', 'F1')
 }
 
 // 独立于实现写成：期望只出自 ADR-111 第一、二节与 D6.h、F9 的原文，函数体此时只会抛「尚未实现」。

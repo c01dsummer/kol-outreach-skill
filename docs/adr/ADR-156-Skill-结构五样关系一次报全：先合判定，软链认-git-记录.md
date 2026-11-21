@@ -447,3 +447,5 @@ console.log(JSON.stringify(skillFaults({ docs, commands, scriptFiles, links })))
 2. **档：驳回 · 理由：照本仓库的用法。** 正文那条（没核实）说 ADR-154 末尾那块的「那张欠条」量词不对、该写「那条」。`docs/adr/` 里「那张欠条」258 处、「那条欠条」44 处，ADR-154 自己的「已还」块都写「那张」。
 
 这一改只动 `selfcheck.ts` 里一个夹具函数，起入口的次数不变（夹具起的 git 启动数那一侧不计）；没有变异落到这一组。`mutationFixtureEnv` 里给变异夹具建历史的那个 git 也是原样传 `process.env`，同样的毛病主干上就有，不是本条引入的：档是既有缺陷，去向是本条合入后另开（`process/6-INTEGRATE.md`「五档路由」）。
+
+> ⚠️ 已还：ADR-156 第 397 行 · 还在本块所在 PR：需求测试 d6-pipeline 组加了一条断言，读 `skill/references/product-intake.md`「必须问的三个」那张表，问题逐字只有目标市场、本次预算上限、要找多少人三条，多一行、少一行、改了问法都红；认领 F1.a（必问项列了且只列三条）与交点 F9 × F1（第一页保证不新增必问项）
