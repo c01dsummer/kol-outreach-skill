@@ -1806,6 +1806,30 @@
       ]
     },
     {
+      "id": "M-F1-e",
+      "req": "F1.a",
+      "why": "必问那一节的表挪到了下一个同级标题底下，「必须问的三个」这一节自己没有表了",
+      "file": "skill/references/product-intake.md",
+      "find": "只有这三个无法从链接推导，且都直接影响后续每一步：\n",
+      "replace": "只有这三个无法从链接推导，且都直接影响后续每一步：\n\n## 示例\n",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
+      "id": "M-F1-f",
+      "req": "F1.a",
+      "why": "「必须问的三个」只剩代码块里的一个示例标题，正文里的那一节改了名",
+      "file": "skill/references/product-intake.md",
+      "find": "## 必须问的三个（F1）\n",
+      "replace": "## 必须问的几个（F1）\n\n```\n## 必须问的三个（F1）\n```\n",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
       "id": "M-P4-b",
       "req": "P4",
       "why": "记忆过滤跑在粉丝闸门之前 —— filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模",

@@ -1797,16 +1797,26 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   {
     // 读表交给 marked（按 GitHub 的 Markdown 规则解析），不手写规则：手写的读表连着两轮漏掉 GitHub 的写法
     // （行首省略竖线、整行没有竖线也算一行），需求所有者 2026-11-21 定改用现成库（ADR-231 第十一节）。
+    // 整份文档交给 marked 解析，再在它给的顶层块里找：代码块里的示例不会被当成锚点或表格；
+    // 锚点是标题时，只在它这一节里找（遇到同级或更高级的标题就停），锚点是段落时，只认紧接着的那张表。
     const firstTableAfter = (text: string, anchor: string): string[] | string => {
-      const at = text.split(anchor)
-      if (at.length !== 2) return `「${anchor}」出现 ${at.length - 1} 次`
-      const table = marked.lexer(at[1]).find((t): t is Tokens.Table => t.type === 'table')
-      if (!table) return `「${anchor}」后面没有表`
+      const blocks = marked.lexer(text)
+      const hits = blocks.flatMap((b, i) => b.type !== 'code' && b.raw.includes(anchor) ? [i] : [])
+      if (hits.length !== 1) return `「${anchor}」在正文块里出现 ${hits.length} 次`
+      const head = blocks[hits[0]]
+      let table: Tokens.Table | undefined
+      for (const b of blocks.slice(hits[0] + 1)) {
+        if (b.type === 'table') { table = b as Tokens.Table; break }
+        if (b.type === 'space') continue
+        if (head.type !== 'heading') break
+        if (b.type === 'heading' && (b as Tokens.Heading).depth <= (head as Tokens.Heading).depth) break
+      }
+      if (!table) return `「${anchor}」那一节里没有表`
       return table.rows.map(row => row[0].text.trim().replace(/^\*\*(.*)\*\*$/, '$1'))
     }
     const THREE = ['目标市场', '本次预算上限（美元）', '要找多少人']
     eq('product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条',
-       firstTableAfter(rf('skill/references/product-intake.md', 'utf8'), '\n## 必须问的三个'), THREE)
+       firstTableAfter(rf('skill/references/product-intake.md', 'utf8'), '## 必须问的三个'), THREE)
     eq('SKILL.md「只问这三个」那张表列了且只列了目标市场、预算上限、要找多少人三条',
        firstTableAfter(rf('skill/SKILL.md', 'utf8'), '**只问这三个**'), THREE)
   }
@@ -8958,6 +8968,7 @@ suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名�
     const url = render('p1n-url', [noUrl])
     eq('P1.n 入口：名单里有人缺主页链接时 render 以退出码 2 结束', url.status, 2)
     ok('P1.n 入口：缺主页链接时 stderr 点名主页链接', url.stderr.includes('主页链接') && url.stderr.includes('p1nurl'))
+    ok('P1.n 入口：缺主页链接时 report.html 与 meta.json 都还是上一份', url.report === OLD_REPORT && url.meta === OLD_META)
     // 独立复核挑出（作者补）：合作报价是 Agent 照 public-metrics.md 手写进 enrichment.json 的，漏写一项也是本该总有的格缺了：
     // 报告不出，报错点名账号与那一格，不能只给「…▯…」。名单表格这时已经写了（ADR-231 第六节那张欠条）
     const quote = (value: object) => ({ version: 1, updated_at: '2026-10-01T00:00:00Z', accounts: { 'tiktok:p1nquote': {
