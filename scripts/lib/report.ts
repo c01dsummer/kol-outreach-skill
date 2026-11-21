@@ -9,6 +9,7 @@ import { draftSubject, sampleScopeText, sortForReviewOutput, type ReviewOutputOp
 import { normalizedAccountKey } from './review.js'
 import type { CostView } from './budget.js'
 import type { FeedbackSummary } from './manual-feedback-summary.js'
+import { lessonsBoundaryNote, type LessonsSeen } from './lessons.js'
 import type { ReviewRound } from './review.js'
 import { html, joinHtml, type SafeHtml } from './safe-html.js'
 
@@ -132,6 +133,9 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
  * 一条（地域），它不认领任何判据。selfcheck 另起真 render 端到端核「人人带着也仍为 false」，
  * 这几条变异只跑 test.ts，够不着它。
  */
+/** 有人工与 Agent 分歧时，报告在分歧那一节下面加的一句（D31.l）：起草交给 Agent 在对话里做，用户确认后才进库 */
+export const LESSON_DRAFT_HINT = '这些分歧可以沉淀成复评经验：在对话里请 Agent 按分歧起草，你确认收下以后才会写进这一品类的经验库，下一个同品类任务在语义筛选前会先读它。'
+
 export const enrichedFlag = (creators: Creator[]): boolean =>
   creators.some(c => c.audience_geo !== undefined)
 
@@ -249,6 +253,7 @@ const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: rea
     <h2>拒绝原因（账号数）</h2>${reasons.length ? html`<ul>${joinHtml(reasons)}</ul>` : html`<p>尚无人工拒绝原因</p>`}
     <h2>Agent 原记录与人工分歧</h2><p>${summary.disagreements.length
       ? summary.disagreements.join('、') : '尚无可列的分歧账号'}</p>
+    ${summary.disagreements.length ? html`<p>${LESSON_DRAFT_HINT}</p>` : ''}
     <p class="sub">仅比较完整 Agent 原判断与本平台明确人工答案，可能含历史判断；缺记录不能比较，不代表 Agent 准确率、采用改善或真实发信效果。</p>
     <h2>冻结账号与原任务来源</h2>${sources}</section>`
 }
@@ -374,6 +379,8 @@ ${dual ? html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"$
     ? meta.capabilities.audience_geo.total === 0 ||
       meta.capabilities.audience_geo.measured < meta.capabilities.audience_geo.total
     : !meta.enriched
+  // D31（ADR-230）：这次语义筛选前读了复评经验库的哪几条，或者为什么没读到。meta 里没有这一项的（旧版 render 写的）不说
+  const lessonsNote = meta.lessons === undefined ? undefined : lessonsBoundaryNote(meta.lessons as LessonsSeen)
   // P4/P5（ADR-15）：去重没跑，用户必须在发信之前知道。这一条排在最前面 ——
   // 其余几条是「数据可能不全」，这一条是「这份名单可能让你二次打扰同一个人」。
   if (meta.memory_status === 'unreadable_ignored') {
@@ -400,6 +407,7 @@ ${dual ? html`<div class="card ${String(c.tier)}" data-tier="${String(c.tier)}"$
   if (missingAudienceGeo) {
     notes.push('未配置增强层，无法确认这批人的粉丝是否在目标市场。')
   }
+  if (lessonsNote !== undefined) notes.push(lessonsNote)
   const publicCapability = meta.capabilities?.public_post_sample
   if (publicCapability?.measured || publicCapability?.unavailable) {
     notes.push('受众质量风险只依据近期公开互动异常，不是假粉率，也不能代表实际带货效果。')
