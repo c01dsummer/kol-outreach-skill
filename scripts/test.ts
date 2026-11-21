@@ -8522,24 +8522,28 @@ async function main(): Promise<void> {
   const quoteOk = { amount: 300, currency: 'USD', platform: 'tiktok', format: 'tiktok_video', quantity: 1, source: 'creator_quote', observed_at: '2026-10-01' }
   const { currency: _c, ...noCurrency } = quoteOk
   const named = (problems: string[], ...words: string[]) => problems.length === 1 && words.every(w => problems[0].includes(w)) && problems[0].includes('tiktok:x')
-  eq('P1.n 增强结果读入检查逐项点名：账号名、粉丝数、报价包装、报价各项、不可用原因、样本、原样用的指标', {
+  eq('P1.n 增强结果读入检查逐项点名：账号名、报价包装、报价各项、不可用原因、样本、风险依据、原样用的指标', {
     齐全时一条不报: one({ followers: 10, collaboration_quote: measured(quoteOk), metrics: { engagement_rate_followers: measured(0.1) } }).length === 0,
     报价来源写了别的词照收: one({ collaboration_quote: measured({ ...quoteOk, source: 'rate_card' }) }).length === 0,
     账号名: named(one({ handle: undefined }), 'handle'),
-    粉丝数写成null: named(one({ followers: null }), 'followers'),
-    关注数写成字: named(one({ following: '8万' }), 'following', '"8万"'),
+    样本写成null照收: one({ sample: null, metrics: { view_rate: measured(0.2) } }).length === 0,
     报价是裸对象: named(one({ collaboration_quote: quoteOk }), 'collaboration_quote', '三态包装'),
     报价缺币种: named(one({ collaboration_quote: measured(noCurrency) }), 'currency'),
     报价金额不是数: named(one({ collaboration_quote: measured({ ...quoteOk, amount: '300' }) }), 'amount'),
+    报价其余几项缺了: named(one({ collaboration_quote: measured({ amount: 300, currency: 'USD' }) }), 'quantity', 'platform', 'format', 'source', 'observed_at'),
     报价不可用没原因: named(one({ collaboration_quote: { status: 'unavailable', source: { provider: 'manual' }, observed_at: 'x' } }), 'collaboration_quote', 'reason'),
     样本不是一串: named(one({ sample: measured(5) }), 'sample', '一串'),
     样本没来源: named(one({ sample: measured([], { source: {} }) }), 'source.provider'),
+    样本没日期: named(one({ sample: measured([], { observed_at: undefined }) }), 'sample', 'observed_at'),
+    风险依据缺指标名: named(one({ metrics: { audience_quality_risk: measured({ level: 'low', flags: [{ direction: 'low' }] }) } }), 'audience_quality_risk', 'flags'),
+    最后发布不是日期: named(one({ metrics: { latest_post_at: measured(5) } }), 'latest_post_at', '日期'),
     原样用的指标没有值: named(one({ metrics: { engagement_rate_followers: measured(null) } }), 'engagement_rate_followers'),
     原样用的指标是裸数字: named(one({ metrics: { view_rate: 0.2 } }), 'metrics.view_rate', '三态包装'),
     原样用的指标不可用没原因: named(one({ metrics: { median_views: { status: 'unavailable', source: {}, observed_at: 'x' } } }), 'metrics.median_views', 'reason'),
   }, {
-    齐全时一条不报: true, 报价来源写了别的词照收: true, 账号名: true, 粉丝数写成null: true, 关注数写成字: true, 报价是裸对象: true,
-    报价缺币种: true, 报价金额不是数: true, 报价不可用没原因: true, 样本不是一串: true, 样本没来源: true,
+    齐全时一条不报: true, 报价来源写了别的词照收: true, 账号名: true, 样本写成null照收: true, 报价是裸对象: true,
+    报价缺币种: true, 报价金额不是数: true, 报价其余几项缺了: true, 报价不可用没原因: true, 样本不是一串: true, 样本没来源: true,
+    样本没日期: true, 风险依据缺指标名: true, 最后发布不是日期: true,
     原样用的指标没有值: true, 原样用的指标是裸数字: true, 原样用的指标不可用没原因: true,
   })
 

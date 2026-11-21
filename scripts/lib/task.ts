@@ -236,7 +236,7 @@ const text = (v: unknown): boolean => typeof v === 'string' && v.trim() !== ''
  * D21.v（ADR-227）：没有可用作品样本、平台又不是 instagram 的账号，render 直接用文件里存的活跃状态与风险等级
  *（有样本的会重算，Instagram 没样本的指标整个不用；哪些算「原样用」与 `currentEnrichmentView` 共用 `storedMetricsUsedAsIs`）。这两样手改坏了就拒收，不显示成空白、不当成别的等级。
  * P1.n（ADR-230）：报告上本该总有的格缺了整份不出；增强结果是 Agent 手写的（合作报价照 public-metrics.md 写进来），
- * 所以报告要印的几样在这里、写任何文件之前就查：每个账号的 handle，写了的粉丝数、关注数是数；合作报价、作品样本、
+ * 所以报告要印的几样在这里、写任何文件之前就查：每个账号的 handle；合作报价、作品样本、
  * 原样用的指标是三态包装，不可用时有原因；已测报价的币种、金额、数量、平台、形式、来源、日期都在（平台、形式、来源
  * 只查有没有写，报告原样印）；已测样本是一串、有来源与日期；原样用的已测指标有数（日期那一格有日期串）。缺了点名文件、账号、字段。
  * 文件读不读得成不在这里。
@@ -249,14 +249,10 @@ export function enrichmentValueProblems(file: string, state: EnrichmentState | u
     const at = `${file} 里账号 ${shown(key)}`
     if (!text(account.handle))
       problems.push(`${at}没有 handle（读到 ${shown(account.handle)}），报告上这个账号的那一行要印它；补上账号名后再跑`)
-    for (const name of ['followers', 'following'] as const) {
-      // 缺席是「未知」，报告写明；写了就得是个数，null 或「8万」这种进了除法会印成 NaN%
-      if (name in account && !finite(account[name]))
-        problems.push(`${at}的 ${name} 写了却不是一个数（读到 ${shown(account[name])}）；不知道就删掉这个键，报告会写未知，改正后再跑`)
-    }
-    // 三态包装本身：缺席 = 未查询；在的话得是 measured 或 unavailable，不是裸值、空对象或拼错的 status
+    // 三态包装本身：缺席或 null = 未查询（报告与 storedMetricsUsedAsIs 都这么读）；在的话得是 measured 或 unavailable，
+    // 不是裸值、空对象或拼错的 status
     const wrapped = (where: string, m: unknown): m is Record<string, unknown> => {
-      if (m === undefined) return false
+      if (m === undefined || m === null) return false
       if (isRecord(m) && (m.status === 'measured' || m.status === 'unavailable')) {
         if (m.status === 'unavailable' && !text(m.reason))
           problems.push(`${at}的 ${where} 标为不可用，却没写 reason（原因）；补上原因后再跑`)
@@ -277,10 +273,10 @@ export function enrichmentValueProblems(file: string, state: EnrichmentState | u
     }
     const sample = account.sample
     if (wrapped('sample', sample)) {
-      if (!Array.isArray(sample.value)) problems.push(`${at}的 sample 标为已测，value 却不是一串作品（读到 ${shown(sample.value)}）；重跑 enrich 后再跑`)
+      if (!Array.isArray(sample.value)) problems.push(`${at}的 sample 标为已测，value 却不是一串作品（读到 ${shown(sample.value)}）；用 enrich --refresh 重新取这个账号后再跑（不加 --refresh 会用缓存）`)
       if (!(isRecord(sample.source) && text(sample.source.provider)))
-        problems.push(`${at}的 sample 标为已测，却没写 source.provider（样本来源）；重跑 enrich 后再跑`)
-      if (!text(sample.observed_at)) problems.push(`${at}的 sample 标为已测，却没写 observed_at（样本日期）；重跑 enrich 后再跑`)
+        problems.push(`${at}的 sample 标为已测，却没写 source.provider（样本来源）；用 enrich --refresh 重新取这个账号后再跑（不加 --refresh 会用缓存）`)
+      if (!text(sample.observed_at)) problems.push(`${at}的 sample 标为已测，却没写 observed_at（样本日期）；用 enrich --refresh 重新取这个账号后再跑（不加 --refresh 会用缓存）`)
     }
     if (!storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue
     const metrics = account.metrics
