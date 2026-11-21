@@ -102,6 +102,7 @@ scripts/
 ├── feedback-template.ts         已保存冻结池的人工复评模板创建／追加
 ├── calibration.ts               任务品牌校准的内容哈希版本（calibration version）
 ├── sender.ts                    任务建好后补发件人姓名（sender_name）
+├── lessons.ts                   复评经验库：列品类名、语义筛选前读、用户确认后写入（lessons）
 ├── lib/                         预算、邮箱、身份、记忆、CSV/XLSX 等
 ├── providers/                   数据源实现
 └── check/                       纪律检查、变异测试、自检和审计
@@ -163,6 +164,13 @@ npm run collect -- --resume output/xxx --budget 3
 # 新任务建好后、Agent 评审之前：把品牌校准的手写版本换成内容哈希（不请求 API；没有品牌校准的任务不需要）
 npm run --silent calibration -- version --dir output/xxx
 
+# Agent 评审之前：看已有品类名，读同品类的复评经验（不请求 API；没有也照常往下做）
+npm run --silent lessons -- list
+npm run --silent lessons -- read --dir output/xxx --category 护肤
+
+# 用户在对话里明确收下一条经验草稿后才写入（草稿是一个 JSON 文件）
+npm run --silent lessons -- add --category 护肤 --entry draft.json --confirmed-by-user
+
 # Agent 将语义判断保存至 agent-review.json 后，可选抓取主页近期公开指标
 npm run enrich -- --dir output/xxx
 
@@ -218,6 +226,7 @@ output/{product}-{timestamp}/
 ├── agent-review.json  Agent 判断、平台账号别名与冻结候选轮次的正本
 ├── manual-feedback.csv 人工反馈原作答（模板命令创建／显式追加，报告只读）
 ├── enrichment.json    分平台公开样本、指标、报价和查询状态（运行 enrich 后）
+├── lessons-read.json  语义筛选前读了哪份复评经验、读到哪几条（运行 lessons read 后）
 ├── task.json          采集状态、费用账、请求数和断点信息
 └── meta.json          平台、费用、分能力状态、人工审核汇总与冻结轮次、数据边界
 ```

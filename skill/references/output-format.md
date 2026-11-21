@@ -18,6 +18,7 @@ output/{product}-{YYYYMMDDHHmm}/
 ├── agent-review.json Agent 判断与冻结轮次正本 —— Agent 在此保存判断和草稿
 ├── manual-feedback.csv 人工原作答 —— 模板命令创建／显式追加，报告只读
 ├── enrichment.json    分平台公开样本、指标、报价与查询状态（运行 enrich 后）
+├── lessons-read.json 语义筛选前读了哪份复评经验、读到哪几条（运行 lessons read 后）
 ├── task.json      采集状态（断点续跑用）
 └── meta.json      本次任务元数据
 ```
@@ -62,6 +63,7 @@ npm run render -- --dir output/{task} --ignore-memory   # 只在用户明确接�
 - **名单从任务目录的 `creators.json` 来**，也就是 collect 保存的当前名单。`creators.raw.json`（采集原件）只用来认关联账号，不往名单里加人；它不在时拿 `creators.json` 顶上。`creators.json` 不在时导出一份空名单，照常以 0 结束。
 - **判断从 `agent-review.json` 来**。这份不在时，render 把 `creators.json` 旧行里带的判断（`fit`、`fit_reason`、草稿等）迁成正本存下，再照正本出名单。
 - `enrichment.json` 可以没有，没有就是公开指标全部未查询。
+- `lessons-read.json` 可以没有，没有就是这次没读复评经验库，数据边界照这样说；它不改名单、分层与评分（见 `references/semantic-fit.md`「复评经验」）。
 - 跨任务记忆 `memory/creators.json` 与 collect 一样，按 render 进程的当前目录找（用 `npm run` 时就是仓库根目录）。文件还不存在时 `memory_status` 是 `absent`，render 会新建它、记下这批推荐。
 
 能导出的最小任务目录长这样：render 以 0 结束，写出 `kol.csv`、`kol.xlsx`、`report.html`、`meta.json`，并存下 `agent-review.json`。照着试的时候，先用 `cp -r` 把整个仓库（连同 `node_modules`）复制一份一次性的副本，把这两个文件放进副本里的 `output/demo/`，在副本根目录跑 `npm run render -- --dir output/demo`。这样 `memory/creators.json` 和 `output/` 都落在副本里，用完整份删掉；直接在仓库根目录跑，这个示例里的人会被记进真的跨任务记忆。`--ignore-memory` 不起隔离作用：它只让读不出的记忆不拦导出，读得出时照常去重、照常写回。
@@ -387,6 +389,8 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 
 两条都会同时出现在 HTML 报告的数据边界里。见 `references/memory.md` 与 ADR-15。
 
+`lessons` 是这次语义筛选前读复评经验库的情况，取自任务目录里 `lessons read` 留下的 `lessons-read.json`：`status` 为 `not_read`（没有这份记录，没读过）、`record_unreadable`（记录本身读不出来，带 `detail`）、`absent`（没有这一品类的经验库）、`unreadable`（那一份读不出来，带 `detail`）或 `ok`（`lessons` 里逐条列 `index`、`state`、`situation`，可以为空）。读没读、读到什么都不改名单、分层与评分。见 `references/semantic-fit.md`「复评经验」。
+
 ### HTML 报告里数据边界的原句
 
 报告上方统计数字下面那一块黄色提醒就是数据边界，每句单独一行、前面带「⚠️ 」。按下面的顺序出现，条件不满足的那句不出；去重那两句之一出现时排在最前面。
@@ -398,6 +402,12 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 | `memory_written` 是 `false` | 本次推荐未记入跨任务记忆（原文件未被改动）—— 原因：`memory_write_error` 的原文（没有时写「未记录」）。在解决之前，下一批名单可能重复推荐这批人。 |
 | `capabilities.email_verification` 的 `total` 是 0，或 `measured` 小于 `total`（没有 `capabilities` 时看 `enriched` 是 `false`） | 邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。 |
 | `capabilities.audience_geo` 同上 | 未配置增强层，无法确认这批人的粉丝是否在目标市场。 |
+| `lessons.status` 是 `not_read`（任务目录里没有 `lessons-read.json`） | 本次没有读复评经验库（任务目录里没有读取记录），语义筛选没有参考以前确认过的经验。 |
+| `lessons.status` 是 `absent` | 还没有「{category}」这一品类的复评经验库，本次没有可参考的经验。 |
+| `lessons.status` 是 `ok`、`lessons.lessons` 为空 | 复评经验库「{category}」里还没有一条经验，本次没有可参考的经验。 |
+| `lessons.status` 是 `ok`、有经验 | 本次语义筛选前读了复评经验库「{category}」的 {n} 条经验：第 1 条「{situation}」（{state}）；…。其中 {k} 条不是按现行规则写的（写于规则改动之前或版本未知），照常参考。（「其中」那半句只在 k 不是 0 时出） |
+| `lessons.status` 是 `unreadable` | 复评经验库「{category}」读不出来，本次没有参考经验（原文件没有改动）：{detail} |
+| `lessons.status` 是 `record_unreadable` | 复评经验库的读取记录读不出来（{detail}），本次参考了哪些经验无从确认。 |
 | `capabilities.public_post_sample` 的 `measured` 或 `unavailable` 不是 0 | 受众质量风险只依据近期公开互动异常，不是假粉率，也不能代表实际带货效果。 |
 | `capabilities.public_post_sample` 的 `unqueried` 或 `unavailable` 不是 0 | 公开指标边界：{unqueried} 个账号未查询，{unavailable} 个账号不可用。 |
 

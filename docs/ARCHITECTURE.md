@@ -54,7 +54,7 @@
 | `.claude/` | 是 | 只装 `skills/kol-outreach`，一个指向 `skill/` 的软链，给 Claude Code 发现 Skill 用；不放别的内容 |
 | `proposals/` | 是 | 跨两层、**尚未采纳**的方案：既含通用方法又含本产品实例，两边都放不下整份时先放这里。不是规则，`AGENTS.md` 不路由到这里；采纳时按层拆开落位（通用的进 `process/`，本产品的进 `docs/`），原文只留转发或删除 |
 | `output/` | 否 | 本机运行产物。现状：collect 建的采集任务目录 `output/<产品>-<时间戳>/`；变异一步写的 `output/mutation-launches/launches.json`（ADR-145，检查链最后一步读它判红；变异一步每跑先删再写；CI 上分份跑时每份写 `launches-k-of-n.json`，ADR-200）；整跑自检写的 `output/selfcheck-launches/families.json`（ADR-145 第三十一节，按族的启动数，最后一步读它只报数；完整整跑每跑先删，拆进程跑、每一族都绿才写）。本节另立的规矩：核实工具与调查的原始响应、诊断快照、价目快照也放这里，`output/<名字>/`，带清单与 SHA256 |
-| `memory/` | 否 | 跨任务记忆（`memory/creators.json`，已推荐过的人） |
+| `memory/` | 否 | 跨任务记忆（`memory/creators.json`，已推荐过的人）；复评经验库 `memory/lessons/<品类名>.json`（D31，ADR-230：单开一层子目录，免得一个叫 creators 的品类撞上已联系名单） |
 | `.check-cache/` | 否 | 检查链的缓存：编译缓存（`compile-cache`）、变异派工的 worker 目录（`mutate-jobs/<派工进程号>/`，每一跑一层）、测试与自检的覆盖记录 |
 | `node_modules/` | 否 | 依赖 |
 
@@ -110,6 +110,8 @@
 | `scripts/lib/manual-feedback-summary.ts` | 机械 | U11 | 只读冻结平台账号池与原平台人工行，计算明确分母、覆盖、账号原因与原 Agent 分歧；不消费当前交付名单或有效建议，不取得写入与判断权限 |
 | `scripts/lib/manual-feedback-template.ts` | 逻辑 | D24 P1 | 以确认缺席或既有 Buffer 生成模板字节计划；默认拒绝既有内容，显式追加先核完整人工表，只补冻结池缺席账号并保留原字节前缀；不读写文件 |
 | `scripts/sender.ts` | 入口 | D30 P1 | 任务建好后补发件人姓名：先按 D30 同一道校验姓名，再读既有 `task.json`（读不成对象、任一层写重复的键都拒绝），只改根上 `sender_name` 整份写回；不开账、不请求、不读写记忆 |
+| `scripts/lessons.ts` | 入口 | D31 P1 P5 | 复评经验库的三个子命令：`list` 列已有品类名；`read` 读同名那一份、把每条经验连同规则版本状态打到 stdout，并在任务目录写 `lessons-read.json`，没有或读不出来都以 0 结束；`add` 只在带 `--confirmed-by-user` 时追加一条。不开账、不请求、不读写已联系名单 |
+| `scripts/lib/lessons.ts` | 逻辑 | D31 P1 P5 | 品类名能否当文件名、一条经验五项齐不齐、`skill/` 内容指纹（读不出来记「未知」）、三种版本状态、读与追加写（读不出来不写不盖）、任务目录里读取记录的读法与数据边界那一句；不判经验写得好不好、用户确认没有 |
 | `scripts/feedback-template.ts` | 入口 | D26 P1 P3 | 只接受必填 --dir 与显式 --append，调用模板协调边界，诊断进 stderr；实际保存或合法无变化后才输出机械 JSON |
 | `scripts/lib/feedback-template-task.ts` | 逻辑 | D26 D24 D27 P1 P3 | 只读准备已保存任务、冻结正本及完整名单关系，先拒绝坏输入（含 task.json 里写重复的键，D27.d）再生成字节计划；仅保存人工目标，保存失败保原件，无变化不写，不迁移或冻结 |
 | `scripts/calibration.ts` | 入口 | D20 P1 P3 | 只接受子命令 version 与必填一次 --dir，调用校准版本协调边界，诊断进 stderr；实际保存或合法无变化、缺席后才输出机械 JSON |
@@ -476,6 +478,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 人工反馈模板新增行的轮次原值能无损编码成 UTF-8 → 才拼出新增行的字节、计划写入 | `scripts/lib/manual-feedback-template.ts` | 带未配对代理项的轮次原值被替换编码写进新增行，原值没保留，也没有拒绝 | M-D24-n |
 | 非 unchanged 计划实际保存成功；合法 unchanged 零写入确认 → 才输出成功 JSON | `scripts/lib/feedback-template-task.ts`、`scripts/feedback-template.ts` | 保存失败仍报成功，或失败覆盖旧作答、留下首次创建目标 | M-D26-m、M-D26-r |
 | 补发件人姓名：姓名过 D30 那一道 → 既有 `task.json` 读成对象、任一层没有写重复的键 → 才只换根上 `sender_name` 整份写回 | `scripts/sender.ts` | 空串或只有空白的姓名写进任务；写重复的键被整份写回悄悄只留最后一处；其余键被丢掉；姓名被修剪后才写 | M-D30-i、M-D30-j、M-D30-k、M-D30-l |
+| 写一条经验：带 `--confirmed-by-user` → 品类名合规 → 草稿不带版本与时间、五项齐 → 那一份经验库读得出来（或还没有） → 才追加写回 | `scripts/lessons.ts`、`scripts/lib/lessons.ts` | 用户没确认的草稿进库；经验写到别的目录；起草的一方替经验报版本；读不出来的经验库被只剩新一条的文件盖掉 | M-D31-a、M-D31-c、M-D31-d、M-D31-e、M-D31-n |
 <!-- END:ORDER -->
 
 ---
@@ -490,9 +493,10 @@ Agent 是编排者，它读 stdout 做决策。
 | `probe` | `--config probe.json` | **不落盘** | 0 · 1 · 2 · **3** · **5** |
 | `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]`；旧名单、采集原件、评审正本及已有人工表 | `task.json` `creators.raw.json` `creators.json` · 内容变化时 `agent-review.json` | 0 · 1 · 2 · **3** · **4** · **5** · **6** · **7** |
 | `enrich` | `--dir <dir>`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** · **5** · **6** |
-| `render` | `--dir <dir>` `[--ignore-memory]`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv` · `enrichment.json` · 当前 `memory/creators.json`） | 内容变化时 `agent-review.json` · `task.json` 的去重状态 · `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 1 · 2 · **6** · **7** |
+| `render` | `--dir <dir>` `[--ignore-memory]`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv` · `enrichment.json` · 已有 `lessons-read.json` · 当前 `memory/creators.json`） | 内容变化时 `agent-review.json` · `task.json` 的去重状态 · `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 1 · 2 · **6** · **7** |
 | `calibration version` | 子命令 `version` 与必填一次 `--dir <dir>`；既有 `task.json` 的 `brand_calibration` | 仅 `task.json` 的 `brand_calibration.version`（与 `updated_at`）；缺席、结构不合、已一致与保存失败不写 | 0 · 1 · 2 |
 | `sender` | 必填一次 `--dir <dir>` 与 `--name <姓名>`；既有 `task.json` | 仅 `task.json` 根上的 `sender_name`（与 `updated_at`）；姓名不合规、读不成对象或写重复的键时不写 | 0 · 1 · 2 |
+| `lessons` | `list`；`read --dir <dir> --category <品类名>`（`task.json` 要读得到 · `memory/lessons/<品类名>.json` · `skill/` 全部内容）；`add --category <品类名> --entry <草稿文件> --confirmed-by-user` | `read`：`<dir>/lessons-read.json`；`add`：`memory/lessons/<品类名>.json`；`list` 不写 | 0 · 2 · **6** |
 | `feedback-template` | 必填一次 `--dir <dir>`、可选一次 `--append`；既有 `task.json`、已保存 `agent-review.json`、完整 `creators.json`、存在时的 `creators.raw.json` 及人工目标 | 仅 `manual-feedback.csv` 的创建或显式追加；unchanged 不写 | 0 · 1 · 2 |
 
 **stdout 是结构化 JSON，stderr 是进度。** 这个分工是硬约束 —— Agent 解析 stdout，
@@ -583,6 +587,8 @@ Agent 判断、人工作答与采集证据各有正本；`creators.json` 的判�
 | **Agent** | 只编辑 `agent-review.json` 对应平台账号的原判断、四项证据、兼容 fit／理由／草稿及实际校准版本；保留冻结轮次、来源与其他评审 |
 | **人工** | `manual-feedback.csv` 的原作答；Agent 不代填，collect/enrich/render 只读 |
 | `calibration version`（脚本） | 只写 `task.json` 的 `brand_calibration.version`（保存时 `updated_at` 照例刷新）；校准其余字段、任务其余字段、评审正本、名单、人工表与交付都不碰；不生成缺席的校准 |
+| `lessons`（脚本） | `read` 只写任务目录里的 `lessons-read.json`；`add` 只往 `memory/lessons/<品类名>.json` 追加一条，规则版本与写入时间由它填；不碰 `skill/`、任务其余文件、名单与 `memory/creators.json` |
+| **Agent**（经验） | 起草经验的局面、教训、证据、归因四项；只在用户明确确认后调 `lessons add` |
 | `sender`（脚本） | 只写 `task.json` 根上的 `sender_name`（保存时 `updated_at` 照例刷新）；任务其余字段、评审正本、名单、人工表、交付与记忆都不碰 |
 | `feedback-template`（脚本） | 只创建模板结构或显式追加冻结池缺席账号的空白七字段，不改已有人工字节、轮次、判断或源文件 |
 | `enrich`（脚本） | 只写 `enrichment.json` 与任务状态，不碰评审正本、人工表、raw 或名单 |
