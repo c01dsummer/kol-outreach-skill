@@ -113,7 +113,8 @@ Instagram 新样本的 `media_scope` 是 `provider_returned_first12`。逐条作
 
 合作报价不是互动率，也不能从粉丝数自动猜。只有用户提供创作者报价或公开 rate card 时，
 才在 `enrichment.json` 对应账号写 `collaboration_quote`：金额、币种、平台、内容形式、
-数量、来源、时间缺一不可。
+数量、来源、时间缺一不可：漏了任一项，或标为 `unavailable` 却没写 `reason`，render 不出报告、退出 2，
+stderr 点名账号与那一格（P1.n）。
 
 它本身也使用三态包装；不要把裸报价对象直接塞进去：
 

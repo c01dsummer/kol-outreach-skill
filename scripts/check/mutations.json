@@ -872,8 +872,8 @@
       "req": "U9.a",
       "why": "卡片上不留分层标记，报告里的 tab 切换失效 —— 每个 tab 显示的内容完全一样",
       "file": "scripts/lib/report.ts",
-      "find": "<div class=\"card ${String(c.tier)}\" data-tier=\"${String(c.tier)}\"${c.tier === def ? '' : html` style=\"display:none\"`}>",
-      "replace": "<div class=\"card ${String(c.tier)}\"${c.tier === def ? '' : html` style=\"display:none\"`}>",
+      "find": "<div class=\"card ${tier}\" data-tier=\"${tier}\"${tier === def ? '' : html` style=\"display:none\"`}>",
+      "replace": "<div class=\"card ${tier}\"${tier === def ? '' : html` style=\"display:none\"`}>",
       "by": "test",
       "kills": [
         "点击 B、A、C 后只显示所选分层卡片"
@@ -884,7 +884,7 @@
       "req": "U9.a",
       "why": "默认永远选 A —— A 级为空时打开报告第一眼是空白，会被当成出错了",
       "file": "scripts/lib/report.ts",
-      "find": "    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'",
+      "find": "    (['A', 'B', 'C'] as const).find(t => tierCount(t) > 0) ?? 'A'",
       "replace": "    'A'",
       "by": "test",
       "kills": [
@@ -1053,8 +1053,8 @@
       "req": "P5.j",
       "why": "报告副标题的平台退回成从交付名单反推 —— 任务里有、却一个人都没采到的平台从副标题上消失，运营读成「这个平台没人」，其实是没查到或没查过",
       "file": "scripts/lib/report.ts",
-      "find": "${(meta.platforms ?? []).join(' + ')}</div>",
-      "replace": "${[...new Set(creators.map((c: any) => c.platform))].join(' + ')}</div>",
+      "find": "${joinHtml(need(meta.platforms, '交付信息里的平台列表'), html` + `)}</div>",
+      "replace": "${joinHtml([...new Set(creators.map((c: any) => c.platform))], html` + `)}</div>",
       "by": "test",
       "kills": [
         "报告副标题的平台照 meta 的任务平台列：没采到人的 Instagram 也在"
@@ -1103,8 +1103,8 @@
       "req": "P5.i",
       "why": "「问过、而那一次的条数没记下来」在报告上被印成 0 —— 而盘上那一格是 null：HTML 说「找到 0 条」、meta.json 说「无从确认」，同一份交付物两处对不上，运营看的是前者，据此把一个已经付过钱、条数其实未知的词判成没人",
       "file": "scripts/lib/report.ts",
-      "find": "    : k.found === null || k.found === undefined ? '未知'\n    : String(k.found)",
-      "replace": "    : String(k.found ?? 0)",
+      "find": "    : k.found === null || k.found === undefined ? '未知'\n    : k.found\n",
+      "replace": "    : k.found ?? 0\n",
       "by": "test",
       "kills": [
         "「找到」那一列四态俱全，逐格对得上：量出来的 0 印 0，没测量的不印 0"
@@ -1115,8 +1115,8 @@
       "req": "P5.i",
       "why": "「查了 0 命中」被印成「—」—— 量出来的零和「没测到」长得一模一样，运营分不出「这个词真没人」和「这个词的数没测到」，而前者该换词、后者该重跑（渲染口径同 P1.e）",
       "file": "scripts/lib/report.ts",
-      "find": "    : String(k.found)",
-      "replace": "    : k.found === 0 ? '—' : String(k.found)",
+      "find": "'未知'\n    : k.found\n",
+      "replace": "'未知'\n    : k.found === 0 ? '—' : k.found\n",
       "by": "test",
       "kills": [
         "「找到」那一列四态俱全，逐格对得上：量出来的 0 印 0，没测量的不印 0"
@@ -1232,8 +1232,8 @@
       "req": "U3.b",
       "why": "渲染那一侧再筛一道，只留查询过的行 —— 数据层已经把每个任务都列出来了，报告却把没查过的那几行丢掉：看不见的方向等于不存在的方向，而这正是 IG 为零时最贵的那一半",
       "file": "scripts/lib/report.ts",
-      "find": "  const kwRows = joinHtml((meta.keywords ?? []).map((k: any) => html`",
-      "replace": "  const kwRows = joinHtml((meta.keywords ?? []).filter((k: any) => k.status === 'queried').map((k: any) => html`",
+      "find": "  const kwRows = joinHtml(need(meta.keywords, '交付信息里的关键词表').map((k: any) => html`",
+      "replace": "  const kwRows = joinHtml(need(meta.keywords, '交付信息里的关键词表').filter((k: any) => k.status === 'queried').map((k: any) => html`",
       "by": "test",
       "kills": [
         "没查过的词照样在表体里，写着「未查询」"
@@ -1755,6 +1755,102 @@
       "by": "selfcheck",
       "kills": [
         "预算不够抓齐第一页时按预算停下，没问到的如实列出"
+      ]
+    },
+    {
+      "id": "M-F1-a",
+      "req": "F1.a",
+      "why": "开工前的必问表多了一问（不加粗也算）：用户在第一页要多答一个问题",
+      "file": "skill/references/product-intake.md",
+      "find": "| **要找多少人** | 采集深度、停止条件 |",
+      "replace": "| 品类 | 关键词方向 | 读商品页推 |\n| **要找多少人** | 采集深度、停止条件 |",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
+      "id": "M-F1-b",
+      "req": "F1.a",
+      "why": "Skill 主文件里那张只问三个的表多了一问，与必问表说法不一",
+      "file": "skill/SKILL.md",
+      "find": "| 要找多少人 | 决定采集深度和停止条件 |",
+      "replace": "| 要找多少人 | 决定采集深度和停止条件 |\n| 品类 | 决定关键词方向 |",
+      "by": "test",
+      "kills": [
+        "SKILL.md「只问这三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
+      "id": "M-F1-c",
+      "req": "F1.a",
+      "why": "必问表多了一行不带行首竖线的问题，网页上照样显示成第四问",
+      "file": "skill/references/product-intake.md",
+      "find": "| **要找多少人** | 采集深度、停止条件 |",
+      "replace": "| **要找多少人** | 采集深度、停止条件 |\n发件人姓名 | 用于署名 | 不预填",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
+      "id": "M-F1-d",
+      "req": "F1.a",
+      "why": "必问表紧接着多了一行一个竖线都没有的问题，GitHub 照样显示成第四问（其余格空着）",
+      "file": "skill/SKILL.md",
+      "find": "| 要找多少人 | 决定采集深度和停止条件 |",
+      "replace": "| 要找多少人 | 决定采集深度和停止条件 |\n发件人姓名",
+      "by": "test",
+      "kills": [
+        "SKILL.md「只问这三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
+      "id": "M-F1-e",
+      "req": "F1.a",
+      "why": "必问那一节的表挪到了下一个同级标题底下，「必须问的三个」这一节自己没有表了",
+      "file": "skill/references/product-intake.md",
+      "find": "只有这三个无法从链接推导，且都直接影响后续每一步：\n",
+      "replace": "只有这三个无法从链接推导，且都直接影响后续每一步：\n\n## 示例\n",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
+      "id": "M-F1-f",
+      "req": "F1.a",
+      "why": "「必须问的三个」只剩代码块里的一个示例标题，正文里的那一节改了名",
+      "file": "skill/references/product-intake.md",
+      "find": "## 必须问的三个（F1）\n",
+      "replace": "## 必须问的几个（F1）\n\n```\n## 必须问的三个（F1）\n```\n",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
+      "id": "M-F1-g",
+      "req": "F1.a",
+      "why": "「必须问的三个」那个标题改成了 HTML 注释，网页上不显示，表还紧跟在后面",
+      "file": "skill/references/product-intake.md",
+      "find": "## 必须问的三个（F1）\n",
+      "replace": "<!-- ## 必须问的三个（F1） -->\n",
+      "by": "test",
+      "kills": [
+        "product-intake.md「必须问的三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
+      ]
+    },
+    {
+      "id": "M-F1-h",
+      "req": "F1.a",
+      "why": "「只问这三个」那几个字挪进了段落里的行内注释，网页上不显示，表还紧跟在后面",
+      "file": "skill/SKILL.md",
+      "find": "**只问这三个**，",
+      "replace": "说明 <!-- **只问这三个** -->，",
+      "by": "test",
+      "kills": [
+        "SKILL.md「只问这三个」那张表列了且只列了目标市场、预算上限、要找多少人三条"
       ]
     },
     {
@@ -3361,8 +3457,8 @@
       "req": "P5",
       "why": "没写回的真实原因不再带进报告 —— 磁盘满或没有写权限的人，会被指去修一份根本没坏的文件",
       "file": "scripts/lib/report.ts",
-      "find": "               `原因：${meta.memory_write_error ?? '未记录'}。` +",
-      "replace": "               '原因：记忆文件读不出来。' +",
+      "find": "原因：${meta.memory_write_error ?? '未记录'}。",
+      "replace": "原因：记忆文件读不出来。",
       "by": "test",
       "kills": [
         "把真实原因带给用户"
@@ -3373,8 +3469,8 @@
       "req": "P5",
       "why": "去重状态无从确认时，报告替用户断定这批人「由早期版本采集」—— 而它同样可能是刚刚被打断留下的，两种来源事后分不出，用户拿到的是一个编造的诊断",
       "file": "scripts/lib/report.ts",
-      "find": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认 —— ' +",
-      "replace": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认（这批人由早期版本采集）—— ' +",
+      "find": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认 —— ",
+      "replace": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认（这批人由早期版本采集）—— ",
       "by": "test",
       "kills": [
         "不替用户编一个原因 —— 两个来源事后分不出"
@@ -9166,8 +9262,8 @@
       "req": "D13.r",
       "why": "HTML 把未知金额显示成零美元，已有费用缺口被伪装成零费用",
       "file": "scripts/lib/report.ts",
-      "find": "  const money = (value: string | null): string => value == null ? '无从确认' : `$${value}`",
-      "replace": "  const money = (value: string | null): string => value == null ? '$0' : `$${value}`",
+      "find": "value === null || value === undefined ? '无从确认' : html`$${value}`",
+      "replace": "value === null || value === undefined ? '$0' : html`$${value}`",
       "by": "selfcheck",
       "kills": [
         "HTML 的未知金额没有伪造零费用，已知保守留存与未结额分别可见"
@@ -21168,7 +21264,7 @@
       "id": "M-P1-ad", "req": "P1",
       "why": "旧 HTML 缺席分数未显示未知状态，运营无法辨认该账号尚未算分",
       "file": "scripts/lib/report.ts",
-      "find": "    <span class=\"sc\">${c.score === undefined ? '未知' : String(c.score)}</span>",
+      "find": "    <span class=\"sc\">${c.score === undefined ? '未知' : c.score}</span>",
       "replace": "    <span class=\"sc\">${String(c.score)}</span>",
       "by": "test", "kills": ["legacy-html-missing-score"]
     },
@@ -21546,8 +21642,8 @@
       "req": "U9.j",
       "why": "生产 HTML 入口未选择评审输出，最终有效建议的顺序及各平台原评审没有展示。",
       "file": "scripts/render.ts",
-      "find": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts }))",
-      "replace": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta))",
+      "find": "try { page = renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts }) }",
+      "replace": "try { page = renderHtml(creators, meta) }",
       "by": "selfcheck",
       "kills": [
         "CLI 新CSV与HTML按当前有效建议再按最终层级排序",
@@ -21950,8 +22046,8 @@
       "req": "U10.b",
       "why": "初始报告把 C 层交付候选藏起，全部名单只在脚本运行后才可能恢复",
       "file": "scripts/lib/report.ts",
-      "find": "${dual ? html`<div class=\"card ${String(c.tier)}\" data-tier=\"${String(c.tier)}\"",
-      "replace": "${dual ? html`<div class=\"card ${String(c.tier)}\" style=\"display:${c.tier === 'C' ? 'none' : ''}\" data-tier=\"${String(c.tier)}\"",
+      "find": "${dual ? html`<div class=\"card ${tier}\" data-tier=\"${tier}\"",
+      "replace": "${dual ? html`<div class=\"card ${tier}\" style=\"display:${tier === 'C' ? 'none' : ''}\" data-tier=\"${tier}\"",
       "by": "test",
       "kills": [
         "双筛选初始 HTML 已完整可见且顺序正确"
@@ -22215,7 +22311,7 @@
       "req": "U11.j",
       "why": "冻结来源原文直接成为 HTML 标签，字面证据被解释成页面节点",
       "file": "scripts/lib/report.ts",
-      "find": "? '来源无从确认' : candidate.source_tasks.map(source =>\n            `task_index=${known(source.task_index)} · ${known(source.dimension)} · ${known(source.platform)} · ${known(source.keyword)}`).join('；')}",
+      "find": "? '来源无从确认' : joinHtml(candidate.source_tasks.map(source =>\n            html`task_index=${known(source.task_index)} · ${known(source.dimension)} · ${known(source.platform)} · ${known(source.keyword)}`), html`；`)}",
       "replace": "? '来源无从确认' : html([candidate.source_tasks.map(source =>\n            `task_index=${known(source.task_index)} · ${known(source.dimension)} · ${known(source.platform)} · ${known(source.keyword)}`).join('；')] as never)}",
       "by": "test",
       "kills": [
@@ -22383,8 +22479,8 @@
       "req": "U11.m",
       "why": "HTML把未提供与未知人工数补成零，用户无法区分未测与真零。",
       "file": "scripts/lib/report.ts",
-      "find": "    n === undefined ? '未提供' : n === null ? '无从确认' : String(n)",
-      "replace": "    n === undefined || n === null ? '0' : String(n)",
+      "find": "    n === undefined ? '未提供' : n === null ? '无从确认' : n",
+      "replace": "    n === undefined || n === null ? '0' : n",
       "by": "test",
       "kills": [
         "U11关键词公共HTML独立人工列保留零未知缺席"
@@ -22407,7 +22503,7 @@
       "req": "U12.a",
       "why": "报告里平台标签的样式类直接写入名单上的平台取值，名单被写坏时取值能改写报告的标记",
       "file": "scripts/lib/report.ts",
-      "find": "<span class=\"pf ${String(c.platform)}\">",
+      "find": "<span class=\"pf ${c.platform}\">",
       "replace": "<span class=\"pf ${html([String(c.platform)] as never)}\">",
       "by": "test",
       "kills": [
@@ -22420,7 +22516,7 @@
       "why": "粉丝数取值不是数字时原样写进报告正文，能改写报告的标记",
       "file": "scripts/lib/report.ts",
       "find": "<span>${creatorCountText(c, 'followers')} 粉丝</span>",
-      "replace": "<span>${html([String(creatorCountText(c, 'followers'))] as never)} 粉丝</span>",
+      "replace": "<span>${html([String(c.followers)] as never)} 粉丝</span>",
       "by": "test",
       "kills": [
         "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
@@ -22431,8 +22527,8 @@
       "req": "U12.a",
       "why": "副标题里的平台列表直接写入交付 meta 的取值，能改写报告的标记",
       "file": "scripts/lib/report.ts",
-      "find": "${(meta.platforms ?? []).join(' + ')}",
-      "replace": "${html([String((meta.platforms ?? []).join(' + '))] as never)}",
+      "find": "${joinHtml(need(meta.platforms, '交付信息里的平台列表'), html` + `)}",
+      "replace": "${html([String(need(meta.platforms, '交付信息里的平台列表').join(' + '))] as never)}",
       "by": "test",
       "kills": [
         "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
@@ -22440,149 +22536,221 @@
     },
     {
       "id": "M-U12-o",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "html 模板插进去的取值不转义，原字符直接进页面",
       "file": "scripts/lib/safe-html.ts",
-      "find": "out += piece(values[i]) + strings[i + 1]",
+      "find": "out += piece(values[i], () => around(strings[i], strings[i + 1])) + strings[i + 1]",
       "replace": "out += String(values[i] ?? '') + strings[i + 1]",
       "by": "test",
       "kills": [
-        "U12.d html 插值里五个字符连在一起各转义一次"
+        "U12.e html 插值里五个字符连在一起各转义一次"
       ]
     },
     {
       "id": "M-U12-p",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "把一串东西连成页面片段时，里面的普通文字不转义、当成标记原样拼进去",
       "file": "scripts/lib/safe-html.ts",
-      "find": "make(items.map(piece).join(",
-      "replace": "make(items.map(v => v instanceof SafeHtml ? v.html : String(v ?? '')).join(",
+      "find": "make(Array.from(items, (item, i) => piece(item, () => `一串里的第 ${i + 1} 项（共 ${items.length} 项）`))",
+      "replace": "make(Array.from(items, v => v instanceof SafeHtml ? v.html : String(v ?? ''))",
       "by": "test",
       "kills": [
-        "U12.d joinHtml 里的普通字符串照样转义"
+        "U12.e joinHtml 里的普通字符串照样转义"
       ]
     },
     {
       "id": "M-U12-q",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "报告自己拼好的页面片段再插进去时又转义一次，嵌套一层就多转义一层",
       "file": "scripts/lib/safe-html.ts",
-      "find": "value instanceof Object && made.has(value) ? (value as SafeHtml).html : escapeText(value)",
-      "replace": "escapeText(value instanceof Object && made.has(value) ? (value as SafeHtml).html : value)",
+      "find": "value instanceof Object && made.has(value) ? (value as SafeHtml).html : escapeText(value, where)",
+      "replace": "escapeText(value instanceof Object && made.has(value) ? (value as SafeHtml).html : value, where)",
       "by": "test",
       "kills": [
-        "U12.d 片段嵌套两层时转义不累加",
-        "U12.d joinHtml 里的片段原样"
+        "U12.e 片段嵌套两层时转义不累加",
+        "U12.e joinHtml 里的片段原样"
       ]
     },
     {
       "id": "M-U12-r",
-      "req": "U12.d",
-      "why": "缺值（undefined、null）插进页面时印成 undefined、null 这几个字，不写成空",
+      "req": "U12.e",
+      "why": "缺值（undefined、null）插进页面时不拒绝，印成 undefined、null 这几个字",
       "file": "scripts/lib/safe-html.ts",
-      "find": "String(value ?? '')",
-      "replace": "String(value)",
+      "find": "  if (value === undefined || value === null) throw new MissingValueError(typeof where === 'string' ? where : where())\n",
+      "replace": "",
       "by": "test",
       "kills": [
-        "U12.d html 插值是 undefined 时写成空",
-        "U12.d html 插值是 null 时写成空"
+        "U12.e html 插值为 undefined 时拒绝：抛 MissingValueError",
+        "U12.e html 插值为 null 时拒绝：抛 MissingValueError"
       ]
     },
     {
       "id": "M-U12-v",
-      "req": "U12.d",
-      "why": "取值是 0 或 false 时也当缺值写成空",
+      "req": "U12.e",
+      "why": "取值是 0 或 false 时当缺值写成空",
       "file": "scripts/lib/safe-html.ts",
-      "find": "String(value ?? '')",
-      "replace": "String(value || '')",
+      "find": "  if (value === undefined || value === null) throw new MissingValueError(typeof where === 'string' ? where : where())\n",
+      "replace": "  if (value === 0 || value === false) return ''\n  if (value === undefined || value === null) throw new MissingValueError(typeof where === 'string' ? where : where())\n",
       "by": "test",
       "kills": [
-        "U12.d html 插值是 0 时写成 0 不当缺值"
+        "U12.e html 插值是 0 时写成 0 不当缺值"
       ]
     },
     {
       "id": "M-U12-s",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "认片段只看原型：仿造的、挂着片段原型的东西也当片段原样插进页面",
       "file": "scripts/lib/safe-html.ts",
-      "find": "value instanceof Object && made.has(value) ? (value as SafeHtml).html : escapeText(value)",
-      "replace": "value instanceof SafeHtml ? value.html : escapeText(value)",
+      "find": "value instanceof Object && made.has(value) ? (value as SafeHtml).html : escapeText(value, where)",
+      "replace": "value instanceof SafeHtml ? value.html : escapeText(value, where)",
       "by": "test",
       "kills": [
-        "U12.d 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 html 时当文字转义",
-        "U12.d 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 joinHtml 时当文字转义"
+        "U12.e 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 html 时当文字转义",
+        "U12.e 不是 html 拼出来而只是挂着 SafeHtml 原型的仿造对象插进 joinHtml 时当文字转义"
       ]
     },
     {
       "id": "M-U12-t",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "凡是带 html 文字字段的东西都当报告自己拼的片段，原样插进页面",
       "file": "scripts/lib/safe-html.ts",
-      "find": "value instanceof Object && made.has(value) ? (value as SafeHtml).html : escapeText(value)",
-      "replace": "typeof (value as { html?: unknown } | null | undefined)?.html === 'string' ? (value as SafeHtml).html : escapeText(value)",
+      "find": "value instanceof Object && made.has(value) ? (value as SafeHtml).html : escapeText(value, where)",
+      "replace": "typeof (value as { html?: unknown } | null | undefined)?.html === 'string' ? (value as SafeHtml).html : escapeText(value, where)",
       "by": "test",
       "kills": [
-        "U12.d 带 html 字段的普通对象插进 html 时字段里的标记不原样出现"
+        "U12.e 带 html 字段的普通对象插进 html 时字段里的标记不原样出现"
       ]
     },
     {
       "id": "M-U12-u",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "把一串片段连起来时，分隔用的片段被当文字转义了",
       "file": "scripts/lib/safe-html.ts",
-      "find": "join(separator === undefined ? '' : piece(separator))",
-      "replace": "join(escapeText(separator?.html))",
+      "find": ".join(separator === undefined ? '' : piece(separator, () => '一串的分隔')))",
+      "replace": ".join(separator === undefined ? '' : escapeText(separator.html)))",
       "by": "test",
       "kills": [
-        "U12.d joinHtml 的分隔片段里的标记原样"
+        "U12.e joinHtml 的分隔片段里的标记原样"
       ]
     },
     {
       "id": "M-U12-w",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "转义时每个字符只换掉第一次出现的那一处，后面的原字符照样进页面",
       "file": "scripts/lib/safe-html.ts",
       "find": "/[&<>\"']/g, ch",
       "replace": "/[&<>\"']/, ch",
       "by": "test",
       "kills": [
-        "U12.d html 插值里同一个字符出现多次时每一处都转义"
+        "U12.e html 插值里同一个字符出现多次时每一处都转义"
       ]
     },
     {
       "id": "M-U12-x",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "模板里写死的开头那一段也被当文字转义，报告自己的标记变成了文字",
       "file": "scripts/lib/safe-html.ts",
       "find": "let out = strings[0]",
       "replace": "let out = escapeText(strings[0])",
       "by": "test",
       "kills": [
-        "U12.d html 没有插值时写死的标记原样"
+        "U12.e html 没有插值时写死的标记原样"
       ]
     },
     {
       "id": "M-U12-y",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "把一串片段连起来时，分隔参数不查是不是报告自己拼的，仿造的东西原样进页面",
       "file": "scripts/lib/safe-html.ts",
-      "find": "join(separator === undefined ? '' : piece(separator))",
-      "replace": "join(separator?.html ?? '')",
+      "find": ".join(separator === undefined ? '' : piece(separator, () => '一串的分隔')))",
+      "replace": ".join(separator?.html ?? ''))",
       "by": "test",
       "kills": [
-        "U12.d joinHtml 的分隔参数是仿造的片段时当文字转义"
+        "U12.e joinHtml 的分隔参数是仿造的片段时当文字转义"
       ]
     },
     {
       "id": "M-U12-z",
-      "req": "U12.d",
+      "req": "U12.e",
       "why": "报告自己拼好的片段造出来后还能被改写，改进去的标记原样进页面",
       "file": "scripts/lib/safe-html.ts",
       "find": "Object.freeze(new SafeHtml(text))",
       "replace": "new SafeHtml(text)",
       "by": "test",
       "kills": [
-        "U12.d 造出来的片段改不了里面的标记"
+        "U12.e 造出来的片段改不了里面的标记"
+      ]
+    },
+    {
+      "id": "M-U12-aa",
+      "req": "U12.e",
+      "why": "报告代码里有人又写了 String(…)：那一格缺值时印成 undefined，绕过缺值拒绝",
+      "file": "scripts/lib/report.ts",
+      "find": "<div class=\"v\">${meta.email_count}</div>",
+      "replace": "<div class=\"v\">${String(meta.email_count)}</div>",
+      "by": "test",
+      "kills": [
+        "U12.e 报告页面代码里没有绕过缺值拒绝的拼字写法（读 report.ts 的语法树）"
+      ]
+    },
+    {
+      "id": "M-U12-ab",
+      "req": "U12.e",
+      "why": "报告代码里有人又用 .join(…) 连字：里面的取值缺了时印成空或 undefined，绕过缺值拒绝",
+      "file": "scripts/lib/report.ts",
+      "find": "? joinHtml(summary.disagreements, html`、`) :",
+      "replace": "? summary.disagreements.join('、') :",
+      "by": "test",
+      "kills": [
+        "U12.e 报告页面代码里没有绕过缺值拒绝的拼字写法（读 report.ts 的语法树）"
+      ]
+    },
+    {
+      "id": "M-U12-ac",
+      "req": "U12.e",
+      "why": "报告代码里有人又写了把缺值当成 0 的兜底：选默认标签页时缺的人数当成 0",
+      "file": "scripts/lib/report.ts",
+      "find": "(['A', 'B', 'C'] as const).find(t => tierCount(t) > 0)",
+      "replace": "(['A', 'B', 'C'] as const).find(t => (tiers[t] ?? 0) > 0)",
+      "by": "test",
+      "kills": [
+        "U12.e 报告页面代码里没有绕过缺值拒绝的拼字写法（读 report.ts 的语法树）"
+      ]
+    },
+    {
+      "id": "M-U12-ad",
+      "req": "U12.e",
+      "why": "报告代码里有人又用 + 连字：缺值连成 undefined 这几个字母",
+      "file": "scripts/lib/report.ts",
+      "find": ": html`${n}`",
+      "replace": ": html`${'' + n}`",
+      "by": "test",
+      "kills": [
+        "U12.e 报告页面代码里没有绕过缺值拒绝的拼字写法（读 report.ts 的语法树）"
+      ]
+    },
+    {
+      "id": "M-U12-ae",
+      "req": "U12.e",
+      "why": "报告代码里有人又写了不带 html 的模板字符串：里面的取值缺了印成 undefined",
+      "file": "scripts/lib/report.ts",
+      "find": "const pct = (n: number) => html`${(n * 100).toFixed(2)}%`",
+      "replace": "const pct = (n: number) => `${(n * 100).toFixed(2)}%`",
+      "by": "test",
+      "kills": [
+        "U12.e 报告页面代码里没有绕过缺值拒绝的拼字写法（读 report.ts 的语法树）"
+      ]
+    },
+    {
+      "id": "M-U12-ag",
+      "req": "U12.e",
+      "why": "数组插进页面时不逐项查缺值：一串里夹着缺的那一项被连成空，报告照出",
+      "file": "scripts/lib/safe-html.ts",
+      "find": "  if (Array.isArray(value)) return Array.from(value as unknown[], item => escapeText(item as {}, where)).join(',')\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "U12.e 数组插值里有一项缺了时拒绝"
       ]
     },
     {
@@ -23683,8 +23851,8 @@
       "req": "U12.a",
       "why": "报告插值默认转义漏了大于号：任何取值里有大于号时，报告里出现的是大于号的原字符",
       "file": "scripts/lib/safe-html.ts",
-      "find": "String(value ?? '').replace(/[&<>\"']/g, ch => ESCAPES[ch]!)",
-      "replace": "String(value ?? '').replace(/[&<\"']/g, ch => ESCAPES[ch]!)",
+      "find": "  return String(value).replace(/[&<>\"']/g, ch => ESCAPES[ch]!)",
+      "replace": "  return String(value).replace(/[&<\"']/g, ch => ESCAPES[ch]!)",
       "by": "test",
       "kills": [
         "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
@@ -23695,8 +23863,8 @@
       "req": "U12.a",
       "why": "播粉比不可用时的原因原样写进报告正文，增强结果被写坏时能改写报告的标记",
       "file": "scripts/lib/report.ts",
-      "find": "<span>播粉比 <b>${metricText(m?.view_rate, pct)}</b></span>",
-      "replace": "<span>播粉比 <b>${html([String(metricText(m?.view_rate, pct))] as never)}</b></span>",
+      "find": "<span>播粉比 <b>${metricText(m?.view_rate, who, '播粉比', pct)}</b></span>",
+      "replace": "<span>播粉比 <b>${html([m?.view_rate?.status === 'unavailable' ? m.view_rate.reason : '未查询'] as never)}</b></span>",
       "by": "test",
       "kills": [
         "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
@@ -23719,8 +23887,8 @@
       "req": "U12.b",
       "why": "契合理由被转义两次，报告上显示的是字符实体的原文，不是理由本身",
       "file": "scripts/lib/report.ts",
-      "find": "${c.fit} ${c.fit_reason}</div>",
-      "replace": "${c.fit} ${html`${c.fit_reason}`.html}</div>",
+      "find": "${c.fit === undefined ? '未评' : c.fit} ${c.fit_reason}</div>",
+      "replace": "${c.fit === undefined ? '未评' : c.fit} ${html`${c.fit_reason}`.html}</div>",
       "by": "test",
       "kills": [
         "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法"
@@ -32403,9 +32571,7 @@
       "replace": "if (false)",
       "by": "test",
       "kills": [
-        "D21.v 没有作品样本的 TikTok 账号已测活跃状态不合法时 render 以退出码 2 拒绝",
-        "D21.v 活跃状态不合法被拒绝时一个交付文件都没写且名单原字节不变",
-        "D21.v 活跃状态不合法被拒绝时指出 enrichment.json 的路径"
+        "D21.v 活跃状态不合法被拒绝时一个交付文件都没写且名单原字节不变"
       ]
     },
     {
@@ -32461,49 +32627,49 @@
     {
       "id": "M-P1-ay",
       "req": "P1",
-      "why": "卡片平台标签的样式类在平台缺值时悄悄写成空白，不照旧印出原样",
+      "why": "卡片平台标签的样式类在平台缺值时悄悄写成空白，报告照出",
       "file": "scripts/lib/report.ts",
-      "find": "<span class=\"pf ${String(c.platform)}\">",
-      "replace": "<span class=\"pf ${c.platform}\">",
+      "find": "<span class=\"pf ${c.platform}\">",
+      "replace": "<span class=\"pf ${c.platform ?? ''}\">",
       "by": "test",
       "kills": [
-        "缺值照印原样：卡片平台缺值时样式类印 undefined 不印空白"
+        "缺值不写成空：卡片平台缺了时报告不出、点名平台样式那一格"
       ]
     },
     {
       "id": "M-P1-ax",
       "req": "P1",
-      "why": "卡片上的分层缺值时悄悄印成空白，不照旧印出原样",
+      "why": "卡片上的分层缺值时悄悄写成空白，报告照出",
       "file": "scripts/lib/report.ts",
-      "find": "<span class=\"tier ${String(c.tier)}\">${String(c.tier)}</span>",
-      "replace": "<span class=\"tier ${c.tier}\">${c.tier}</span>",
+      "find": "    const tier = need(c.tier, `卡片上的分层（账号 ${c.handle}）`)",
+      "replace": "    const tier = c.tier ?? ''",
       "by": "test",
       "kills": [
-        "缺值照印原样：卡片分层缺值时印 undefined 不印空白"
+        "缺值不写成空：卡片分层缺了时报告不出、点名卡片上的分层和账号"
       ]
     },
     {
       "id": "M-P1-aw",
       "req": "P1",
-      "why": "标签页上 A 级人数缺值时悄悄印成空白，不照旧印出原样",
+      "why": "三层人数缺值时悄悄写成空白，报告照出",
       "file": "scripts/lib/report.ts",
-      "find": "A级 直接发信<span class=\"n\">${String(meta.tiers.A)}</span>",
-      "replace": "A级 直接发信<span class=\"n\">${meta.tiers.A}</span>",
+      "find": "  const tierCount = (t: 'A' | 'B' | 'C'): number => need(tiers[t], `交付信息里 ${t} 级人数`)",
+      "replace": "  const tierCount = (t: 'A' | 'B' | 'C'): number => tiers[t] ?? ''",
       "by": "test",
       "kills": [
-        "缺值照印原样：A 级标签页人数缺值时印 undefined 不印空白"
+        "缺值不写成空：A 级人数缺了时报告不出、点名 A 级人数"
       ]
     },
     {
       "id": "M-P1-av",
       "req": "P1",
-      "why": "统计里总人数缺值时悄悄印成空白，不照旧印出原样",
+      "why": "统计里总人数缺值时悄悄写成空白，报告照出",
       "file": "scripts/lib/report.ts",
-      "find": "<div class=\"v\">${String(meta.total)}</div>",
-      "replace": "<div class=\"v\">${meta.total}</div>",
+      "find": "<div class=\"v\">${meta.total}</div>",
+      "replace": "<div class=\"v\">${meta.total ?? ''}</div>",
       "by": "test",
       "kills": [
-        "缺值照印原样：统计里总人数缺值时印 undefined 不印空白"
+        "缺值不写成空：统计里总人数缺了时报告不出、点名总人数那一格"
       ]
     },
     {
@@ -32520,17 +32686,125 @@
       ]
     },
     {
+      "id": "M-P1-ba",
+      "req": "P1",
+      "why": "报告因缺值不出时 render 退的是保存失败（6），不是输入问题（2）",
+      "file": "scripts/render.ts",
+      "find": "  process.exit(EXIT.input)\n}\n// 交付物也走整体替换",
+      "replace": "  process.exit(EXIT.save)\n}\n// 交付物也走整体替换",
+      "by": "test",
+      "kills": [
+        "P1.n 入口：名单里有人缺昵称时 render 以退出码 2 结束",
+        "P1.n 入口：名单里有人缺主页链接时 render 以退出码 2 结束"
+      ]
+    },
+    {
+      "id": "M-P1-bb",
+      "req": "P1",
+      "why": "报告因缺值不出之前先把新的 meta.json 写了，上一份 meta.json 与报告不再成对",
+      "file": "scripts/render.ts",
+      "find": "  if (!(e instanceof MissingValueError)) throw e\n",
+      "replace": "  if (!(e instanceof MissingValueError)) throw e\n  writeFileAtomic(join(dir, 'meta.json'), stringifyCostJson(meta, cost))\n",
+      "by": "test",
+      "kills": [
+        "P1.n 入口：缺昵称时 report.html 与 meta.json 都还是上一份"
+      ]
+    },
+    {
+      "id": "M-P1-bc",
+      "req": "P1",
+      "why": "卡片上缺昵称时报错不写白话格名，只给那一格前后的标记，用户看不出缺的是昵称",
+      "file": "scripts/lib/report.ts",
+      "find": "    need(c.nickname, `卡片上的昵称（账号 ${c.handle}）`)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "P1.n 入口：缺昵称时 stderr 说报告没有生成并点名昵称和账号"
+      ]
+    },
+    {
+      "id": "M-P1-bd",
+      "req": "P1",
+      "why": "报告卡片上没查过邮箱的人也写成无邮箱，与查过没有的分不开",
+      "file": "scripts/lib/report.ts",
+      "find": "${c.email === undefined ? html`<span class=\"no\">邮箱未查询</span>`",
+      "replace": "${c.email === undefined ? html`<span class=\"no\">无邮箱</span>`",
+      "by": "test",
+      "kills": [
+        "P1.o 卡片上邮箱没查过时写邮箱未查询、不写无邮箱"
+      ]
+    },
+    {
+      "id": "M-P1-be",
+      "req": "P1",
+      "why": "报告卡片上没查过简介的人不出简介那一行，与查过对方没写的分不开",
+      "file": "scripts/lib/report.ts",
+      "find": "${c.bio === undefined ? html`<div class=\"bio\">简介未查询</div>`",
+      "replace": "${c.bio === undefined ? ''",
+      "by": "test",
+      "kills": [
+        "P1.o 卡片上简介没查过时写简介未查询"
+      ]
+    },
+    {
+      "id": "M-P1-bf",
+      "req": "P1.n",
+      "why": "增强结果里手写的合作报价缺了币种时，报告那一格的报错不写白话格名，只给前后标记，看不出是哪个账号缺了币种",
+      "file": "scripts/lib/report.ts",
+      "find": "${need(quote.value.currency, `增强结果里账号 ${who} 的合作报价币种`)}",
+      "replace": "${quote.value.currency}",
+      "by": "test",
+      "kills": [
+        "P1.n 入口：合作报价缺币种时 stderr 点名增强结果、账号与币种"
+      ]
+    },
+    {
+      "id": "M-P1-bg",
+      "req": "P1.n",
+      "why": "已测指标的值缺了不先拒绝就格式化：粉丝互动率印成 0.00%，播粉比印成 NaN%，报告照出",
+      "file": "scripts/lib/report.ts",
+      "find": "return format(need(m.value, `增强结果里账号 ${who} 的${name}`))",
+      "replace": "return format(m.value)",
+      "by": "test",
+      "kills": [
+        "缺值不写成空：已测粉丝互动率的值为 null 时报告不出、点名账号与粉丝互动率",
+        "缺值不写成空：已测播粉比没有值时报告不出、点名播粉比"
+      ]
+    },
+    {
+      "id": "M-P1-bh",
+      "req": "P1.o",
+      "why": "简介查过对方没写时留一行空的简介，看着像简介丢了",
+      "file": "scripts/lib/report.ts",
+      "find": "c.bio === null || c.bio === '' ? '' : html`<div class=\"bio\">${c.bio}</div>`",
+      "replace": "c.bio === null || c.bio === '' ? html`<div class=\"bio\"></div>` : html`<div class=\"bio\">${c.bio}</div>`",
+      "by": "test",
+      "kills": [
+        "P1.o 卡片上简介查过为空（null、空串）时不出简介那一行（比有简介时整好少一行）"
+      ]
+    },
+    {
+      "id": "M-P1-bi",
+      "req": "P1.n",
+      "why": "合作报价标为已测却没有内容时不先点名，读字段时以内部错误崩掉、看不出是哪个账号",
+      "file": "scripts/lib/report.ts",
+      "find": "  if (quote?.status === 'measured') need(quote.value, `增强结果里账号 ${who} 的合作报价内容`)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "缺值不写成空：已测合作报价没有内容时报告不出、点名账号与合作报价内容"
+      ]
+    },
+    {
       "id": "M-D21-bm",
       "req": "D21.v",
-      "why": "读入检查只查平台恰好写成 tiktok、又完全没有 sample 键的账号，可报告还会原样用 sample 是 null、缺平台或平台大小写不对的账号存着的指标，这些账号里手改坏的值又能漏过去显示成空白",
+      "why": "读入检查只查平台恰好写成 tiktok、又完全没有 sample 键的账号，可报告还会原样用 sample 是 null、缺平台或平台大小写不对的账号存着的指标，这些账号里手改坏的值漏过读入，要等名单表格换新之后拼报告时才拒",
       "file": "scripts/lib/task.ts",
       "find": "if (!isRecord(account) || !storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue",
       "replace": "if (!isRecord(account) || account.platform !== 'tiktok' || account.sample !== undefined || !isRecord(account.metrics)) continue",
       "by": "test",
       "kills": [
-        "D21.v sample 写成 null 的账号已测活跃状态不合法时 render 也以退出码 2 拒绝",
-        "D21.v 缺了平台字段的账号已测活跃状态不合法时 render 也以退出码 2 拒绝",
-        "D21.v 平台写成 TikTok 大小写不对的账号已测活跃状态不合法时 render 也以退出码 2 拒绝"
+        "D21.v sample 写成 null、缺平台、平台大小写不对的账号活跃状态不合法时都在读入处拒绝、一个交付文件都没写"
       ]
     },
     {
@@ -32599,7 +32873,7 @@
       "req": "P1.b",
       "scope": "「任何位置」这个全称",
       "why": "扫写法那道纪律 lint 2026-09-18 撤了（ADR-77）—— 它自称全量扫描，实现却是一张手写的敏感字段表，漏过 `score` 与 `null`。判据正文按「编号不改含义」原样保留，但**没有任何检查能兑现「任何位置」这个全称**：要兑现它得回到扫源码，而那正是撤掉的东西。显式登记为缺口，不假装它被守住。",
-      "mitigation": "机器可执行的那部分按路径拆成 P1.e（取值）、P1.f（排序）、P1.g（入池）三条，各有认领与负片；`docs/CONVENTIONS.md` 第 2 条写明写代码时要避开的形状。见 ADR-77。"
+      "mitigation": "机器可执行的那部分按路径拆成 P1.e（取值）、P1.f（排序）、P1.g（入池）三条，各有认领与负片；`docs/CONVENTIONS.md` 第 2 条写明写代码时要避开的形状。见 ADR-77。报告网页那一个文件（`scripts/lib/report.ts`）另由一条测试读它的语法树核这两种写法（U12.e，ADR-231），只管那一个文件。"
     },
     {
       "req": "D31.f",
