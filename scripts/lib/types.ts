@@ -166,6 +166,33 @@ export type Measurement<T> =
       sample_size?: number
     }
 
+/**
+ * 手写那几格的三态包装：合作报价（D9），以及 render 从报价算出的隐含效率（不可用时沿用报价的原因）。
+ * 与指标那份只差在不可用时的原因：报价是用户或 Agent 手写的，文档教的是「报价查不到就写成不可用并写明原因」，
+ * 原因是一句话（例如「创作者未回复报价」），不限于指标那几个词；但不能是空的（ADR-232）。
+ * @discriminator status
+ */
+export type ManualMeasurement<T> =
+  | {
+      status: 'measured'
+      value: T
+      source: MetricSource
+      observed_at: string
+      sample_size: number
+      basis: string
+    }
+  | {
+      status: 'unavailable'
+      /** @minLength 1 */
+      reason: string
+      source: MetricSource
+      observed_at: string
+      sample_size?: number
+    }
+
+/** 增强结果里存的合作报价 */
+export type QuoteMeasurement = ManualMeasurement<CollaborationQuote>
+
 /** 主页样本实际保存的媒体范围；unknown 不代表确认图文或确认视频。 */
 export type ProfileSampleScope =
   | 'provider_returned_first12'
@@ -224,9 +251,13 @@ export interface PublicMetrics {
   following_ratio: Measurement<number>
   reach_consistency: Measurement<number>
   median_post_gap_days: Measurement<number>
-  latest_post_at: Measurement<string>
-  days_since_last_post: Measurement<number>
-  activity_status: Measurement<ActivityStatus>
+  /*
+   * 下面三格是后加的活跃度。最早一版 enrich（还没有活跃度）写的增强结果里没有这三格，读入时照样认（D21.w 不误拒老文件）：
+   * 有样本的账号读入后按样本重算、补上这三格；没有样本的账号下次 enrich 会重查。所以这三格写成可有可无。
+   */
+  latest_post_at?: Measurement<string>
+  days_since_last_post?: Measurement<number>
+  activity_status?: Measurement<ActivityStatus>
   audience_quality_risk: Measurement<AudienceRiskAssessment>
 }
 
@@ -242,8 +273,8 @@ export interface CollaborationQuote {
 }
 
 export interface QuoteEfficiency {
-  implied_ecpm?: Measurement<number>
-  implied_ecpe?: Measurement<number>
+  implied_ecpm?: ManualMeasurement<number>
+  implied_ecpe?: ManualMeasurement<number>
 }
 
 export interface AccountAssessment {
@@ -253,7 +284,7 @@ export interface AccountAssessment {
   following?: number
   sample?: ProfileSample
   metrics?: PublicMetrics
-  collaboration_quote?: Measurement<CollaborationQuote>
+  collaboration_quote?: QuoteMeasurement
 }
 
 export interface AccountAssessmentSummary {
@@ -263,7 +294,7 @@ export interface AccountAssessmentSummary {
   following?: number
   sample?: PublicPostMeasurement<number>
   metrics?: PublicMetrics
-  collaboration_quote?: Measurement<CollaborationQuote>
+  collaboration_quote?: QuoteMeasurement
   quote_efficiency?: QuoteEfficiency
 }
 

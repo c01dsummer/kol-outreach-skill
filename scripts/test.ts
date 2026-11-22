@@ -9017,6 +9017,13 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
       return ['"measured"', '"private_account"', '"account_unavailable"', '"insufficient_posts"', '"missing_post_dates"', '"provider_returned_first12"', '"high"']
         .every(s => text.includes(s)) && ['2.0.0', '3.0.0', '4.0.0'].every(v => Object.keys(RELEASED_ENRICHMENT_SAMPLES).some(k => k.startsWith(v)))
     })())
+  ok('D21.y 样本夹具里有最早一版 enrich 写的、metrics 里没有活跃度三格的账号，也有老目录经本条 enrich 重算后带老 Instagram 范围的账号',
+    (() => {
+      const pre = Object.values(RELEASED_ENRICHMENT_SAMPLES['pre-2.0.0-first']?.accounts ?? {}) as Array<Record<string, any>>
+      const recomputed = JSON.stringify(Object.entries(RELEASED_ENRICHMENT_SAMPLES).filter(([k]) => k.startsWith('current-recompute-of-')))
+      return pre.length > 0 && pre.every(a => a.metrics && !('activity_status' in a.metrics) && !('latest_post_at' in a.metrics))
+        && ['"legacy_video_filtered_first12"', '"legacy_video_only_sample"', '"unknown_sample_scope"'].every(s => recomputed.includes(s))
+    })())
 
   // 文档给 Agent 的手写报价示例：从 public-metrics.md「合作报价」那一节里取第一段 json 代码块（用 marked 读，不自己切 Markdown）
   const doc = rf('skill/references/public-metrics.md', 'utf8')
@@ -9029,6 +9036,11 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
   ok('D21.y 夹具有效：public-metrics.md「合作报价」一节里找得到那段 json 报价示例', exampleQuote?.status === 'measured')
   eq('D21.y public-metrics.md 给 Agent 的手写报价示例放进账号后按格式说明通过',
     enrichmentSchemaProblems('E.json', file({ 'tiktok:doc': { platform: 'tiktok', handle: 'doc', collaboration_quote: exampleQuote } })), [])
+  const unavailableExample = quoteSection.filter((t): t is Tokens.Code => t.type === 'code' && (t as Tokens.Code).lang === 'json')[1]
+  const unavailableQuote = unavailableExample ? JSON.parse(unavailableExample.text) : undefined
+  ok('D21.y 夹具有效：同一节里第二段 json 是不可用报价的示例，原因是一句中文', unavailableQuote?.status === 'unavailable' && /[\u4e00-\u9fff]/.test(String(unavailableQuote?.reason)))
+  eq('D21.y public-metrics.md 教的不可用报价（原因写一句话）放进账号后按格式说明通过',
+    enrichmentSchemaProblems('E.json', file({ 'tiktok:doc': { platform: 'tiktok', handle: 'doc', collaboration_quote: unavailableQuote } })), [])
   // 文档列的能写取值：那张列表里每一行「`键`：`值`、`值`」，与格式说明里同一处的取值逐个比
   const listed = new Map<string, string[]>()
   for (const t of quoteSection) {
@@ -9045,7 +9057,7 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
   ], [
     enumOf(defs.CollaborationQuote.properties.platform), enumOf(defs.CollaborationQuote.properties.format),
     enumOf(defs.CollaborationQuote.properties.source), enumOf(defs.MetricSource.properties.kind),
-    enumOf(defs['Measurement<CollaborationQuote>'].properties.status),
+    enumOf(defs['ManualMeasurement<CollaborationQuote>'].properties.status),
   ])
 
   // ═══════════════════════════ D21.w：查的那一半 ═══════════════════════════
@@ -9056,6 +9068,7 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
   const fans = one({ ...good, followers: '8万' })
   eq('D21.w 粉丝数写成文字时报一处，点名文件、账号（JSON 路径里的斜杠还原）、那一格、读到的值和应是数字',
     fans.map(s => [s.includes('E.json'), s.includes('tiktok:k/1 的 followers'), s.includes('"8万"'), s.includes('数字')]), [[true, true, true, true]])
+  ok('D21.w 粉丝数写错时提示名单里同一个账号也要改（enrich 会从名单抄回来）', fans.every(s => s.includes('名单里同一个账号的这一格也要一起改正')))
   const typo = one({ ...good, follower: 80000 })
   eq('D21.w 写了格式说明里没有的键（拼错的粉丝数）时报一处并点出那个键', typo.map(s => s.includes('"follower"') && s.includes('多了')), [true])
   const badFormat = one({ ...good, collaboration_quote: { ...exampleQuote, value: { ...exampleQuote.value, format: 'ugc_bundle' } } })
@@ -9067,6 +9080,19 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
   eq('D21.w 三态包装的 status 写错时只报 status 那一处，不连带报别的格', status.map(s => s.includes('metrics.view_rate.status') && s.includes('"gone"')), [true])
   const wholeText = one({ ...good, metrics: { ...good.metrics, activity_status: 'active' } })
   eq('D21.w 三态包装整个写成字符串时只报一句「应是对象」，不按分支重复', wholeText.filter(s => s.includes('metrics.activity_status 应是对象')).length, 1)
+  const { status: _dropped, ...quoteNoStatus } = exampleQuote
+  const noStatus = one({ ...good, collaboration_quote: quoteNoStatus })
+  eq('D21.w 报价漏写 status 时只报一句「缺了 status」并提示先写 status，不按两支各报缺了什么、也不把 value 说成多了的一格',
+    [noStatus.length, noStatus.every(s => s.includes('collaboration_quote 缺了 status') && s.includes('"measured"') && !s.includes('多了') && !s.includes('reason'))], [1, true])
+  const bare = one({ ...good, collaboration_quote: exampleQuote.value })
+  eq('D21.w 裸报价对象（没有三态包装）只报一句「缺了 status」', [bare.length, bare.every(s => s.includes('collaboration_quote 缺了 status'))], [1, true])
+  const nullQuote = one({ ...good, collaboration_quote: null })
+  eq('D21.w 报价整格写成 null 时只报一句「应是对象」', [nullQuote.length, nullQuote.every(s => s.includes('collaboration_quote 应是对象') && s.includes('null'))], [1, true])
+  const emptyReason = one({ ...good, collaboration_quote: { ...unavailableQuote, reason: '' } })
+  eq('D21.w 不可用报价的原因写成空串时报一句「不能是空的」', [emptyReason.length, emptyReason.every(s => s.includes('collaboration_quote.reason 不能是空的'))], [1, true])
+  const versionText = enrichmentSchemaProblems('E.json', { version: '1', updated_at: at, accounts: {} })
+  eq('D21.w 版本号写成文字时只报一句「应是数字」，不另报「应是 1」', [versionText.length, versionText.every(s => s.includes('version 应是数字'))], [1, true])
+  eq('D21.w 粉丝数读成无穷大时照数说是无穷大，不说读到 null', one({ ...good, followers: Infinity }).map(s => s.includes('Infinity') && !s.includes('读到 null')), [true])
   const many = enrichmentSchemaProblems('E.json', { version: 2, accounts: { 'tiktok:a': { ...good, followers: null }, 'tiktok:b': 5 } })
   eq('D21.w 有几处报几处：最外层缺更新时间、版本不对、两个账号各一处，四处一次报全', [
     many.length, many.some(s => s.includes('最外层') && s.includes('updated_at')), many.some(s => s.includes('version') && s.includes('2')),

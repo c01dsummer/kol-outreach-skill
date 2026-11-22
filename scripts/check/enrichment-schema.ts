@@ -6,7 +6,7 @@
  * 检查:  npm run enrichment-schema           入库的那份与现生成的逐字相同才退 0
  * 回写:  npm run enrichment-schema -- --write
  *
- * 改了类型却没回写，需求测试里「格式说明与类型同步」那条当场变红（`enrichment-schema` 组）。
+ * 改了类型却没回写，需求测试里「格式说明与类型同步」那条当场变红（`d21w-enrichment-schema` 组）。
  * 读入时拿 Ajv 照这份说明整份校验，见 `scripts/lib/enrichment-check.ts`。
  */
 import { readFileSync, writeFileSync } from 'node:fs'

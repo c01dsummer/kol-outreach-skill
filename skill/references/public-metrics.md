@@ -124,7 +124,7 @@ enrich 与 render 读 `enrichment.json` 时，先整份对照格式说明（由�
 - `value.format`：`tiktok_video`、`instagram_reel`、`instagram_post`、`mixed_bundle`
 - `value.source`：`creator_quote`（创作者自己报的价）、`public_rate_card`（公开的价目表）
 - 外层 `source.kind`：`manual`（用户或你手填）、`public_api`、`third_party`
-- 外层 `status`：`measured`（有报价）或 `unavailable`（查过、拿不到，这时必须另写原因 reason）
+- 外层 `status`：`measured`（有报价）或 `unavailable`（问过、拿不到）。不可用时不写 value，另写原因 reason：一句话说明为什么拿不到（例如「创作者未回复报价」），不能空着
 
 
 它本身也使用三态包装；不要把裸报价对象直接塞进去：
@@ -148,7 +148,16 @@ enrich 与 render 读 `enrichment.json` 时，先整份对照格式说明（由�
 }
 ```
 
-未拿到报价时整个字段不存在，不能写 `amount: 0`。
+没问过报价时整个字段不存在，不能写 `amount: 0`。问过、拿不到时写成不可用，原因写一句话：
+
+```json
+{
+  "status": "unavailable",
+  "reason": "创作者未回复报价",
+  "source": { "kind": "manual", "provider": "operator" },
+  "observed_at": "2026-08-26T10:00:00.000Z"
+}
+```
 
 同平台同形式报价可计算：
 

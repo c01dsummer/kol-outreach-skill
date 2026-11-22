@@ -19,6 +19,8 @@ const validator = (): ValidateFunction => {
 
 /** 原值按 JSON 写法给出，过长截短；嵌套深到印不出时照直说 */
 const shown = (value: unknown): string => {
+  // JSON 读不出 NaN；1e999 这样的写法读进来是 Infinity，JSON.stringify 会印成 null，照数说
+  if (typeof value === 'number' && !Number.isFinite(value)) return `${value}（读成了无穷大，多半是数字写得太大）`
   let text: string | undefined
   try { text = JSON.stringify(value) } catch { return '一个嵌套太深、印不出来的值' }
   if (text === undefined) return `一个 JSON 写不出的值（${typeof value}）`
@@ -60,6 +62,8 @@ function sentence(file: string, error: ErrorObject): string | undefined {
       return `${at} 应是 ${(params.allowedValues as unknown[]).map(shown).join('、')} 之一，读到 ${shown(error.data)}`
     case 'const':
       return `${at} 应是 ${shown(params.allowedValue)}，读到 ${shown(error.data)}`
+    case 'minLength':
+      return `${at} 不能是空的，读到 ${shown(error.data)}`
     case 'additionalProperties':
       return `${at} 多了格式说明里没有的一格 ${shown(params.additionalProperty)}（可能是拼错了，或者不该写在这一层）`
     case 'if':
@@ -67,6 +71,36 @@ function sentence(file: string, error: ErrorObject): string | undefined {
     default:
       return `${at} 不合格式说明：${error.message ?? error.keyword}`
   }
+}
+
+const STATUS_HINT = '；这一格是三态包装，先写 status（"measured" 已测，或 "unavailable" 不可用），这一格里别的问题补上 status 后再跑会接着报'
+
+/** Ajv 的这一条出自按 status 分的某一支（`allOf/…/then`），而不是三态包装外层 */
+const fromBranch = (error: ErrorObject): boolean => error.schemaPath.includes('/then/')
+
+/**
+ * 去掉会把人带偏的几条，剩下的才翻成话：
+ * - 三态包装没写 status、或者整格不是对象时，生成的 if 两支都算成立（JSON Schema 里 if 只看写了的键），
+ *   两支各报一遍「缺了 value」「缺了 reason」「多了 value」，照做会删掉正确的内容。外层已经报了「缺了 status」或「应是对象」，
+ *   这一格由分支报的、以及这一格里面更深处报的全部丢掉（不知道该照哪一支查），那句话里提示补上 status 后再跑会接着报。status 写了却不是那两个值时两支都不成立，本来就只有外层那一句。
+ * - 同一格类型就不对时（`version` 写成 `"1"`），不再另报「应是 1」：先把类型改对。
+ */
+function relevant(errors: ErrorObject[]): ErrorObject[] {
+  const noBranch = new Set<string>()
+  const wrongType = new Set<string>()
+  for (const e of errors) {
+    if (fromBranch(e)) continue
+    if (e.keyword === 'required' && (e.params as Record<string, unknown>).missingProperty === 'status') noBranch.add(e.instancePath)
+    if (e.keyword === 'type') { noBranch.add(e.instancePath); wrongType.add(e.instancePath) }
+  }
+  const under = (path: string): boolean => [...noBranch].some(p => path.startsWith(`${p}/`))
+  return errors.filter(e => {
+    if (fromBranch(e) && noBranch.has(e.instancePath)) return false
+    // 这一格里面更深的（例如 value 里的金额）：不知道该照哪一支查，先不报，补上 status 再跑会接着报
+    if (under(e.instancePath)) return false
+    if ((e.keyword === 'const' || e.keyword === 'enum') && wrongType.has(e.instancePath)) return false
+    return true
+  })
 }
 
 /**
@@ -79,7 +113,7 @@ export function enrichmentSchemaProblems(file: string, state: unknown): string[]
   // 按 Ajv 报的先后排；同一格缺的几项挂在那一格第一次出现的位置，合成一句
   const lines: Array<string | { path: string; missing: string[] }> = []
   const missingAt = new Map<string, { path: string; missing: string[] }>()
-  for (const error of check.errors ?? []) {
+  for (const error of relevant(check.errors ?? [])) {
     if (error.keyword === 'required') {
       let entry = missingAt.get(error.instancePath)
       if (!entry) {
@@ -93,8 +127,7 @@ export function enrichmentSchemaProblems(file: string, state: unknown): string[]
     const text = sentence(file, error)
     if (text !== undefined) lines.push(text)
   }
-  // 同一处同一句只留一次：三态包装整个写成字符串时，外层与按 status 分的两支各报一次「应是对象」
-  return [...new Set(lines.map(line => typeof line === 'string'
+  return lines.map(line => typeof line === 'string'
     ? line
-    : `${where(file, line.path)} 缺了 ${line.missing.join('、')}（格式说明里这几格必有）`))]
+    : `${where(file, line.path)} 缺了 ${line.missing.join('、')}（格式说明里这几格必有）${line.missing.includes('status') ? STATUS_HINT : ''}`)
 }

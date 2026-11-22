@@ -32931,15 +32931,99 @@
       ]
     },
     {
-      "id": "M-D21-bz",
-      "req": "D21.w",
-      "why": "三态包装整个写成字符串时同一句报错印三遍，看着像三处不合规",
-      "file": "scripts/lib/enrichment-check.ts",
-      "find": "  return [...new Set(lines.map(line => typeof line === 'string'",
-      "replace": "  return [...Array.from(lines.map(line => typeof line === 'string'",
+      "id": "M-D21-ca",
+      "req": "D21.y",
+      "why": "最早一版 enrich 写的、metrics 里还没有活跃度的增强结果被当成不合格式拒收，用户那些老任务目录读不进来",
+      "file": "scripts/lib/enrichment-schema.ts",
+      "find": "        \"median_post_gap_days\",\n        \"audience_quality_risk\"\n      ],",
+      "replace": "        \"median_post_gap_days\",\n        \"activity_status\",\n        \"audience_quality_risk\"\n      ],",
       "by": "test",
       "kills": [
-        "D21.w 三态包装整个写成字符串时只报一句「应是对象」，不按分支重复"
+        "D21.y 各个发布版本的 enrich 照常写出的每种账号形状按当前格式说明都通过"
+      ]
+    },
+    {
+      "id": "M-D21-cb",
+      "req": "D21.w",
+      "why": "报价漏写 status 时两支各报一遍缺了什么，还把正确的 value 说成多了的一格，照做会删掉正确内容",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "    if (fromBranch(e) && noBranch.has(e.instancePath)) return false\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D21.w 报价漏写 status 时只报一句「缺了 status」并提示先写 status，不按两支各报缺了什么、也不把 value 说成多了的一格"
+      ]
+    },
+    {
+      "id": "M-D21-cc",
+      "req": "D21.w",
+      "why": "裸报价对象除了缺 status，还按不知道是哪一支的规矩报里面的几格，一处错报成好几处",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "    if (under(e.instancePath)) return false\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D21.w 裸报价对象（没有三态包装）只报一句「缺了 status」"
+      ]
+    },
+    {
+      "id": "M-D21-cd",
+      "req": "D21.w",
+      "why": "版本号写成文字时一处报两句，看着像两处不合规",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "    if ((e.keyword === 'const' || e.keyword === 'enum') && wrongType.has(e.instancePath)) return false\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D21.w 版本号写成文字时只报一句「应是数字」，不另报「应是 1」"
+      ]
+    },
+    {
+      "id": "M-D21-ce",
+      "req": "D21.w",
+      "why": "不可用报价的原因写成空串也照样读入，报告上印一个空白的原因",
+      "file": "scripts/lib/enrichment-schema.ts",
+      "find": "                \"type\": \"string\",\n                \"minLength\": 1\n",
+      "replace": "                \"type\": \"string\"\n",
+      "by": "test",
+      "kills": [
+        "D21.w 不可用报价的原因写成空串时报一句「不能是空的」"
+      ]
+    },
+    {
+      "id": "M-D21-cf",
+      "req": "D21.y",
+      "why": "文档教 Agent 写的不可用报价（原因写一句话）被当成不合格式拒收，报告出不来",
+      "file": "scripts/lib/enrichment-schema.ts",
+      "find": "                \"type\": \"string\",\n                \"minLength\": 1\n",
+      "replace": "                \"$ref\": \"#/definitions/MetricUnavailableReason\"\n",
+      "by": "test",
+      "kills": [
+        "D21.y public-metrics.md 教的不可用报价（原因写一句话）放进账号后按格式说明通过"
+      ]
+    },
+    {
+      "id": "M-D21-cg",
+      "req": "D21.w",
+      "why": "数字写得太大读成无穷大时报错说读到 null，用户找不到哪里写了 null",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "  if (typeof value === 'number' && !Number.isFinite(value)) return `${value}（读成了无穷大，多半是数字写得太大）`\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D21.w 粉丝数读成无穷大时照数说是无穷大，不说读到 null"
+      ]
+    },
+    {
+      "id": "M-D21-ch",
+      "req": "D21.w",
+      "why": "粉丝数写错时只叫人改增强结果，不说名单里同一格也要改；下次 enrich 又从名单抄回错的数",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "    ? '；这个数可能是 enrich 从名单",
+      "replace": "    ? '' && '；这个数可能是 enrich 从名单",
+      "by": "test",
+      "kills": [
+        "D21.w 粉丝数写错时提示名单里同一个账号也要改（enrich 会从名单抄回来）"
       ]
     },
     {

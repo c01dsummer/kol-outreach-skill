@@ -296,8 +296,8 @@ async function main() {
   const sampleMeasured = selected.filter(a => a.sample?.status === 'measured').length
   const sampleUnavailable = selected.filter(a => a.sample?.status === 'unavailable').length
   const riskMeasured = selected.filter(a => a.metrics?.audience_quality_risk.status === 'measured').length
-  const activityMeasured = selected.filter(a => a.metrics?.activity_status.status === 'measured').length
-  const activityUnavailable = selected.filter(a => a.metrics?.activity_status.status === 'unavailable').length
+  const activityMeasured = selected.filter(a => a.metrics?.activity_status?.status === 'measured').length
+  const activityUnavailable = selected.filter(a => a.metrics?.activity_status?.status === 'unavailable').length
   const highRisk = selected.filter(a =>
     a.metrics?.audience_quality_risk.status === 'measured' &&
     a.metrics.audience_quality_risk.value.level === 'high').length

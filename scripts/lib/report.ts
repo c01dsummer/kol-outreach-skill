@@ -1,5 +1,5 @@
 import type {
-  AccountAssessmentSummary, AudienceRiskFlag, Creator, Measurement,
+  AccountAssessmentSummary, AudienceRiskFlag, Creator, ManualMeasurement, Measurement,
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
 import { claimsLines } from './draft-claims.js'
@@ -53,7 +53,7 @@ const REASON: Record<string, string> = {
  * 已测时先过 `need` 再格式化：取值缺了在格式化之前就拒绝、点名账号与那一格（P1.n，ADR-231）。
  * 不先查的话，缺值进了乘法、`toFixed` 之后成了 0.00% 或 NaN%，`html` 那一下看不出它缺过。
  */
-const metricText = <T>(m: Measurement<T> | undefined, who: string, name: string,
+const metricText = <T>(m: ManualMeasurement<T> | undefined, who: string, name: string,
   format: (value: T) => string | SafeHtml): string | SafeHtml => {
   if (!m) return '未查询'
   if (m.status === 'unavailable') return html`不可用 · ${REASON[m.reason] ?? need(m.reason, `增强结果里账号 ${who} 的${name}不可用的原因`)}`

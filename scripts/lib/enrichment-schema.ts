@@ -52,7 +52,7 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
           "$ref": "#/definitions/PublicMetrics"
         },
         "collaboration_quote": {
-          "$ref": "#/definitions/Measurement<CollaborationQuote>"
+          "$ref": "#/definitions/QuoteMeasurement"
         }
       },
       "required": [
@@ -317,9 +317,6 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
         "following_ratio",
         "reach_consistency",
         "median_post_gap_days",
-        "latest_post_at",
-        "days_since_last_post",
-        "activity_status",
         "audience_quality_risk"
       ],
       "additionalProperties": false
@@ -795,7 +792,11 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
         "following_ratio"
       ]
     },
-    "Measurement<CollaborationQuote>": {
+    "QuoteMeasurement": {
+      "$ref": "#/definitions/ManualMeasurement<CollaborationQuote>",
+      "description": "增强结果里存的合作报价"
+    },
+    "ManualMeasurement<CollaborationQuote>": {
       "type": "object",
       "properties": {
         "status": {
@@ -869,7 +870,8 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
                 "const": "unavailable"
               },
               "reason": {
-                "$ref": "#/definitions/MetricUnavailableReason"
+                "type": "string",
+                "minLength": 1
               },
               "source": {
                 "$ref": "#/definitions/MetricSource"
@@ -891,7 +893,7 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
           }
         }
       ],
-      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
+      "description": "手写那几格的三态包装：合作报价（D9），以及 render 从报价算出的隐含效率（不可用时沿用报价的原因）。 与指标那份只差在不可用时的原因：报价是用户或 Agent 手写的，文档教的是「报价查不到就写成不可用并写明原因」， 原因是一句话（例如「创作者未回复报价」），不限于指标那几个词；但不能是空的（ADR-232）。"
     },
     "CollaborationQuote": {
       "type": "object",

@@ -36,7 +36,7 @@ import { sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCost
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
 import { asMemoryStatus } from './lib/types.js'
-import type { Creator, Measurement, TaskState } from './lib/types.js'
+import type { Creator, ManualMeasurement, TaskState } from './lib/types.js'
 import { EXIT } from './lib/exit-codes.js'
 
 /** 名单与交付物写不进去：原样打出错误，以保存失败（6）退出，不往下写别的（ADR-193） */
@@ -161,7 +161,7 @@ writeXlsx(xlsxPath, buildSheets(creators, { mode: 'review' }) as Sheet[])
 } catch (e) { saveFailed(e) }
 
 // ---------- HTML + meta ----------
-const countMeasurements = <T>(total: number, values: Array<Measurement<T> | undefined>) => ({
+const countMeasurements = <T>(total: number, values: Array<ManualMeasurement<T> | undefined>) => ({
   total,
   measured: values.filter(v => v?.status === 'measured').length,
   unavailable: values.filter(v => v?.status === 'unavailable').length,
