@@ -33342,6 +33342,79 @@
       "kills": [
         "环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件"
       ]
+    },
+    {
+      "id": "M-H235-s",
+      "req": "harness",
+      "why": "玩具仓库用完不删 —— 临时目录越跑越多，抛错那一路也留下",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "    rmSync(root, { recursive: true, force: true })\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "玩具仓库：fn 抛错时原样往外抛，临时根也删掉了",
+        "玩具仓库：空仓库问最新提交，ask 交回 null、read 抛错（不当成空串），跑完临时根删掉"
+      ]
+    },
+    {
+      "id": "M-H235-t",
+      "req": "harness",
+      "why": "读不到时当成空串 —— 量行数、读提交信息问不出来，就成了「没有新增行」「没有豁免」",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "    read: (...args) => gitOrThrow(args, { cwd: dir, env }),",
+      "replace": "    read: (...args) => gitText(args, { cwd: dir, env }) ?? '',",
+      "by": "test",
+      "kills": [
+        "玩具仓库：空仓库问最新提交，ask 交回 null、read 抛错（不当成空串），跑完临时根删掉"
+      ]
+    },
+    {
+      "id": "M-H235-u",
+      "req": "harness",
+      "why": "交出去的目录不是玩具仓库本身 —— 测试在别处读写，删的也不是它",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "    dir: dir,\n",
+      "replace": "    dir: tmpdir(),\n",
+      "by": "test",
+      "kills": [
+        "玩具仓库：fn 抛错时原样往外抛，临时根也删掉了"
+      ]
+    },
+    {
+      "id": "M-H235-v",
+      "req": "harness",
+      "why": "不带提交身份 —— 本机用户配置挡掉以后提交不了",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "[...TOY_IDENTITY, ...args]",
+      "replace": "[...args]",
+      "by": "test",
+      "kills": [
+        "环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件"
+      ]
+    },
+    {
+      "id": "M-H235-w",
+      "req": "harness",
+      "why": "答不上来时交回空串 —— 找起点的那一步会把「答不上来」当成「没有提交」",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "gitText(args, { cwd: dir, env })?.trim() ?? null",
+      "replace": "gitText(args, { cwd: dir, env })?.trim() ?? ''",
+      "by": "test",
+      "kills": [
+        "玩具仓库：空仓库问最新提交，ask 交回 null、read 抛错（不当成空串），跑完临时根删掉"
+      ]
+    },
+    {
+      "id": "M-H235-x",
+      "req": "harness",
+      "why": "写文件不建上级目录 —— 写进子目录就失败",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "mkdirSync(dirname(join(dir, path)), { recursive: true }); ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件"
+      ]
     }
   ],
   "exemptions": [

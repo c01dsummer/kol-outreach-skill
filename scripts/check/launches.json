@@ -161,7 +161,7 @@
     {"config":"[\"test\",[\"h-git-entry\",\"h-git-entry-run\"]]","launches":0,"maxPaid":null,"running":4,"stopping":0},
     {"config":"[\"test\",[\"h-git-entry\"]]","launches":0,"maxPaid":null,"running":15,"stopping":0},
     {"config":"[\"test\",[\"h-git-entry-run\"]]","launches":0,"maxPaid":null,"running":8,"stopping":0},
-    {"config":"[\"test\",[\"h-git-fixture\"]]","launches":0,"maxPaid":null,"running":23,"stopping":0},
+    {"config":"[\"test\",[\"h-git-fixture\"]]","launches":0,"maxPaid":null,"running":29,"stopping":0},
     {"config":"[\"test\",[\"h-git-fixture-run\"]]","launches":0,"maxPaid":null,"running":3,"stopping":0},
     {"config":"[\"test\",[\"h-group\",\"h-mutate\"]]","launches":0,"maxPaid":null,"running":5,"stopping":0},
     {"config":"[\"test\",[\"h-group\"]]","launches":0,"maxPaid":null,"running":42,"stopping":0},

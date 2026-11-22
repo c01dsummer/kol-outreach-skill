@@ -17,10 +17,11 @@
  * 起 git 用的函数在调用时从模块上取：自检记当前目录、计数预加载换掉模块上的函数后照样记得到、数得到。
  */
 import cp from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gitOrThrow, gitText } from './git-entry.js'
 
 /** 夹具能用的子命令。新加一个由评审看：它是不是只在玩具仓库里用得着 */
 export const SUBCOMMANDS: readonly string[] = ['add', 'checkout', 'commit', 'config', 'init', 'merge', 'rev-parse', 'switch', 'update-ref']
@@ -136,3 +137,52 @@ export function fixtureGitOrThrow(args: readonly string[], options: FixtureOptio
   if (r.error === undefined && r.status === 0) return r.stdout.trim()
   throw new Error(`（夹具）git ${args.join(' ')} 没成（${r.error?.message ?? `退出码 ${r.status}`}）${r.stderr.trim() === '' ? '' : `：${r.stderr.trim()}`}`)
 }
+
+/** 玩具仓库里提交用的身份与开关：本机用户配置挡掉了（上面第 3 条），不给就提交不了 */
+const TOY_IDENTITY: readonly string[] = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
+
+/**
+ * 一个玩具仓库（ADR-235「同一处连着两轮：改设计」）。测试各自手搭玩具仓库时，隔开本机设置、读不到就报错、
+ * 用完删掉这几样一次漏一样，评审一轮挑一样；收在这里，用它的测试就不用再各管一遍。
+ */
+export interface ToyRepo {
+  /** 玩具仓库的目录 */
+  readonly dir: string
+  /** 写（init、add、commit……）：经夹具起 git，带提交身份，没成就抛错；交回去掉首尾空白的输出 */
+  git(...args: string[]): string
+  /** 读，答不上来交回 `null`：给 resolveBaseline 这类把「答不上来」当一种答案的判定用；去掉首尾空白 */
+  ask(...args: string[]): string | null
+  /** 读，答不上来就抛错、带 git 的原话，不当成空：量行数、读提交信息这类「没答上来」不能当「没有」的用；原样交回 */
+  read(...args: string[]): string
+  /** 写一个文件，路径相对玩具仓库，上级目录不在就建 */
+  write(path: string, text: string): void
+}
+
+/** 在 `dir` 上的玩具仓库：读写都用夹具的环境（`fixtureEnv`），读走 git 入口的问法 */
+function toyAt(dir: string): ToyRepo {
+  const env = fixtureEnv({})
+  return {
+    dir: dir,
+    git: (...args) => fixtureGitOrThrow([...TOY_IDENTITY, ...args], { cwd: dir }),
+    ask: (...args) => gitText(args, { cwd: dir, env })?.trim() ?? null,
+    read: (...args) => gitOrThrow(args, { cwd: dir, env }),
+    write: (path, text) => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), text, 'utf8') },
+  }
+}
+
+/**
+ * 在系统临时目录底下起一个临时根，建一个玩具仓库（只建目录，`git init` 由调用方做）交给 `fn`；
+ * `fn` 跑完或抛错，整个临时根都删掉，抛的错原样往外抛。`more(名字)` 在同一个临时根底下再开一个空目录
+ * （另一个玩具仓库、假的用户目录……），跟着一起删；要当玩具仓库用就交给 `toyRepoAt`。
+ */
+export function withToyRepo<T>(fn: (toy: ToyRepo, more: (name: string) => string) => T): T {
+  const root = mkdtempSync(join(real(tmpdir()), 'kol-toy-'))
+  try {
+    return fn(toyAt(mkdtempSync(join(root, 'repo-'))), name => mkdtempSync(join(root, `${name}-`)))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+/** `withToyRepo` 的 `more` 开出来的目录当玩具仓库用 */
+export const toyRepoAt = (dir: string): ToyRepo => toyAt(dir)
