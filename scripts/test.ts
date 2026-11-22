@@ -16216,6 +16216,8 @@ harness('拆进程跑打不开某一族的日志：那一族报成没起来，�
     cpSync('scripts', join(toy, 'scripts'), { recursive: true })
     cpSync('package.json', join(toy, 'package.json'))
     symlinkSync(resolve('node_modules'), join(toy, 'node_modules'), 'dir')
+    // 完整、非变异的整跑开跑前要算入口认领的指纹，那要问 git（ADR-233）：副本建成 git 仓库
+    fixtureGitOrThrow(['init', '-q'], { cwd: toy })
     writeFileSync(inject, [
       "const fs = require('node:fs'), { syncBuiltinESMExports } = require('node:module'), open = fs.openSync",
       'fs.openSync = function (p, ...rest) {',
