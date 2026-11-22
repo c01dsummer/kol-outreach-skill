@@ -7,7 +7,7 @@
 - 决定人与时间：需求所有者 2026-11-15 的选择（见上），做法照 ADR-63 的形状，不需要再选
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
 - 理由：见第一节
-- 连带改动：`scripts/check/size-rule.ts`（`resolveBaseline` 多一个可选参数、说明加第 7 步、`Baseline` 多一个可选的 `prBase`）· `scripts/check/size.ts`（读环境变量 `SIZE_PR_BASE`，报告多一行说清用没用 base）· `.github/workflows/check.yml` 检查链那一步加 `SIZE_PR_BASE` · `scripts/check/shard-load-rule.ts` 钉死的工作流跟着加两行 · `scripts/test.ts` 体量闸门起点那组加第 7 步的假应答用例与一个真 git 玩具仓库 · `scripts/check/mutations.json` 新加 M-H234-a 到 f，M-H9-t 的锚点跟上新写法 · `process/6-INTEGRATE.md`「叠分支」两处说法改准 · `docs/adr/README.md` 索引
+- 连带改动：`scripts/check/size-rule.ts`（`resolveBaseline` 多一个可选参数、说明加第 7 步、`Baseline` 多一个可选的 `prBase`）· `scripts/check/size.ts`（读环境变量 `SIZE_PR_BASE`，报告多一行说清用没用 base）· `.github/workflows/check.yml` 检查链那一步加 `SIZE_PR_BASE` · `scripts/check/shard-load-rule.ts` 钉死的工作流跟着加两行 · `scripts/test.ts` 体量闸门起点那组加第 7 步的假应答用例与一个真 git 玩具仓库 · `scripts/check/mutations.json` 新加 M-H234-a 到 i，M-H9-t 的锚点跟上新写法 · `process/6-INTEGRATE.md`「叠分支」两处说法改准 · `docs/adr/README.md` 索引
 
 ## 要用到的事实，各找谁要
 
@@ -40,7 +40,7 @@
 | B 上，不给 base | 源码 410 行；捡到 A 的豁免、放行 —— 这是没给 base 时明写的旧行为 |
 | B 上，给 base = 主干 | 与不给时量出同一组数、同样的豁免 |
 
-假应答那一组另外钉住：base 找不到、没有共同祖先、按 base 列不出提交，三种都无从判断；HEAD 在主干上时根本不去解析 base。六条变异（M-H234-a 到 f：找不到 base 退回按主干量、没有共同祖先退回按主干量、豁免照旧从按主干列出的提交里找、行数照旧从与主干的共同祖先量起、「不算」的那几个一律报 0、主干上也去用 base）都被点名的那条断言抓到。
+假应答那一组另外钉住：base 找不到、没有共同祖先、按 base 列不出提交，三种都无从判断；HEAD 在主干上时根本不去解析 base。九条变异（M-H234-a 到 i：找不到 base 退回按主干量、没有共同祖先退回按主干量、豁免照旧从按主干列出的提交里找、行数照旧从与主干的共同祖先量起、「不算」的那几个一律报 0、主干上也去用 base、报告里的 base 写成共同祖先、叠分支被当成在主干上、「给的是哪个 base」写成解析出来的提交）都被点名的那条断言抓到。
 
 ## 三、仍然按不住的
 

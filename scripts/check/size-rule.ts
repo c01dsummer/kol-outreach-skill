@@ -333,11 +333,10 @@ export type Baseline =
   | { kind: 'cannot-answer'; why: string; how: string }
   /** HEAD 就在主干上,而且没有父提交 —— 没有可比的上一版,入口说「不适用」并退出 0 */
   | { kind: 'not-applicable'; trunk: string }
-  /**
-   * 量 `base..head`;`commits` 是这条分支自己的提交(豁免只从这些提交信息里找)。
-   * 调用方给了 PR 的 base、而且 HEAD 不在主干上时多一个 `prBase`(见 `resolveBaseline` 第 7 步);没给时没有这个键
-   */
-  | { kind: 'measure'; trunk: string; head: string; base: string; onTrunk: boolean; commits: string[]; prBase?: PrBase }
+  /** 量 `base..head`;`commits` 是这条分支自己的提交(豁免只从这些提交信息里找) */
+  | { kind: 'measure'; trunk: string; head: string; base: string; onTrunk: boolean; commits: string[] }
+    /** 调用方给了 PR 的 base、而且 HEAD 不在主干上时多一个 `prBase`(见 `resolveBaseline` 第 7 步);没给时没有这个键 */
+    & { prBase?: PrBase }
 
 /**
  * 调用方给的 PR base 用上了:`given` 是原样给的那串,`sha` 是解析出来的提交;
@@ -412,14 +411,14 @@ export function resolveBaseline(ask: GitAsk, prBase?: string): Baseline {
   const commits = listed.split('\n').filter(Boolean)
   if (prBase === undefined || onTrunk) return { kind: 'measure', trunk, head, base, onTrunk, commits }
 
-  const sha = ask('rev-parse', '--verify', `${prBase}^{commit}`)
-  if (sha === null) {
+  const resolved = ask('rev-parse', '--verify', `${prBase}^{commit}`)
+  if (resolved === null) {
     return cannot(`给了这条 PR 的 base(${JSON.stringify(prBase)}),却找不到这个提交`,
       'CI 上取完整历史(`fetch-depth: 0`);本地先 `git fetch` 把 base 那条分支拉下来,或者不给 base、按主干量。')
   }
-  const own = ask('merge-base', sha, 'HEAD')
+  const own = ask('merge-base', resolved, 'HEAD')
   if (own === null) {
-    return cannot(`给的 PR base ${sha.slice(0, 7)} 与 HEAD 没有共同祖先`,
+    return cannot(`给的 PR base ${resolved.slice(0, 7)} 与 HEAD 没有共同祖先`,
       '确认 PR 的 base 选对了分支;不退回按主干量 —— 那正是叠分支继承下面那条行数和豁免的那条路。')
   }
   const ownListed = ask('rev-list', `${own}..${head}`)
@@ -428,6 +427,8 @@ export function resolveBaseline(ask: GitAsk, prBase?: string): Baseline {
       `手工跑 \`git rev-list ${own.slice(0, 7)}..${head.slice(0, 7)}\`,看 git 报什么(常见是仓库损坏)。`)
   }
   const mine = ownListed.split('\n').filter(Boolean)
-  const inherited = commits.filter(c => !mine.includes(c))
-  return { kind: 'measure', trunk, head, base: own, onTrunk, commits: mine, prBase: { given: prBase, sha, inherited } }
+  return {
+    kind: 'measure', trunk, head, base: own, onTrunk: false, commits: mine,
+    prBase: { given: prBase, sha: resolved, inherited: commits.filter(c => !mine.includes(c)) },
+  }
 }

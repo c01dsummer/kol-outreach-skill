@@ -33132,8 +33132,8 @@
       "req": "harness",
       "why": "给了 PR 的 base 却找不到这个提交时，退回按主干量 —— 叠在没合的分支上的 PR 又把下面那条的行数和豁免算成自己的",
       "file": "scripts/check/size-rule.ts",
-      "find": "  if (sha === null) {\n    return cannot(`给了这条 PR 的 base",
-      "replace": "  if (sha === null) return { kind: 'measure', trunk, head, base, onTrunk, commits }\n  if (sha === '') {\n    return cannot(`给了这条 PR 的 base",
+      "find": "  if (resolved === null) {\n    return cannot(`给了这条 PR 的 base",
+      "replace": "  if (resolved === null) return { kind: 'measure', trunk, head, base, onTrunk, commits }\n  if (resolved === '') {\n    return cannot(`给了这条 PR 的 base",
       "by": "test",
       "kills": [
         "起点第 7 步：给了 base 却找不到 → 无从判断，不退回按主干量"
@@ -33156,8 +33156,8 @@
       "req": "harness",
       "why": "给了 base 时豁免照旧从按主干列出的提交里找 —— 下面那条分支的 size-ok 被这条捡到",
       "file": "scripts/check/size-rule.ts",
-      "find": "base: own, onTrunk, commits: mine, prBase",
-      "replace": "base: own, onTrunk, commits, prBase",
+      "find": "onTrunk: false, commits: mine,\n",
+      "replace": "onTrunk: false, commits,\n",
       "by": "test",
       "kills": [
         "叠在没合的 A 上、给了 base：A 那句 size-ok 不算 B 的"
@@ -33168,8 +33168,8 @@
       "req": "harness",
       "why": "给了 base 时行数照旧从与主干的共同祖先量起 —— 下面那条分支的新增行算进这条",
       "file": "scripts/check/size-rule.ts",
-      "find": "return { kind: 'measure', trunk, head, base: own, onTrunk",
-      "replace": "return { kind: 'measure', trunk, head, base, onTrunk",
+      "find": "    kind: 'measure', trunk, head, base: own, onTrunk: false",
+      "replace": "    kind: 'measure', trunk, head, base, onTrunk: false",
       "by": "test",
       "kills": [
         "叠在没合的 A 上、给了 base：B 只算自己的 10 行源码"
@@ -33180,8 +33180,8 @@
       "req": "harness",
       "why": "「base 里已有几个提交不算」一律报 0 —— 报告说收窄了、却说不出收掉了什么",
       "file": "scripts/check/size-rule.ts",
-      "find": "const inherited = commits.filter(c => !mine.includes(c))",
-      "replace": "const inherited: string[] = []",
+      "find": "inherited: commits.filter(c => !mine.includes(c)) }",
+      "replace": "inherited: [] }",
       "by": "test",
       "kills": [
         "叠在没合的 A 上、给了 base：base 里已有的 A 那一个提交记在 inherited"
@@ -33196,7 +33196,43 @@
       "replace": "if (prBase === undefined) return",
       "by": "test",
       "kills": [
-        "起点第 7 步：HEAD 在主干上 → 不用 base，结果与没给时一样（没有 prBase 这个键）"
+        "起点第 7 步：HEAD 在主干上时不去解析 base"
+      ]
+    },
+    {
+      "id": "M-H234-g",
+      "req": "harness",
+      "why": "报告里「base 是哪个提交」写成与它的共同祖先 —— 说出来的 base 与给的不是同一个",
+      "file": "scripts/check/size-rule.ts",
+      "find": "sha: resolved, inherited",
+      "replace": "sha: own, inherited",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：prBase.sha 是解析出来的 base 提交，不是与它的共同祖先"
+      ]
+    },
+    {
+      "id": "M-H234-h",
+      "req": "harness",
+      "why": "叠在没合的分支上时被当成在主干上 —— 入口只报数、不判定，超线的叠分支照样绿",
+      "file": "scripts/check/size-rule.ts",
+      "find": "base: own, onTrunk: false, commits",
+      "replace": "base: own, onTrunk: true, commits",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：叠在没合的分支上仍算不在主干上（照样判定）"
+      ]
+    },
+    {
+      "id": "M-H234-i",
+      "req": "harness",
+      "why": "报告里「给的是哪个 base」写成解析出来的提交 —— 人对不上自己给的那一串",
+      "file": "scripts/check/size-rule.ts",
+      "find": "given: prBase, sha",
+      "replace": "given: resolved, sha",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：prBase.given 原样是调用方给的那串"
       ]
     }
   ],

@@ -17268,6 +17268,12 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
       const r = runWith(stacked, PR_BASE)
       exact('起点第 7 步：叠在没合的分支上 → 起点改成与 base 的共同祖先，只留这条自己的提交，下面那条的记在 inherited', r.got,
         { ...measure('origin/main', SHA_OWN, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: ['sha-a1'] } })
+      eq('起点第 7 步：叠在没合的分支上仍算不在主干上（照样判定）',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.onTrunk : r.got, false)
+      eq('起点第 7 步：prBase.given 原样是调用方给的那串',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.given : r.got, PR_BASE)
+      eq('起点第 7 步：prBase.sha 是解析出来的 base 提交，不是与它的共同祖先',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.sha : r.got, SHA_PR)
       eq('起点第 7 步：主干那几问照旧，之后解析 base、取共同祖先、按它列提交', r.asked,
         [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_BASE_ORIGIN, Q_LIST_FORK, Q_PR, Q_OWN, Q_LIST_OWN])
     }
