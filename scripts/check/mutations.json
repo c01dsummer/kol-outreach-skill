@@ -3173,7 +3173,7 @@
       "find": "const selfHash = fingerprint(claimInputs())",
       "replace": "const selfHash = fingerprint(claimInputs().filter(([p]) => p.startsWith('scripts/')))",
       "by": "selfcheck",
-      "kills": ["audit-entry 起普通审计"]
+      "kills": ["审计入口：覆盖记录按整个玩具仓库现算的指纹写下，审计认它是新的、以 0 退出"]
     },
     {
       "id": "M-D8-c",

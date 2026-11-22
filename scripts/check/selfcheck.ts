@@ -8792,11 +8792,15 @@ group('audit-entry', [], () => {
       fixtureFailure('玩具树里读回的字节与写下去的不一样');
       return;
     }
-    const run = runToolBoth('audit-entry 起普通审计', 'audit', [], ownedToyRoot, { status: 0 });
+    // 以 1 退出放宽成软结果、由下面那条具名断言判：审计算指纹的范围与写记录那一侧对不上时，它说「记录是旧的」、以 1 退出（ADR-233）
+    const run = runToolBoth('audit-entry 起普通审计', 'audit', [], ownedToyRoot, { status: 0, soft: [1] });
     if (!run.ok) {
       runnerReportedFailure = true;
       return; // runBoth 已经带进程记号报过、计过一次
     }
+    named('审计入口：覆盖记录按整个玩具仓库现算的指纹写下，审计认它是新的、以 0 退出', run.status === 0,
+      `退出码 ${run.status}；stderr 末几行：${stderrTail(run.stderr)}`);
+    if (run.status !== 0) return;
     if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
       fixtureFailure('审计跑完，玩具树里的源码、资料或覆盖记录变了');
       return;
