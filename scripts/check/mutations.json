@@ -3166,16 +3166,6 @@
       "kills": ["按字节算 —— 两份读成文字一样的二进制文件也分得出"]
     },
     {
-      "id": "M-H14-ax",
-      "req": "harness",
-      "why": "审计核测试记录新不新鲜时只拿代码那棵树比 —— 测试是对着整个仓库写下记录的，审计这一侧算的范围不同，两边永远对不上；或者两边都缩回代码那棵树，Skill 说明改了旧记录照样算数",
-      "file": "scripts/check/audit.ts",
-      "find": "const selfHash = fingerprint(claimInputs())",
-      "replace": "const selfHash = fingerprint(claimInputs().filter(([p]) => p.startsWith('scripts/')))",
-      "by": "selfcheck",
-      "kills": ["审计入口：覆盖记录按整个玩具仓库现算的指纹写下，审计认它是新的、以 0 退出"]
-    },
-    {
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",

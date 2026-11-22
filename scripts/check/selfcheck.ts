@@ -8792,7 +8792,8 @@ group('audit-entry', [], () => {
       fixtureFailure('玩具树里读回的字节与写下去的不一样');
       return;
     }
-    // 以 1 退出放宽成软结果、由下面那条具名断言判：审计算指纹的范围与写记录那一侧对不上时，它说「记录是旧的」、以 1 退出（ADR-233）
+    // 以 1 退出放宽成软结果、由下面那条具名断言判：审计算指纹的范围与写记录那一侧对不上时，它说「记录是旧的」、以 1 退出（ADR-233）。
+    // audit.ts 在本文件的验证基础设施闭包里，指名自检的变异会被「自己验自己」拦下，所以这条断言没有配变异
     const run = runToolBoth('audit-entry 起普通审计', 'audit', [], ownedToyRoot, { status: 0, soft: [1] });
     if (!run.ok) {
       runnerReportedFailure = true;
