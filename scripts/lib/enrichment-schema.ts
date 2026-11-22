@@ -420,7 +420,7 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
           }
         }
       ],
-      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（`scripts/lib/enrichment.schema.json`，ADR-232）。"
+      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
     },
     "Measurement<string>": {
       "type": "object",
@@ -518,7 +518,7 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
           }
         }
       ],
-      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（`scripts/lib/enrichment.schema.json`，ADR-232）。"
+      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
     },
     "Measurement<ActivityStatus>": {
       "type": "object",
@@ -616,7 +616,7 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
           }
         }
       ],
-      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（`scripts/lib/enrichment.schema.json`，ADR-232）。"
+      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
     },
     "ActivityStatus": {
       "type": "string",
@@ -722,7 +722,7 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
           }
         }
       ],
-      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（`scripts/lib/enrichment.schema.json`，ADR-232）。"
+      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
     },
     "AudienceRiskAssessment": {
       "type": "object",
@@ -891,7 +891,7 @@ export const ENRICHMENT_SCHEMA: Record<string, unknown> = {
           }
         }
       ],
-      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（`scripts/lib/enrichment.schema.json`，ADR-232）。"
+      "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
     },
     "CollaborationQuote": {
       "type": "object",

@@ -9065,6 +9065,8 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
   eq('D21.w 报价金额写成文字时报一处', amountText.map(s => s.includes('collaboration_quote.value.amount') && s.includes('"500"')), [true])
   const status = one({ ...good, metrics: { ...good.metrics, view_rate: { ...good.metrics.view_rate, status: 'gone' } } })
   eq('D21.w 三态包装的 status 写错时只报 status 那一处，不连带报别的格', status.map(s => s.includes('metrics.view_rate.status') && s.includes('"gone"')), [true])
+  const wholeText = one({ ...good, metrics: { ...good.metrics, activity_status: 'active' } })
+  eq('D21.w 三态包装整个写成字符串时只报一句「应是对象」，不按分支重复', wholeText.filter(s => s.includes('metrics.activity_status 应是对象')).length, 1)
   const many = enrichmentSchemaProblems('E.json', { version: 2, accounts: { 'tiktok:a': { ...good, followers: null }, 'tiktok:b': 5 } })
   eq('D21.w 有几处报几处：最外层缺更新时间、版本不对、两个账号各一处，四处一次报全', [
     many.length, many.some(s => s.includes('最外层') && s.includes('updated_at')), many.some(s => s.includes('version') && s.includes('2')),

@@ -146,7 +146,7 @@ export type MetricUnavailableReason =
 
 /**
  * 三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支，
- * 报错只说那一支缺了什么（`scripts/lib/enrichment.schema.json`，ADR-232）。
+ * 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。
  * @discriminator status
  */
 export type Measurement<T> =

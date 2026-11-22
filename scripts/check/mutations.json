@@ -32931,6 +32931,18 @@
       ]
     },
     {
+      "id": "M-D21-bz",
+      "req": "D21.w",
+      "why": "三态包装整个写成字符串时同一句报错印三遍，看着像三处不合规",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "  return [...new Set(lines.map(line => typeof line === 'string'",
+      "replace": "  return [...Array.from(lines.map(line => typeof line === 'string'",
+      "by": "test",
+      "kills": [
+        "D21.w 三态包装整个写成字符串时只报一句「应是对象」，不按分支重复"
+      ]
+    },
+    {
       "id": "M-D21-by",
       "req": "D21.y",
       "why": "生成格式说明时放过类型里没写的键，入库那份与按规则现生成的不一致却没人发现",

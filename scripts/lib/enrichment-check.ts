@@ -93,7 +93,8 @@ export function enrichmentSchemaProblems(file: string, state: unknown): string[]
     const text = sentence(file, error)
     if (text !== undefined) lines.push(text)
   }
-  return lines.map(line => typeof line === 'string'
+  // 同一处同一句只留一次：三态包装整个写成字符串时，外层与按 status 分的两支各报一次「应是对象」
+  return [...new Set(lines.map(line => typeof line === 'string'
     ? line
-    : `${where(file, line.path)} 缺了 ${line.missing.join('、')}（格式说明里这几格必有）`)
+    : `${where(file, line.path)} 缺了 ${line.missing.join('、')}（格式说明里这几格必有）`))]
 }
