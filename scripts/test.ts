@@ -9168,14 +9168,14 @@ suite('D21', '增强结果读入时整份对照：真起 enrich、render 那一�
       return {
         status: r.status, stderr: String(r.stderr), requests: existsSync(ledger) ? rf(ledger, 'utf8').split('\n').filter(Boolean).length : 0,
         taskKept: read('task.json') === taskText, enrichmentKept: read('enrichment.json') === enrichmentText,
-        delivered: ['kol.csv', 'report.html', 'meta.json'].filter(f => existsSync(join(dir, f))), enrichment: read('enrichment.json'),
+        delivered: ['kol.csv', 'kol.xlsx', 'report.html', 'meta.json'].filter(f => existsSync(join(dir, f))), enrichment: read('enrichment.json'),
       }
     }
     const withHandle = (handle: string, over: Record<string, unknown> = {}) => ({ [`tiktok:${handle}`]: { ...good, handle, ...over } })
 
     // render：粉丝数写成文字、带作品样本 —— 以前算出 NaN% 照出报告（ADR-231 第四轮复核）
     const rOk = run('render', [person('tiktok', 'd21wr')], file(withHandle('d21wr')))
-    eq('D21.w 夹具有效：同一个带样本的账号合规时 render 照常以 0 结束、交付文件都写了', [rOk.status, rOk.delivered.length], [0, 3])
+    eq('D21.w 夹具有效：同一个带样本的账号合规时 render 照常以 0 结束、交付文件都写了', [rOk.status, rOk.delivered.length], [0, 4])
     const rBad = run('render', [person('tiktok', 'd21wr')], file(withHandle('d21wr', { followers: '8万' })))
     eq('D21.w render 读到增强结果里粉丝数写成文字时以 2 拒绝、一个交付文件都没写', [rBad.status, rBad.delivered], [2, []])
     ok('D21.w render 拒绝时 stderr 点名增强结果文件、账号、粉丝数那一格与读到的值', rBad.stderr.includes('enrichment.json') && rBad.stderr.includes('tiktok:d21wr 的 followers') && rBad.stderr.includes('"8万"'))
