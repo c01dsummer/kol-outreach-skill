@@ -860,11 +860,12 @@
       "req": "P1.b",
       "why": "挑作品那一列时把没查到的播放数当 0 —— 和真实 0 并列、谁在前挑谁，运营看到的「最好作品」可能是一条根本不知道播放量的",
       "file": "scripts/lib/rows.ts",
-      "find": "      return (a.plays === undefined ? 1 : 0) - (b.plays === undefined ? 1 : 0)",
+      "find": "      return (known(a.plays) ? 0 : 1) - (known(b.plays) ? 0 : 1)",
       "replace": "      return (b.plays ?? 0) - (a.plays ?? 0)",
       "by": "test",
       "kills": [
-        "没查到播放数的排在真实 0 后面 → 挑有数字的那条"
+        "没查到播放数的排在真实 0 后面 → 挑有数字的那条",
+        "播放数算坏成 NaN 也算没查到 → 挑有数字的那条"
       ]
     },
     {

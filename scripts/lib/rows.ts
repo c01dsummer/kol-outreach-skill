@@ -78,10 +78,12 @@ const bestPost = (c: Creator): string => {
   const posts = c.recent_posts
   if (!posts?.length) return '未查询'
   // 挑播放最高的那条；只用于展示，不写回数据。没查到播放数的排在所有有数字的后面
-  // （真实 0 也在它前面）—— 不知道不等于 0（P1）。同档之间保留原顺序（sort 是稳定的）
+  // （真实 0 也在它前面）—— 不知道不等于 0（P1）。「没查到」按值认，不按类型认：
+  // 供应商原样透传的 null、算坏了的 NaN 都不是一个播放数。同档之间保留原顺序（sort 是稳定的）
+  const known = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
   return [...posts].sort((a, b) => {
-    if (a.plays === undefined || b.plays === undefined) {
-      return (a.plays === undefined ? 1 : 0) - (b.plays === undefined ? 1 : 0)
+    if (!known(a.plays) || !known(b.plays)) {
+      return (known(a.plays) ? 0 : 1) - (known(b.plays) ? 0 : 1)
     }
     return b.plays - a.plays
   })[0].desc
