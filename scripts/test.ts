@@ -247,6 +247,7 @@ const GROUPS: readonly Group[] = [
   { id: 'invalid-values-entry', needs: [] },
   { id: 'p1n-render-entry', needs: [] },
   { id: 'd21w-enrichment-schema', needs: [] },
+  { id: 'd21w-enrichment-entry', needs: [] },
   { id: 'p1-followers-sort', needs: [] },
   { id: 'd5-csv', needs: [] },
   { id: 'd2-d8-actual-paths', needs: [] },
@@ -9105,6 +9106,34 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
     many.some(s => s.includes('tiktok:a 的 followers') && s.includes('null')), many.some(s => s.includes('账号 tiktok:b') && s.includes('5')),
   ], [4, true, true, true, true])
 
+  // ═══════════════════════════ D21.x：主页资料 ═══════════════════════════
+  criterion('D21.x')
+  // 供应商主页资料里的关注数（collect 补全名单时用）：假 fetch 恒回同一段正文，跑完还原
+  const profileFollowing = async (body: string, platform: 'tiktok' | 'instagram'): Promise<unknown> => {
+    const real = globalThis.fetch
+    globalThis.fetch = (async () => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch
+    try { return (await new TikHub('d21x-test-key', startBudget({}, parseUsdMicros('2'), 'process')).profile('x', platform)).following }
+    finally { globalThis.fetch = real }
+  }
+  eq('D21.x TikTok 主页资料的关注数是数字时照常取到', await profileFollowing(
+    '{"code":200,"data":{"userInfo":{"user":{"uniqueId":"x","nickname":"x","signature":"s"},"stats":{"followingCount":12}}}}', 'tiktok'), 12)
+  eq('D21.x TikTok 主页资料的关注数写成文字时当没给', await profileFollowing(
+    '{"code":200,"data":{"userInfo":{"user":{"uniqueId":"x","nickname":"x","signature":"s"},"stats":{"followingCount":"12"}}}}', 'tiktok'), undefined)
+  eq('D21.x Instagram 主页资料的关注数是数字时照常取到', await profileFollowing(
+    '{"code":200,"data":{"pk":"1","username":"x","full_name":"x","biography":"s","following_count":630,"bio_links":[]}}', 'instagram'), 630)
+  eq('D21.x Instagram 主页资料的关注数写成文字时当没给', await profileFollowing(
+    '{"code":200,"data":{"pk":"1","username":"x","full_name":"x","biography":"s","following_count":"630","bio_links":[]}}', 'instagram'), undefined)
+}
+})
+// 真起 enrich、render 的那一半单成一组：变异一条一条施时，选到上面那组的不必每条都起六次入口（启动数上限，ADR-145）
+await group('d21w-enrichment-entry', async () => {
+suite('D21', '增强结果读入时整份对照：真起 enrich、render 那一半（D21.w、D21.x，作者写，ADR-232）')
+{
+  const { RELEASED_ENRICHMENT_SAMPLES } = await import('./enrichment-released-samples-data.js')
+  const at = '2026-10-01T00:00:00Z'
+  const file = (accounts: Record<string, unknown>, root: Record<string, unknown> = {}) => ({ version: 1, updated_at: at, accounts, ...root })
+  const good = RELEASED_ENRICHMENT_SAMPLES['2.0.0-first'].accounts['tiktok:tt_full'] as Record<string, any>
+  criterion('D21.w')
   // ═══════════════════════════ D21.w：入口那一半 ═══════════════════════════
   const root = mkdtempSync(join(tmpdir(), 'kol-d21w-'))
   try {
@@ -9172,21 +9201,6 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
     ok('D21.x 这样写出的增强结果按格式说明通过（下一次读入不被拒）', xText.enrichment !== undefined && enrichmentSchemaProblems('E.json', JSON.parse(xText.enrichment)).length === 0)
   } finally { rmSync(root, { recursive: true, force: true }) }
 
-  // 供应商主页资料里的关注数（collect 补全名单时用）：假 fetch 恒回同一段正文，跑完还原
-  const profileFollowing = async (body: string, platform: 'tiktok' | 'instagram'): Promise<unknown> => {
-    const real = globalThis.fetch
-    globalThis.fetch = (async () => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch
-    try { return (await new TikHub('d21x-test-key', startBudget({}, parseUsdMicros('2'), 'process')).profile('x', platform)).following }
-    finally { globalThis.fetch = real }
-  }
-  eq('D21.x TikTok 主页资料的关注数是数字时照常取到', await profileFollowing(
-    '{"code":200,"data":{"userInfo":{"user":{"uniqueId":"x","nickname":"x","signature":"s"},"stats":{"followingCount":12}}}}', 'tiktok'), 12)
-  eq('D21.x TikTok 主页资料的关注数写成文字时当没给', await profileFollowing(
-    '{"code":200,"data":{"userInfo":{"user":{"uniqueId":"x","nickname":"x","signature":"s"},"stats":{"followingCount":"12"}}}}', 'tiktok'), undefined)
-  eq('D21.x Instagram 主页资料的关注数是数字时照常取到', await profileFollowing(
-    '{"code":200,"data":{"pk":"1","username":"x","full_name":"x","biography":"s","following_count":630,"bio_links":[]}}', 'instagram'), 630)
-  eq('D21.x Instagram 主页资料的关注数写成文字时当没给', await profileFollowing(
-    '{"code":200,"data":{"pk":"1","username":"x","full_name":"x","biography":"s","following_count":"630","bio_links":[]}}', 'instagram'), undefined)
 }
 })
 await group('p1-followers-sort', () => {
