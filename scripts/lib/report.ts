@@ -53,10 +53,14 @@ const REASON: Record<string, string> = {
  * 已测时先过 `need` 再格式化：取值缺了在格式化之前就拒绝、点名账号与那一格（P1.n，ADR-231）。
  * 不先查的话，缺值进了乘法、`toFixed` 之后成了 0.00% 或 NaN%，`html` 那一下看不出它缺过。
  */
+/** 不可用原因的白话：只认表里自己的键。报价的原因是手写的一句话，碰巧写成 `constructor` 这类词时不能查到对象原型上去（ADR-232） */
+const reasonText = (reason: string): string | undefined =>
+  Object.hasOwn(REASON, reason) ? (REASON as Record<string, string>)[reason] : undefined
+
 const metricText = <T>(m: ManualMeasurement<T> | undefined, who: string, name: string,
   format: (value: T) => string | SafeHtml): string | SafeHtml => {
   if (!m) return '未查询'
-  if (m.status === 'unavailable') return html`不可用 · ${REASON[m.reason] ?? need(m.reason, `增强结果里账号 ${who} 的${name}不可用的原因`)}`
+  if (m.status === 'unavailable') return html`不可用 · ${reasonText(m.reason) ?? need(m.reason, `增强结果里账号 ${who} 的${name}不可用的原因`)}`
   return format(need(m.value, `增强结果里账号 ${who} 的${name}`))
 }
 
@@ -85,7 +89,7 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
   if (quote?.status === 'measured') need(quote.value, `增强结果里账号 ${who} 的合作报价内容`)
   const quoteText = !quote ? '未查询'
     : quote.status === 'unavailable'
-      ? html`不可用 · ${REASON[quote.reason] ?? need(quote.reason, `增强结果里账号 ${who} 的合作报价不可用的原因`)}`
+      ? html`不可用 · ${reasonText(quote.reason) ?? need(quote.reason, `增强结果里账号 ${who} 的合作报价不可用的原因`)}`
       : html`${need(quote.value.currency, `增强结果里账号 ${who} 的合作报价币种`)} ${need(quote.value.amount, `增强结果里账号 ${who} 的合作报价金额`)} / ${need(quote.value.quantity, `增强结果里账号 ${who} 的合作报价数量`)} ${need(quote.value.format, `增强结果里账号 ${who} 的合作报价形式`)} · ${need(quote.value.source, `增强结果里账号 ${who} 的合作报价来源`)} · ${need(quote.value.observed_at, `增强结果里账号 ${who} 的合作报价日期`).slice(0, 10)}`
   // 报价已测时金额前带币种；报价没测时只写数（报价那一格自己说未查询或不可用）
   const money = (value: number) =>

@@ -46,10 +46,10 @@ function where(file: string, pointer: string): string {
   return parts.length ? `${file} 的 ${parts.join('.')}` : `${file} 的最外层`
 }
 
-/** 粉丝数、关注数写错时多给一句去哪改：enrich 会从名单抄这两样，只删增强结果里这一格、名单不改的话下次又抄回来 */
+/** 粉丝数、关注数写错时多给一句去哪改：旧版 enrich 会把名单里不是数的这两样原样抄进来（本条起不再抄，D21.x），所以错的源头多半在名单，只改增强结果、名单不改的话名单那边照样是错的 */
 const countHint = (pointer: string): string =>
   /^\/accounts\/[^/]+\/(followers|following)$/.test(pointer)
-    ? '；这个数可能是 enrich 从名单（creators.raw.json 或 creators.json）抄来的，名单里同一个账号的这一格也要一起改正'
+    ? '；这个数可能是旧版 enrich 从名单（creators.raw.json 或 creators.json）抄来的，名单里同一个账号的这一格多半也写错了，一起改正'
     : ''
 
 function sentence(file: string, error: ErrorObject): string | undefined {

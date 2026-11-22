@@ -5,7 +5,7 @@
 - 触发它的事实：ADR-231 那条改动在 `scripts/lib/task.ts` 里逐项手写增强结果的读入检查，独立复核第二、三、四轮都挑在这一块：先多拦了正常数据（报价来源写成文档没提过的词就整份不出；enrich 会原样抄名单里不是数的关注数，抄完就拒），改了之后又少拦了一项（粉丝数写成汉字照样印 NaN%）。按「同一处连着两轮被挑出毛病」停手
 - 决定人与时间：需求所有者丸子 2026-11-21 在选择卡上选「本条收窄，读入检查另开」，另开的这一条换成按类型生成格式说明、读入时整份对照（业界做法：从 TypeScript 类型生成 JSON Schema，用校验器整份校验）
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
-- 连带改动：`package.json`（运行依赖 `ajv`，开发依赖 `ts-json-schema-generator`）· `scripts/lib/types.ts`（三态包装标上按 status 分支；作品样本的类型单起名字，生成的定义名才稳定；活跃度三格改成可有可无；合作报价换成不可用时原因可写一句话的三态包装）· `scripts/lib/assessment.ts`、`scripts/lib/report.ts`、`scripts/lib/rows.ts`（跟着报价的类型放宽参数，行为不变）· 新文件 `scripts/check/enrichment-schema.ts`（生成与核对）、`scripts/lib/enrichment-schema.ts`（生成出来的格式说明）、`scripts/lib/enrichment-check.ts`（校验与报错）、`scripts/enrichment-released-samples-data.ts`（发布版本样本）· `scripts/lib/task.ts`（读增强结果时整份对照；原先只查活跃状态与风险等级的那一段删掉，它查的两样在格式说明里）· `scripts/enrich.ts`（读增强结果挪到改额之前；名单里不是有限数字的粉丝数、关注数当没给）· `scripts/providers/tikhub.ts`（主页资料里的关注数同样）· `scripts/render.ts` · `scripts/test.ts`（新组 `d21w-enrichment-schema`，改了几条旧断言，见第五节）· `scripts/check/mutations.json` · `docs/requirements.json` · `skill/SKILL.md` · `skill/references/public-metrics.md` · `docs/ARCHITECTURE.md` · `docs/SYNC.md` · `docs/GLOSSARY.md`
+- 连带改动：`package.json`（运行依赖 `ajv`，开发依赖 `ts-json-schema-generator`）· `scripts/lib/types.ts`（三态包装标上按 status 分支；作品样本的类型单起名字，生成的定义名才稳定；活跃度三格改成可有可无；合作报价换成不可用时原因可写一句话的三态包装）· `scripts/lib/assessment.ts`、`scripts/lib/report.ts`、`scripts/lib/rows.ts`（跟着报价的类型放宽参数；报告查不可用原因的白话时只认表里自己的键，报价原因碰巧写成 `constructor` 这类词时照原话印，不再印出一段程序代码，第二轮复核查出、主干同样）· 新文件 `scripts/check/enrichment-schema.ts`（生成与核对）、`scripts/lib/enrichment-schema.ts`（生成出来的格式说明）、`scripts/lib/enrichment-check.ts`（校验与报错）、`scripts/enrichment-released-samples-data.ts`（发布版本样本）· `scripts/lib/task.ts`（读增强结果时整份对照；原先只查活跃状态与风险等级的那一段删掉，它查的两样在格式说明里）· `scripts/enrich.ts`（读增强结果挪到改额之前；名单里不是有限数字的粉丝数、关注数当没给）· `scripts/providers/tikhub.ts`（主页资料里的关注数同样）· `scripts/render.ts` · `scripts/test.ts`（新组 `d21w-enrichment-schema`，改了几条旧断言，见第五节）· `scripts/check/mutations.json` · `docs/requirements.json` · `skill/SKILL.md` · `skill/references/public-metrics.md` · `docs/ARCHITECTURE.md` · `docs/SYNC.md` · `docs/GLOSSARY.md`
 
 ## 要用到的事实，各找谁要
 
@@ -54,7 +54,7 @@ enrich 原先在改额（`--budget` 会写 task.json）之后才读增强结果�
 
 比对只能说明类型，说明不了 enrich 实际写出什么，所以又真跑了一遍：在 2.0.0、3.0.0、4.0.0、5.0.0 四个发布 tag 与本条的树上，各跑那一版自己的 enrich（假供应商，罐头主页作品：作品足、只有三条、零条、没有日期、没有粉丝数、账号不存在、Instagram 视频与图文混着、全是图文、全是视频、空、私密、关联账号，加十个凑够同行组的 TikTok 账号），每版跑三遍（首跑、缓存重算、强制刷新）。十五份结果（四个发布版本的十二份，加本条的三份）按新格式说明全部通过；四个老版本加 `5ab044e2` 的任务目录直接交给本条的 render 都以 0 结束、报告与表格里没有 NaN，23 个账号都在（活跃度已测、不可用的人数与主干的 render 读同一目录相同）；交给本条的 enrich 缓存重算同样以 0 结束、零请求。render 按工作目录记联系记忆，连着跑几份时后几份会把前一份推荐过的人全过滤掉、报告是空的，所以每份之前先删记忆（独立复核指出头一回这么跑出过空报告）。跑法与罐头在项目共享文件夹 `enrichment-schema/release-check/`（`run.sh` 跑 enrich，`render-check.sh` 跑 render）。
 
-四个发布版本的那十二份按「键的结构加上 status、reason、media_scope、source.kind 的取值」去重，留下 17 个账号（作品样本只留前两条，形状不变），存进 `scripts/enrichment-released-samples-data.ts`。独立复核指出夹具里没有老目录经本条 enrich 重算后的形状（老 Instagram 范围 `legacy_video_filtered_first12`、`unknown` 与对应的不可用原因），补了 2.0.0、3.0.0 两份重算结果里新出现的 6 个账号；加上 `5ab044e2` 的 5 个，共 28 个。需求测试拿当前格式说明逐个校验：以后谁改类型把一个老版本照常会写的形状判成不合规，那条测试变红（D21.y）。
+四个发布版本的那十二份按「键的结构加上 status、reason、media_scope、source.kind 的取值」去重，留下 17 个账号（作品样本只留前两条，形状不变），存进 `scripts/enrichment-released-samples-data.ts`。独立复核指出夹具里没有老目录经本条 enrich 重算后的形状（老 Instagram 范围 `legacy_video_filtered_first12`、`unknown` 与对应的不可用原因），补了 2.0.0、3.0.0 两份重算结果里新出现的 6 个账号；加上 `5ab044e2` 的 5 个，共 28 个。罐头造不出的四种不可用原因（`zero_denominator`、`invalid_post_date`、`missing_following`、`unsupported_content`）仍不在夹具里：取值列表由类型生成，第二轮复核用怪响应跑出前两种各 9 处，都通过。需求测试拿当前格式说明逐个校验：以后谁改类型把一个老版本照常会写的形状判成不合规，那条测试变红（D21.y）。
 
 文档里给 Agent 的手写报价示例（`public-metrics.md`）也拿来校验，文档列的报价取值（平台、形式、来源、外层来源种类、外层状态）与格式说明逐个比 —— ADR-231 第二轮复核挑出的「来源只认两个词、其中一个文档里从没出现」那一类，取值以类型为准、文档照抄、测试核两边一致。
 
@@ -77,7 +77,7 @@ enrich 原先在改额（`--budget` 会写 task.json）之后才读增强结果�
 - 「P1.n 入口：合作报价缺币种时 stderr 点名增强结果、账号与币种」（作者写）：缺币种现在在读入时就拦下，点名的是文件、账号与 `collaboration_quote.value 缺了 currency`；拼报告那一道的白话格名（「合作报价币种」）改由直接调拼报告函数的一条守，M-P1-bf 跟着改认那条。
 - 那组入口测试的报价夹具外层来源原先没写 `kind`，按类型是必有的，补上。
 
-新变异 M-D21-bp 至 M-D21-by（同一格缺的几项分开报、取值不对不列能写的、类型不对不印读到的值、多出的键不报、账号路径不还原、enrich 不拒、enrich 抄文字关注数、两处主页资料不验关注数、生成时放过类型里没写的键），复核与完整检查之后又加 M-D21-ca 至 M-D21-ch（没有活跃度的老文件被拒、缺 status 时按两支各报、缺 status 时报里面更深的格、类型不对还报取值、不可用报价的原因可以是空串、文档教的不可用报价被拒、无穷大说成 null、粉丝数写错不提名单）；M-D21-bl、M-D21-bm、M-D21-bo、M-D8-s 跟着代码挪了锚点，施的刀含义不变；M-D21-bn 跟着改名。逐条施上、只跑相关的组，点名的断言都红。
+新变异 M-D21-bp 至 M-D21-by（同一格缺的几项分开报、取值不对不列能写的、类型不对不印读到的值、多出的键不报、账号路径不还原、enrich 不拒、enrich 抄文字关注数、两处主页资料不验关注数、生成时放过类型里没写的键），复核与完整检查之后又加 M-D21-ca 至 M-D21-cj（没有活跃度的老文件被拒、缺 status 时按两支各报、缺 status 时报里面更深的格、类型不对还报取值、不可用报价的原因可以是空串、文档教的不可用报价被拒、无穷大说成 null、粉丝数写错不提名单、指标的原因写成任意一句话也读入、报价原因写成 constructor 时报告印出程序代码）；M-D21-bl、M-D21-bm、M-D21-bo、M-D8-s 跟着代码挪了锚点，施的刀含义不变；M-D21-bn 跟着改名。逐条施上、只跑相关的组，点名的断言都红。
 
 ## 六、没做的、碰到的欠条
 
@@ -95,7 +95,7 @@ enrich 原先在改额（`--budget` 会写 task.json）之后才读增强结果�
 
 ### 碰到的旧欠条，逐条怎么处置
 
-- ADR-89「变异盖不住全部行为，而没有任何东西在数这件事」：本条加了变异，照它说的看了一眼。新加的 M-D21-bp 到 M-D21-ch 盖的都是头一回有人盖的地方（格式说明怎么生成、Ajv 的错误怎么翻成话、enrich 读入的先后、关注数当没给），原来没有任何变异碰过这几处。欠条本身照旧。
+- ADR-89「变异盖不住全部行为，而没有任何东西在数这件事」：本条加了变异，照它说的看了一眼。新加的 M-D21-bp 到 M-D21-cj 盖的都是头一回有人盖的地方（格式说明怎么生成、Ajv 的错误怎么翻成话、enrich 读入的先后、关注数当没给），原来没有任何变异碰过这几处。欠条本身照旧。
 - ADR-78「顺序契约表每一行点名的守护变异只在有人改那一行时是全的」：本条新立了一条先后（enrich 与 render 读增强结果并整份对照合格，才改额、预留、请求或写交付物），表里原来没有这一行，补了一行，点名 M-D21-bu 与 M-D21-bl。没有逐行核全表：这次不是「查出一行漏列」，是新加一行，重启条件没到。
 - ADR-70「一条判据装几件事」：D21.w 一条装了「不合规的几种」「在写任何文件之前拒」「点名文件账号与那一格」「同一格缺几项合一句」，D21.y 装了「格式说明与类型同步」「老文件读得进」「文档里的例子与取值读得进」。照 ADR-227、228、231 的先例不拆：这几件都是同一句话「读入时整份对照、拒了要说清」的不同侧面，拆开后每条单独读不成一件完整的事。原欠条照旧。
 - ADR-218「口径类需求没做过隔离重写」：D21.w、x、y 的测试是作者写的，没由只读准入读物包的会话重写。这是那张欠条说的情形（口径类需求一条都没做过隔离重写），本条不改变它，原欠条照旧，等需求所有者定。

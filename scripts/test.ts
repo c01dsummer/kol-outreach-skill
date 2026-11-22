@@ -9068,7 +9068,7 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
   const fans = one({ ...good, followers: '8万' })
   eq('D21.w 粉丝数写成文字时报一处，点名文件、账号（JSON 路径里的斜杠还原）、那一格、读到的值和应是数字',
     fans.map(s => [s.includes('E.json'), s.includes('tiktok:k/1 的 followers'), s.includes('"8万"'), s.includes('数字')]), [[true, true, true, true]])
-  ok('D21.w 粉丝数写错时提示名单里同一个账号也要改（enrich 会从名单抄回来）', fans.every(s => s.includes('名单里同一个账号的这一格也要一起改正')))
+  ok('D21.w 粉丝数写错时提示名单里同一个账号的这一格多半也写错了（旧版 enrich 从名单抄来的）', fans.every(s => s.includes('名单里同一个账号的这一格多半也写错了')))
   const typo = one({ ...good, follower: 80000 })
   eq('D21.w 写了格式说明里没有的键（拼错的粉丝数）时报一处并点出那个键', typo.map(s => s.includes('"follower"') && s.includes('多了')), [true])
   const badFormat = one({ ...good, collaboration_quote: { ...exampleQuote, value: { ...exampleQuote.value, format: 'ugc_bundle' } } })
@@ -9090,6 +9090,12 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
   eq('D21.w 报价整格写成 null 时只报一句「应是对象」', [nullQuote.length, nullQuote.every(s => s.includes('collaboration_quote 应是对象') && s.includes('null'))], [1, true])
   const emptyReason = one({ ...good, collaboration_quote: { ...unavailableQuote, reason: '' } })
   eq('D21.w 不可用报价的原因写成空串时报一句「不能是空的」', [emptyReason.length, emptyReason.every(s => s.includes('collaboration_quote.reason 不能是空的'))], [1, true])
+  const metricWords = one({ ...good, metrics: { ...good.metrics, view_rate: { status: 'unavailable', reason: '作品太少', source: good.metrics.view_rate.source, observed_at: at } } })
+  eq('D21.w 指标不可用的原因只认那十三个词：写成一句白话时报一处并列出能写的词（手写报价的原因才可以是一句话）',
+    metricWords.map(s => s.includes('metrics.view_rate.reason') && s.includes('"作品太少"') && s.includes('"insufficient_posts"')), [true])
+  const ctorHtml = String(renderHtml([mk('tiktok', 'a', { tier: 'A', account_assessment: { platform: 'tiktok', handle: 'a', collaboration_quote: { ...unavailableQuote, reason: 'constructor' } } as never })],
+    { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 1, tiers: { A: 1, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false } as never))
+  ok('D21.w 合作报价不可用的原因碰巧写成 constructor 时报告照原话印，不印成程序里的对象', ctorHtml.includes('不可用 · constructor') && !ctorHtml.includes('native code'))
   const versionText = enrichmentSchemaProblems('E.json', { version: '1', updated_at: at, accounts: {} })
   eq('D21.w 版本号写成文字时只报一句「应是数字」，不另报「应是 1」', [versionText.length, versionText.every(s => s.includes('version 应是数字'))], [1, true])
   eq('D21.w 粉丝数读成无穷大时照数说是无穷大，不说读到 null', one({ ...good, followers: Infinity }).map(s => s.includes('Infinity') && !s.includes('读到 null')), [true])

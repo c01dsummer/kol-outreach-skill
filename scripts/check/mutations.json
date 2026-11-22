@@ -33017,13 +33017,37 @@
     {
       "id": "M-D21-ch",
       "req": "D21.w",
-      "why": "粉丝数写错时只叫人改增强结果，不说名单里同一格也要改；下次 enrich 又从名单抄回错的数",
+      "why": "粉丝数写错时只叫人改增强结果，不说错的源头多半在名单；人改了增强结果，名单里那一格照样是错的",
       "file": "scripts/lib/enrichment-check.ts",
-      "find": "    ? '；这个数可能是 enrich 从名单",
-      "replace": "    ? '' && '；这个数可能是 enrich 从名单",
+      "find": "    ? '；这个数可能是旧版 enrich 从名单",
+      "replace": "    ? '' && '；这个数可能是旧版 enrich 从名单",
       "by": "test",
       "kills": [
-        "D21.w 粉丝数写错时提示名单里同一个账号也要改（enrich 会从名单抄回来）"
+        "D21.w 粉丝数写错时提示名单里同一个账号的这一格多半也写错了（旧版 enrich 从名单抄来的）"
+      ]
+    },
+    {
+      "id": "M-D21-ci",
+      "req": "D21.w",
+      "why": "指标不可用的原因写成任意一句话也照样读入，报告上印出脚本从来不会写的原因",
+      "file": "scripts/lib/enrichment-schema.ts",
+      "find": "    \"MetricUnavailableReason\": {\n      \"type\": \"string\",\n      \"enum\": [",
+      "replace": "    \"MetricUnavailableReason\": {\n      \"type\": \"string\",\n      \"examples\": [",
+      "by": "test",
+      "kills": [
+        "D21.w 指标不可用的原因只认那十三个词：写成一句白话时报一处并列出能写的词（手写报价的原因才可以是一句话）"
+      ]
+    },
+    {
+      "id": "M-D21-cj",
+      "req": "D21.w",
+      "why": "合作报价不可用的原因写成 constructor 时报告印出一段程序代码，不是用户写的原因",
+      "file": "scripts/lib/report.ts",
+      "find": "  Object.hasOwn(REASON, reason) ? (REASON as Record<string, string>)[reason] : undefined",
+      "replace": "  (REASON as Record<string, string>)[reason]",
+      "by": "test",
+      "kills": [
+        "D21.w 合作报价不可用的原因碰巧写成 constructor 时报告照原话印，不印成程序里的对象"
       ]
     },
     {
