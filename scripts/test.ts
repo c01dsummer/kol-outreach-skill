@@ -104,6 +104,7 @@ import {
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import { FACT_TABLE_FROM, FACT_TABLE_HEAD, OLD_GAPS, cellsOf, factTableFaults } from './check/adr-fact-table.js'
+import { PLAIN_INDEX_FILE, PLAIN_INDEX_HEAD, plainIndexFaults } from './check/adr-plain-index.js'
 import {
   type ChainCommit, DOCS_BLOCK, type ReviewComment, type Round, type Spot, WAIVER_TABLE_HEAD, WHOLE_FILE, type Waiver as SpotWaiver,
   chainFrom, changedRecords, freshWaivers, codeSpots, docSpots, hitsOf, positionIn, roundsOf, sameSpot, spotText, spotsOf, waiversOf,
@@ -385,6 +386,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-child-process-stand-in', needs: [] },
   { id: 'h-child-process-stand-in-spies', needs: [] },
   { id: 'h-adr-fact-table', needs: [] },
+  { id: 'h-adr-plain-index', needs: [] },
   { id: 'h-same-spot', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
@@ -16689,6 +16691,11 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
       mkdirSync(dirname(join(root, 'docs', 'adr', f)), { recursive: true })
       writeFileSync(join(root, 'docs', 'adr', f), t)
     }
+    // 白话目录（ADR-235）：没单给时按主文件补齐，让这几条只看它们要看的那一件事
+    if (!(PLAIN_INDEX_FILE in files)) {
+      const rows = Object.keys(files).flatMap(f => { const m = /^ADR-(\d+)-/.exec(f); return m ? [`| ADR-${m[1]} | 甲 | 无 | 无 |`] : [] })
+      writeFileSync(join(root, 'docs', 'adr', PLAIN_INDEX_FILE), [PLAIN_INDEX_HEAD, '|---|---|---|---|', ...rows, ''].join('\n'))
+    }
     return root
   }
   const goodToy = adrToy({ 'ADR-01-甲.md': '# ADR-01 甲\n现行\n', '历史/ADR-01-甲.md': '# ADR-01 甲\n过程\n' })
@@ -26605,8 +26612,48 @@ await group('h-adr-fact-table', () => {
     mkdirSync(join(root, 'docs', 'adr'), { recursive: true })
     writeFileSync(join(root, 'docs', 'adr', 'README.md'), '# 索引\n\n<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->\n<!-- END:GENERATED -->\n')
     writeFileSync(join(root, 'docs', 'adr', 'ADR-300-甲.md'), head + '## 二、别的\n')
+    writeFileSync(join(root, 'docs', 'adr', PLAIN_INDEX_FILE), `${PLAIN_INDEX_HEAD}\n|---|---|---|---|\n| ADR-300 | 甲 | 无 | 无 |\n`)
     const r = adrSync(root, false)
     eq('找谁要那一节：npm run adr 里查得到，缺了就红', [r.ok, r.err.some(e => e.includes('缺「要用到的事实，各找谁要」一节'))], [false, true])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-adr-plain-index', () => {
+  harness('决策记录白话目录：每份记录一行、编号一一对应、四格都填了（ADR-235）')
+  const table = (...rows: string[]) => ['# 目录', '', PLAIN_INDEX_HEAD, '|---|---|---|---|', ...rows, ''].join('\n')
+  const row = (n: string, a = '定了甲', b = '无', c = '无') => `| ADR-${n} | ${a} | ${b} | ${c} |`
+  eq('白话目录：一一对应、格都填了时不报', plainIndexFaults([1, 2], table(row('01'), row('02'))), [])
+  eq('白话目录：编号带前导零也认（与记录文件名一致）', plainIndexFaults([7], table(row('07'))), [])
+  const missingFile = plainIndexFaults([1], undefined)
+  eq('白话目录：文件不在报红', [missingFile.length, missingFile[0]?.includes('缺少')], [1, true])
+  const missingRow = plainIndexFaults([1, 2], table(row('01')))
+  eq('白话目录：新记录没补那一行报红，点出编号', [missingRow.length, missingRow[0]?.includes('ADR-2 在') && missingRow[0]?.includes('没有那一行')], [1, true])
+  const extra = plainIndexFaults([1], table(row('01'), row('09')))
+  eq('白话目录：多出没有记录的一行报红，点出编号与行号', [extra.length, extra[0]?.includes('ADR-9') && extra[0]?.includes('第 6 行') && extra[0]?.includes('没有这份记录')], [1, true])
+  const dup = plainIndexFaults([1], table(row('01'), row('01', '又一行')))
+  eq('白话目录：同一个编号两行报红，点出两处行号', [dup.length, dup[0]?.includes('第 6 行') && dup[0]?.includes('第 5 行')], [1, true])
+  const empty = plainIndexFaults([1], table(row('01', '定了甲', ' ', '无')))
+  eq('白话目录：有空格子报红', [empty.length, empty[0]?.includes('空格子')], [1, true])
+  const short = plainIndexFaults([1], table('| ADR-01 | 定了甲 | 无 |'))
+  eq('白话目录：不是四格报红，说出这一行几格', [short.length, short[0]?.includes('这一行是 3 格')], [1, true])
+  const escaped = plainIndexFaults([1], table(row('01', '甲 \\| 乙')))
+  eq('白话目录：格子里转义的竖线不算分格', escaped, [])
+  const noHead = plainIndexFaults([1], ['# 目录', row('01'), ''].join('\n'))
+  eq('白话目录：没有表头报红', [noHead.length, noHead[0]?.includes('没有表头')], [1, true])
+  eq('白话目录：围栏代码块里举例的行不当目录行', plainIndexFaults([1], table(row('01')) + '```\n' + row('05') + '\n```\n'), [])
+  // 接线：npm run adr 读目录时调到它，缺一行就红
+  const root = mkdtempSync(join(tmpdir(), 'kol-adr-plain-'))
+  try {
+    mkdirSync(join(root, 'docs', 'adr'), { recursive: true })
+    writeFileSync(join(root, 'docs', 'adr', 'README.md'), '# 索引\n\n<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->\n<!-- END:GENERATED -->\n')
+    writeFileSync(join(root, 'docs', 'adr', 'ADR-01-甲.md'), '# ADR-01 甲\n')
+    writeFileSync(join(root, 'docs', 'adr', 'ADR-02-乙.md'), '# ADR-02 乙\n')
+    writeFileSync(join(root, 'docs', 'adr', PLAIN_INDEX_FILE), table(row('01')))
+    const r = adrSync(root, false)
+    eq('白话目录：npm run adr 里查得到，缺一行就红', [r.ok, r.err.some(e => e.includes('ADR-2 在') && e.includes('没有那一行'))], [false, true])
+    writeFileSync(join(root, 'docs', 'adr', PLAIN_INDEX_FILE), table(row('01'), row('02')))
+    const fixed = adrSync(root, true)
+    eq('白话目录：补上那一行就绿，目录文件不当成一份记录进索引', [fixed.ok, rf(join(root, 'docs', 'adr', 'README.md'), 'utf8').includes(PLAIN_INDEX_FILE)], [true, false])
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

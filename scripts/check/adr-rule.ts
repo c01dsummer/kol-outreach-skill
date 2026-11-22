@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { factTableFaults } from './adr-fact-table.js'
+import { PLAIN_INDEX_FILE, plainIndexFaults } from './adr-plain-index.js'
 import { quotedMask } from './quoted.js'
 import { TRUNK_CANDIDATES, type GitAsk } from './size-rule.js'
 
@@ -294,7 +295,7 @@ export function adrSync(root: string, write: boolean, ask?: GitAsk): { ok: boole
   const errors: string[] = []
   const adrs: Adr[] = []
   for (const file of readdirSync(dir).sort()) {
-    if (file === 'README.md' || file === PINS_FILE) continue
+    if (file === 'README.md' || file === PINS_FILE || file === PLAIN_INDEX_FILE) continue
     // 历史文件不是记录、不进索引，下面单独核
     if (file === HISTORY_DIR && statSync(join(dir, file)).isDirectory()) continue
     const m = FILE_RE.exec(file)
@@ -307,6 +308,9 @@ export function adrSync(root: string, write: boolean, ask?: GitAsk): { ok: boole
     errors.push(...factTableFaults(file, Number(h[1]), text))
   }
   errors.push(...checkAll(adrs))
+  // 每份记录在白话目录里有一行、格都填了（ADR-235）
+  const plainPath = join(dir, PLAIN_INDEX_FILE)
+  errors.push(...plainIndexFaults(adrs.map(a => a.num), existsSync(plainPath) ? readFileSync(plainPath, 'utf8') : undefined))
 
   const historyDir = join(dir, HISTORY_DIR)
   let history: Array<{ file: string; data: Buffer }> = []

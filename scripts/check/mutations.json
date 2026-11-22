@@ -33126,6 +33126,126 @@
       "kills": [
         "钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，stdout 不出汇总"
       ]
+    },
+    {
+      "id": "M-H235-a",
+      "req": "harness",
+      "why": "白话目录文件不在时不报 —— 新仓库或误删了目录，没人知道每份记录少了白话那一行",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (text === undefined) return [`缺少",
+      "replace": "if (text === undefined) return [] || [`缺少",
+      "by": "test",
+      "kills": [
+        "白话目录：文件不在报红"
+      ]
+    },
+    {
+      "id": "M-H235-b",
+      "req": "harness",
+      "why": "同一个编号写了两行不报 —— 两行说法不一，读的人不知道信哪一行",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (first !== undefined) faults.push",
+      "replace": "if (first === -1) faults.push",
+      "by": "test",
+      "kills": [
+        "白话目录：同一个编号两行报红，点出两处行号"
+      ]
+    },
+    {
+      "id": "M-H235-c",
+      "req": "harness",
+      "why": "新加的决策记录没补白话那一行也不报 —— 目录悄悄落后于记录",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (!seen.has(n)) faults.push",
+      "replace": "if (false && !seen.has(n)) faults.push",
+      "by": "test",
+      "kills": [
+        "白话目录：新记录没补那一行报红，点出编号"
+      ]
+    },
+    {
+      "id": "M-H235-d",
+      "req": "harness",
+      "why": "目录里多出没有记录的一行不报 —— 写错编号的那一行冒充别的记录",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (!have.has(n)) faults.push",
+      "replace": "if (have.has(-n)) faults.push",
+      "by": "test",
+      "kills": [
+        "白话目录：多出没有记录的一行报红，点出编号与行号"
+      ]
+    },
+    {
+      "id": "M-H235-e",
+      "req": "harness",
+      "why": "格子空着也放过 —— 「还欠什么」没写就当成没有欠",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "else if (cells.slice(1).some(",
+      "replace": "else if (false && cells.slice(1).some(",
+      "by": "test",
+      "kills": [
+        "白话目录：有空格子报红"
+      ]
+    },
+    {
+      "id": "M-H235-f",
+      "req": "harness",
+      "why": "少一格也放过 —— 漏写一栏的行照样算数",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (cells.length !== 4)",
+      "replace": "if (cells.length < 3)",
+      "by": "test",
+      "kills": [
+        "白话目录：不是四格报红，说出这一行几格"
+      ]
+    },
+    {
+      "id": "M-H235-g",
+      "req": "harness",
+      "why": "没有表头也放过 —— 表格读不成表",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (!lines.some((l, i) =>",
+      "replace": "if (false && !lines.some((l, i) =>",
+      "by": "test",
+      "kills": [
+        "白话目录：没有表头报红"
+      ]
+    },
+    {
+      "id": "M-H235-h",
+      "req": "harness",
+      "why": "说明里围栏中举例的行也当目录行 —— 举个例子就多出一行假记录",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "    if (mask[i]) return\n",
+      "replace": "    if (mask[i] && false) return\n",
+      "by": "test",
+      "kills": [
+        "白话目录：围栏代码块里举例的行不当目录行"
+      ]
+    },
+    {
+      "id": "M-H235-i",
+      "req": "harness",
+      "why": "决策记录检查不再跳过目录文件 —— 白话目录被当成一份格式不对的记录报红",
+      "file": "scripts/check/adr-rule.ts",
+      "find": "|| file === PINS_FILE || file === PLAIN_INDEX_FILE) continue",
+      "replace": "|| file === PINS_FILE) continue",
+      "by": "test",
+      "kills": [
+        "白话目录：补上那一行就绿，目录文件不当成一份记录进索引"
+      ]
+    },
+    {
+      "id": "M-H235-j",
+      "req": "harness",
+      "why": "决策记录检查不核白话目录 —— 新记录漏补那一行，npm run adr 照样绿",
+      "file": "scripts/check/adr-rule.ts",
+      "find": "  errors.push(...plainIndexFaults(",
+      "replace": "  void (plainIndexFaults(",
+      "by": "test",
+      "kills": [
+        "白话目录：npm run adr 里查得到，缺一行就红"
+      ]
     }
   ],
   "exemptions": [
