@@ -197,7 +197,8 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { enrichmentValueProblems, loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
+import { enrichmentSchemaProblems } from './lib/enrichment-check.js'
+import { loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -245,6 +246,7 @@ const GROUPS: readonly Group[] = [
   { id: 'invalid-values-by-source', needs: [] },
   { id: 'invalid-values-entry', needs: [] },
   { id: 'p1n-render-entry', needs: [] },
+  { id: 'd21w-enrichment-schema', needs: [] },
   { id: 'p1-followers-sort', needs: [] },
   { id: 'd5-csv', needs: [] },
   { id: 'd2-d8-actual-paths', needs: [] },
@@ -8523,16 +8525,18 @@ async function main(): Promise<void> {
   eq('P1.m 视频搜索同一作者先缺粉丝数后给有效值时用有效值且不记怪值', [dup('d_ok')?.followers, dup('d_ok') && flagged(dup('d_ok')!, 'followers')], [80000, false])
   eq('P1.m 视频搜索同一作者先给了 0 后给别的值时保留先到的 0', dup('d_zero')?.followers, 0)
 
-  // 作者补（CodeRabbit 第一轮）：标为已测却缺了值时，D21.v 的报错照样指出文件、账号、字段，不因印不出 undefined 而崩
+  // 作者补（CodeRabbit 第一轮；ADR-232 改由整份对照）：标为已测却缺了值时，报错照样指出文件、账号与那一格缺了哪几项，
+  // 同一格缺的几项合成一句，不因印不出 undefined 而崩
   const noValue = ((): string[] => {
     try {
-      return enrichmentValueProblems('E.json', { accounts: {
-        'tiktok:nv': { platform: 'tiktok', metrics: { activity_status: { status: 'measured' }, audience_quality_risk: { status: 'measured', value: {} } } },
-      } } as never)
+      return enrichmentSchemaProblems('E.json', { version: 1, updated_at: '2026-10-01T00:00:00Z', accounts: {
+        'tiktok:nv': { platform: 'tiktok', handle: 'nv', metrics: { activity_status: { status: 'measured' }, audience_quality_risk: { status: 'measured', value: {} } } },
+      } })
     } catch (e) { return [`查的时候崩了：${String(e)}`] }
   })()
-  eq('D21.v 已测活跃状态缺了值时报一条且指出文件账号与字段', noValue.filter(s => s.includes('E.json') && s.includes('tiktok:nv') && s.includes('activity_status') && s.includes('缺席')).length, 1)
-  eq('D21.v 已测风险等级缺了等级时报一条且指出文件账号与字段', noValue.filter(s => s.includes('E.json') && s.includes('tiktok:nv') && s.includes('audience_quality_risk') && s.includes('缺席')).length, 1)
+  const lineAbout = (path: string): string[] => noValue.filter(s => s.includes('E.json') && s.includes('tiktok:nv') && s.includes(`的 ${path} 缺了`))
+  eq('D21.v 已测活跃状态缺了值时报一句、指出文件账号与那一格并列出缺的几项', lineAbout('metrics.activity_status').map(s => ['value', 'source', 'observed_at', 'sample_size', 'basis'].every(k => s.includes(k))), [true])
+  eq('D21.v 已测风险等级缺了等级时报一句、指出文件账号与那一格并列出缺的等级', lineAbout('metrics.audience_quality_risk.value').map(s => s.includes('level')), [true])
 
   // —— 四、打分 ——
   const sUnq = scoreCreator(person('score_unq'))
@@ -8862,8 +8866,10 @@ function entryChecks(copy: string): void {
   // 读入时拒才是「写任何文件之前」，拼报告时名单表格已经换新了
   ok('D21.v sample 写成 null、缺平台、平台大小写不对的账号活跃状态不合法时都在读入处拒绝、一个交付文件都没写',
     [vNull, vNoPf, vCasePf].every(untouched))
+  // ADR-232：原先这里断言「没有样本的 Instagram 账号存着的指标报告不用，所以不因 D21.v 拒绝」、退 0。
+  // D21.w 起读入时整份对照格式说明，不管报告用不用这一格，存着的活跃状态不是那三个之一就拒收，所以改成断言拒收
   const vIg = render('kol80-v-ig', [alice('kol80vo')], [{ ...account('kol80vo', activityOf('zombie'), riskOf('low')), platform: 'instagram' }])
-  eq('D21.v 没有样本的 Instagram 账号存着的指标报告本就不用所以不因本条拒绝', vIg.status, 0)
+  eq('D21.w 没有样本的 Instagram 账号存着的活跃状态不合法时报告虽不用也在读入时以 2 拒收', [vIg.status, untouched(vIg), vIg.stderr.includes('"zombie"')], [2, true, true])
 
   // 对照面
   const vOk = render('kol80-v-ok', [alice('kol80vg')], [account('kol80vg', activityOf('active'), riskOf('low'))])
@@ -8976,18 +8982,177 @@ suite('P1', '报告里本该总有的格缺了：真起 render，退 2、点名�
     // 独立复核挑出（作者补）：合作报价是 Agent 照 public-metrics.md 手写进 enrichment.json 的，漏写一项也是本该总有的格缺了：
     // 报告不出，报错点名账号与那一格，不能只给「…▯…」。名单表格这时已经写了（ADR-231 第六节那张欠条）
     const quote = (value: object) => ({ version: 1, updated_at: '2026-10-01T00:00:00Z', accounts: { 'tiktok:p1nquote': {
-      platform: 'tiktok', handle: 'p1nquote', collaboration_quote: { status: 'measured', value, source: { provider: 'manual' },
+      platform: 'tiktok', handle: 'p1nquote', collaboration_quote: { status: 'measured', value, source: { kind: 'manual', provider: 'operator' },
         observed_at: '2026-10-01T00:00:00Z', sample_size: 1, basis: '博主报价' } } } })
     const fullQuote = { amount: 300, platform: 'tiktok', format: 'tiktok_video', quantity: 1, source: 'creator_quote', observed_at: '2026-10-01T00:00:00Z' }
     const quoted = render('p1n-quote-ok', [person('p1nquote')], quote({ ...fullQuote, currency: 'USD' }))
     eq('P1.n 入口：合作报价齐全时 render 以 0 结束（下面一条的阳性对照）', quoted.status, 0)
     const noCurrency = render('p1n-quote-currency', [person('p1nquote')], quote(fullQuote))
     eq('P1.n 入口：增强结果里合作报价缺币种时 render 以退出码 2 结束', noCurrency.status, 2)
-    ok('P1.n 入口：合作报价缺币种时 stderr 点名增强结果、账号与币种',
-      noCurrency.stderr.includes('增强结果') && noCurrency.stderr.includes('p1nquote') && noCurrency.stderr.includes('币种'))
+    // ADR-232：缺币种在读入增强结果时就被整份对照拦下（D21.w），点名的是文件、账号与 currency 那一格；拼报告那一道的白话格名改由 renderHtml 那组守
+    ok('P1.n 入口：合作报价缺币种时 stderr 点名增强结果文件、账号与币种那一格',
+      noCurrency.stderr.includes('enrichment.json') && noCurrency.stderr.includes('tiktok:p1nquote') && noCurrency.stderr.includes('collaboration_quote.value 缺了 currency'))
     ok('P1.n 入口：合作报价缺币种时 report.html 与 meta.json 都还是上一份', noCurrency.report === OLD_REPORT && noCurrency.meta === OLD_META)
     criterion('P1.n')
   } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+await group('d21w-enrichment-schema', async () => {
+suite('D21', '增强结果读入时整份对照由类型生成的格式说明；enrich 不再把不是数的关注数抄进去（D21.w、D21.x、D21.y，作者写，ADR-232）')
+{
+  const { generateEnrichmentSchema, ENRICHMENT_SCHEMA_PATH } = await import('./check/enrichment-schema.js')
+  const { ENRICHMENT_SCHEMA } = await import('./lib/enrichment-schema.js')
+  const { RELEASED_ENRICHMENT_SAMPLES } = await import('./enrichment-released-samples-data.js')
+  const at = '2026-10-01T00:00:00Z'
+  const file = (accounts: Record<string, unknown>, root: Record<string, unknown> = {}) => ({ version: 1, updated_at: at, accounts, ...root })
+
+  // ═══════════════════════════ D21.y ═══════════════════════════
+  criterion('D21.y')
+  ok('D21.y 入库的格式说明与按当前类型现生成的一份逐字相同', generateEnrichmentSchema(process.cwd()) === rf(ENRICHMENT_SCHEMA_PATH, 'utf8'))
+  eq('D21.y 各个发布版本的 enrich 照常写出的每种账号形状按当前格式说明都通过',
+    Object.entries(RELEASED_ENRICHMENT_SAMPLES).flatMap(([ver, state]) => enrichmentSchemaProblems(ver, state)), [])
+  ok('D21.y 发布版本样本夹具有效：覆盖到四个发布版本以外还有已测、不可用、私密、账号不存在与 Instagram 新范围几种形状',
+    (() => {
+      const text = JSON.stringify(RELEASED_ENRICHMENT_SAMPLES)
+      return ['"measured"', '"private_account"', '"account_unavailable"', '"insufficient_posts"', '"missing_post_dates"', '"provider_returned_first12"', '"high"']
+        .every(s => text.includes(s)) && ['2.0.0', '3.0.0', '4.0.0'].every(v => Object.keys(RELEASED_ENRICHMENT_SAMPLES).some(k => k.startsWith(v)))
+    })())
+
+  // 文档给 Agent 的手写报价示例：从 public-metrics.md「合作报价」那一节里取第一段 json 代码块（用 marked 读，不自己切 Markdown）
+  const doc = rf('skill/references/public-metrics.md', 'utf8')
+  const tokens = marked.lexer(doc)
+  const quoteAt = tokens.findIndex(t => t.type === 'heading' && (t as Tokens.Heading).text === '合作报价')
+  const quoteSection: Token[] = []
+  for (const t of tokens.slice(quoteAt + 1)) { if (t.type === 'heading' && (t as Tokens.Heading).depth <= 2) break; quoteSection.push(t) }
+  const example = quoteSection.find((t): t is Tokens.Code => t.type === 'code' && (t as Tokens.Code).lang === 'json')
+  const exampleQuote = example ? JSON.parse(example.text) : undefined
+  ok('D21.y 夹具有效：public-metrics.md「合作报价」一节里找得到那段 json 报价示例', exampleQuote?.status === 'measured')
+  eq('D21.y public-metrics.md 给 Agent 的手写报价示例放进账号后按格式说明通过',
+    enrichmentSchemaProblems('E.json', file({ 'tiktok:doc': { platform: 'tiktok', handle: 'doc', collaboration_quote: exampleQuote } })), [])
+  // 文档列的能写取值：那张列表里每一行「`键`：`值`、`值`」，与格式说明里同一处的取值逐个比
+  const listed = new Map<string, string[]>()
+  for (const t of quoteSection) {
+    if (t.type !== 'list') continue
+    for (const item of (t as Tokens.List).items) {
+      const codes = [...item.text.matchAll(/`([^`]+)`/g)].map(m => m[1])
+      if (codes.length > 1) listed.set(codes[0], codes.slice(1).sort())
+    }
+  }
+  const defs = (ENRICHMENT_SCHEMA as { definitions: Record<string, any> }).definitions
+  const enumOf = (schema: any): string[] => [...(schema.enum ?? defs[String(schema.$ref).replace('#/definitions/', '')].enum)].sort()
+  eq('D21.y public-metrics.md 列的报价取值与格式说明里的逐个相同（平台、形式、来源、外层来源种类、外层状态）', [
+    listed.get('value.platform'), listed.get('value.format'), listed.get('value.source'), listed.get('source.kind'), listed.get('status'),
+  ], [
+    enumOf(defs.CollaborationQuote.properties.platform), enumOf(defs.CollaborationQuote.properties.format),
+    enumOf(defs.CollaborationQuote.properties.source), enumOf(defs.MetricSource.properties.kind),
+    enumOf(defs['Measurement<CollaborationQuote>'].properties.status),
+  ])
+
+  // ═══════════════════════════ D21.w：查的那一半 ═══════════════════════════
+  criterion('D21.w')
+  const good = RELEASED_ENRICHMENT_SAMPLES['2.0.0-first'].accounts['tiktok:tt_full'] as Record<string, any>
+  ok('D21.w 夹具有效：拿来改的那个账号本身合规且带作品样本', enrichmentSchemaProblems('E.json', file({ 'tiktok:tt_full': good })).length === 0 && good.sample?.status === 'measured')
+  const one = (account: Record<string, unknown>) => enrichmentSchemaProblems('E.json', file({ 'tiktok:k/1': account }))
+  const fans = one({ ...good, followers: '8万' })
+  eq('D21.w 粉丝数写成文字时报一处，点名文件、账号（JSON 路径里的斜杠还原）、那一格、读到的值和应是数字',
+    fans.map(s => [s.includes('E.json'), s.includes('tiktok:k/1 的 followers'), s.includes('"8万"'), s.includes('数字')]), [[true, true, true, true]])
+  const typo = one({ ...good, follower: 80000 })
+  eq('D21.w 写了格式说明里没有的键（拼错的粉丝数）时报一处并点出那个键', typo.map(s => s.includes('"follower"') && s.includes('多了')), [true])
+  const badFormat = one({ ...good, collaboration_quote: { ...exampleQuote, value: { ...exampleQuote.value, format: 'ugc_bundle' } } })
+  eq('D21.w 报价形式不在类型列的几个之内时报一处，读到的值与能写的四个都列出来',
+    badFormat.map(s => s.includes('collaboration_quote.value.format') && s.includes('"ugc_bundle"') && ['tiktok_video', 'instagram_reel', 'instagram_post', 'mixed_bundle'].every(v => s.includes(v))), [true])
+  const amountText = one({ ...good, collaboration_quote: { ...exampleQuote, value: { ...exampleQuote.value, amount: '500' } } })
+  eq('D21.w 报价金额写成文字时报一处', amountText.map(s => s.includes('collaboration_quote.value.amount') && s.includes('"500"')), [true])
+  const status = one({ ...good, metrics: { ...good.metrics, view_rate: { ...good.metrics.view_rate, status: 'gone' } } })
+  eq('D21.w 三态包装的 status 写错时只报 status 那一处，不连带报别的格', status.map(s => s.includes('metrics.view_rate.status') && s.includes('"gone"')), [true])
+  const many = enrichmentSchemaProblems('E.json', { version: 2, accounts: { 'tiktok:a': { ...good, followers: null }, 'tiktok:b': 5 } })
+  eq('D21.w 有几处报几处：最外层缺更新时间、版本不对、两个账号各一处，四处一次报全', [
+    many.length, many.some(s => s.includes('最外层') && s.includes('updated_at')), many.some(s => s.includes('version') && s.includes('2')),
+    many.some(s => s.includes('tiktok:a 的 followers') && s.includes('null')), many.some(s => s.includes('账号 tiktok:b') && s.includes('5')),
+  ], [4, true, true, true, true])
+
+  // ═══════════════════════════ D21.w：入口那一半 ═══════════════════════════
+  const root = mkdtempSync(join(tmpdir(), 'kol-d21w-'))
+  try {
+    const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
+    const taskText = JSON.stringify({
+      product: 'd21w', market: 'US', target_count: 9, budget_usd: 1,
+      tasks: [{ keyword: 'local', dimension: 'category', platform: 'tiktok' }], done: [0], offsets: { '0': 0 }, pages: { '0': 1 }, answered: { '0': 1 }, found: { '0': 1 },
+      created_at: at, updated_at: at, requests: 0, cost_ledger: JSON.parse(LEDGER('1000000')),
+    })
+    const person = (platform: string, handle: string, extra: Record<string, unknown> = {}) => ({
+      platform, handle, nickname: handle, followers: 80000, post_count: 50, bio: 'x', bio_links: [], verified: false,
+      profile_url: `https://example.com/${handle}`, source_keyword: 'local', source_dimension: 'category', source_tasks: [0], recent_posts: [], fit: '✅', fit_reason: 'r', ...extra,
+    })
+    let made = 0
+    const run = (entry: 'enrich' | 'render', people: unknown[], enrichment?: object) => {
+      const cwd = join(root, `run-${++made}`), dir = join(cwd, 'task')
+      mkdirSync(dir, { recursive: true })
+      // 每一跑自己的空记忆：render 按工作目录找 memory/，前一跑记进去的人不会把后一跑的人滤掉
+      mkdirSync(join(cwd, 'memory')); writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: at, creators: {} }))
+      writeFileSync(join(dir, 'task.json'), taskText)
+      for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify(people, null, 2))
+      const enrichmentText = enrichment === undefined ? undefined : JSON.stringify(enrichment, null, 2)
+      if (enrichmentText !== undefined) writeFileSync(join(dir, 'enrichment.json'), enrichmentText)
+      const ledger = join(cwd, 'attempts.tsv')
+      const argv = entry === 'enrich' ? [join(process.cwd(), 'scripts', 'enrich.ts'), '--dir', dir, '--budget', '2']
+        : [join(process.cwd(), 'scripts', 'render.ts'), '--dir', dir]
+      const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d21w', FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+      kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)}`
+      const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv, timeout: 300000 })
+      const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : undefined
+      return {
+        status: r.status, stderr: String(r.stderr), requests: existsSync(ledger) ? rf(ledger, 'utf8').split('\n').filter(Boolean).length : 0,
+        taskKept: read('task.json') === taskText, enrichmentKept: read('enrichment.json') === enrichmentText,
+        delivered: ['kol.csv', 'report.html', 'meta.json'].filter(f => existsSync(join(dir, f))), enrichment: read('enrichment.json'),
+      }
+    }
+    const withHandle = (handle: string, over: Record<string, unknown> = {}) => ({ [`tiktok:${handle}`]: { ...good, handle, ...over } })
+
+    // render：粉丝数写成文字、带作品样本 —— 以前算出 NaN% 照出报告（ADR-231 第四轮复核）
+    const rOk = run('render', [person('tiktok', 'd21wr')], file(withHandle('d21wr')))
+    eq('D21.w 夹具有效：同一个带样本的账号合规时 render 照常以 0 结束、交付文件都写了', [rOk.status, rOk.delivered.length], [0, 3])
+    const rBad = run('render', [person('tiktok', 'd21wr')], file(withHandle('d21wr', { followers: '8万' })))
+    eq('D21.w render 读到增强结果里粉丝数写成文字时以 2 拒绝、一个交付文件都没写', [rBad.status, rBad.delivered], [2, []])
+    ok('D21.w render 拒绝时 stderr 点名增强结果文件、账号、粉丝数那一格与读到的值', rBad.stderr.includes('enrichment.json') && rBad.stderr.includes('tiktok:d21wr 的 followers') && rBad.stderr.includes('"8万"'))
+
+    // enrich：改额之前、请求之前就拒（--budget 2 会改 task.json）
+    const eOk = run('enrich', [person('tiktok', 'd21we')], file({}))
+    eq('D21.w 夹具有效：增强结果合规时 enrich --budget 2 照常以 0 结束、改了额、发了请求', [eOk.status, eOk.taskKept, eOk.requests > 0], [0, false, true])
+    const eBad = run('enrich', [person('tiktok', 'd21we')], file(withHandle('d21we', { follower: 80000 })))
+    eq('D21.w enrich 读到不合规的增强结果时以 2 拒绝，task.json 与 enrichment.json 原字节不变、一个请求都没发',
+      [eBad.status, eBad.taskKept, eBad.enrichmentKept, eBad.requests], [2, true, true, 0])
+    ok('D21.w enrich 拒绝时 stderr 点名增强结果文件、账号与那个拼错的键', eBad.stderr.includes('enrichment.json') && eBad.stderr.includes('tiktok:d21we') && eBad.stderr.includes('"follower"'))
+
+    // ═══════════════════════════ D21.x ═══════════════════════════
+    criterion('D21.x')
+    // 私密账号不发请求，粉丝数、关注数全从名单抄；名单读入时只查粉丝数（D21.u），关注数不查（ADR-227）
+    const accountIn = (r: { enrichment?: string }, key: string): Record<string, any> | undefined => {
+      try { return JSON.parse(r.enrichment ?? '').accounts[key] } catch { return undefined }
+    }
+    const xNum = run('enrich', [person('instagram', 'd21wx', { is_private: true, following: 1200 })])
+    eq('D21.x 夹具有效：名单里关注数是数字时 enrich 照抄进增强结果', [xNum.status, accountIn(xNum, 'instagram:d21wx')?.following], [0, 1200])
+    const xText = run('enrich', [person('instagram', 'd21wx', { is_private: true, following: '1200' })])
+    eq('D21.x 名单里关注数写成文字时 enrich 当没给：以 0 结束，增强结果里这个账号没有关注数', [xText.status, accountIn(xText, 'instagram:d21wx') !== undefined, 'following' in (accountIn(xText, 'instagram:d21wx') ?? {})], [0, true, false])
+    ok('D21.x 这样写出的增强结果按格式说明通过（下一次读入不被拒）', xText.enrichment !== undefined && enrichmentSchemaProblems('E.json', JSON.parse(xText.enrichment)).length === 0)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+
+  // 供应商主页资料里的关注数（collect 补全名单时用）：假 fetch 恒回同一段正文，跑完还原
+  const profileFollowing = async (body: string, platform: 'tiktok' | 'instagram'): Promise<unknown> => {
+    const real = globalThis.fetch
+    globalThis.fetch = (async () => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch
+    try { return (await new TikHub('d21x-test-key', startBudget({}, parseUsdMicros('2'), 'process')).profile('x', platform)).following }
+    finally { globalThis.fetch = real }
+  }
+  eq('D21.x TikTok 主页资料的关注数是数字时照常取到', await profileFollowing(
+    '{"code":200,"data":{"userInfo":{"user":{"uniqueId":"x","nickname":"x","signature":"s"},"stats":{"followingCount":12}}}}', 'tiktok'), 12)
+  eq('D21.x TikTok 主页资料的关注数写成文字时当没给', await profileFollowing(
+    '{"code":200,"data":{"userInfo":{"user":{"uniqueId":"x","nickname":"x","signature":"s"},"stats":{"followingCount":"12"}}}}', 'tiktok'), undefined)
+  eq('D21.x Instagram 主页资料的关注数是数字时照常取到', await profileFollowing(
+    '{"code":200,"data":{"pk":"1","username":"x","full_name":"x","biography":"s","following_count":630,"bio_links":[]}}', 'instagram'), 630)
+  eq('D21.x Instagram 主页资料的关注数写成文字时当没给', await profileFollowing(
+    '{"code":200,"data":{"pk":"1","username":"x","full_name":"x","biography":"s","following_count":"630","bio_links":[]}}', 'instagram'), undefined)
 }
 })
 await group('p1-followers-sort', () => {
@@ -22876,6 +23041,10 @@ criterion('U12.e');
   // CodeRabbit 第一轮：报价标为已测却没有 value，点名那一格，不以 TypeError 崩掉
   const quoteNull = outcome(one({ account_assessment: { platform: 'tiktok', handle: 'a', collaboration_quote: measuredAs(null) } as never }), fullMeta)
   ok('缺值不写成空：已测合作报价没有内容时报告不出、点名账号与合作报价内容', quoteNull.includes('合作报价内容') && quoteNull.includes('a') && !quoteNull.startsWith('别的错'))
+  // ADR-232：增强结果读入时整份对照后，入口拿不到缺币种的报价；拼报告那一道仍在，这里直接调 renderHtml 守它
+  const noCurrency = outcome(one({ account_assessment: { platform: 'tiktok', handle: 'a', collaboration_quote: measuredAs(
+    { amount: 300, platform: 'tiktok', format: 'tiktok_video', quantity: 1, source: 'creator_quote', observed_at: '2026-10-01T00:00:00Z' }) } as never }), fullMeta)
+  ok('缺值不写成空：合作报价缺币种时报告不出、点名账号与合作报价币种', noCurrency.includes('合作报价币种') && noCurrency.includes('a') && !noCurrency.startsWith('别的错'))
   eq('缺值不写成空：已测粉丝互动率有值时照出（上两条的阳性对照）', outcome(withMetric('engagement_rate_followers', 0.05), fullMeta), '报告照出了')
   // 独立复核挑出（作者补）：数组插进页面照 String 用逗号连，但逐项查缺值，[1, undefined] 不连成「1,」
   const arrayOutcome = (value: unknown): string => {

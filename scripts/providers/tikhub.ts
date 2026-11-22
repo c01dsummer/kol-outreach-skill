@@ -287,7 +287,8 @@ export class TikHub {
       bio: u?.signature ?? null,   // P1 例外：三态本身，profile 侧的空简介就是 null
       bio_links: link ? [link] : [],
       ...countFields(readCount(stats?.followerCount, u?.followerCount), readCount(stats?.videoCount, u?.videoCount)),
-      following: stats?.followingCount ?? u?.followingCount ?? undefined,
+      // 关注数不是有限数字就当没给（D21.x）：原样留下会被 enrich 抄进增强结果、算出 NaN
+      following: finiteNumber(stats?.followingCount) ?? finiteNumber(u?.followingCount),
       verified: Boolean(u?.verified),
       avatar: u?.avatarMedium,
     }
@@ -410,7 +411,7 @@ export class TikHub {
       bio_links: links,
       // 实测 media_count 常为 null（IG 不返回）—— null 是「没给」，当 0 会让内容积累加分失效
       ...countFields(readCount(u?.follower_count), readCount(u?.media_count)),
-      following: u?.following_count ?? undefined,
+      following: finiteNumber(u?.following_count),   // 同上（D21.x）
       is_private: Boolean(u?.is_private),
       verified: Boolean(u?.is_verified),
       avatar: u?.profile_pic_url,

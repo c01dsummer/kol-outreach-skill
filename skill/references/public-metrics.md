@@ -113,8 +113,19 @@ Instagram 新样本的 `media_scope` 是 `provider_returned_first12`。逐条作
 
 合作报价不是互动率，也不能从粉丝数自动猜。只有用户提供创作者报价或公开 rate card 时，
 才在 `enrichment.json` 对应账号写 `collaboration_quote`：金额、币种、平台、内容形式、
-数量、来源、时间缺一不可：漏了任一项，或标为 `unavailable` 却没写 `reason`，render 不出报告、退出 2，
-stderr 点名账号与那一格（P1.n）。
+数量、来源、时间缺一不可。
+
+enrich 与 render 读 `enrichment.json` 时，先整份对照格式说明（由脚本里的类型生成，D21.w）：
+漏了必有的一项、类型不对（金额写成 `"500"`）、取值不在下面列的几个里、或写了格式说明里没有的键（多半是拼错），
+都在写任何文件、发任何请求之前退出 2，stderr 逐处点名文件、账号、哪一格、读到的值，取值不对时还列出能写哪几个。
+照着改正那一处再跑，不要删掉整个文件。报价里能写的取值：
+
+- `value.platform`：`tiktok`、`instagram`
+- `value.format`：`tiktok_video`、`instagram_reel`、`instagram_post`、`mixed_bundle`
+- `value.source`：`creator_quote`（创作者自己报的价）、`public_rate_card`（公开的价目表）
+- 外层 `source.kind`：`manual`（用户或你手填）、`public_api`、`third_party`
+- 外层 `status`：`measured`（有报价）或 `unavailable`（查过、拿不到，这时必须另写原因 reason）
+
 
 它本身也使用三态包装；不要把裸报价对象直接塞进去：
 

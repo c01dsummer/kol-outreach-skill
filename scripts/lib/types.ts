@@ -144,6 +144,11 @@ export type MetricUnavailableReason =
   | 'unknown_sample_scope'
   | 'legacy_video_only_sample'
 
+/**
+ * 三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支，
+ * 报错只说那一支缺了什么（`scripts/lib/enrichment.schema.json`，ADR-232）。
+ * @discriminator status
+ */
 export type Measurement<T> =
   | {
       status: 'measured'
@@ -167,9 +172,17 @@ export type ProfileSampleScope =
   | 'legacy_video_filtered_first12'
   | 'unknown'
 
+/** @discriminator status */
 export type PublicPostMeasurement<T> = Measurement<T> & {
   media_scope?: ProfileSampleScope
 }
+
+/**
+ * 增强结果里存的主页作品样本。单起名字是为了生成的格式说明里定义名稳定：
+ * 泛型参数直接写成数组时，生成器给的定义名里带源码位置，类型文件挪一行就变。
+ */
+export type ProfileSample = PublicPostMeasurement<NormalizedPublicPosts>
+export type NormalizedPublicPosts = NormalizedPublicPost[]
 
 /** D8：关键词搜索命中的帖子有选择偏差，公开指标使用单独抓取的主页近期样本。 */
 export interface NormalizedPublicPost {
@@ -238,7 +251,7 @@ export interface AccountAssessment {
   handle: string
   followers?: number
   following?: number
-  sample?: PublicPostMeasurement<NormalizedPublicPost[]>
+  sample?: ProfileSample
   metrics?: PublicMetrics
   collaboration_quote?: Measurement<CollaborationQuote>
 }

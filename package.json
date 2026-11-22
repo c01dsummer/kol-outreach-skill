@@ -32,6 +32,7 @@
     "debt-touch": "tsx scripts/check/debt-touch.ts",
     "admission": "tsx scripts/check/admission.ts",
     "launches": "tsx scripts/check/launches.ts",
+    "enrichment-schema": "tsx scripts/check/enrichment-schema.ts",
     "typecheck": "tsc --noEmit",
     "compile": "tsx scripts/check/compile.ts",
     "check": "npm run anchors && npm run size && npm run shard-load && npm run ticket-refs && npm run child-process-use && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run fields && npm run compile && npm test && npm run mutate && npm run selfcheck && npm run audit && npm run launches"
@@ -40,7 +41,11 @@
     "@types/node": "^22.10.0",
     "esbuild": "^0.28.2",
     "marked": "^18.2.1",
+    "ts-json-schema-generator": "^2.9.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0"
   }
 }

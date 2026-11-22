@@ -24664,8 +24664,8 @@
         "D8.c::save-load-preserves-unqueried-sample-absence"
       ],
       "file": "scripts/lib/task.ts",
-      "find": "export function loadEnrichment(dir: string): EnrichmentState | undefined {\n  const p = join(dir, ENRICHMENT)\n  if (!existsSync(p)) return undefined\n  return JSON.parse(readFileSync(p, 'utf8'))\n}",
-      "replace": "export function loadEnrichment(dir: string): EnrichmentState | undefined {\n  const p = join(dir, ENRICHMENT)\n  if (!existsSync(p)) return undefined\n  const state = JSON.parse(readFileSync(p, 'utf8'))\n  for (const key of Object.keys(state.accounts)) state.accounts[key].sample ??= { status: 'unavailable' }\n  return state\n}",
+      "find": "  return state as EnrichmentState\n}",
+      "replace": "  for (const key of Object.keys((state as EnrichmentState).accounts)) (state as EnrichmentState).accounts[key].sample ??= { status: 'unavailable' } as never\n  return state as EnrichmentState\n}",
       "why": "真实加载enrichment时把未查询的缺席sample补成不可用，磁盘与返回不再保留未查询状态"
     },
     {
@@ -32565,10 +32565,10 @@
     {
       "id": "M-D21-bl",
       "req": "D21.v",
-      "why": "enrichment.json 里手改坏的活跃状态照常读入，报告里显示成空白，不在写任何文件之前拒收",
+      "why": "enrichment.json 里手改坏的活跃状态照常读入，不在写任何文件之前拒收",
       "file": "scripts/lib/task.ts",
-      "find": "if (isRecord(activity) && activity.status === 'measured' && !ACTIVITY_STATUSES.includes(activity.value))",
-      "replace": "if (false)",
+      "find": "  if (problems.length) throw new ReviewInputError(problems.map(line => `${line}；改正后再跑`))\n",
+      "replace": "",
       "by": "test",
       "kills": [
         "D21.v 活跃状态不合法被拒绝时一个交付文件都没写且名单原字节不变"
@@ -32755,7 +32755,7 @@
       "replace": "${quote.value.currency}",
       "by": "test",
       "kills": [
-        "P1.n 入口：合作报价缺币种时 stderr 点名增强结果、账号与币种"
+        "缺值不写成空：合作报价缺币种时报告不出、点名账号与合作报价币种"
       ]
     },
     {
@@ -32798,10 +32798,10 @@
     {
       "id": "M-D21-bm",
       "req": "D21.v",
-      "why": "读入检查只查平台恰好写成 tiktok、又完全没有 sample 键的账号，可报告还会原样用 sample 是 null、缺平台或平台大小写不对的账号存着的指标，这些账号里手改坏的值漏过读入，要等名单表格换新之后拼报告时才拒",
+      "why": "读入检查只查平台恰好写成 tiktok、又完全没有 sample 键的账号，sample 是 null、缺平台或平台大小写不对的账号里手改坏的值漏过读入，要等名单表格换新之后拼报告时才拒",
       "file": "scripts/lib/task.ts",
-      "find": "if (!isRecord(account) || !storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue",
-      "replace": "if (!isRecord(account) || account.platform !== 'tiktok' || account.sample !== undefined || !isRecord(account.metrics)) continue",
+      "find": "  const problems = enrichmentSchemaProblems(p, state)\n",
+      "replace": "  const problems = enrichmentSchemaProblems(p, { ...(state as Record<string, unknown>), accounts: Object.fromEntries(Object.entries((state as { accounts?: Record<string, { platform?: unknown; sample?: unknown }> }).accounts ?? {}).filter(([, a]) => a?.platform === 'tiktok' && a?.sample === undefined)) })\n",
       "by": "test",
       "kills": [
         "D21.v sample 写成 null、缺平台、平台大小写不对的账号活跃状态不合法时都在读入处拒绝、一个交付文件都没写"
@@ -32812,23 +32812,147 @@
       "req": "D21.v",
       "why": "名单与增强结果同时手改坏时，render 只报增强结果那一处，用户改完一处再跑才看见另一处，白多一个来回",
       "file": "scripts/render.ts",
-      "find": "storedEnrichment = collect(() => loadReviewEnrichment(dir))",
-      "replace": "storedEnrichment = loadReviewEnrichment(dir)",
+      "find": "storedEnrichment = collect(() => loadEnrichment(dir))",
+      "replace": "storedEnrichment = loadEnrichment(dir)",
       "by": "test",
       "kills": [
         "D21.v 名单与增强结果同时有不合法值时两个文件的问题在同一次报出来"
       ]
     },
     {
-      "id": "M-D21-bo",
-      "req": "D21.v",
-      "why": "增强结果里标为已测却缺了值时，拒收的报错在印读到的值那一步崩掉，指不出文件、账号与字段",
-      "file": "scripts/lib/task.ts",
-      "find": "  if (text === undefined) return value === undefined ? '缺席' : `一个 JSON 写不出的值（${typeof value}）`\n",
-      "replace": "",
+      "id": "M-D21-bp",
+      "req": "D21.w",
+      "why": "增强结果里同一格缺了好几项时逐项各报一句，一个漏写的三态包装刷出五六句，看不出是同一格",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "      let entry = missingAt.get(error.instancePath)\n",
+      "replace": "      let entry: { path: string; missing: string[] } | undefined = undefined\n",
       "by": "test",
       "kills": [
-        "D21.v 已测活跃状态缺了值时报一条且指出文件账号与字段"
+        "D21.v 已测活跃状态缺了值时报一句、指出文件账号与那一格并列出缺的几项"
+      ]
+    },
+    {
+      "id": "M-D21-bq",
+      "req": "D21.w",
+      "why": "增强结果里取值不在规定的几个之内时，报错只说不对、不列能写哪几个，用户只能去翻代码",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "      return `${at} 应是 ${(params.allowedValues as unknown[]).map(shown).join('、')} 之一，读到 ${shown(error.data)}`\n",
+      "replace": "      return `${at} 取值不对，读到 ${shown(error.data)}`\n",
+      "by": "test",
+      "kills": [
+        "D21.v 活跃状态不合法被拒绝时说出应是 active cooling dormant 之一",
+        "D21.w 报价形式不在类型列的几个之内时报一处，读到的值与能写的四个都列出来"
+      ]
+    },
+    {
+      "id": "M-D21-br",
+      "req": "D21.w",
+      "why": "增强结果里类型不对（粉丝数写成文字）时，报错不说读到了什么，用户不知道改哪个值",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "      return `${at} 应是${typeWords(params.type)}，读到 ${shown(error.data)}${countHint(error.instancePath)}`\n",
+      "replace": "      return `${at} 应是${typeWords(params.type)}${countHint(error.instancePath)}`\n",
+      "by": "test",
+      "kills": [
+        "D21.w 粉丝数写成文字时报一处，点名文件、账号（JSON 路径里的斜杠还原）、那一格、读到的值和应是数字",
+        "D21.w render 拒绝时 stderr 点名增强结果文件、账号、粉丝数那一格与读到的值"
+      ]
+    },
+    {
+      "id": "M-D21-bs",
+      "req": "D21.w",
+      "why": "增强结果里写了格式说明没有的键（多半是拼错的可选格）照常读入，拼错的那一格被当成没写",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "    case 'additionalProperties':\n      return `${at} 多了格式说明里没有的一格 ${shown(params.additionalProperty)}（可能是拼错了，或者不该写在这一层）`\n",
+      "replace": "    case 'additionalProperties':\n      return undefined\n",
+      "by": "test",
+      "kills": [
+        "D21.w 写了格式说明里没有的键（拼错的粉丝数）时报一处并点出那个键",
+        "D21.w enrich 读到不合规的增强结果时以 2 拒绝，task.json 与 enrichment.json 原字节不变、一个请求都没发"
+      ]
+    },
+    {
+      "id": "M-D21-bt",
+      "req": "D21.w",
+      "why": "账号键里带斜杠时报错印出 JSON 路径的转义写法，和文件里的账号对不上",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "const unescape = (segment: string): string => segment.replace(/~1/g, '/').replace(/~0/g, '~')\n",
+      "replace": "const unescape = (segment: string): string => segment\n",
+      "by": "test",
+      "kills": [
+        "D21.w 粉丝数写成文字时报一处，点名文件、账号（JSON 路径里的斜杠还原）、那一格、读到的值和应是数字"
+      ]
+    },
+    {
+      "id": "M-D21-bu",
+      "req": "D21.w",
+      "why": "enrich 读到不合格式的增强结果时不拒，照常改额、发请求，坏的那一格留着到 render 才拒",
+      "file": "scripts/enrich.ts",
+      "find": "  state = loadEnrichment(dir) ?? { version: 1, updated_at: '', accounts: {} }\n",
+      "replace": "  try { state = loadEnrichment(dir) ?? { version: 1, updated_at: '', accounts: {} } } catch { state = JSON.parse((await import('node:fs')).readFileSync(taskFile(dir).replace(/task\\.json$/, 'enrichment.json'), 'utf8')) }\n",
+      "by": "test",
+      "kills": [
+        "D21.w enrich 读到不合规的增强结果时以 2 拒绝，task.json 与 enrichment.json 原字节不变、一个请求都没发"
+      ]
+    },
+    {
+      "id": "M-D21-bv",
+      "req": "D21.x",
+      "why": "enrich 把名单里写成文字的关注数原样抄进增强结果，算出的关注／粉丝比不是数，下一次读入又被拒",
+      "file": "scripts/enrich.ts",
+      "find": "  const following = finiteCount(src?.following)\n",
+      "replace": "  const following = src?.following as number | undefined\n",
+      "by": "test",
+      "kills": [
+        "D21.x 名单里关注数写成文字时 enrich 当没给：以 0 结束，增强结果里这个账号没有关注数"
+      ]
+    },
+    {
+      "id": "M-D21-bw",
+      "req": "D21.x",
+      "why": "TikTok 主页资料里的关注数是文字时原样记进名单，之后被 enrich 抄进增强结果",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      following: finiteNumber(stats?.followingCount) ?? finiteNumber(u?.followingCount),\n",
+      "replace": "      following: stats?.followingCount ?? u?.followingCount ?? undefined,\n",
+      "by": "test",
+      "kills": [
+        "D21.x TikTok 主页资料的关注数写成文字时当没给"
+      ]
+    },
+    {
+      "id": "M-D21-bx",
+      "req": "D21.x",
+      "why": "Instagram 主页资料里的关注数是文字时原样记进名单，之后被 enrich 抄进增强结果",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      following: finiteNumber(u?.following_count),   // 同上（D21.x）\n",
+      "replace": "      following: u?.following_count ?? undefined,\n",
+      "by": "test",
+      "kills": [
+        "D21.x Instagram 主页资料的关注数写成文字时当没给"
+      ]
+    },
+    {
+      "id": "M-D21-by",
+      "req": "D21.y",
+      "why": "生成格式说明时放过类型里没写的键，入库那份与按规则现生成的不一致却没人发现",
+      "file": "scripts/check/enrichment-schema.ts",
+      "find": "    additionalProperties: false,\n",
+      "replace": "    additionalProperties: true,\n",
+      "by": "test",
+      "kills": [
+        "D21.y 入库的格式说明与按当前类型现生成的一份逐字相同"
+      ]
+    },
+    {
+      "id": "M-D21-bo",
+      "req": "D21.v",
+      "why": "增强结果里标为已测却缺了值时，拒收的报错在列缺了哪几项那一步崩掉，指不出文件、账号与那一格",
+      "file": "scripts/lib/enrichment-check.ts",
+      "find": "line.missing.join('、')",
+      "replace": "(line as unknown as { gone: string[] }).gone.join('、')",
+      "by": "test",
+      "kills": [
+        "D21.v 已测活跃状态缺了值时报一句、指出文件账号与那一格并列出缺的几项",
+        "D21.v 已测风险等级缺了等级时报一句、指出文件账号与那一格并列出缺的等级"
       ]
     },
     {
