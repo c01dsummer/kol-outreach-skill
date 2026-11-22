@@ -5705,6 +5705,8 @@ suite('P1', '作品那一列：没问过作品不得显示成「文案是空的�
      desc({ recent_posts: [
        { desc: 'low', plays: 1 }, { desc: 'top', plays: 9 }, { desc: 'last', plays: 3 },
      ] }), 'top')
+  eq('没查到播放数的排在真实 0 后面 → 挑有数字的那条',
+     desc({ recent_posts: [{ desc: 'unknown' }, { desc: 'zero', plays: 0 }] }), 'zero')
 
   // 补齐：同一个人先从兜底路径进来（没作品），后来被别的词从 reels 搜到（带作品）
   const t = { keyword: 'k', dimension: 'scene', platform: 'instagram' } as any
