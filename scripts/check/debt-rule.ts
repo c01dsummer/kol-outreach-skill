@@ -252,7 +252,7 @@ export function iouNameFaults(docs: Map<string, string>): Entry[] {
  * 写着这个定界的毛病），取第一个包住的块，后一张的条目就拿到前一张的短名字 —— 按名字关上前一张，后一张也跟着算关上。
  * 点名提醒（`debt-touch-rule.ts`）与台账的状态栏用的是这一份。
  */
-export function blockAt<B extends { start: number; end: number }>(blocks: B[], i: number): B | undefined {
+export function blockAt(blocks: ReturnType<typeof iouBlocks>, i: number): ReturnType<typeof iouBlocks>[number] | undefined {
   return blocks.filter(b => b.start <= i && i < b.end).at(-1)
 }
 
@@ -324,7 +324,7 @@ export function statusLines(docs: Map<string, string>): StatusLine[] {
     const lines = text.split('\n'), quoted = quotedMask(text)
     lines.forEach((line, i) => {
       if (quoted[i]) return
-      for (const s of statusesIn(line)) out.push({ file, line: i + 1, ...s, text: plain(line) })
+      for (const st of statusesIn(line)) out.push({ file, line: i + 1, kind: st.kind, key: st.key, text: plain(line) })
     })
   }
   return out
@@ -362,21 +362,21 @@ export function ledgerStatus(docs: Map<string, string>): Ledger {
   const byKey = new Map<string, StatusLine[]>()
   for (const s of all) byKey.set(s.key, [...byKey.get(s.key) ?? [], s])
   const used = new Set<StatusLine>()
-  const rows: Row[] = []
+  const list: Row[] = []
   for (const [file, text] of docs) {
     const lines = text.split('\n')
     const blocks = iouBlocks(lines, quotedMask(text))
     for (const entry of entries(new Map([[file, text]]))) {
-      if (entry.notation !== '重启条件') { rows.push({ entry, status: null }); continue }
+      if (entry.notation !== '重启条件') { list.push({ entry, status: null }); continue }
       const block = blockAt(blocks, entry.line - 1)
       const name = block ? iouName(lines[block.start]) : null
       const found = [entryKey(entry, split), nameKey(file, name)].flatMap(k => k === null ? [] : byKey.get(k) ?? [])
       for (const s of found) used.add(s)
       const closing = found.find(s => CLOSED_KINDS.has(s.kind))
-      rows.push({ entry, status: closing ? closing.kind : found.length ? '续挂' : '开着' })
+      list.push({ entry, status: closing ? closing.kind : found.length ? '续挂' : '开着' })
     }
   }
-  return { rows, unmatched: all.filter(s => !used.has(s)) }
+  return { rows: list, unmatched: all.filter(s => !used.has(s)) }
 }
 
 /**
@@ -421,7 +421,10 @@ export function ledgerGaps(orphans: Entry[], badNames: Entry[]): string[] {
  * 各写一份的话，改了一处忘了另一处，症状是「同一份台账，两个入口说两样」。
  * 退出码跟着 `err` 走：有它就以 1 退出，孤儿与短名字有错都是硬失败，只读入口也不放过。
  */
-export function ledgerReport(ledger: Ledger, orphans: Entry[], badNames: Entry[] = []): { out: string[]; err?: string } {
+export function ledgerReport(ledger: Ledger, orphans: Entry[], badNames: Entry[] = []): {
+  out: string[] // 字段不入断言：旧字段，只因这一句换了第一个参数的类型被算成新加；全表有测试按全文比，M-H41-e 改的就是它的内容
+  err?: string // 字段不入断言：旧字段，同上；那一句有测试按全文比，M-H41-f 改的就是它的内容
+} {
   const out = [
     ...ledger.rows.map(({ entry: e, status }) => `${e.file}:${e.line}  [${e.notation}]${status ? `  [${status}]` : ''}  ${e.text}`),
     ...ledger.unmatched.map(s => `${s.file}:${s.line}  [状态行配不上·${s.kind}]  ${s.text}`),

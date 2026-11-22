@@ -17334,6 +17334,8 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   eq('四种状态行都抽得出，键是记录加行号或记录加名字', statusLines(new Map([['docs/adr/ADR-9-x.md',
     '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n> ⚠️ 收尾：ADR-2 第 4 行 · 不做\n> ⚠️ 已重挂：ADR-3「甲」 · 现行的是 ADR-4「乙」\n> ⚠️ **续挂**：ADR-5「丙」 · 到 2026-12-01']]))
     .map(s => `${s.line} ${s.kind} ${s.key}`), ['1 已还 ADR-1:3', '2 收尾 ADR-2:4', '3 已重挂 ADR-3「甲」', '4 续挂 ADR-5「丙」'])
+  eq('一行状态行抽出来的五样：文件、行号、种类、键、去掉装饰的原文', statusLines(new Map([['docs/adr/ADR-9-x.md', '正文\n\n> ⚠️ **续挂**：ADR-1 第 3 行 · 到 2026-12-01']])),
+    [{ file: 'docs/adr/ADR-9-x.md', line: 3, kind: '续挂', key: 'ADR-1:3', text: '⚠️ 续挂：ADR-1 第 3 行 · 到 2026-12-01' }])
   eq('围栏里演示的状态行不抽', statusLines(new Map([['docs/adr/ADR-9-x.md', '```\n⚠️ 续挂：ADR-1 第 3 行\n```']])), [])
   const iouDoc = '# ADR-1 x\n\n> ⚠️ 欠条：缺 x · 重启条件：下次\n\n> ⚠️ 欠条「乙」：缺 y · 重启条件：下次\n'
   eq('按行号关、按名字关、没有状态行的照旧开着', stOf(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc,
