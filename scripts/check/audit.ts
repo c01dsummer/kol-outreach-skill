@@ -111,7 +111,7 @@ function readClaims(path: string, rerun: string): Claims {
     process.exit(1)
   }
   if (!claimsFresh(raw.source_hash, selfHash)) {
-    console.error(`✗ 覆盖记录是旧的：仓库里有文件改过（代码、Skill 说明、需求表都算），但没重跑 ${path}\n`)
+    console.error(`✗ 覆盖记录是旧的：仓库里有文件改过（代码、CI 工作流、Skill 说明、需求表都算），但没重跑 ${path}\n`)
     console.error(`  记录里是 ${raw.source_hash}，实际 ${selfHash}`)
     console.error(`  先跑 \`${rerun}\`。`)
     process.exit(1)
