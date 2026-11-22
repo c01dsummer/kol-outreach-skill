@@ -75,7 +75,7 @@ import {
   billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardKey, shardOf, shardPlan, shardWanted,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
-import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports, pinnedWorkflow, workflowWiringFaults } from './check/shard-load-rule.js'
+import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports, pinnedLinesFaults, pinnedWorkflow, workflowWiringFaults } from './check/shard-load-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -17340,11 +17340,45 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     eq('起点第 7 步：环境变量带首尾空白时去掉再用', prBaseFrom(' origin/a \n'), 'origin/a')
     // 改 PR 的 base 不换 head、不触发 check.yml：另一份工作流在改 PR 信息时也重量，而且不按「base 变没变」跳过 ——
     // 跳过的任务在 PR 上算通过，会把同一个 head 上更早的红灯盖掉（ADR-234 第一节）
+    // 整份钉死、逐行比（与 check.yml 同一个比法，pinnedLinesFaults）：找几个关键的字会被注释里的字、`echo 'npm run size'` 骗过，
+    // 不从文字猜 YAML 的结构。改了这份工作流就在同一条 PR 里改这里钉死的样子，评审看得见
+    const SIZE_BASE_PIN = [
+      'name: size-base',
+      'on:',
+      '  pull_request:',
+      '    types: [opened, synchronize, reopened, edited]',
+      'concurrency:',
+      '  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}',
+      '  cancel-in-progress: true',
+      'permissions:',
+      '  contents: read',
+      'jobs:',
+      '  size-base:',
+      '    name: 体量闸门（按此刻的 base）',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '        with:',
+      '          ref: ${{ github.event.pull_request.head.sha }}',
+      '          fetch-depth: 0',
+      '      - uses: actions/setup-node@v4',
+      '        with:',
+      "          node-version: '22'",
+      '          cache: npm',
+      '      - run: npm ci --prefer-offline --no-audit',
+      '      - run: npm run size',
+      '        env:',
+      '          SIZE_PR_BASE: origin/${{ github.event.pull_request.base.ref }}',
+    ]
     const sizeWf = rf('.github/workflows/size-base.yml', 'utf8')
-    eq('改 base 也重量：工作流在改 PR 信息时也跑，传的是 base 分支名，检出 PR 的头',
-      ['types: [opened, synchronize, reopened, edited]', 'SIZE_PR_BASE: origin/${{ github.event.pull_request.base.ref }}',
-        'ref: ${{ github.event.pull_request.head.sha }}', 'fetch-depth: 0', 'npm run size'].filter(x => !sizeWf.includes(x)), [])
-    eq('改 base 也重量：工作流不按条件跳过、不给写权限', [/^\s*if:/m.test(sizeWf), /:\s*write/.test(sizeWf)], [false, false])
+    const sizePin = (text: string) => pinnedLinesFaults(text, SIZE_BASE_PIN, ' —— 改了 size-base.yml 就在同一条 PR 里改测试里钉死的那份')
+    eq('改 base 也重量：工作流与钉死的样子逐行相同（改 PR 信息时也跑、传 base 分支名、检出 PR 的头、不跳过、只读）', sizePin(sizeWf), [])
+    ok('改 base 也重量：量的那一步换成只 echo 那句命令 → 对不上',
+      sizePin(sizeWf.replace('      - run: npm run size\n', "      - run: echo 'npm run size'\n")).length === 1)
+    ok('改 base 也重量：触发里去掉改 PR 信息、只在注释里留着 → 对不上',
+      sizePin(sizeWf.replace('    types: [opened, synchronize, reopened, edited]\n', '    types: [opened, synchronize, reopened]  # edited\n')).length === 1)
+    ok('改 base 也重量：加一句按条件跳过 → 对不上',
+      sizePin(sizeWf.replace('    runs-on: ubuntu-latest\n', '    runs-on: ubuntu-latest\n    if: false\n')).length === 1)
   }
 
   // ── 第 7 步在真 git 仓库上：B 叠在没合的 A 上、A 带 size-ok ────────────────
@@ -17372,9 +17406,11 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     const report = (prBase?: string) => {
       const b = resolveBaseline(ask, prBase)
       if (b.kind !== 'measure') return b
-      const files = parseNumstat(ask(...NUMSTAT, b.base, b.head) ?? '')
-      const counts = tally(merge(files, parseNumstat(ask(...NUMSTAT_IGNORING_SPACE, b.base, b.head) ?? '')))
-      const waivers = b.commits.flatMap(c => scanMessage(ask('log', '-1', '--format=%B', c) ?? ''))
+      // 量的这几问照 size.ts 用会抛错的问法：问不出来就报出原因，不当成「没有新增行」「没有豁免」
+      const strict = (...a: string[]) => gitOrThrow(a, { cwd: repo, env: fixtureEnv({}) })
+      const files = parseNumstat(strict(...NUMSTAT, b.base, b.head))
+      const counts = tally(merge(files, parseNumstat(strict(...NUMSTAT_IGNORING_SPACE, b.base, b.head))))
+      const waivers = b.commits.flatMap(c => scanMessage(strict('log', '-1', '--format=%B', c)))
         .flatMap(v => v.kind === 'exempt' ? [{ category: v.category, reason: v.reason }] : [])
       return { counts, waivers, judged: judge(counts, waivers, []), inherited: b.prBase?.inherited.length, moved: b.prBase?.moved }
     }
@@ -26623,6 +26659,31 @@ await group('h-git-fixture', () => {
       [env.GIT_DIR, env.GIT_INDEX_FILE, env.GIT_AUTHOR_NAME, env.GIT_CONFIG_NOSYSTEM, env.GIT_CONFIG_SYSTEM, env.GIT_CONFIG_GLOBAL, env.GIT_CEILING_DIRECTORIES, env.PATH === process.env.PATH],
       [undefined, undefined, 'A', '1', '/dev/null', '/dev/null', `/given:${tmpRoot}`, true])
     eq('环境：本进程里不是仓库指向的 GIT_* 也一律不带（往配置里注入键值的、随便起名的）', [env.GIT_CONFIG_PARAMETERS, env.GIT_ZZ_ANY], [undefined, undefined])
+    {
+      // 用户级的忽略文件不走配置文件，从 XDG_CONFIG_HOME（没设时 HOME/.config）底下读：本机那份写了 b，夹具里照样 add 得进 b
+      const user = mkdtempSync(join(tmpdir(), 'kol-fixture-user-'))
+      mkdirSync(join(user, 'xdg/git'), { recursive: true }); mkdirSync(join(user, 'home/.config/git'), { recursive: true })
+      writeFileSync(join(user, 'xdg/git/ignore'), 'b\n', 'utf8'); writeFileSync(join(user, 'home/.config/git/ignore'), 'b\n', 'utf8')
+      const kept = [process.env.XDG_CONFIG_HOME, process.env.HOME] as const
+      const added = (viaXdg: boolean): boolean => {
+        const r = mkdtempSync(join(tmpdir(), 'kol-fixture-ignore-'))
+        if (viaXdg) process.env.XDG_CONFIG_HOME = join(user, 'xdg'); else delete process.env.XDG_CONFIG_HOME
+        process.env.HOME = join(user, 'home')
+        try {
+          fixtureGitOrThrow(['init', '-q', '-b', 'main'], { cwd: r })
+          writeFileSync(join(r, 'b'), 'b\n', 'utf8')
+          fixtureGitOrThrow(['add', '-A'], { cwd: r })
+          fixtureGitOrThrow(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'x', '--allow-empty'], { cwd: r })
+          return fixtureGit(['rev-parse', '--verify', '-q', 'HEAD:b'], { cwd: r }).status === 0
+        } catch {
+          return false // 夹具自己抛错（别的变异弄坏了它）时这一条只算没过，不让整组死在半路
+        } finally {
+          if (kept[0] === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = kept[0]
+          if (kept[1] === undefined) delete process.env.HOME; else process.env.HOME = kept[1]
+        }
+      }
+      eq('环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件', [added(true), added(false)], [true, true])
+    }
     // 起 git 的函数调用时才从模块上取：模块上的 spawnSync 换成替身，夹具用的是替身；不合规矩的一次也不交给它
     const seen: unknown[][] = []
     withStandIns({ spawnSync: (...a: unknown[]) => { seen.push(a); return { status: 0, stdout: ' abc\n', stderr: '' } } }, () => {

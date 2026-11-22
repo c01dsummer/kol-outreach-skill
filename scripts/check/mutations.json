@@ -19424,8 +19424,8 @@
       "req": "harness",
       "why": "不一样时不说改哪里 —— 改工作流的人不知道要同时改钉死的那份",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "      + ' —— 改了工作流就在同一条 PR 里改 shard-load-rule.ts 的 WORKFLOW_PIN']",
-      "replace": "      + '']",
+      "find": "  return pinnedLinesFaults(workflow, want, ' —— 改了工作流就在同一条 PR 里改 shard-load-rule.ts 的 WORKFLOW_PIN')",
+      "replace": "  return pinnedLinesFaults(workflow, want, '')",
       "by": "test",
       "kills": [
         "接线：报的那一行说改钉死的那份"
@@ -33329,6 +33329,18 @@
       "by": "test",
       "kills": [
         "起点第 7 步：起点没挪时 moved 为假（报告不能说下面那条的新增行不数）"
+      ]
+    },
+    {
+      "id": "M-H234-r",
+      "req": "harness",
+      "why": "夹具不挡用户级的忽略文件 —— 本机那份忽略文件写了 scripts/ 时，玩具仓库的提交是空的，体量断言跟着失真",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  env.XDG_CONFIG_HOME = NO_USER_CONFIG\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件"
       ]
     }
   ],

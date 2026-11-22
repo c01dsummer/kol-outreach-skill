@@ -7,7 +7,8 @@
 - 决定人与时间：需求所有者 2026-11-15 的选择（见上），做法照 ADR-63 的形状，不需要再选
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
 - 理由：见第一节
-- 连带改动：`scripts/check/size-rule.ts`（`resolveBaseline` 多一个可选参数、说明加第 7 步、`Baseline` 多一个可选的 `prBase`、新加 `prBaseFrom`）· `scripts/check/size.ts`（读环境变量 `SIZE_PR_BASE`，报告多一行说清用没用 base）· `.github/workflows/check.yml` 检查链那一步加 `SIZE_PR_BASE` · 新加 `.github/workflows/size-base.yml`（改 PR 信息时也重量） · `scripts/check/shard-load-rule.ts` 钉死的工作流跟着加几行 · `scripts/check/git-fixture.ts` 玩具仓库多认一个 `merge` · `scripts/test.ts` 体量闸门起点那组加第 7 步的假应答用例与一个真 git 玩具仓库 · `scripts/check/mutations.json` 新加 M-H234-a 到 q，M-H9-t 的锚点跟上新写法 · `process/6-INTEGRATE.md`「叠分支」两处说法改准 · `docs/ARCHITECTURE.md` 体量闸门两行 · ADR-145 一张欠条补状态行 · `docs/adr/README.md` 索引
+- 连带改动：`scripts/check/size-rule.ts`（`resolveBaseline` 多一个可选参数、说明加第 7 步、`Baseline` 多一个可选的 `prBase`、新加 `prBaseFrom`）· `scripts/check/size.ts`（读环境变量 `SIZE_PR_BASE`，报告多一行说清用没用 base）· `.github/workflows/check.yml` 检查链那一步加 `SIZE_PR_BASE` · 新加 `.github/workflows/size-base.yml`（改 PR 信息时也重量） · `scripts/check/shard-load-rule.ts` 钉死的工作流跟着加几行，逐行比的那段抽成 `pinnedLinesFaults` 给 `size-base.yml` 也用 · `scripts/check/git-fixture.ts` 玩具仓库多认一个 `merge`，`XDG_CONFIG_HOME` 指到不可能存在的路径 · `scripts/test.ts` 体量闸门起点那组加第 7 步的假应答用例与一个真 git 玩具仓库 · `scripts/check/mutations.json` 新加 M-H234-a 到 q，M-H9-t 的锚点跟上新写法 · `process/6-INTEGRATE.md`「叠分支」两处说法改准 · `docs/ARCHITECTURE.md` 体量闸门两行 · ADR-145 一张欠条补状态行 · `docs/adr/README.md` 索引
+- 同类：ADR-63（至少第 2 次；查的范围：正文所引、grep，树 e5e5e0b）
 
 ## 要用到的事实，各找谁要
 
@@ -24,7 +25,7 @@
 照 ADR-63 的形状：**传事实、不传推断**。提交图分不出「叠上去」和「这些提交本来就是我写的」，分得出的事实只有「这条 PR 的 base 是谁」，而它只在调用方手里。
 
 - 入口读环境变量 `SIZE_PR_BASE`，经 `prBaseFrom` 去掉首尾空白；没设、空串、全是空白都算「没给」，照旧按主干量。CI 上 pull_request 事件填 `origin/<base 分支名>`；推 main 的那一跑这个表达式落成空串；本地不设。
-- 判定在 `resolveBaseline` 第 7 步，**只减不加**：给了 base、而且 HEAD 不在主干上时，这条分支自己的提交 = 第 6 步按主干列出的、又不在 `rev-list <base 的头>..HEAD` 里的那些；其余记成 `inherited`，报告里说「base 里已有的 N 个提交不算」，**N 是 0 也照说**。起点**只往后挪**：与主干的共同祖先是与 base 的共同祖先的祖先（叠在下面那条上）时，才改从后者量；否则不动。
+- 判定在 `resolveBaseline` 第 7 步，**只减不加**：给了 base、而且 HEAD 不在主干上时，这条分支自己的提交 = 第 6 步按主干列出的、又在 `rev-list <base 的头>..HEAD` 里的那些（后者列的正是不在 base 里的提交）；其余记成 `inherited`，报告里说「base 里已有的 N 个提交不算」，**N 是 0 也照说**。起点**只往后挪**：与主干的共同祖先是与 base 的共同祖先的祖先（叠在下面那条上）时，才改从后者量；否则不动。
 - 给了 base 却找不到、与 HEAD 没有共同祖先、比两个起点答不上来、按 base 列提交答不上来 → 无从判断、退出 1，**不退回按主干量**：退回去，叠分支就又把下面那条的行数和豁免算成自己的。以 `-` 开头的不拿去问 git（那是开关，不是提交名），直接无从判断。
 - base 就是主干那一头、或者是主干上更旧的一处时，量出来的数、找豁免的提交与没给 base 时一点不变。
 - HEAD 在主干上时不用 base：主干上本来就只报数、不判定，报告说一句「给了 base，但 HEAD 就在主干上，没用它」。
@@ -85,3 +86,5 @@
 - ADR-80 第 87–88 行（下一个碰 `size-rule.ts` 的人顺手看一眼 `size-ok:` 的数）：主干提交信息里按字面数约 277 处，最近合入的三条（报告缺值、复评经验、增强结果整份校验）都带豁免，远不到死亡条件「四周 20 跑为 0」；本条自己没写 `size-ok:`。CI 红史那一半这里看不到，没核。
 
 拿不准、按窄读不响的：往入口脚本里加判定那一串（现行的是 ADR-232「入口判定仍在入口脚本里」）—— 窄读说的是产品那几个入口（ADR-197 第 96 行取过），本条改的是检查链入口；宽读那一半（`size.ts` 报告那三行只有读 diff 的人看）已挂成本条自己的欠条「体量闸门入口读没读 base 没有测试守着」，不另重挂。给检查链判定的返回值加新字段那一串（ADR-70、ADR-145、ADR-158，现行的是 ADR-198「新字段的变异改坏的是不是它的值没人核」）：`prBase` 的四个字段各有一条改坏它的值的变异（M-H234-e、g、i、q）且字段断言闸门绿，那张余下的是机器核不核，本条没碰它的判法。
+
+CodeRabbit 首轮另提的两处，在本条里改了：`size-base.yml` 原先由测试找几个关键的字来核，注释里的字、`echo 'npm run size'` 都骗得过，改成与 `check.yml` 同一个比法（`pinnedLinesFaults`：去掉整行注释与空行后与钉死的样子逐行相同），不从文字猜 YAML 的结构；git 夹具挡了本机的系统、用户配置文件，挡不住用户级的忽略、属性文件（不走配置文件，从 `XDG_CONFIG_HOME` 或 `HOME/.config` 底下读，ADR-222 写明过），本机那份忽略文件要是写了 `scripts/`，玩具仓库里的提交就是空的，改成夹具把 `XDG_CONFIG_HOME` 指到 `/dev/null` 底下（不可能存在，git 读不到也不报错，本机验过），测试另在 `XDG_CONFIG_HOME` 与 `HOME/.config` 两处各放一份挡文件的忽略文件钉住。

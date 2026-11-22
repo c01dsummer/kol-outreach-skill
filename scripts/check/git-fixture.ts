@@ -9,8 +9,9 @@
  * 2. 起什么：子命令在 `SUBCOMMANDS` 里；子命令前只许 `-c 键=值`，键在 `CONFIG_KEYS` 里。`init` 不带目录参数（建在 `cwd`；`-b` 后面的分支名不算，
  *    分开写的 `--initial-branch 名字` 会被当成目录拒掉，写成 `-b` 或带等号）。`config`、`init` 不带 `ELSEWHERE_SWITCHES` 里那几个指别处的开关。
  * 3. 带什么环境：从本进程的环境起，先去掉全部 `GIT_` 开头的；调用方的 `env` 只许给 `ENV_KEYS` 里那几样（提交身份与日期、往上找仓库的天花板），
- *    值为 `undefined` 的当没给。再设 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_SYSTEM`、`GIT_CONFIG_GLOBAL` 指向 `/dev/null`（不读本机的系统、用户配置文件；后两个变量 git 2.32 起才认，更老的仍读用户配置；
- *    用户级的忽略、属性文件是另一路，仍会读），
+ *    值为 `undefined` 的当没给。再设 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_SYSTEM`、`GIT_CONFIG_GLOBAL` 指向 `/dev/null`（不读本机的系统、用户配置文件；后两个变量 git 2.32 起才认，更老的仍读用户配置）。
+ *    用户级的忽略、属性文件是另一路（不走配置文件，从 `XDG_CONFIG_HOME`、没设时从 `HOME/.config` 底下的 `git/ignore`、`git/attributes` 读），
+ *    所以 `XDG_CONFIG_HOME` 指到 `NO_USER_CONFIG`：一个不可能存在的路径（`/dev/null` 不是目录），git 读不到也不报错（ADR-234 第五节），
  *    `GIT_CEILING_DIRECTORIES` 加上系统临时目录（往上找仓库找不出临时目录），与调用方给的用 `:` 拼。
  *
  * 起 git 用的函数在调用时从模块上取：自检记当前目录、计数预加载换掉模块上的函数后照样记得到、数得到。
@@ -36,6 +37,9 @@ export const ELSEWHERE_SWITCHES: Readonly<Record<string, readonly string[]>> = {
   config: ['--global', '--system', '--worktree', '--file', '-f'],
   init: ['--separate-git-dir', '--template'],
 }
+
+/** 夹具起 git 时 `XDG_CONFIG_HOME` 指的地方：不可能存在（`/dev/null` 不是目录），用户级的忽略、属性文件读不到（上面第 3 条） */
+export const NO_USER_CONFIG = '/dev/null/no-user-git-config'
 
 /** 本仓库根：本文件在 `scripts/check/` 下 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -112,6 +116,7 @@ export function fixtureEnv(given: Record<string, string | undefined>): NodeJS.Pr
   env.GIT_CONFIG_NOSYSTEM = '1'
   env.GIT_CONFIG_SYSTEM = '/dev/null'
   env.GIT_CONFIG_GLOBAL = '/dev/null'
+  env.XDG_CONFIG_HOME = NO_USER_CONFIG
   env.GIT_CEILING_DIRECTORIES = [given.GIT_CEILING_DIRECTORIES, tmp].filter(s => s !== undefined && s !== '').join(':')
   return env
 }

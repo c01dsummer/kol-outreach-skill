@@ -388,6 +388,15 @@ export function workflowWiringFaults(workflow: string, checkScript: string | und
   if (checkScript === undefined) return ['读不到 package.json 的 check 那一串']
   if (!CHECK_SHAPE.test(checkScript)) return ['package.json 的 check 那一串不是「npm run 某步 && npm run 某步 …」的样子，不拿它填 chain 那一行']
   const want = pinnedWorkflow(checkScript.split(' && ').filter(step => step !== 'npm run mutate' && step !== 'npm run launches').join(' && '))
+  return pinnedLinesFaults(workflow, want, ' —— 改了工作流就在同一条 PR 里改 shard-load-rule.ts 的 WORKFLOW_PIN')
+}
+
+/**
+ * 一份工作流与钉死的样子逐行比，比法见上面 `workflowWiringFaults` 的说明（去掉整行注释与空行，别的逐字比，怪空白一律红）。
+ * `hint` 接在「与钉死的样子不一样」那句后面，告诉改的人去改哪一份钉死的样子。对得上交回 []。
+ * 另一份工作流（`size-base.yml`，ADR-234）也用它钉：不从文字猜 YAML 的结构，同一个理由
+ */
+export function pinnedLinesFaults(workflow: string, want: readonly string[], hint: string): string[] {
   // 换行只认 \n 与 \r\n，空白只认空格与 tab：单独的 \r、U+0085、U+2028、全角空格、不换行空格……YAML 或 shell 会当真，
   // 去注释、去空行时却可能被当成空白或换行吃掉，一律红（最坏是误红）
   const text = workflow.replace(/\r\n/g, '\n'), odd = /[^\S \t\n]|\u0085/.exec(text)
@@ -405,7 +414,7 @@ export function workflowWiringFaults(workflow: string, checkScript: string | und
     if (got[i]?.text === want[i]) continue
     const at = got[i] === undefined ? '文件已经到头' : `第 ${got[i].n} 行是「${got[i].text.trim()}」`
     return [`与钉死的样子不一样（去掉整行注释与空行后逐行比）：${at}，应为${want[i] === undefined ? '没有这一行' : `「${want[i].trim()}」`}`
-      + ' —— 改了工作流就在同一条 PR 里改 shard-load-rule.ts 的 WORKFLOW_PIN']
+      + hint]
   }
   return []
 }
