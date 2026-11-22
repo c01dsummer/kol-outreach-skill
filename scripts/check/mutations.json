@@ -3136,6 +3136,46 @@
       "kills": ["缺交点认领那一栏，同样认不出"]
     },
     {
+      "id": "M-H14-au",
+      "req": "harness",
+      "why": "测试记录的指纹又只算代码那棵树 —— 改了测试要读的 Skill 说明或需求表、不重跑测试直接跑审计，旧记录照样算新鲜，审计拿一份不是对着现在这棵树跑出来的结果当证据",
+      "file": "scripts/check/claims.ts",
+      "find": "  return plan.files.flatMap(rel => {",
+      "replace": "  return plan.files.filter(rel => rel.startsWith('scripts/')).flatMap(rel => {",
+      "by": "test",
+      "kills": ["Skill 说明在认领记录的指纹里", "改一份 Skill 说明，认领记录的指纹就变"]
+    },
+    {
+      "id": "M-H14-av",
+      "req": "harness",
+      "why": "指纹不看符号链接指向哪里 —— 把一条链接改指到别的目录，测试读到的已经是另一批文件，旧记录照样算新鲜",
+      "file": "scripts/check/claims.ts",
+      "find": "  if (st.isSymbolicLink()) return `link\\0${readlinkSync(path)}`",
+      "replace": "  if (st.isSymbolicLink()) return null",
+      "by": "test",
+      "kills": ["符号链接改了指向，指纹就变"]
+    },
+    {
+      "id": "M-H14-aw",
+      "req": "harness",
+      "why": "指纹按文字读文件 —— 两份字节不同、读成文字却一样的二进制文件分不出，改了其中一份旧记录照样算新鲜",
+      "file": "scripts/check/claims.ts",
+      "find": "  if (st.isFile()) return `file\\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`",
+      "replace": "  if (st.isFile()) return `file\\0${createHash('sha256').update(readFileSync(path, 'utf8')).digest('hex')}`",
+      "by": "test",
+      "kills": ["按字节算 —— 两份读成文字一样的二进制文件也分得出"]
+    },
+    {
+      "id": "M-H225-ba",
+      "req": "harness",
+      "why": "以前的 PR 写下、早已合进主干的解除行也算进这条 PR —— 往那份决策记录末尾补一行「已还」，旧表就整张算进来，每一行都报「提交不在这条 PR 的历史上」，同一处连着两轮那道必过的检查无故变红",
+      "file": "scripts/check/same-spot-rule.ts",
+      "find": "  return { waivers: now.waivers.filter(w => !old.has(key(w))), faults: now.faults }",
+      "replace": "  return now",
+      "by": "test",
+      "kills": ["同一处：分叉点上已有的解除行不算这条 PR 的，补了一行「已还」也不算"]
+    },
+    {
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",
@@ -32465,30 +32505,6 @@
       "by": "test",
       "kills": [
         "同一处：成员的行尾注释延到右花括号那一行，那一行仍算类名；成员自己写在那一行上的仍算成员"
-      ]
-    },
-    {
-      "id": "M-H225-ba",
-      "req": "harness",
-      "why": "往带解除表的老决策记录末尾补一句，主干上那条旧 PR 的解除行也被当成这条 PR 写的，报不在历史上，检查无故变红",
-      "file": "scripts/check/same-spot-rule.ts",
-      "find": "    waivers: now.waivers.filter(w => !had.has(key(w))),",
-      "replace": "    waivers: now.waivers,",
-      "by": "test",
-      "kills": [
-        "同一处：主干上已有的解除行（旧 PR 的提交）不算这条 PR 的解除，往老记录末尾补一句时不报不在历史上"
-      ]
-    },
-    {
-      "id": "M-H225-bb",
-      "req": "harness",
-      "why": "往主干上那份解除表本来就写坏了一行的老记录末尾补一句，旧账也算到这条 PR 头上，检查无故变红",
-      "file": "scripts/check/same-spot-rule.ts",
-      "find": "    faults: now.faults.filter(f => !oldFaults.has(f.replace(/第 \\d+ 行/, ''))),",
-      "replace": "    faults: now.faults,",
-      "by": "test",
-      "kills": [
-        "同一处：主干那份老记录里写坏的解除行只算旧账，这条 PR 往末尾补一句时不报"
       ]
     },
     {

@@ -14,8 +14,8 @@ import {
   ledger, selfcheckCriterionMutations, unguarded,
 } from './audit-rule.js'
 import {
-  CLAIMS_PATH, ENTRY_CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed,
-  fingerprint, sourceFiles,
+  CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimInputs, claimsFresh, claimsReadFault, claimsWellFormed,
+  fingerprint,
   type Claims,
 } from './claims.js'
 import { citeSummary, citeTable } from './cite-rule.js'
@@ -66,11 +66,19 @@ for (const f of sources) corpus.set(f, readFileSync(f, 'utf8'))
  *
  * 原先按源码正则找 `suite('X')` 与 `covered.add('X')`，于是**注释掉的认领照样算数** ——
  * 把测试删掉、认领留在注释里，审计照样报「有测试」。这个文件下面那段关于
- * `includes(base)` 的注释记的就是同一个坑（ADR-20）。记录带着整棵 `scripts/`
- * 树的指纹，对不上就是过期的，不算数。
+ * `includes(base)` 的注释记的就是同一个坑（ADR-20）。记录带着整个仓库的指纹
+ *（`claimInputs` 那份清单：代码、Skill 说明、需求表都在里面，ADR-233），对不上就是过期的，不算数。
  */
-/** 整棵 `scripts/` 树的指纹,算一次给两份记录用 —— 走一遍目录不便宜。 */
-const selfHash = fingerprint(sourceFiles())
+/** 整个仓库的指纹,算一次给两份记录用 —— 走一遍、读一遍不便宜。 */
+const selfHash = (() => {
+  try { return fingerprint(claimInputs()) } catch (e) {
+    // 问不到 git 就说问不到，不退回只算一部分（ADR-233）：没有指纹，两份记录新不新鲜都答不了
+    console.error('✗ 算不出仓库的指纹，判断不了覆盖记录新不新鲜\n')
+    console.error(`  ${(e as Error).message}`)
+    console.error('  审计要在 git 仓库的顶层跑（指纹算的是 git 列出的全部文件）。')
+    process.exit(1)
+  }
+})()
 
 /**
  * 读一份覆盖记录,四道闸都过了才交回来。两份记录共用这一段 —— 各写一份的话,
@@ -111,7 +119,7 @@ function readClaims(path: string, rerun: string): Claims {
     process.exit(1)
   }
   if (!claimsFresh(raw.source_hash, selfHash)) {
-    console.error(`✗ 覆盖记录是旧的：${SOURCE_DIR}/ 下有改动，但没重跑 ${path}\n`)
+    console.error(`✗ 覆盖记录是旧的：仓库里有文件改过（代码、CI 工作流、Skill 说明、需求表都算），但没重跑 ${path}\n`)
     console.error(`  记录里是 ${raw.source_hash}，实际 ${selfHash}`)
     console.error(`  先跑 \`${rerun}\`。`)
     process.exit(1)

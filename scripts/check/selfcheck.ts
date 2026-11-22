@@ -45,7 +45,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import { asTsx, brandObserverEnv, fixtureLoader, prebuiltCommand } from './prebuilt.js'
 import {
-  CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
+  CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimInputs, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
 } from './claims.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import { SELFCHECK_LAUNCHES_FILE, SELFCHECK_LAUNCHES_SCHEMA } from './launch-rule.js'
@@ -101,11 +101,13 @@ const shardChild = shardReportPath !== undefined && subset
 // **子集跑既不删也不写入口认领。** `claimed` 只装这一跑真跑到的那几条判据，
 // 写回去等于拿残缺的记录盖掉完整的，而审计读的就是这份文件（它会报一批
 // 「没有认领」）。删了不写更糟：审计连文件都读不到。所以子集跑按变异跑那一侧走。
-if (!subset && claimsOwnedBy(mutating)) rmSync(ENTRY_CLAIMS_PATH, { force: true })
+const ownsEntryClaims = !subset && claimsOwnedBy(mutating)
+if (ownsEntryClaims) rmSync(ENTRY_CLAIMS_PATH, { force: true })
 // 按族的启动计数（ADR-145 第三十一节第 2 小节）：完整、非变异的跑先删旧的，拆进程跑、每一族都绿才写新的。
 // 删不掉不红、不停：这一份只报数，最后一步还要按树身份认
 if (!subset && !mutating) try { rmSync(SELFCHECK_LAUNCHES_FILE, { force: true }) } catch { /* 只报数 */ }
-const startHash = fingerprint(sourceFiles())
+// 入口认领的指纹算整个仓库（claimInputs，ADR-233），要问 git；不写记录的跑（子集、变异）不算
+const startHash = ownsEntryClaims ? fingerprint(claimInputs()) : ''
 
 /** 脚本用绝对路径 —— 下面几处会切到临时目录里跑，让产出落在那边 */
 const covered = new Set<string>()
@@ -8760,37 +8762,48 @@ group('audit-entry', [], () => {
     for (const directory of ['scripts', 'scripts/check', 'docs', 'docs/adr', 'skill', '.check-cache']) {
       mkdirSync(join(ownedToyRoot, directory), { recursive: true });
     }
-    const sourceHash = fingerprint([['scripts/toy-reference.ts', sourceText]]);
-    if (typeof sourceHash !== 'string' || sourceHash.length === 0) {
-      fixtureFailure('fingerprint 没交回非空的源码指纹');
-      return;
-    }
     const encode = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
-    const unitClaims = { source_hash: sourceHash, covered: ['X1'], criteria: ['X1.a', 'X1.b'], tensions: [] };
-    const entryClaims = { source_hash: sourceHash, covered: [], criteria: [], tensions: [] };
+    // 认领记录的指纹算整个仓库、要问 git（claimInputs，ADR-233）：玩具树建成一个 git 仓库，
+    // 两份记录在别的文件都写好之后按玩具树现算的指纹写，树改了就重写一遍
+    fixtureGitOrThrow(['init', '-q'], { cwd: ownedToyRoot });
+    const toyRoot = ownedToyRoot;
+    const claimsFiles = (): (readonly [string, string])[] => {
+      const sourceHash = fingerprint(claimInputs(toyRoot));
+      const unitClaims = { source_hash: sourceHash, covered: ['X1'], criteria: ['X1.a', 'X1.b'], tensions: [] };
+      const entryClaims = { source_hash: sourceHash, covered: [], criteria: [], tensions: [] };
+      return [[CLAIMS_PATH, encode(unitClaims)], [ENTRY_CLAIMS_PATH, encode(entryClaims)]];
+    };
     // 都是自造的玩具输入，不是真实产品测试的覆盖证据。
-    const files: readonly (readonly [string, string])[] = [
+    const inputs: readonly (readonly [string, string])[] = [
       ['package.json', '{"private":true,"type":"module"}\n'],
       ['scripts/toy-reference.ts', sourceText],
       ['docs/requirements.json', encode(requirements)],
       ['scripts/check/mutations.json', encode(mutationData)],
-      [CLAIMS_PATH, encode(unitClaims)],
-      [ENTRY_CLAIMS_PATH, encode(entryClaims)],
     ];
-    for (const [relative, body] of files) {
-      const filename = join(ownedToyRoot, relative);
-      mkdirSync(dirname(filename), { recursive: true });
-      writeFileSync(filename, body);
-    }
+    const writeAll = (list: readonly (readonly [string, string])[]): void => {
+      for (const [relative, body] of list) {
+        const filename = join(toyRoot, relative);
+        mkdirSync(dirname(filename), { recursive: true });
+        writeFileSync(filename, body);
+      }
+    };
+    writeAll(inputs);
+    const files = [...inputs, ...claimsFiles()];
+    writeAll(files);
     if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
       fixtureFailure('玩具树里读回的字节与写下去的不一样');
       return;
     }
-    const run = runToolBoth('audit-entry 起普通审计', 'audit', [], ownedToyRoot, { status: 0 });
+    // 以 1 退出放宽成软结果、由下面那条具名断言判：审计算指纹的范围与写记录那一侧对不上时，它说「记录是旧的」、以 1 退出（ADR-233）。
+    // audit.ts 在本文件的验证基础设施闭包里，指名自检的变异会被「自己验自己」拦下，所以这条断言没有配变异
+    const run = runToolBoth('audit-entry 起普通审计', 'audit', [], ownedToyRoot, { status: 0, soft: [1] });
     if (!run.ok) {
       runnerReportedFailure = true;
       return; // runBoth 已经带进程记号报过、计过一次
     }
+    named('审计入口：覆盖记录按整个玩具仓库现算的指纹写下，审计认它是新的、以 0 退出', run.status === 0,
+      `退出码 ${run.status}；stderr 末几行：${stderrTail(run.stderr)}`);
+    if (run.status !== 0) return;
     if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
       fixtureFailure('审计跑完，玩具树里的源码、资料或覆盖记录变了');
       return;
@@ -8808,10 +8821,24 @@ group('audit-entry', [], () => {
       fixtureFailure('解释合格了，却没交回 X1.a、X1.b 两条记录');
       return;
     }
+    // 改了一份 Skill 说明、不重写记录：审计要说「覆盖记录是旧的」、以 1 退出（ADR-233）。说明随后改回，记录照旧新鲜
+    const skillDoc = join(toyRoot, 'skill', 'SKILL.md');
+    writeFileSync(skillDoc, '# 玩具说明（改过）\n');
+    const stale = runToolBoth('audit-entry 起普通审计：改了一份 Skill 说明、没重跑测试', 'audit', [], ownedToyRoot, { status: 1, soft: [0] });
+    if (!stale.ok) {
+      runnerReportedFailure = true;
+      return;
+    }
+    named('审计入口：改了一份 Skill 说明、没重跑测试，审计说覆盖记录是旧的、以 1 退出',
+      stale.status === 1 && stale.stderr.includes('覆盖记录是旧的'),
+      `退出码 ${stale.status}；stderr 末几行：${stderrTail(stale.stderr)}`);
+    rmSync(skillDoc);
     // 第二跑：玩具树里加一份决策记录，里面两张欠条同名。审计要把「短名字有错」计成硬失败、以 1 退出 ——
     // 行怎么写由需求测试守着（`ledgerGaps`），计进硬失败这一下只有真起审计才看得见（ADR-211 的欠条「两处入口接线没有测试」）
     writeFileSync(join(ownedToyRoot, 'docs', 'adr', 'ADR-1-玩具.md'),
       '# ADR-1 玩具\n\n> ⚠️ 欠条「甲」：x · 重启条件：y\n\n> ⚠️ 欠条「甲」：z · 重启条件：w\n');
+    // 树里多了一份文件，两份认领记录按新的树重写 —— 不重写的话审计先说「记录是旧的」，走不到欠条那一段
+    writeAll(claimsFiles());
     const dup = runToolBoth('audit-entry 起普通审计：一条记录里两张欠条同名', 'audit', [], ownedToyRoot, { status: 1, soft: [0] });
     if (!dup.ok) {
       runnerReportedFailure = true;
@@ -13162,7 +13189,7 @@ if (shardChild) {
 // 写进去的是**开跑那一刻**的，两头对不上就一个字也不写（`claimsPublishable`）。
 // `covered`／`tensions` 恒空：自检不认领需求级与交点级，那两栏留着只是为了与单元
 // 那份**同形**，同一套 `claimsWellFormed` 守两份。
-if (!subset && claimsPublishable(mutating, failed, startHash, fingerprint(sourceFiles()))) {
+if (ownsEntryClaims && claimsPublishable(mutating, failed, startHash, fingerprint(claimInputs()))) {
   mkdirSync(dirname(ENTRY_CLAIMS_PATH), { recursive: true })
   writeFileAtomic(ENTRY_CLAIMS_PATH, `${JSON.stringify({
     source_hash: startHash,

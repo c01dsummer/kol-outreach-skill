@@ -93,9 +93,17 @@ export function fixtureCheck(args: readonly string[], options: FixtureOptions): 
   const elsewhere = ELSEWHERE_SWITCHES[sub]
   const hit = elsewhere === undefined ? undefined : args.slice(i + 1).find(a => elsewhere.some(s => says(a, s)))
   if (hit !== undefined) throw new Error(`git 夹具的 ${sub} 不带指别处的开关 ${hit}：只写玩具仓库自己（ADR-222）`)
+  return fixtureEnv(options.env ?? {})
+}
+
+/**
+ * 夹具起 git 用的整份环境（上面第 3 条），只造环境、不查参数与目录。夹具以外还要在玩具仓库里问 git 的测试
+ * （比如经 git 入口问的那几处）也从这里拿，不自己拼：自己拼是「列出要挡哪些」，漏一个就挡不住（ADR-233 第七节）
+ */
+export function fixtureEnv(given: Record<string, string | undefined>): NodeJS.ProcessEnv {
+  const tmp = real(tmpdir())
   const env: NodeJS.ProcessEnv = {}
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v
-  const given = options.env ?? {}
   for (const [k, v] of Object.entries(given)) {
     if (v === undefined) continue
     if (!ENV_KEYS.includes(k)) throw new Error(`git 夹具不认这个环境变量：${k}。能给的：${ENV_KEYS.join('、')}（ADR-222）`)
