@@ -90,7 +90,7 @@ import { briefSheet, declarationFindings, entryScripts, entrySheet, insideRoot, 
 import {
   CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault,
   claimsWellFormed,
-  fingerprint, sourceFiles,
+  claimInputEntry, claimInputs, fingerprint, sourceFiles,
 } from './check/claims.js'
 import {
   BUDGET, GIT_CONFIG, NUMSTAT, NUMSTAT_IGNORING_SPACE, TRUNK_CANDIDATES, type Baseline, type GitAsk,
@@ -416,11 +416,13 @@ if (!fullRun) {
 // 上一次成功的记录就成了这一次的证据。改坏源码那一半由指纹的范围挡（claims.ts）。
 // 挡不住 import 阶段就崩的那一路 —— 这一行在静态 import 求值之后才跑。
 // 见 claims.ts 里 claimsOwnedBy 的「够不到的那一段」。
-if (fullRun && claimsOwnedBy(process.env.MUTATING === '1')) rmSync(CLAIMS_PATH, { force: true })
-// 开跑前的指纹。跑完再算一次，两次对不上说明源码在这一跑的过程中被改过 ——
+const ownsClaims = fullRun && claimsOwnedBy(process.env.MUTATING === '1')
+if (ownsClaims) rmSync(CLAIMS_PATH, { force: true })
+// 开跑前的指纹。跑完再算一次，两次对不上说明仓库在这一跑的过程中被改过 ——
 // 只算跑完那一次的话，记录带的是新那棵树的指纹，而断言执行的是旧的，审计照样
 // 比对得上，于是一棵从没被完整测过的树拿到了证据。
-const startHash = fingerprint(sourceFiles())
+// 指纹算整个仓库（claimInputs，ADR-233），要问 git；不写记录的那几种跑（子集、变异 worker 的副本里没有 .git）不算。
+const startHash = ownsClaims ? fingerprint(claimInputs()) : ''
 
 const suite = (req: string, name: string) => { cur = req; covered.add(req); console.log(`\n[${req}] ${name}`) }
 const eq = (label: string, got: unknown, want: unknown) => {
@@ -13950,6 +13952,58 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   // 一棵从没被完整测过的树作证（M-H14-k）。
   eq('跑的过程中源码变过就不写', claimsPublishable(false, 0, 'a', 'b'), false)
 
+  // ---- 认领记录的指纹算整个仓库，不只 scripts/ 那棵树（ADR-233） ----
+  // 测试还读 skill/ 下的 Skill 说明、docs/ 里的需求表：只算 scripts/ 的话，改了这些、不重跑测试直接跑审计，
+  // 旧记录照样算数（ADR-231 第十节登记的既有缺陷）。在临时目录建玩具仓库验，不碰本仓库：
+  // 变异 worker 的副本里没有 .git，拿本仓库验的话这几条在每一跑变异里都起不来（M-H14-au、av、aw）
+  {
+    const toy = mkdtempSync(join(tmpdir(), 'claim-inputs-'))
+    try {
+      fixtureGitOrThrow(['init', '-q'], { cwd: toy })
+      const put = (rel: string, body: string | Buffer) => {
+        mkdirSync(dirname(join(toy, rel)), { recursive: true })
+        writeFileSync(join(toy, rel), body)
+      }
+      put('.gitignore', 'output/\n')
+      put('scripts/a.ts', 'export const a = 1\n')
+      put('skill/SKILL.md', '# 说明\n')
+      put('docs/requirements.json', '{}\n')
+      put('.check-cache/test-claims.json', '{"source_hash":"x"}\n')
+      put('node_modules/dep/index.js', 'module.exports = 1\n')
+      put('blob.bin', Buffer.from([0xff]))
+      mkdirSync(join(toy, '.claude', 'skills'), { recursive: true })
+      symlinkSync('../../skill', join(toy, '.claude', 'skills', 'kol'))
+      const paths = claimInputs(toy).map(([p]) => p)
+      ok('Skill 说明在认领记录的指纹里', paths.includes('skill/SKILL.md'))
+      ok('需求表在认领记录的指纹里', paths.includes('docs/requirements.json'))
+      ok('代码仍在认领记录的指纹里', paths.includes('scripts/a.ts'))
+      ok('覆盖记录自己不进指纹 —— 写下它就改了指纹，永远对不上', !paths.some(p => p.startsWith('.check-cache/')))
+      ok('依赖目录不进指纹 —— 依赖变没变看 package-lock.json', !paths.some(p => p.startsWith('node_modules/')))
+      const now = () => fingerprint(claimInputs(toy))
+      const before = now()
+      put('skill/SKILL.md', '# 说明（改过）\n')
+      ok('改一份 Skill 说明，认领记录的指纹就变', now() !== before)
+      put('skill/SKILL.md', '# 说明\n')
+      eq('改回去，指纹也回来', now(), before)
+      put('.check-cache/test-claims.json', '{"source_hash":"y"}\n')
+      eq('重写覆盖记录不改指纹', now(), before)
+      put('output/run/report.csv', 'a,b\n')
+      eq('被忽略的运行产物不改指纹', now(), before)
+      put('blob.bin', Buffer.from([0xfe]))
+      ok('按字节算 —— 两份读成文字一样的二进制文件也分得出', now() !== before)
+      put('blob.bin', Buffer.from([0xff]))
+      rmSync(join(toy, '.claude', 'skills', 'kol'))
+      symlinkSync('../../docs', join(toy, '.claude', 'skills', 'kol'))
+      ok('符号链接改了指向，指纹就变', now() !== before)
+      eq('已经不在的文件不进指纹', claimInputEntry(join(toy, 'gone.md')), null)
+      let thrown = ''
+      try { claimInputs(join(toy, 'skill')) } catch (e) { thrown = (e as Error).message }
+      ok('不在仓库顶层就抛错，不退回只算一部分', thrown.includes('算不出认领记录的指纹'))
+    } finally {
+      rmSync(toy, { recursive: true, force: true })
+    }
+  }
+
   // ---- 两份记录：单元认领与入口认领各写各的 ----
   // 一份文件两个写方会互相抹掉：拥有的一方开跑前先清、跑完整份重写，单独跑 npm test
   // 就会把自检那一栏一起清掉，而审计读到的是一份形状合法、内容少了一半的记录 ——
@@ -26512,8 +26566,8 @@ if (process.argv.includes('--json')) {
 // 一次干净的测试运行写（mutate.ts 给变异跑打上 MUTATING 标记，这里据此跳过）。
 // 失败的测试运行同样不写：断言红了还照写，一份没通过的运行会被当成证据交出去。
 // 判定本身在 claims.ts，不留在这个入口里 —— 留在这里就没有测试守得住它。
-const endHash = fingerprint(sourceFiles())
-if (fullRun && claimsPublishable(process.env.MUTATING === '1', fail, startHash, endHash)) {
+const endHash = ownsClaims ? fingerprint(claimInputs()) : ''
+if (ownsClaims && claimsPublishable(process.env.MUTATING === '1', fail, startHash, endHash)) {
   mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
   // 原子写：半截写坏的记录读起来是合法 JSON 的概率不大，但读的一方要为它写一段
   // 判死的代码 —— 换成写临时文件再改名，这一类根本不会出现（lib/atomic.ts）。

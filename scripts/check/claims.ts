@@ -9,8 +9,10 @@
  * 两边各写一个字符串,迟早会有一边先改。
  */
 import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync } from 'node:fs'
+import { lstatSync, readFileSync, readdirSync, readlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { gitOrThrow } from './git-entry.js'
+import { workerCopyList } from './jobs-rule.js'
 
 export const CLAIMS_PATH = '.check-cache/test-claims.json'
 
@@ -37,7 +39,7 @@ export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'
 export const SOURCE_DIR = 'scripts'
 
 export interface Claims {
-  /** 写下这份记录时整棵 `scripts/` 树的指纹。对不上就是过期记录,不算数 */
+  /** 写下这份记录时整个仓库的指纹（`claimInputs` 那份清单）。对不上就是过期记录,不算数 */
   source_hash: string
   /** 真正跑过的需求编号 */
   covered: string[]
@@ -90,6 +92,54 @@ export const sourceFiles = (dir: string = SOURCE_DIR): [string, string][] => [
   }),
   ...(dir === SOURCE_DIR ? workflowSources() : []),
 ]
+
+/**
+ * 一个文件在认领指纹里的身份:普通文件是它字节的 sha256,符号链接是它指向哪里(不跟进去,与 git 存链接的方式一样),
+ * 别的(目录、子模块、管道)和已经不在的(`ENOENT`、上一级成了文件的 `ENOTDIR`)交回 `null`,不进指纹。
+ * 按字节算、不按 UTF-8 读:读成字符串的话,两份不同的二进制文件可能读出同一串替换字符,指纹分不出来。
+ * 跳过的那几种与变异派工建 worker 副本时跳过的一样(`mutate.ts` 的 `copyIntoWorker`):副本里没有的,这里也不算。
+ */
+export function claimInputEntry(path: string): string | null {
+  let st
+  try { st = lstatSync(path) } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null
+    throw e
+  }
+  if (st.isSymbolicLink()) return `link\0${readlinkSync(path)}`
+  if (st.isFile()) return `file\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`
+  return null
+}
+
+/**
+ * **认领记录的指纹**算哪些文件:与变异派工带进 worker 副本的是同一份清单(`jobs-rule.ts` 的 `workerCopyList`)——
+ * git 列出的受控文件加上没被忽略的新文件,去掉 `.check-cache`、`node_modules` 与 `.env` 一类。
+ *
+ * 为什么不是 `sourceFiles` 那棵 `scripts/` 树:测试与自检还读 `skill/` 下的 Skill 说明、`docs/` 里的需求表与规矩、
+ * `process/` 里的流程文字、根目录的几份说明与 `package.json`。只算 `scripts/` 的话,改了这些、不重跑测试直接跑审计,
+ * 旧记录照样算数(ADR-231 第十节登记的既有缺陷,ADR-233 的实测)。
+ *
+ * 为什么是整份清单、不是「测试读到的那几个目录」:哪些文件被读,今天可以实测出来,明天加一条测试就变了,
+ * 手写一份目录名单迟早漏 —— 漏了不会有任何东西提醒。整份清单是它的上界,而且有现成的证据说它够:
+ * 变异测试就是在只带这份清单的副本里把整套测试跑通的。多算的代价只是改了一份没被读的文件也要重跑一次测试。
+ *
+ * 与 `sourceFiles` 分开,不改它:变异那一步的源码身份(`mutationSourceIdentity`,启动数那份文件认它)仍只认
+ * `scripts/` 与工作流 —— 改一份说明不该要人重跑半小时的变异。
+ *
+ * 问 git 经 git 入口(ADR-220);git 答不上来(不是仓库、不在顶层、清单是空的)就抛错,不退回 `scripts/` 那棵树:
+ * 退回去就是又一次「旧记录照样算数」,只是这回没人知道。
+ */
+export function claimInputs(cwd = '.'): [string, string][] {
+  const plan = workerCopyList(
+    gitOrThrow(['rev-parse', '--show-prefix'], { cwd }),
+    gitOrThrow(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd }),
+  )
+  if ('fault' in plan) throw new Error(`算不出认领记录的指纹：${plan.fault}`)
+  return plan.files.flatMap(rel => {
+    const entry = claimInputEntry(join(cwd, rel))
+    return entry === null ? [] : [[rel, entry] as [string, string]]
+  })
+}
 
 /**
  * 记录里那几个字符串数组字段。列成一张名单,是因为验的不是「某一个字段」,
