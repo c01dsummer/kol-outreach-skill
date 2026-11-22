@@ -10540,8 +10540,8 @@
       "req": "harness",
       "file": "scripts/check/size-rule.ts",
       "why": "提交列表不去空行 —— 没有提交时列出一个空串「提交」，拿它去读提交信息",
-      "find": "commits: listed.split('\\n').filter(Boolean) }",
-      "replace": "commits: listed.split('\\n') }",
+      "find": "const commits = listed.split('\\n').filter(Boolean)",
+      "replace": "const commits = listed.split('\\n')",
       "by": "test",
       "kills": [
         "没有分支提交时列表为空数组"
@@ -33125,6 +33125,78 @@
       "by": "test",
       "kills": [
         "钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，stdout 不出汇总"
+      ]
+    },
+    {
+      "id": "M-H234-a",
+      "req": "harness",
+      "why": "给了 PR 的 base 却找不到这个提交时，退回按主干量 —— 叠在没合的分支上的 PR 又把下面那条的行数和豁免算成自己的",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  if (sha === null) {\n    return cannot(`给了这条 PR 的 base",
+      "replace": "  if (sha === null) return { kind: 'measure', trunk, head, base, onTrunk, commits }\n  if (sha === '') {\n    return cannot(`给了这条 PR 的 base",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：给了 base 却找不到 → 无从判断，不退回按主干量"
+      ]
+    },
+    {
+      "id": "M-H234-b",
+      "req": "harness",
+      "why": "给的 PR base 与 HEAD 没有共同祖先时，退回按主干量",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  if (own === null) {\n    return cannot(",
+      "replace": "  if (own === null) return { kind: 'measure', trunk, head, base, onTrunk, commits }\n  if (own === '') {\n    return cannot(",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：base 与 HEAD 没有共同祖先 → 无从判断，不退回按主干量"
+      ]
+    },
+    {
+      "id": "M-H234-c",
+      "req": "harness",
+      "why": "给了 base 时豁免照旧从按主干列出的提交里找 —— 下面那条分支的 size-ok 被这条捡到",
+      "file": "scripts/check/size-rule.ts",
+      "find": "base: own, onTrunk, commits: mine, prBase",
+      "replace": "base: own, onTrunk, commits, prBase",
+      "by": "test",
+      "kills": [
+        "叠在没合的 A 上、给了 base：A 那句 size-ok 不算 B 的"
+      ]
+    },
+    {
+      "id": "M-H234-d",
+      "req": "harness",
+      "why": "给了 base 时行数照旧从与主干的共同祖先量起 —— 下面那条分支的新增行算进这条",
+      "file": "scripts/check/size-rule.ts",
+      "find": "return { kind: 'measure', trunk, head, base: own, onTrunk",
+      "replace": "return { kind: 'measure', trunk, head, base, onTrunk",
+      "by": "test",
+      "kills": [
+        "叠在没合的 A 上、给了 base：B 只算自己的 10 行源码"
+      ]
+    },
+    {
+      "id": "M-H234-e",
+      "req": "harness",
+      "why": "「base 里已有几个提交不算」一律报 0 —— 报告说收窄了、却说不出收掉了什么",
+      "file": "scripts/check/size-rule.ts",
+      "find": "const inherited = commits.filter(c => !mine.includes(c))",
+      "replace": "const inherited: string[] = []",
+      "by": "test",
+      "kills": [
+        "叠在没合的 A 上、给了 base：base 里已有的 A 那一个提交记在 inherited"
+      ]
+    },
+    {
+      "id": "M-H234-f",
+      "req": "harness",
+      "why": "HEAD 在主干上时也去用 PR 的 base —— 主干上那一跑的起点不再是上一版",
+      "file": "scripts/check/size-rule.ts",
+      "find": "if (prBase === undefined || onTrunk) return",
+      "replace": "if (prBase === undefined) return",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：HEAD 在主干上 → 不用 base，结果与没给时一样（没有 prBase 这个键）"
       ]
     }
   ],

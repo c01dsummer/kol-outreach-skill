@@ -333,8 +333,18 @@ export type Baseline =
   | { kind: 'cannot-answer'; why: string; how: string }
   /** HEAD 就在主干上,而且没有父提交 —— 没有可比的上一版,入口说「不适用」并退出 0 */
   | { kind: 'not-applicable'; trunk: string }
-  /** 量 `base..head`;`commits` 是这条分支自己的提交(豁免只从这些提交信息里找) */
-  | { kind: 'measure'; trunk: string; head: string; base: string; onTrunk: boolean; commits: string[] }
+  /**
+   * 量 `base..head`;`commits` 是这条分支自己的提交(豁免只从这些提交信息里找)。
+   * 调用方给了 PR 的 base、而且 HEAD 不在主干上时多一个 `prBase`(见 `resolveBaseline` 第 7 步);没给时没有这个键
+   */
+  | { kind: 'measure'; trunk: string; head: string; base: string; onTrunk: boolean; commits: string[]; prBase?: PrBase }
+
+/**
+ * 调用方给的 PR base 用上了:`given` 是原样给的那串,`sha` 是解析出来的提交;
+ * `inherited` 是「按主干算是这条分支的、但已经在 base 里」的提交 —— 叠在下面那条没合的分支上的那些,
+ * 它们的新增行与 `size-ok:` 都不算这条的。按主干开的 PR 这一项是空数组,照样说出来
+ */
+export type PrBase = { given: string; sha: string; inherited: string[] }
 
 /**
  * 体量闸门从哪里量起 —— `docs/CONVENTIONS.md` 第十节后半句「哪些提交算这条分支自己的」。
@@ -351,11 +361,19 @@ export type Baseline =
  * 5. 共同祖先就是 HEAD 自己 → HEAD 在主干上(`onTrunk`):改和上一版比,起点是 `rev-parse <HEAD>^1`;
  *    没有上一版 → 不适用。否则起点就是共同祖先。
  * 6. 这条分支自己的提交 = `rev-list <起点>..<HEAD>` 按行拆开、去掉空行(没有提交时是空数组)。
+ * 7. 只在调用方给了 `prBase`(这条 PR 的 base,CI 上是 `github.event.pull_request.base.sha`)、而且 HEAD 不在主干上时:
+ *    `rev-parse --verify <prBase>^{commit}` 答不上来 → 无从判断(给了却找不到);
+ *    `merge-base <base 的 sha> HEAD` 答不上来 → 无从判断(与 HEAD 没有共同祖先)。两种都不退回按主干量:
+ *    退回去,叠在没合的分支上的 PR 就又把下面那条的行数和豁免算成自己的(ADR-234)。
+ *    答得上来,起点改成这个共同祖先,这条分支自己的提交改成 `rev-list <它>..<HEAD>`;
+ *    「base 里已有的」= 第 6 步列出、这里没列出的那些,原样记在 `prBase.inherited`。
+ *    判据是祖先关系(git 列提交按的就是它),不是提交图的形状(ADR-63 的教训)。
+ *    base 就是主干那一头时,起点与第 6 步相同,结果一点不变;HEAD 在主干上时不问这一步(主干上只报数、不判定)。
  *
  * 主干上照样量、照样报数,只是入口不据此判红:这个闸门守的是待评审的改动,
  * CI 跑在推送之后,在主干上判红只会让主干变红(`size.ts` 里有完整理由)。
  */
-export function resolveBaseline(ask: GitAsk): Baseline {
+export function resolveBaseline(ask: GitAsk, prBase?: string): Baseline {
   const cannot = (why: string, how: string): Baseline => ({ kind: 'cannot-answer', why, how })
 
   const head = ask('rev-parse', 'HEAD')
@@ -391,5 +409,25 @@ export function resolveBaseline(ask: GitAsk): Baseline {
     return cannot(`列不出 ${base.slice(0, 7)}..${head.slice(0, 7)} 之间的提交,找不了 size-ok 豁免`,
       `手工跑 \`git rev-list ${base.slice(0, 7)}..${head.slice(0, 7)}\`,看 git 报什么(常见是仓库损坏)。`)
   }
-  return { kind: 'measure', trunk, head, base, onTrunk, commits: listed.split('\n').filter(Boolean) }
+  const commits = listed.split('\n').filter(Boolean)
+  if (prBase === undefined || onTrunk) return { kind: 'measure', trunk, head, base, onTrunk, commits }
+
+  const sha = ask('rev-parse', '--verify', `${prBase}^{commit}`)
+  if (sha === null) {
+    return cannot(`给了这条 PR 的 base(${JSON.stringify(prBase)}),却找不到这个提交`,
+      'CI 上取完整历史(`fetch-depth: 0`);本地先 `git fetch` 把 base 那条分支拉下来,或者不给 base、按主干量。')
+  }
+  const own = ask('merge-base', sha, 'HEAD')
+  if (own === null) {
+    return cannot(`给的 PR base ${sha.slice(0, 7)} 与 HEAD 没有共同祖先`,
+      '确认 PR 的 base 选对了分支;不退回按主干量 —— 那正是叠分支继承下面那条行数和豁免的那条路。')
+  }
+  const ownListed = ask('rev-list', `${own}..${head}`)
+  if (ownListed === null) {
+    return cannot(`列不出 ${own.slice(0, 7)}..${head.slice(0, 7)} 之间的提交,找不了 size-ok 豁免`,
+      `手工跑 \`git rev-list ${own.slice(0, 7)}..${head.slice(0, 7)}\`,看 git 报什么(常见是仓库损坏)。`)
+  }
+  const mine = ownListed.split('\n').filter(Boolean)
+  const inherited = commits.filter(c => !mine.includes(c))
+  return { kind: 'measure', trunk, head, base: own, onTrunk, commits: mine, prBase: { given: prBase, sha, inherited } }
 }

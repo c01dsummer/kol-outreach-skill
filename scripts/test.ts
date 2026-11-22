@@ -17244,6 +17244,109 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     eq('起点第 6 步：按行拆开，夹在中间的空行去掉',
       typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.commits : r.got, [SHA_C2, SHA_C1])
   }
+
+  // ── 第 7 步：调用方给了这条 PR 的 base（ADR-234）──────────────────────
+  // 期望出自 resolveBaseline 说明第 7 步与卡上的关单标准：只数 base 里没有的提交；给了却找不到、
+  // 或与 HEAD 没有共同祖先就拒答，不退回按主干量；base 就是主干那一头时结果一点不变
+  {
+    const PR_BASE = 'base-ref', SHA_PR = 'sha-pr-base', SHA_OWN = 'sha-own-fork'
+    const Q_PR = `rev-parse --verify ${PR_BASE}^{commit}`
+    const Q_OWN = `merge-base ${SHA_PR} HEAD`
+    const Q_LIST_OWN = `rev-list ${SHA_OWN}..${SHA_HEAD}`
+    const runWith = (table: Record<string, string | null>, prBase: string) => {
+      const asked: string[] = []
+      const ask: GitAsk = (...args) => { asked.push(args.join(' ')); return Object.hasOwn(table, args.join(' ')) ? table[args.join(' ')] : null }
+      let got: Baseline | string
+      try { got = resolveBaseline(ask, prBase) } catch (e) { got = `抛了：${e instanceof Error ? e.message : String(e)}` }
+      return { got, asked }
+    }
+    // 叠在下面那条没合的分支上：按主干算有 c2、c1、下面那条的 a1，base 里已有 a1
+    const stacked = onBranch({
+      [Q_LIST_FORK]: `${SHA_C2}\n${SHA_C1}\nsha-a1`, [Q_PR]: SHA_PR, [Q_OWN]: SHA_OWN, [Q_LIST_OWN]: `${SHA_C2}\n${SHA_C1}`,
+    })
+    {
+      const r = runWith(stacked, PR_BASE)
+      exact('起点第 7 步：叠在没合的分支上 → 起点改成与 base 的共同祖先，只留这条自己的提交，下面那条的记在 inherited', r.got,
+        { ...measure('origin/main', SHA_OWN, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: ['sha-a1'] } })
+      eq('起点第 7 步：主干那几问照旧，之后解析 base、取共同祖先、按它列提交', r.asked,
+        [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_BASE_ORIGIN, Q_LIST_FORK, Q_PR, Q_OWN, Q_LIST_OWN])
+    }
+    {
+      // base 就是主干那一头：与 base 的共同祖先就是与主干的共同祖先
+      const r = runWith(onBranch({ [Q_PR]: SHA_PR, [Q_OWN]: SHA_FORK }), PR_BASE)
+      exact('起点第 7 步：base 就是主干那一头 → 起点与提交跟没给 base 时一样，inherited 为空数组', r.got,
+        { ...measure('origin/main', SHA_FORK, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: [] } })
+    }
+    {
+      const r = runWith({ ...stacked, [Q_PR]: null }, PR_BASE)
+      eq('起点第 7 步：给了 base 却找不到 → 无从判断，不退回按主干量', refusal(r.got), 'cannot-answer')
+      eq('起点第 7 步：找不到 base 就停，不再取共同祖先', r.asked.at(-1), Q_PR)
+    }
+    {
+      const r = runWith({ ...stacked, [Q_OWN]: null }, PR_BASE)
+      eq('起点第 7 步：base 与 HEAD 没有共同祖先 → 无从判断，不退回按主干量', refusal(r.got), 'cannot-answer')
+      eq('起点第 7 步：没有共同祖先就停，不再列提交', r.asked.at(-1), Q_OWN)
+    }
+    {
+      const r = runWith({ ...stacked, [Q_LIST_OWN]: null }, PR_BASE)
+      eq('起点第 7 步：按 base 列提交答不上来 → 无从判断，不当成「没有提交」', refusal(r.got), 'cannot-answer')
+    }
+    {
+      // 主干上只报数、不判定：给了 base 也不问第 7 步
+      const r = runWith(onBranch({ [Q_BASE_ORIGIN]: SHA_HEAD, [Q_PR]: SHA_PR }), PR_BASE)
+      exact('起点第 7 步：HEAD 在主干上 → 不用 base，结果与没给时一样（没有 prBase 这个键）', r.got,
+        measure('origin/main', SHA_PARENT, true, [SHA_HEAD]))
+      eq('起点第 7 步：HEAD 在主干上时不去解析 base', r.asked.includes(Q_PR), false)
+    }
+  }
+
+  // ── 第 7 步在真 git 仓库上：B 叠在没合的 A 上、A 带 size-ok ────────────────
+  // 卡上第 4 条关单标准要的形状。主干一个提交；A 从主干开出，加 400 行源码，提交信息最后一段写 `size-ok: 源码 …`；
+  // B 从 A 的头开出，加 10 行源码，没有豁免。给 base = A 的头时，B 只量自己的 10 行、提交里找不到 A 的豁免；
+  // 不给 base 时照旧按主干量（410 行、捡到 A 的豁免）—— 两边都钉住，后者是没给 base 时明写的旧行为
+  {
+    const repo = mkdtempSync(join(tmpdir(), 'kol-size-stacked-'))
+    const g = (...a: string[]) => fixtureGitOrThrow(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a], { cwd: repo })
+    const ask: GitAsk = (...a) => gitText(a, { cwd: repo, env: fixtureEnv({}) })?.trim() ?? null
+    const lines = (n: number, tag: string) => Array.from({ length: n }, (_, i) => `export const ${tag}${i} = ${i}`).join('\n') + '\n'
+    g('init', '-q', '-b', 'main')
+    writeFileSync(join(repo, 'README.md'), '底\n', 'utf8')
+    g('add', '-A'); g('commit', '-qm', '底')
+    g('update-ref', 'refs/remotes/origin/main', 'HEAD')
+    g('checkout', '-q', '-b', 'a')
+    mkdirSync(join(repo, 'scripts'), { recursive: true })
+    writeFileSync(join(repo, 'scripts/a.ts'), lines(400, 'a'), 'utf8')
+    g('add', '-A'); g('commit', '-qm', 'A\n\nsize-ok: 源码 A 首次落地，拆不开')
+    const aHead = g('rev-parse', 'HEAD').trim()
+    g('checkout', '-q', '-b', 'b')
+    writeFileSync(join(repo, 'scripts/b.ts'), lines(10, 'b'), 'utf8')
+    g('add', '-A'); g('commit', '-qm', 'B')
+    /** 照 size.ts 的量法：起点到 HEAD 的新增行按类数，豁免只从这条分支自己的提交信息里找 */
+    const report = (prBase?: string) => {
+      const b = resolveBaseline(ask, prBase)
+      if (b.kind !== 'measure') return b
+      const files = parseNumstat(ask(...NUMSTAT, b.base, b.head) ?? '')
+      const counts = tally(merge(files, parseNumstat(ask(...NUMSTAT_IGNORING_SPACE, b.base, b.head) ?? '')))
+      const waivers = b.commits.flatMap(c => scanMessage(ask('log', '-1', '--format=%B', c) ?? ''))
+        .flatMap(v => v.kind === 'exempt' ? [{ category: v.category, reason: v.reason }] : [])
+      return { counts, waivers, judged: judge(counts, waivers, []), inherited: b.prBase?.inherited.length }
+    }
+    const stackedB = report(aHead)
+    eq('叠在没合的 A 上、给了 base：B 只算自己的 10 行源码',
+      'counts' in stackedB ? stackedB.counts.源码 : stackedB, 10)
+    eq('叠在没合的 A 上、给了 base：A 那句 size-ok 不算 B 的',
+      'waivers' in stackedB ? stackedB.waivers : stackedB, [])
+    eq('叠在没合的 A 上、给了 base：base 里已有的 A 那一个提交记在 inherited',
+      'inherited' in stackedB ? stackedB.inherited : stackedB, 1)
+    const legacy = report()
+    eq('没给 base：照旧按主干量，A 的 400 行算进来（明写的旧行为）',
+      'counts' in legacy ? legacy.counts.源码 : legacy, 410)
+    eq('没给 base：照旧捡到 A 的豁免、放行（明写的旧行为，只有给了 base 才挡得住）',
+      'judged' in legacy ? legacy.judged.ok : legacy, true)
+    eq('给 base = 主干那一头：与没给时量出同一组数（按主干开的 PR 结果一点不变）',
+      (() => { const t = report('origin/main'); return 'counts' in t && 'counts' in legacy ? isDeepStrictEqual(t.counts, legacy.counts) && t.waivers.length === legacy.waivers.length : t })(), true)
+    rmSync(repo, { recursive: true, force: true })
+  }
 }
 
 harness('引文遮罩：引用块里的围栏也要盖住')

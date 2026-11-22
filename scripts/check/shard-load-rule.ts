@@ -228,6 +228,8 @@ const WORKFLOW_PIN: readonly string[] = [
   "          sysctl kernel.apparmor_restrict_unprivileged_userns",
   "      - run: npm ci --prefer-offline --no-audit",
   "      - run: «CHAIN»",
+  "        env:",
+  "          SIZE_PR_BASE: ${{ github.event.pull_request.base.sha }}",
   "      - name: 欠条点名提醒（只提醒）",
   "        if: always()",
   "        continue-on-error: true",
