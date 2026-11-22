@@ -4,8 +4,8 @@
     "sha256": "e5e81ec85dfb0d8caba0af4adc86a92a593fffc1956bef40a268634c7e6b8383"
   },
   "ADR-145-变异的入口启动数设上限：每条自检变异-50-次，每种需求测试配置.md": {
-    "bytes": 368113,
-    "sha256": "dadfadc771cf6058708f408f175bd5f4b342c2b4eecad50849ea7b4317653a40"
+    "bytes": 368303,
+    "sha256": "c92d0c70b7581988baf531ec6bcdb60271dcfd028c52c90d6a3c83da44b501f1"
   },
   "ADR-151-过程层问题回路：七条实践按层拆开落位，先合记录、再逐片合.md": {
     "bytes": 273887,
@@ -18,6 +18,10 @@
   "ADR-158-检查链改用裸-node-跑预编的-JS，缺一份就照旧-tsx.md": {
     "bytes": 166803,
     "sha256": "e0b8b61ccc1132bf8b32f12c890a7484d8c30a05dc9b13de3a2331ad7b0836fd"
+  },
+  "ADR-167-欠条台账机制：四句入口规矩还没进-process，台账、回访与闸.md": {
+    "bytes": 60634,
+    "sha256": "3246bf03e170219f8f0ad93c185bc3fe591b127b62d27dbb648ec5f5e9cdd856"
   },
   "ADR-198-检查链判定新增的返回字段没有变异守着就红.md": {
     "bytes": 61359,
@@ -32,15 +36,15 @@
     "sha256": "2bdca06f16fcd6b1acebe4cfbcbb578e73079016fd434e4f87b84f1b6f021abc"
   },
   "ADR-70-变异可以指定验证者：入口的接线从测不了变成有负片.md": {
-    "bytes": 678961,
-    "sha256": "3bb4ba7e72ded72c15688d47b4ff723c417ff5f00240e99f08b5a14ec9ddf82e"
+    "bytes": 680745,
+    "sha256": "5782f93ef580ae3728ace8270a1b1c9af9e8bc24f50b7180a223d704bb64894a"
   },
   "ADR-94-第一页保证排在达标判断之前：那句每个维度都有产出换了形状又回来.md": {
     "bytes": 117724,
     "sha256": "0af3e5214192920017db8e3b38b477546af704b4221d57bb3d7f2df2b3c1acf9"
   },
   "ADR-99-自检夹具成组选跑：省下四分之一，两条依赖边-tsc-看不见.md": {
-    "bytes": 134886,
-    "sha256": "b8d5301298a9aa5dbdbcf851c1a6c1b515e6af2509082a3cc9941aab48a986f6"
+    "bytes": 135941,
+    "sha256": "bec535202bce5145ef06d63b1402ae7fe7a2329a282f2fcc08deadb1f8ad2c1e"
   }
 }
