@@ -29854,6 +29854,42 @@
       ]
     },
     {
+      "id": "M-H167-p",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "按名字写的状态行不认续挂 —— 新写的续挂行都按名字写，台账看不出那张续挂过",
+      "find": "export const STATUS_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾|续挂)",
+      "replace": "export const STATUS_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾)",
+      "by": "test",
+      "kills": [
+        "四种状态行都抽得出，键是记录加行号或记录加名字"
+      ]
+    },
+    {
+      "id": "M-H167-q",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "几行关法并存时取最后一行 —— 同一张欠条的种类随写法先后翻来翻去，和说明里「取排在最前的那一行」对不上",
+      "find": "      const closing = found.find(s => CLOSED_KINDS.has(s.kind))",
+      "replace": "      const closing = found.findLast(s => CLOSED_KINDS.has(s.kind))",
+      "by": "test",
+      "kills": [
+        "几行关法并存：取排在最前的那一行，按名字指的也一起排"
+      ]
+    },
+    {
+      "id": "M-H167-r",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "按行号指的与按名字指的不放在一起排 —— 按行号的永远排在前面，种类取的不是排在最前的那一行",
+      "find": "        .sort((a, b) => order.get(a)! - order.get(b)!)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "几行关法并存：取排在最前的那一行，按名字指的也一起排"
+      ]
+    },
+    {
       "id": "M-H205-a",
       "req": "harness",
       "file": "scripts/check/ticket-refs-rule.ts",

@@ -348,7 +348,7 @@ export interface Ledger {
 /**
  * 台账加状态栏：每条重启条件按「记录 + 行号」（`entryKey`）或「记录 + 短名字」（`nameKey`）找指着它的状态行。
  *
- * - 有一行已还、收尾或已重挂指着它：关上，状态取最先写下的那一行（按文件路径、再按行）；
+ * - 有一行已还、收尾或已重挂指着它：关上，种类取排在最前的那一行 —— 按行号指的与按名字指的放在一起，按文件路径、再按行排；
  * - 只有续挂行指着它：续挂，仍算开着；
  * - 都没有：开着。
  *
@@ -361,6 +361,7 @@ export function ledgerStatus(docs: Map<string, string>): Ledger {
   const all = statusLines(docs)
   const byKey = new Map<string, StatusLine[]>()
   for (const s of all) byKey.set(s.key, [...byKey.get(s.key) ?? [], s])
+  const order = new Map(all.map((s, k) => [s, k]))
   const used = new Set<StatusLine>()
   const list: Row[] = []
   for (const [file, text] of docs) {
@@ -371,6 +372,7 @@ export function ledgerStatus(docs: Map<string, string>): Ledger {
       const block = blockAt(blocks, entry.line - 1)
       const name = block ? iouName(lines[block.start]) : null
       const found = [entryKey(entry, split), nameKey(file, name)].flatMap(k => k === null ? [] : byKey.get(k) ?? [])
+        .sort((a, b) => order.get(a)! - order.get(b)!)
       for (const s of found) used.add(s)
       const closing = found.find(s => CLOSED_KINDS.has(s.kind))
       list.push({ entry, status: closing ? closing.kind : found.length ? '续挂' : '开着' })

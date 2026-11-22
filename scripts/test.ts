@@ -17332,8 +17332,8 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   const stLedger = (files: Record<string, string>) => ledgerStatus(new Map(Object.entries(files)))
   const stOf = (l: ReturnType<typeof ledgerStatus>) => l.rows.map(r => `${r.entry.file.replace(/^docs\/adr\//, '')}:${r.entry.line} ${r.status}`)
   eq('四种状态行都抽得出，键是记录加行号或记录加名字', statusLines(new Map([['docs/adr/ADR-9-x.md',
-    '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n> ⚠️ 收尾：ADR-2 第 4 行 · 不做\n> ⚠️ 已重挂：ADR-3「甲」 · 现行的是 ADR-4「乙」\n> ⚠️ **续挂**：ADR-5「丙」 · 到 2026-12-01']]))
-    .map(s => `${s.line} ${s.kind} ${s.key}`), ['1 已还 ADR-1:3', '2 收尾 ADR-2:4', '3 已重挂 ADR-3「甲」', '4 续挂 ADR-5「丙」'])
+    '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n> ⚠️ 收尾：ADR-2 第 4 行 · 不做\n> ⚠️ 已重挂：ADR-3「甲」 · 现行的是 ADR-4「乙」\n> ⚠️ **续挂**：ADR-5 第 6 行 · 到 2026-12-01\n> ⚠️ 续挂：ADR-7「丙」 · 到 2026-12-01']]))
+    .map(s => `${s.line} ${s.kind} ${s.key}`), ['1 已还 ADR-1:3', '2 收尾 ADR-2:4', '3 已重挂 ADR-3「甲」', '4 续挂 ADR-5:6', '5 续挂 ADR-7「丙」'])
   eq('一行状态行抽出来的五样：文件、行号、种类、键、去掉装饰的原文', statusLines(new Map([['docs/adr/ADR-9-x.md', '正文\n\n> ⚠️ **续挂**：ADR-1 第 3 行 · 到 2026-12-01']])),
     [{ file: 'docs/adr/ADR-9-x.md', line: 3, kind: '续挂', key: 'ADR-1:3', text: '⚠️ 续挂：ADR-1 第 3 行 · 到 2026-12-01' }])
   eq('围栏里演示的状态行不抽', statusLines(new Map([['docs/adr/ADR-9-x.md', '```\n⚠️ 续挂：ADR-1 第 3 行\n```']])), [])
@@ -17346,6 +17346,9 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
     ['ADR-1-x.md:3 续挂', 'ADR-1-x.md:5 开着'])
   eq('续挂过、后来还上：算已还', stOf(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc,
     'docs/adr/ADR-2-y.md': '> ⚠️ 续挂：ADR-1 第 3 行 · 到 2026-12-01\n\n> ⚠️ 已还：ADR-1 第 3 行 · 还在 #2\n' }))[0], 'ADR-1-x.md:3 已还')
+  // 两种关法并存（主干上有几张先已重挂、后又写已还）：按行号指的与按名字指的放在一起排，取文件路径、行号最靠前的那一行
+  eq('几行关法并存：取排在最前的那一行，按名字指的也一起排', stOf(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc,
+    'docs/adr/ADR-2-y.md': '> ⚠️ 已重挂：ADR-1「乙」 · 现行的是 ADR-9「丁」\n', 'docs/adr/ADR-3-z.md': '> ⚠️ 已还：ADR-1 第 5 行 · 还在 #2\n' }))[1], 'ADR-1-x.md:5 已重挂')
   // 拆过的记录：老状态行的行号指的是历史文件，不顺带关上主文件里同一行号的那张
   eq('拆过的记录：按行号的状态行只配历史文件那张', stOf(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc, 'docs/adr/历史/ADR-1-x.md': iouDoc.replace('「乙」', '「丙」'),
     'docs/adr/ADR-2-y.md': '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n' })).sort(),
