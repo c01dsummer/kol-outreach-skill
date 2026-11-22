@@ -106,7 +106,7 @@ import {
 import { FACT_TABLE_FROM, FACT_TABLE_HEAD, OLD_GAPS, cellsOf, factTableFaults } from './check/adr-fact-table.js'
 import {
   type ChainCommit, DOCS_BLOCK, type ReviewComment, type Round, type Spot, WAIVER_TABLE_HEAD, WHOLE_FILE, type Waiver as SpotWaiver,
-  chainFrom, changedRecords, codeSpots, docSpots, hitsOf, positionIn, roundsOf, sameSpot, spotText, spotsOf, waiversOf,
+  chainFrom, changedRecords, codeSpots, docSpots, hitsOf, newWaiversOf, positionIn, roundsOf, sameSpot, spotText, spotsOf, waiversOf,
 } from './check/same-spot-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { compileCacheDir, tsxCommand } from './check/tsx-cmd.js'
@@ -26613,6 +26613,17 @@ await group('h-same-spot', () => {
   const wholeRounds = roundsOf(chain, onMain, [c(1, 'a'), c(2, 'b', 'x.ts', { subject_type: 'file' })], x => spotsOf(x, fileAt))
   eq('同一处：解除按报出的那一处一字不差地比，解除别处或整份文件不放走具体那一处',
     [hitsOf(wholeRounds, [w('a', 'beta')], pos).hits.length, hitsOf(wholeRounds, [w('a', WHOLE_FILE)], pos).hits.length, hitsOf(wholeRounds, [w('a')], pos).hits.length], [1, 1, 0])
+  {
+    const table = (rows: string[]) => ['# 记录', '', '## 十三、同一处连着两轮：改设计', '', '| 同一处 | 旧做法最后一轮的提交 | 新做法写在哪 |', '|---|---|---|', ...rows, ''].join('\n')
+    const oldRow = '| `x.ts#alpha` | dcb2363 | 第十一节 |', newRow = '| `y.ts#beta` | abc1234 | 第二节 |'
+    const appended = newWaiversOf('r.md', `${table([oldRow])}\n> ⚠️ 已还：……\n`, table([oldRow]))
+    eq('同一处：主干上已有的解除行（旧 PR 的提交）不算这条 PR 的解除，往老记录末尾补一句时不报不在历史上', [appended.waivers.length, appended.faults.length], [0, 0])
+    eq('同一处：同一份老记录里这条 PR 新加的解除行照算', newWaiversOf('r.md', table([oldRow, newRow]), table([oldRow])).waivers.map(x => x.spot.name), ['beta'])
+    eq('同一处：新加的记录里解除行全算', newWaiversOf('r.md', table([oldRow]), null).waivers.length, 1)
+    const badRow = '| x.ts#alpha | 不是提交号 | 第十一节 |'
+    eq('同一处：主干那份老记录里写坏的解除行只算旧账，这条 PR 往末尾补一句时不报', newWaiversOf('r.md', `${table([badRow])}\n> ⚠️ 已还：……\n`, table([badRow])).faults, [])
+    eq('同一处：这条 PR 新写坏的解除行照报', newWaiversOf('r.md', table([oldRow, badRow]), table([oldRow])).faults.length, 1)
+  }
   eq('同一处：只有这条 PR 加了或改了的决策记录里的解除表算数', changedRecords([{ text: '甲', base: '甲' }, { text: '乙', base: '丙' }, { text: '丁', base: null }]).map(r => r.text), ['乙', '丁'])
   eq('同一处：一轮是整份文件、另一轮是具体一处，报出的是具体那一处；报的是相邻哪两轮', hitsOf(wholeRounds, [], pos).hits.map(h => [spotText(h.spot), h.earlier.head, h.later.head]), [['x.ts#alpha', 'a', 'b']])
   const off = hitsOf(rounds, [w('zz')], pos)

@@ -15,7 +15,7 @@ import path from 'node:path'
 import { gitOrThrow, gitText } from './git-entry.js'
 import {
   type ReviewComment, type Waiver,
-  chainFrom, changedRecords, hitsOf, positionIn, roundsOf, spotText, spotsOf, waiversOf,
+  chainFrom, changedRecords, hitsOf, newWaiversOf, positionIn, roundsOf, spotText, spotsOf,
 } from './same-spot-rule.js'
 
 function need(name: string): string {
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     return { file, text: fs.readFileSync(file, 'utf8'), base: gitText(['cat-file', 'blob', `${fork}:${file}`]) }
   })
   for (const r of changedRecords(records)) {
-    const got = waiversOf(r.file, r.text)
+    const got = newWaiversOf(r.file, r.text, r.base)
     waivers.push(...got.waivers); faults.push(...got.faults)
   }
   const judged = hitsOf(rounds, waivers, sha => positionIn(chain, sha))

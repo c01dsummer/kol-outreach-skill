@@ -262,6 +262,24 @@ export function changedRecords<T extends { text: string; base: string | null }>(
   return files.filter(f => f.text !== f.base)
 }
 
+/**
+ * 一份决策记录里这条 PR 新写的解除行：主干上已有的行（同一处、同一个提交）是那条旧 PR 的，提交不在新 PR 的链上，
+ * 不算这条 PR 的解除，也不报「不在历史上」—— 否则往一份带解除表的老记录末尾补一句「已还」，这条 PR 就红（ADR-232）。
+ * 主干上那份的格式毛病同理只算旧账，只报新写出来的
+ */
+export function newWaiversOf(file: string, text: string, base: string | null): { waivers: Waiver[]; faults: string[] } {
+  const now = waiversOf(file, text)
+  if (base === null) return now
+  const old = waiversOf(file, base)
+  const key = (w: Waiver) => `${w.spot.path}#${w.spot.name}@${w.after}`
+  const had = new Set(old.waivers.map(key))
+  const oldFaults = new Set(old.faults.map(f => f.replace(/第 \d+ 行/, '')))
+  return {
+    waivers: now.waivers.filter(w => !had.has(key(w))),
+    faults: now.faults.filter(f => !oldFaults.has(f.replace(/第 \d+ 行/, ''))),
+  }
+}
+
 /** 连着两轮落在同一处的一对 */
 export interface Hit { spot: Spot; earlier: Round; later: Round; blocks: boolean }
 

@@ -32468,6 +32468,30 @@
       ]
     },
     {
+      "id": "M-H225-ba",
+      "req": "harness",
+      "why": "往带解除表的老决策记录末尾补一句，主干上那条旧 PR 的解除行也被当成这条 PR 写的，报不在历史上，检查无故变红",
+      "file": "scripts/check/same-spot-rule.ts",
+      "find": "    waivers: now.waivers.filter(w => !had.has(key(w))),",
+      "replace": "    waivers: now.waivers,",
+      "by": "test",
+      "kills": [
+        "同一处：主干上已有的解除行（旧 PR 的提交）不算这条 PR 的解除，往老记录末尾补一句时不报不在历史上"
+      ]
+    },
+    {
+      "id": "M-H225-bb",
+      "req": "harness",
+      "why": "往主干上那份解除表本来就写坏了一行的老记录末尾补一句，旧账也算到这条 PR 头上，检查无故变红",
+      "file": "scripts/check/same-spot-rule.ts",
+      "find": "    faults: now.faults.filter(f => !oldFaults.has(f.replace(/第 \\d+ 行/, ''))),",
+      "replace": "    faults: now.faults,",
+      "by": "test",
+      "kills": [
+        "同一处：主干那份老记录里写坏的解除行只算旧账，这条 PR 往末尾补一句时不报"
+      ]
+    },
+    {
       "id": "M-P1-al",
       "req": "P1.k",
       "why": "作品数没查过的人照样拿到「作品数多于门槛」那一项的分 —— 不知道他发过多少作品，却当成发得够多，凭空多给 10 分",
