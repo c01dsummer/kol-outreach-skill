@@ -46,7 +46,7 @@ import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, r
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, testOnlyMentions, useLines } from './check/child-process-use-rule.js'
 import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
 import { QUESTIONS as gitQuestions, askGit, gitOrThrow, gitText, questionOf, runGit, runGitAsync } from './check/git-entry.js'
-import { fixtureCheck, fixtureGit, fixtureGitOrThrow } from './check/git-fixture.js'
+import { fixtureCheck, fixtureEnv, fixtureGit, fixtureGitOrThrow } from './check/git-fixture.js'
 import { NOTED_APIS, noteSpawns } from './check/selfcheck-spawn-notes.js'
 import { withRestore, withSpies, withStandIns } from './check/child-process-stand-in.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
@@ -13958,12 +13958,10 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树，认领记录的�
   // 变异 worker 的副本里没有 .git，拿本仓库验的话这几条在每一跑变异里都起不来（M-H14-au、av、aw）
   {
     const outer = mkdtempSync(join(tmpdir(), 'claim-inputs-')), toy = join(outer, 'repo')
-    // 问 git 时隔开本机的系统、用户配置与用户级忽略文件（默认在 XDG_CONFIG_HOME 或 HOME 底下的 git/ignore）：
-    // 不隔开的话，本机忽略了 *.bin 一类，下面的断言就随机器红绿
-    const isolated: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: '/dev/null',
-      GIT_CONFIG_GLOBAL: '/dev/null', XDG_CONFIG_HOME: join(outer, 'xdg'), HOME: join(outer, 'home') }
-    // 也不继承指向别的仓库的变量：外面设了 GIT_DIR 一类，git 就去读那个仓库而不是玩具仓库
-    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete isolated[k]
+    // 问 git 用夹具造的环境，不自己拼（ADR-233 第七节）：GIT_ 开头的一律不继承，本机的系统、用户配置不读。
+    // 夹具挡不住的只有用户级忽略文件（默认在 XDG_CONFIG_HOME 或 HOME 底下的 git/ignore，不走配置文件）：
+    // 这两个指到临时目录，不然本机忽略了 *.bin 一类，下面的断言就随机器红绿
+    const isolated: NodeJS.ProcessEnv = { ...fixtureEnv({}), XDG_CONFIG_HOME: join(outer, 'xdg'), HOME: join(outer, 'home') }
     try {
       mkdirSync(toy)
       fixtureGitOrThrow(['init', '-q'], { cwd: toy })
