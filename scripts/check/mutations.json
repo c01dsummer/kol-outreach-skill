@@ -3166,6 +3166,16 @@
       "kills": ["按字节算 —— 两份读成文字一样的二进制文件也分得出"]
     },
     {
+      "id": "M-H225-ba",
+      "req": "harness",
+      "why": "以前的 PR 写下、早已合进主干的解除行也算进这条 PR —— 往那份决策记录末尾补一行「已还」，旧表就整张算进来，每一行都报「提交不在这条 PR 的历史上」，同一处连着两轮那道必过的检查无故变红",
+      "file": "scripts/check/same-spot-rule.ts",
+      "find": "  return { waivers: now.waivers.filter(w => !old.has(key(w))), faults: now.faults }",
+      "replace": "  return now",
+      "by": "test",
+      "kills": ["同一处：分叉点上已有的解除行不算这条 PR 的，补了一行「已还」也不算"]
+    },
+    {
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",

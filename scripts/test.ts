@@ -106,7 +106,7 @@ import {
 import { FACT_TABLE_FROM, FACT_TABLE_HEAD, OLD_GAPS, cellsOf, factTableFaults } from './check/adr-fact-table.js'
 import {
   type ChainCommit, DOCS_BLOCK, type ReviewComment, type Round, type Spot, WAIVER_TABLE_HEAD, WHOLE_FILE, type Waiver as SpotWaiver,
-  chainFrom, changedRecords, codeSpots, docSpots, hitsOf, positionIn, roundsOf, sameSpot, spotText, spotsOf, waiversOf,
+  chainFrom, changedRecords, freshWaivers, codeSpots, docSpots, hitsOf, positionIn, roundsOf, sameSpot, spotText, spotsOf, waiversOf,
 } from './check/same-spot-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { compileCacheDir, tsxCommand } from './check/tsx-cmd.js'
@@ -26453,6 +26453,16 @@ await group('h-same-spot', () => {
   eq('同一处：解除按报出的那一处一字不差地比，解除别处或整份文件不放走具体那一处',
     [hitsOf(wholeRounds, [w('a', 'beta')], pos).hits.length, hitsOf(wholeRounds, [w('a', WHOLE_FILE)], pos).hits.length, hitsOf(wholeRounds, [w('a')], pos).hits.length], [1, 1, 0])
   eq('同一处：只有这条 PR 加了或改了的决策记录里的解除表算数', changedRecords([{ text: '甲', base: '甲' }, { text: '乙', base: '丙' }, { text: '丁', base: null }]).map(r => r.text), ['乙', '丁'])
+  {
+    // 以前的 PR 写下的解除行不算这条 PR 的：往那份记录末尾补一行「已还」，旧表不该整张算进来（ADR-233）
+    const table = (...rows: string[]) => ['# ADR-9 x', '', '## 同一处连着两轮：改设计', '', '| 同一处 | 旧做法最后一轮的提交 | 新做法写在哪 |', '|---|---|---|', ...rows, ''].join('\n')
+    const oldRow = '| `scripts/a.ts#f` | abc1234 | 第一节 |', newRow = '| `scripts/b.ts#g` | def5678 | 第二节 |'
+    const base = table(oldRow)
+    eq('同一处：分叉点上已有的解除行不算这条 PR 的，补了一行「已还」也不算', freshWaivers('ADR-9.md', base + '\n> ⚠️ 已还：x\n', base).waivers, [])
+    eq('同一处：这条 PR 新加的解除行照算', freshWaivers('ADR-9.md', table(oldRow, newRow), base).waivers.map(w => w.after), ['def5678'])
+    eq('同一处：新加的记录里的解除行全算', freshWaivers('ADR-9.md', base, null).waivers.map(w => w.after), ['abc1234'])
+    eq('同一处：旧行改了提交号就是新的一行，照算', freshWaivers('ADR-9.md', table('| `scripts/a.ts#f` | 9999999 | 第一节 |'), base).waivers.map(w => w.after), ['9999999'])
+  }
   eq('同一处：一轮是整份文件、另一轮是具体一处，报出的是具体那一处；报的是相邻哪两轮', hitsOf(wholeRounds, [], pos).hits.map(h => [spotText(h.spot), h.earlier.head, h.later.head]), [['x.ts#alpha', 'a', 'b']])
   const off = hitsOf(rounds, [w('zz')], pos)
   eq('同一处：解除表写的提交不在链上，那一行不算、报出来', [off.hits.length, off.faults[0]?.includes('不在这条 PR 的历史上')], [1, true])

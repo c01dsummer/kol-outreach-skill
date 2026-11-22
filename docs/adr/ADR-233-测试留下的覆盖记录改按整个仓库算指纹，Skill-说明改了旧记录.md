@@ -7,7 +7,7 @@
 - 决定人与时间：按 ADR-231 第十节那张欠条的去向做，不改需求，不需要选择
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
 - 理由：见第一节
-- 连带改动：`scripts/check/claims.ts`（新加 `claimInputs`、`claimInputEntry`）· `scripts/check/audit.ts`、`scripts/test.ts`、`scripts/check/selfcheck.ts`（三处改用新的指纹；后两处只在自己要写记录的那一跑才算）· `scripts/check/selfcheck.ts` 的 `audit-entry` 组（玩具树建成 git 仓库、记录按玩具树现算的指纹写）· `scripts/test.ts` 新加一块玩具仓库上的断言 · `scripts/check/mutations.json` 新加 M-H14-au、av、aw · `docs/ARCHITECTURE.md` 锚点表里 `claims.ts` 那一行 · `scripts/check/launches.json` 在跑过全量变异的树上写回 · ADR-231 末尾一行「已还」 · `docs/adr/README.md` 索引
+- 连带改动：`scripts/check/claims.ts`（新加 `claimInputs`、`claimInputEntry`）· `scripts/check/audit.ts`、`scripts/test.ts`、`scripts/check/selfcheck.ts`（三处改用新的指纹；后两处只在自己要写记录的那一跑才算）· `scripts/check/selfcheck.ts` 的 `audit-entry` 组（玩具树建成 git 仓库、记录按玩具树现算的指纹写）· `scripts/test.ts` 新加一块玩具仓库上的断言 · `scripts/check/mutations.json` 新加 M-H14-au、av、aw · `scripts/check/same-spot-rule.ts`、`same-spot.ts`（解除表按行认，见第六节）与 `h-same-spot` 组四条、变异 M-H225-ba · `docs/ARCHITECTURE.md` 锚点表里 `claims.ts`、`selfcheck.ts`、`same-spot-rule.ts` 三行 · `scripts/check/launches.json` 在跑过全量变异的树上写回 · ADR-231 末尾一行「已还」 · `docs/adr/README.md` 索引
 - 同类：ADR-20（覆盖记录从运行时读）、ADR-72（worker 副本带哪些文件由 git 说）
 
 ## 要用到的事实，各找谁要
@@ -72,3 +72,12 @@
 另外两处不进指纹、照旧（独立复核指出，登记不修）：文件的可执行位不算（只算内容与链接指向）；`node_modules` 的实际内容与 Node 版本不算，依赖变没变只看 `package-lock.json`。
 
 问不到 git 时审计不再以一屏调用栈退出：说「算不出仓库的指纹，判断不了覆盖记录新不新鲜」、点出 git 的原话、以 1 退出。需求测试与自检在不是 git 仓库的地方做完整整跑会在开跑时抛错 —— 那种跑要写记录，没有指纹就写不出能对得上的记录；子集跑与变异跑不受影响。仓库里原有一条测试在没有 git 的副本里起完整自检（拆进程打不开日志那条），已改成先把副本建成 git 仓库。
+
+## 六、顺带修的：同一处连着两轮那道检查读旧解除表
+
+本条在 ADR-231 末尾补了一行「已还」，PR 上那道必过的检查「同一处连着两轮」（ADR-225）当场红：「ADR-231 …第 258 行：提交 dcb2363 不在这条 PR 的历史上，这一行解除不算」。那一行是 #531 自己写下的解除（读表改用 marked 那次），#531 压成一个提交合入，dcb2363 不在主干上。
+
+毛病在检查按**文件**认「这条 PR 的解除表」：这条 PR 改过的决策记录，里面整张表都算。以后哪条 PR 往带解除表的记录末尾补一行状态，都会这样红 —— ADR-225 原意是「已合进主干的解除表管的是那条旧 PR」，只是落地时粒度取到了文件。
+
+改成按**行**认（`same-spot-rule.ts` 的 `freshWaivers`）：分叉点上那份记录里已有的行（同一处、同一个提交）不算，这条 PR 新加的行、改了提交号的行照算；新加的记录整张算。格式错照旧整份报。需求测试 `h-same-spot` 组加了四条，变异 M-H225-ba（旧行也算进来）由它们抓。ADR-225 的事实表那一行（「只读这条 PR 加了或改了的决策记录」）照旧成立，只是又细了一层，那份记录没有改。
+
