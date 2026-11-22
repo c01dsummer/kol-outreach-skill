@@ -17370,7 +17370,7 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
       '        env:',
       '          SIZE_PR_BASE: origin/${{ github.event.pull_request.base.ref }}',
     ]
-    const sizeWf = rf('.github/workflows/size-base.yml', 'utf8')
+    const sizeWf = rf('.github/workflows/size-base.yml', 'utf8').replace(/\r\n/g, '\n') // 下面造对照时按 \n 找行
     const sizePin = (text: string) => pinnedLinesFaults(text, SIZE_BASE_PIN, ' —— 改了 size-base.yml 就在同一条 PR 里改测试里钉死的那份')
     eq('改 base 也重量：工作流与钉死的样子逐行相同（改 PR 信息时也跑、传 base 分支名、检出 PR 的头、不跳过、只读）', sizePin(sizeWf), [])
     ok('改 base 也重量：量的那一步换成只 echo 那句命令 → 对不上',
@@ -17387,6 +17387,7 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
   // 不给 base 时照旧按主干量（410 行、捡到 A 的豁免）—— 两边都钉住，后者是没给 base 时明写的旧行为
   {
     const repo = mkdtempSync(join(tmpdir(), 'kol-size-stacked-'))
+    try { // 下面这一段不重新缩进，免得整段都算改动
     const g = (...a: string[]) => fixtureGitOrThrow(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a], { cwd: repo })
     const ask: GitAsk = (...a) => gitText(a, { cwd: repo, env: fixtureEnv({}) })?.trim() ?? null
     const lines = (n: number, tag: string) => Array.from({ length: n }, (_, i) => `export const ${tag}${i} = ${i}`).join('\n') + '\n'
@@ -17486,7 +17487,7 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
       'judged' in staleMain ? staleMain.judged.ok : staleMain, false)
     eq('base 是开 PR 时的旧主干头：与不给 base 量出同一组数',
       'counts' in staleMain && 'counts' in plainP ? isDeepStrictEqual(staleMain.counts, plainP.counts) : [staleMain, plainP], true)
-    rmSync(repo, { recursive: true, force: true })
+    } finally { rmSync(repo, { recursive: true, force: true }) } // 量的时候抛错也删掉玩具仓库
   }
 }
 
@@ -26666,7 +26667,7 @@ await group('h-git-fixture', () => {
       writeFileSync(join(user, 'xdg/git/ignore'), 'b\n', 'utf8'); writeFileSync(join(user, 'home/.config/git/ignore'), 'b\n', 'utf8')
       const kept = [process.env.XDG_CONFIG_HOME, process.env.HOME] as const
       const added = (viaXdg: boolean): boolean => {
-        const r = mkdtempSync(join(tmpdir(), 'kol-fixture-ignore-'))
+        const r = mkdtempSync(join(user, 'repo-')) // 都建在 user 底下，最后一起删
         if (viaXdg) process.env.XDG_CONFIG_HOME = join(user, 'xdg'); else delete process.env.XDG_CONFIG_HOME
         process.env.HOME = join(user, 'home')
         try {
@@ -26682,7 +26683,9 @@ await group('h-git-fixture', () => {
           if (kept[1] === undefined) delete process.env.HOME; else process.env.HOME = kept[1]
         }
       }
-      eq('环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件', [added(true), added(false)], [true, true])
+      try {
+        eq('环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件', [added(true), added(false)], [true, true])
+      } finally { rmSync(user, { recursive: true, force: true }) }
     }
     // 起 git 的函数调用时才从模块上取：模块上的 spawnSync 换成替身，夹具用的是替身；不合规矩的一次也不交给它
     const seen: unknown[][] = []
