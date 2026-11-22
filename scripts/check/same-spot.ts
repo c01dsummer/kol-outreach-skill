@@ -15,7 +15,7 @@ import path from 'node:path'
 import { gitOrThrow, gitText } from './git-entry.js'
 import {
   type ReviewComment, type Waiver,
-  chainFrom, changedRecords, hitsOf, positionIn, roundsOf, spotText, spotsOf, waiversOf,
+  chainFrom, changedRecords, freshWaivers, hitsOf, positionIn, roundsOf, spotText, spotsOf,
 } from './same-spot-rule.js'
 
 function need(name: string): string {
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   }
   const rounds = roundsOf(chain, onMain, comments, c => spotsOf(c, fileAt))
 
-  // 解除表：检出的 PR 头上、这条 PR 加了或改了的决策记录里找。比的是 PR 头与主干的分叉点上的同名文件（经 git 入口取，
+  // 解除表：检出的 PR 头上、这条 PR 加了或改了的决策记录里找，只算分叉点上那份里没有的行（`freshWaivers`）。比的是 PR 头与主干的分叉点上的同名文件（经 git 入口取，
   // 没有就是新加的）：比主干的头，PR 没同步时主干后来改过的记录也会被当成本 PR 改的
   const waivers: Waiver[] = [], faults: string[] = []
   const adrDir = 'docs/adr'
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     return { file, text: fs.readFileSync(file, 'utf8'), base: gitText(['cat-file', 'blob', `${fork}:${file}`]) }
   })
   for (const r of changedRecords(records)) {
-    const got = waiversOf(r.file, r.text)
+    const got = freshWaivers(r.file, r.text, r.base)
     waivers.push(...got.waivers); faults.push(...got.faults)
   }
   const judged = hitsOf(rounds, waivers, sha => positionIn(chain, sha))

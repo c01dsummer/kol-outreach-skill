@@ -262,6 +262,19 @@ export function changedRecords<T extends { text: string; base: string | null }>(
   return files.filter(f => f.text !== f.base)
 }
 
+/**
+ * 一份这条 PR 改过的决策记录里，哪几行解除算这条 PR 的：分叉点上那份里已经有的行（同一处、同一个提交）是以前的 PR 写下的，
+ * 管的是那条旧 PR，提交多半不在新链上（旧 PR 压成一个提交合入时就不在），不算。只按文件算的话，以后哪条 PR 往那份记录末尾
+ * 补一行「已还」，旧表就整张算进来、每一行都报「提交不在这条 PR 的历史上」（ADR-233）。格式错只报这一份里的
+ */
+export function freshWaivers(file: string, text: string, base: string | null): { waivers: Waiver[]; faults: string[] } {
+  const now = waiversOf(file, text)
+  if (base === null) return now
+  const key = (w: Waiver) => `${w.spot.path}#${w.spot.name}@${w.after}`
+  const old = new Set(waiversOf(file, base).waivers.map(key))
+  return { waivers: now.waivers.filter(w => !old.has(key(w))), faults: now.faults }
+}
+
 /** 连着两轮落在同一处的一对 */
 export interface Hit { spot: Spot; earlier: Round; later: Round; blocks: boolean }
 
