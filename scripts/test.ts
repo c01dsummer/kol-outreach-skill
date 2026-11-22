@@ -13962,6 +13962,8 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树，认领记录的�
     // 不隔开的话，本机忽略了 *.bin 一类，下面的断言就随机器红绿
     const isolated: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: '/dev/null',
       GIT_CONFIG_GLOBAL: '/dev/null', XDG_CONFIG_HOME: join(outer, 'xdg'), HOME: join(outer, 'home') }
+    // 也不继承指向别的仓库的变量：外面设了 GIT_DIR 一类，git 就去读那个仓库而不是玩具仓库
+    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete isolated[k]
     try {
       mkdirSync(toy)
       fixtureGitOrThrow(['init', '-q'], { cwd: toy })
