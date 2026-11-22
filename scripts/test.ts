@@ -8872,7 +8872,9 @@ function entryChecks(copy: string): void {
   // ADR-232：原先这里断言「没有样本的 Instagram 账号存着的指标报告不用，所以不因 D21.v 拒绝」、退 0。
   // D21.w 起读入时整份对照格式说明，不管报告用不用这一格，存着的活跃状态不是那三个之一就拒收，所以改成断言拒收
   const vIg = render('kol80-v-ig', [alice('kol80vo')], [{ ...account('kol80vo', activityOf('zombie'), riskOf('low')), platform: 'instagram' }])
-  eq('D21.w 没有样本的 Instagram 账号存着的活跃状态不合法时报告虽不用也在读入时以 2 拒收', [vIg.status, untouched(vIg), vIg.stderr.includes('"zombie"')], [2, true, true])
+  const vIgOk = render('kol80-v-ig-ok', [alice('kol80vp')], [{ ...account('kol80vp', activityOf('active'), riskOf('low')), platform: 'instagram' }])
+  eq('D21.w 夹具有效：同样写法的 Instagram 账号活跃状态合法时照常以 0 结束（下一条的拒收只来自活跃状态那一格）', vIgOk.status, 0)
+  eq('D21.w 没有样本的 Instagram 账号存着的活跃状态不合法时报告虽不用也在读入时以 2 拒收', [vIg.status, untouched(vIg), vIg.stderr.includes('metrics.activity_status') && vIg.stderr.includes('"zombie"')], [2, true, true])
 
   // 对照面
   const vOk = render('kol80-v-ok', [alice('kol80vg')], [account('kol80vg', activityOf('active'), riskOf('low'))])
@@ -9035,12 +9037,15 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
   const quoteSection: Token[] = []
   for (const t of tokens.slice(quoteAt + 1)) { if (t.type === 'heading' && (t as Tokens.Heading).depth <= 2) break; quoteSection.push(t) }
   const example = quoteSection.find((t): t is Tokens.Code => t.type === 'code' && (t as Tokens.Code).lang === 'json')
-  const exampleQuote = example ? JSON.parse(example.text) : undefined
-  ok('D21.y 夹具有效：public-metrics.md「合作报价」一节里找得到那段 json 报价示例', exampleQuote?.status === 'measured')
+  // 示例写坏、找不到时记成断言失败而不是整组崩掉；后面拿它造夹具的几条照样跑（拿到的是一个必然不合规的占位）
+  const parseExample = (code: Tokens.Code | undefined): any => { try { return code ? JSON.parse(code.text) : undefined } catch { return undefined } }
+  ok('D21.y 夹具有效：public-metrics.md 里有「合作报价」这一节', quoteAt >= 0)
+  const exampleQuote = parseExample(example) ?? { status: 'measured', value: {} }
+  ok('D21.y 夹具有效：public-metrics.md「合作报价」一节里找得到那段 json 报价示例', parseExample(example)?.status === 'measured')
   eq('D21.y public-metrics.md 给 Agent 的手写报价示例放进账号后按格式说明通过',
     enrichmentSchemaProblems('E.json', file({ 'tiktok:doc': { platform: 'tiktok', handle: 'doc', collaboration_quote: exampleQuote } })), [])
   const unavailableExample = quoteSection.filter((t): t is Tokens.Code => t.type === 'code' && (t as Tokens.Code).lang === 'json')[1]
-  const unavailableQuote = unavailableExample ? JSON.parse(unavailableExample.text) : undefined
+  const unavailableQuote = parseExample(unavailableExample) ?? { status: 'unavailable' }
   ok('D21.y 夹具有效：同一节里第二段 json 是不可用报价的示例，原因是一句中文', unavailableQuote?.status === 'unavailable' && /[\u4e00-\u9fff]/.test(String(unavailableQuote?.reason)))
   eq('D21.y public-metrics.md 教的不可用报价（原因写一句话）放进账号后按格式说明通过',
     enrichmentSchemaProblems('E.json', file({ 'tiktok:doc': { platform: 'tiktok', handle: 'doc', collaboration_quote: unavailableQuote } })), [])
@@ -9082,7 +9087,7 @@ suite('D21', '增强结果读入时整份对照由类型生成的格式说明；
   const status = one({ ...good, metrics: { ...good.metrics, view_rate: { ...good.metrics.view_rate, status: 'gone' } } })
   eq('D21.w 三态包装的 status 写错时只报 status 那一处，不连带报别的格', status.map(s => s.includes('metrics.view_rate.status') && s.includes('"gone"')), [true])
   const wholeText = one({ ...good, metrics: { ...good.metrics, activity_status: 'active' } })
-  eq('D21.w 三态包装整个写成字符串时只报一句「应是对象」，不按分支重复', wholeText.filter(s => s.includes('metrics.activity_status 应是对象')).length, 1)
+  eq('D21.w 三态包装整个写成字符串时只报一句「应是对象」，不按分支重复', [wholeText.length, wholeText.every(s => s.includes('metrics.activity_status 应是对象'))], [1, true])
   const { status: _dropped, ...quoteNoStatus } = exampleQuote
   const noStatus = one({ ...good, collaboration_quote: quoteNoStatus })
   eq('D21.w 报价漏写 status 时只报一句「缺了 status」并提示先写 status，不按两支各报缺了什么、也不把 value 说成多了的一格',
@@ -9150,13 +9155,20 @@ suite('D21', '增强结果读入时整份对照：真起 enrich、render 那一�
       profile_url: `https://example.com/${handle}`, source_keyword: 'local', source_dimension: 'category', source_tasks: [0], recent_posts: [], fit: '✅', fit_reason: 'r', ...extra,
     })
     let made = 0
-    const run = (entry: 'enrich' | 'render', people: unknown[], enrichment?: object) => {
+    // 任务目录与记忆目录下全部文件的路径与原字节（请求账本在外面，不算）：拒收时比前后，改写、新建都看得见
+    const tree = (cwd: string): string => {
+      const out: string[] = []
+      const walk = (d: string) => { for (const n of readdirSync(d).sort()) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (n !== 'attempts.tsv') out.push(`${p.slice(cwd.length)}\n${rf(p, 'utf8')}`) } }
+      walk(cwd)
+      return out.join('\n\u0000\n')
+    }
+    const run = (entry: 'enrich' | 'render', people: unknown[] | string, enrichment?: object) => {
       const cwd = join(root, `run-${++made}`), dir = join(cwd, 'task')
       mkdirSync(dir, { recursive: true })
       // 每一跑自己的空记忆：render 按工作目录找 memory/，前一跑记进去的人不会把后一跑的人滤掉
       mkdirSync(join(cwd, 'memory')); writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: at, creators: {} }))
       writeFileSync(join(dir, 'task.json'), taskText)
-      for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify(people, null, 2))
+      for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), typeof people === 'string' ? people : JSON.stringify(people, null, 2))
       const enrichmentText = enrichment === undefined ? undefined : JSON.stringify(enrichment, null, 2)
       if (enrichmentText !== undefined) writeFileSync(join(dir, 'enrichment.json'), enrichmentText)
       const ledger = join(cwd, 'attempts.tsv')
@@ -9165,11 +9177,12 @@ suite('D21', '增强结果读入时整份对照：真起 enrich、render 那一�
       const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d21w', FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
       kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)}`
       const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+      const treeBefore = tree(cwd)
       const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv, timeout: 300000 })
       const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : undefined
       return {
         status: r.status, stderr: String(r.stderr), requests: existsSync(ledger) ? rf(ledger, 'utf8').split('\n').filter(Boolean).length : 0,
-        taskKept: read('task.json') === taskText, enrichmentKept: read('enrichment.json') === enrichmentText,
+        taskKept: read('task.json') === taskText, enrichmentKept: read('enrichment.json') === enrichmentText, treeKept: tree(cwd) === treeBefore,
         delivered: ['kol.csv', 'kol.xlsx', 'report.html', 'meta.json'].filter(f => existsSync(join(dir, f))), enrichment: read('enrichment.json'),
       }
     }
@@ -9179,7 +9192,7 @@ suite('D21', '增强结果读入时整份对照：真起 enrich、render 那一�
     const rOk = run('render', [person('tiktok', 'd21wr')], file(withHandle('d21wr')))
     eq('D21.w 夹具有效：同一个带样本的账号合规时 render 照常以 0 结束、交付文件都写了', [rOk.status, rOk.delivered.length], [0, 4])
     const rBad = run('render', [person('tiktok', 'd21wr')], file(withHandle('d21wr', { followers: '8万' })))
-    eq('D21.w render 读到增强结果里粉丝数写成文字时以 2 拒绝、一个交付文件都没写', [rBad.status, rBad.delivered], [2, []])
+    eq('D21.w render 读到增强结果里粉丝数写成文字时以 2 拒绝、一个交付文件都没写，任务目录与记忆目录一个文件都没改、没新建', [rBad.status, rBad.delivered, rBad.treeKept], [2, [], true])
     ok('D21.w render 拒绝时 stderr 点名增强结果文件、账号、粉丝数那一格与读到的值', rBad.stderr.includes('enrichment.json') && rBad.stderr.includes('tiktok:d21wr 的 followers') && rBad.stderr.includes('"8万"'))
 
     // enrich：改额之前、请求之前就拒（--budget 2 会改 task.json）
@@ -9188,6 +9201,7 @@ suite('D21', '增强结果读入时整份对照：真起 enrich、render 那一�
     const eBad = run('enrich', [person('tiktok', 'd21we')], file(withHandle('d21we', { follower: 80000 })))
     eq('D21.w enrich 读到不合规的增强结果时以 2 拒绝，task.json 与 enrichment.json 原字节不变、一个请求都没发',
       [eBad.status, eBad.taskKept, eBad.enrichmentKept, eBad.requests], [2, true, true, 0])
+    ok('D21.w enrich 拒绝时任务目录与记忆目录一个文件都没改、没新建', eBad.treeKept)
     ok('D21.w enrich 拒绝时 stderr 点名增强结果文件、账号与那个拼错的键', eBad.stderr.includes('enrichment.json') && eBad.stderr.includes('tiktok:d21we') && eBad.stderr.includes('"follower"'))
 
     // ═══════════════════════════ D21.x ═══════════════════════════
@@ -9201,6 +9215,12 @@ suite('D21', '增强结果读入时整份对照：真起 enrich、render 那一�
     const xText = run('enrich', [person('instagram', 'd21wx', { is_private: true, following: '1200' })])
     eq('D21.x 名单里关注数写成文字时 enrich 当没给：以 0 结束，增强结果里这个账号没有关注数', [xText.status, accountIn(xText, 'instagram:d21wx') !== undefined, 'following' in (accountIn(xText, 'instagram:d21wx') ?? {})], [0, true, false])
     ok('D21.x 这样写出的增强结果按格式说明通过（下一次读入不被拒）', xText.enrichment !== undefined && enrichmentSchemaProblems('E.json', JSON.parse(xText.enrichment)).length === 0)
+    // 名单里直接写着 1e400（JSON 读进来是无穷大）：必须按原文写进文件，JSON.stringify 会把无穷大写成 null，测不到这一种
+    const infText = JSON.stringify([person('instagram', 'd21wy', { is_private: true, following: 0 })], null, 2).replace('"following": 0', '"following": 1e400')
+    const xInf = run('enrich', infText)
+    eq('D21.x 名单里关注数写成 1e400（读成无穷大）时 enrich 当没给：以 0 结束，增强结果里这个账号没有关注数、按格式说明通过',
+      [infText.includes('1e400'), xInf.status, 'following' in (accountIn(xInf, 'instagram:d21wy') ?? { following: 1 }), xInf.enrichment !== undefined && enrichmentSchemaProblems('E.json', JSON.parse(xInf.enrichment)).length === 0],
+      [true, 0, false, true])
   } finally { rmSync(root, { recursive: true, force: true }) }
 
 }
