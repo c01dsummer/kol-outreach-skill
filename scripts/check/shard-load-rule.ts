@@ -229,7 +229,7 @@ const WORKFLOW_PIN: readonly string[] = [
   "      - run: npm ci --prefer-offline --no-audit",
   "      - run: «CHAIN»",
   "        env:",
-  "          SIZE_PR_BASE: ${{ github.event.pull_request.base.sha }}",
+  "          SIZE_PR_BASE: ${{ github.event.pull_request.base.ref && format('origin/{0}', github.event.pull_request.base.ref) || '' }}",
   "      - name: 欠条点名提醒（只提醒）",
   "        if: always()",
   "        continue-on-error: true",

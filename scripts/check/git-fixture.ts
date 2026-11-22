@@ -22,7 +22,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** 夹具能用的子命令。新加一个由评审看：它是不是只在玩具仓库里用得着 */
-export const SUBCOMMANDS: readonly string[] = ['add', 'checkout', 'commit', 'config', 'init', 'rev-parse', 'switch', 'update-ref']
+export const SUBCOMMANDS: readonly string[] = ['add', 'checkout', 'commit', 'config', 'init', 'merge', 'rev-parse', 'switch', 'update-ref']
 /** 子命令前 `-c 键=值` 能给的键 */
 export const CONFIG_KEYS: readonly string[] = ['commit.gpgsign', 'core.quotePath', 'user.email', 'user.name']
 /** 调用方能经 `env` 给的环境变量 */

@@ -14,7 +14,7 @@
 import { askGit, gitOrThrow } from './git-entry.js'
 import {
   BUDGET, CATEGORIES, NUMSTAT, NUMSTAT_IGNORING_SPACE, type Waiver,
-  discount, judge, merge, parseNumstat, resolveBaseline, scanMessage, tally,
+  discount, judge, merge, parseNumstat, prBaseFrom, resolveBaseline, scanMessage, tally,
 } from './size-rule.js'
 
 /**
@@ -59,11 +59,11 @@ function cannotAnswer(why: string, how: string): never {
  */
 /**
  * 这条 PR 的 base,由调用方给(ADR-234,照 ADR-63 分支寿命闸门的形状:传事实、不传推断)。
- * CI 上 pull_request 事件填 `github.event.pull_request.base.sha`;推 main 的那一跑这个表达式是空串,
+ * CI 上 pull_request 事件填 `origin/<base 分支名>`(base 分支此刻的头,不用事件里记的 base.sha —— 那是快照,base 分支往前走了它不一定跟);推 main 的那一跑这个表达式是空串,
  * 本地不设 —— 这两种都算「没给」,按主干量。PR 叠在另一条没合的 PR 上(base 选的是下面那条分支)时,
  * 下面那条已有的提交不算这条的:它们的新增行不数,它们提交信息里的 `size-ok:` 也不认。
  */
-const givenBase = process.env.SIZE_PR_BASE?.trim() || undefined
+const givenBase = prBaseFrom(process.env.SIZE_PR_BASE)
 const baseline = resolveBaseline(tryGit, givenBase)
 if (baseline.kind === 'cannot-answer') cannotAnswer(baseline.why, baseline.how)
 if (baseline.kind === 'not-applicable') {
