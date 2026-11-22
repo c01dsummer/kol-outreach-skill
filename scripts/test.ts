@@ -9155,13 +9155,10 @@ suite('D21', '增强结果读入时整份对照：真起 enrich、render 那一�
       profile_url: `https://example.com/${handle}`, source_keyword: 'local', source_dimension: 'category', source_tasks: [0], recent_posts: [], fit: '✅', fit_reason: 'r', ...extra,
     })
     let made = 0
-    // 任务目录与记忆目录下全部文件的路径与原字节（请求账本在外面，不算）：拒收时比前后，改写、新建都看得见
-    const tree = (cwd: string): string => {
-      const out: string[] = []
-      const walk = (d: string) => { for (const n of readdirSync(d).sort()) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (n !== 'attempts.tsv') out.push(`${p.slice(cwd.length)}\n${rf(p, 'utf8')}`) } }
-      walk(cwd)
-      return out.join('\n\u0000\n')
-    }
+    // 这一跑工作目录下的全部目录与文件（文件按原字节记成 base64，和 d28Kit 的快照同一种写法）：拒收时比前后，改写、新建、删掉都看得见。
+    // 只有工作目录根上那份请求账本不算（它是测试自己放的计数器）；task/、memory/ 底下同名的文件照样算
+    const tree = (cwd: string): string => JSON.stringify(readdirSync(cwd, { recursive: true }).map(String).filter(p => p !== 'attempts.tsv').sort()
+      .map(p => statSync(join(cwd, p)).isDirectory() ? `${p}/` : `${p}:${rf(join(cwd, p), 'base64')}`))
     const run = (entry: 'enrich' | 'render', people: unknown[] | string, enrichment?: object) => {
       const cwd = join(root, `run-${++made}`), dir = join(cwd, 'task')
       mkdirSync(dir, { recursive: true })
