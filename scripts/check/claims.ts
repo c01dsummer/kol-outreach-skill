@@ -129,10 +129,11 @@ export function claimInputEntry(path: string): string | null {
  * 问 git 经 git 入口(ADR-220);git 答不上来(不是仓库、不在顶层、清单是空的)就抛错,不退回 `scripts/` 那棵树:
  * 退回去就是又一次「旧记录照样算数」,只是这回没人知道。
  */
-export function claimInputs(cwd = '.'): [string, string][] {
+export function claimInputs(cwd = '.', env?: NodeJS.ProcessEnv): [string, string][] {
+  // `env` 只给测试的玩具仓库用：隔开本机的 git 配置与用户级忽略文件，否则断言随机器变；入口不传，照本进程的环境问
   const plan = workerCopyList(
-    gitOrThrow(['rev-parse', '--show-prefix'], { cwd }),
-    gitOrThrow(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd }),
+    gitOrThrow(['rev-parse', '--show-prefix'], { cwd, env }),
+    gitOrThrow(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd, env }),
   )
   if ('fault' in plan) throw new Error(`算不出认领记录的指纹：${plan.fault}`)
   return plan.files.flatMap(rel => {

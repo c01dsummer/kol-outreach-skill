@@ -13957,8 +13957,13 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树，认领记录的�
   // 旧记录照样算数（ADR-231 第十节登记的既有缺陷）。在临时目录建玩具仓库验，不碰本仓库：
   // 变异 worker 的副本里没有 .git，拿本仓库验的话这几条在每一跑变异里都起不来（M-H14-au、av、aw）
   {
-    const toy = mkdtempSync(join(tmpdir(), 'claim-inputs-'))
+    const outer = mkdtempSync(join(tmpdir(), 'claim-inputs-')), toy = join(outer, 'repo')
+    // 问 git 时隔开本机的系统、用户配置与用户级忽略文件（默认在 XDG_CONFIG_HOME 或 HOME 底下的 git/ignore）：
+    // 不隔开的话，本机忽略了 *.bin 一类，下面的断言就随机器红绿
+    const isolated: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_CONFIG_GLOBAL: '/dev/null', XDG_CONFIG_HOME: join(outer, 'xdg'), HOME: join(outer, 'home') }
     try {
+      mkdirSync(toy)
       fixtureGitOrThrow(['init', '-q'], { cwd: toy })
       const put = (rel: string, body: string | Buffer) => {
         mkdirSync(dirname(join(toy, rel)), { recursive: true })
@@ -13973,13 +13978,13 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树，认领记录的�
       put('blob.bin', Buffer.from([0xff]))
       mkdirSync(join(toy, '.claude', 'skills'), { recursive: true })
       symlinkSync('../../skill', join(toy, '.claude', 'skills', 'kol'))
-      const paths = claimInputs(toy).map(([p]) => p)
+      const paths = claimInputs(toy, isolated).map(([p]) => p)
       ok('Skill 说明在认领记录的指纹里', paths.includes('skill/SKILL.md'))
       ok('需求表在认领记录的指纹里', paths.includes('docs/requirements.json'))
       ok('代码仍在认领记录的指纹里', paths.includes('scripts/a.ts'))
       ok('覆盖记录自己不进指纹 —— 写下它就改了指纹，永远对不上', !paths.some(p => p.startsWith('.check-cache/')))
       ok('依赖目录不进指纹 —— 依赖变没变看 package-lock.json', !paths.some(p => p.startsWith('node_modules/')))
-      const now = () => fingerprint(claimInputs(toy))
+      const now = () => fingerprint(claimInputs(toy, isolated))
       const before = now()
       put('skill/SKILL.md', '# 说明（改过）\n')
       ok('改一份 Skill 说明，认领记录的指纹就变', now() !== before)
@@ -13997,10 +14002,10 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树，认领记录的�
       ok('符号链接改了指向，指纹就变', now() !== before)
       eq('已经不在的文件不进指纹', claimInputEntry(join(toy, 'gone.md')), null)
       let thrown = ''
-      try { claimInputs(join(toy, 'skill')) } catch (e) { thrown = (e as Error).message }
+      try { claimInputs(join(toy, 'skill'), isolated) } catch (e) { thrown = (e as Error).message }
       ok('不在仓库顶层就抛错，不退回只算一部分', thrown.includes('算不出认领记录的指纹'))
     } finally {
-      rmSync(toy, { recursive: true, force: true })
+      rmSync(outer, { recursive: true, force: true })
     }
   }
 
