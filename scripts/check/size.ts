@@ -117,6 +117,8 @@ console.log(`\n体量闸门 · 相对 ${scope}(${base.slice(0, 7)}..${head.slice
 if (prBase?.moved) {
   console.log(`  只算这条 PR 自己的提交:base ${prBase.sha.slice(0, 7)} 里已有的 ${prBase.inherited.length} 个提交不算`
     + '(它们的新增行不数,提交信息里的 size-ok 也不认)\n')
+} else if (prBase && prBase.inherited.length === 0) {
+  console.log(`  给了 PR 的 base ${prBase.sha.slice(0, 7)},这条按主干算的提交没有一个已在 base 里:与按主干量一样\n`)
 } else if (prBase) {
   console.log(`  base ${prBase.sha.slice(0, 7)} 里已有的 ${prBase.inherited.length} 个提交,提交信息里的 size-ok 不认;`
     + '起点仍是与主干的共同祖先(这条与 base 的分叉点不在它之后,比如直接合过更新的主干),它们若带新增行照样数 —— 多算、不少算\n')
