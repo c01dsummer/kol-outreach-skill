@@ -8819,6 +8819,18 @@ group('audit-entry', [], () => {
       fixtureFailure('解释合格了，却没交回 X1.a、X1.b 两条记录');
       return;
     }
+    // 改了一份 Skill 说明、不重写记录：审计要说「覆盖记录是旧的」、以 1 退出（ADR-233）。说明随后改回，记录照旧新鲜
+    const skillDoc = join(toyRoot, 'skill', 'SKILL.md');
+    writeFileSync(skillDoc, '# 玩具说明（改过）\n');
+    const stale = runToolBoth('audit-entry 起普通审计：改了一份 Skill 说明、没重跑测试', 'audit', [], ownedToyRoot, { status: 1, soft: [0] });
+    if (!stale.ok) {
+      runnerReportedFailure = true;
+      return;
+    }
+    named('审计入口：改了一份 Skill 说明、没重跑测试，审计说覆盖记录是旧的、以 1 退出',
+      stale.status === 1 && stale.stderr.includes('覆盖记录是旧的'),
+      `退出码 ${stale.status}；stderr 末几行：${stderrTail(stale.stderr)}`);
+    rmSync(skillDoc);
     // 第二跑：玩具树里加一份决策记录，里面两张欠条同名。审计要把「短名字有错」计成硬失败、以 1 退出 ——
     // 行怎么写由需求测试守着（`ledgerGaps`），计进硬失败这一下只有真起审计才看得见（ADR-211 的欠条「两处入口接线没有测试」）
     writeFileSync(join(ownedToyRoot, 'docs', 'adr', 'ADR-1-玩具.md'),
