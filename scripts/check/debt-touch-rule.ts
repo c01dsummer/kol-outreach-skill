@@ -11,8 +11,8 @@
  * 「某模块」「某类改动」这种写法一律认不出，那部分仍靠人读台账。
  *
  * 条目来自 `debt-rule.ts` 的 `entries`，块的定界来自它的 `iouBlocks` —— 不另抽一份，
- * 免得两边对「哪些是欠条」说两样。已还／已重挂／收尾那几种状态行（写法见 ADR-167 第四节第 1 小节）
- * 台账今天还不读（ADR-167 第 107 行那一片），这里先按同一写法读，只用来不列已关的那些。
+ * 免得两边对「哪些是欠条」说两样。已还／已重挂／收尾那几种状态行（写法见 `process/6-INTEGRATE.md`
+ * 「登记怎么做」）台账今天还不读（ADR-167 欠条「台账认不出状态行」），这里先按同一写法读，只用来不列已关的那些。
  */
 import { entries, iouBlocks, iouName, isHistory, recordKey, recordNum, splitRecords, type Entry } from './debt-rule.js'
 import { quotedMask } from './quoted.js'
