@@ -64,6 +64,8 @@ const EXEMPT: Record<string, string> = {
   // `h-iou-file-reminder-entry` 做（改被点名的文件列出、改别的不列、改名、CI 输出、无从比较，每次都以 0 退出），这里不再起一遍（ADR-196）
   'scripts/check/debt-touch.ts': '欠条点名提醒入口：需求测试组 h-iou-file-reminder-entry 在玩具仓库上真起',
   'scripts/check/revisit-due.ts': '周回访定期清点入口：需求测试组 h-revisit-entry 在玩具仓库上真起 --due 与 --born',
+  // 增强结果格式说明的命令行入口不在检查链里：它只比对、回写一个文件，判定由需求测试调同一个生成函数做
+  'scripts/check/enrichment-schema.ts': '增强结果格式说明的生成与回写入口（npm run enrichment-schema）：只读写一个文件；判定「入库那份与按类型现生成的逐字相同」由需求测试组 d21w-enrichment-schema 调同一个生成函数守（ADR-232）',
   // 要这条 PR 的评审意见与只读令牌，只在 GitHub 的工作流里跑；判定都在 same-spot-rule.ts，由需求测试组守。
   // 入口自己那几样（缺环境变量、翻页、退出码）没有东西起它，写在 ADR-225 第四节
   'scripts/check/same-spot.ts': '同一处连着两轮的取数入口：只在 GitHub 工作流 same-spot.yml 里跑（要评审意见与令牌）；判定由需求测试组 h-same-spot 守',
