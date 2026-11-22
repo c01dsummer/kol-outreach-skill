@@ -9,6 +9,7 @@ import type {
   CollaborationQuote,
   Creator,
   EnrichmentState,
+  ManualMeasurement,
   Measurement,
   MetricSource,
   MetricUnavailableReason,
@@ -18,6 +19,7 @@ import type {
   PublicPostMeasurement,
   PublicMetrics,
   QuoteEfficiency,
+  QuoteMeasurement,
 } from './types.js'
 
 /** D8：每个平台最多看最近 12 条主页作品；任何派生指标至少要有 6 个有效观测。 */
@@ -243,7 +245,7 @@ export function calculatePublicMetrics(
   followers?: number,
   following?: number,
   platform?: Platform,
-): PublicMetrics {
+): Required<PublicMetrics> {
   const source = sample.source
   const observedAt = sample.observed_at
 
@@ -420,7 +422,7 @@ export function recomputeCachedAssessment(
   following: number | undefined,
   cachedMetrics: PublicMetrics | undefined,
   platform?: Platform,
-): { sample: PublicPostMeasurement<NormalizedPublicPost[]>; metrics: PublicMetrics; changed: boolean } {
+): { sample: PublicPostMeasurement<NormalizedPublicPost[]>; metrics: Required<PublicMetrics>; changed: boolean } {
   const sample = cachedSample.status === 'measured'
     ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at,
         scopeOf(cachedSample, platform))
@@ -560,11 +562,13 @@ export function assignAudienceRisks(accounts: Record<string, AccountAssessment>)
 }
 
 const quoteUnavailable = (
-  reason: MetricUnavailableReason,
-  quote: Measurement<CollaborationQuote>,
+  reason: string,
+  quote: QuoteMeasurement,
   sampleSize?: number,
-): Measurement<number> =>
-  unavailable(reason, quote.source, quote.observed_at, sampleSize)
+): ManualMeasurement<number> => ({
+  status: 'unavailable', reason, source: quote.source, observed_at: quote.observed_at,
+  ...(sampleSize === undefined ? {} : { sample_size: sampleSize }),
+})
 
 /** D9：只计算明确、同平台、同形式报价的隐含效率，不自动估价。 */
 export function calculateQuoteEfficiency(account: AccountAssessment): QuoteEfficiency | undefined {
@@ -592,7 +596,7 @@ export function calculateQuoteEfficiency(account: AccountAssessment): QuoteEffic
     m: Measurement<number> | undefined,
     scale: number,
     basis: string,
-  ): Measurement<number> | undefined => {
+  ): ManualMeasurement<number> | undefined => {
     if (!m) return undefined
     if (m.status === 'unavailable') {
       return quoteUnavailable(m.reason, quote,
@@ -603,7 +607,7 @@ export function calculateQuoteEfficiency(account: AccountAssessment): QuoteEffic
       m.sample_size, basis)
   }
 
-  const reelEngagementEfficiency = (): Measurement<number> | undefined => {
+  const reelEngagementEfficiency = (): ManualMeasurement<number> | undefined => {
     const sample = account.sample
     if (!sample) return undefined
     if (sample.status === 'unavailable') return quoteUnavailable(sample.reason, quote)

@@ -36,6 +36,7 @@
 | **改数据源端点/字段** | `skill/references/providers/tikhub.md` · `scripts/providers/tikhub.ts` · `scripts/check/fake-fetch.ts` | 🔒 `selfcheck` |
 | **改搜索作品标识或并集契约** | `docs/requirements.json` 的 D11 → `docs/ARCHITECTURE.md` → `scripts/lib/types.ts` · `scripts/lib/posts.ts` · `scripts/providers/tikhub.ts` · `scripts/lib/pipeline.ts` · `scripts/lib/identity.ts` → `skill/references/providers/_interface.md` · `tikhub.md` · `skill/references/semantic-fit.md` → 测试与变异；已有结论的替代只在 ADR 末尾追加 | 🔒 `spec` `audit`；副本语义靠人核 |
 | **改公开指标/风险/报价口径** | `docs/requirements.json` · `skill/references/public-metrics.md` · 计算与分层逻辑 · 输出说明 · 测试 | 部分 |
+| **改增强结果的类型**（`scripts/lib/types.ts` 里 `EnrichmentState` 及它用到的类型） | 跑 `npm run enrichment-schema -- --write` 回写格式说明 `scripts/lib/enrichment-schema.ts` · 新加必有的格或收窄取值时先想清楚老任务目录里的文件还读不读得进：`scripts/enrichment-released-samples-data.ts` 那批发布版本样本会替你验 · `skill/references/public-metrics.md` 列的报价取值 | 🔒 需求测试 D21.y（格式说明与类型逐字相同、发布版本样本全过、文档列的取值与格式说明相同） |
 | **改 CSV 列或报告结构** | `scripts/lib/rows.ts` · `scripts/lib/xlsx.ts` · `scripts/lib/report.ts` · `skill/references/output-format.md` · 测试 · 变异 | 部分 |
 | **新增可执行文件** | 三选一：接进 `scripts/check/selfcheck.ts`、在 `npm run check` 里自成一步、或写进 `EXEMPT` 说明理由 | 🔒 `selfcheck` |
 | **新增一道闸门** | 判定逻辑（`scripts/check/` 下不带 shebang 的 `.ts`）· 测试 · **`scripts/check/mutations.json`**（闸门自己也是需求，它的测试同样要被证明过）· `process/` 里那条纪律 | 🔒 `audit`：scripts/check/ 下每个判定模块必须有变异指向它，否则硬失败；`mutate` 证明那个变异被抓到 |

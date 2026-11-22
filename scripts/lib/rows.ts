@@ -1,4 +1,4 @@
-import type { AccountAssessmentSummary, AudienceRiskFlag, Creator, Measurement } from './types.js'
+import type { AccountAssessmentSummary, AudienceRiskFlag, Creator, ManualMeasurement } from './types.js'
 import { formatDiscoverySources } from './discovery.js'
 
 /** U1：列定义固定，顺序即 CSV 表头 */
@@ -81,7 +81,7 @@ const bestPost = (c: Creator): string => {
   return [...posts].sort((a, b) => (b.plays ?? 0) - (a.plays ?? 0))[0].desc   // P1 例外：仅排序取展示项
 }
 
-const metricCell = <T>(m: Measurement<T> | undefined, format: (value: T) => unknown): unknown => {
+const metricCell = <T>(m: ManualMeasurement<T> | undefined, format: (value: T) => unknown): unknown => {
   if (!m) return '未查询'
   if (m.status === 'unavailable') return `不可用:${m.reason}`
   return format(m.value)

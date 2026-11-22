@@ -5,7 +5,7 @@ import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.
 import { readCostDocument, stringifyCostJson } from './cost-json.js'
 import type { CostSnapshot } from './cost-ledger.js'
 import { ReviewInputError } from './review.js'
-import { storedMetricsUsedAsIs } from './assessment.js'
+import { enrichmentSchemaProblems } from './enrichment-check.js'
 
 /**
  * D29.a：新任务的目录由产品名拼成、建在 `output/` 底下（下面的 `taskDir`）。这三种字符拼不成一层目录名：
@@ -218,47 +218,23 @@ export function saveRawCreators(dir: string, creators: Creator[]): void {
 
 const ENRICHMENT = 'enrichment.json'
 
+/**
+ * 读增强结果。没有这个文件时是 undefined（还没跑过 enrich）。
+ * 读到的整份先对照由类型生成的格式说明（D21.w，ADR-232）：不是合法 JSON、或有一处不合格式，
+ * 以 ReviewInputError 拒收（入口以 2 结束），逐处点名文件、账号、哪一格、读到什么；enrich 与 render 都在写任何文件、
+ * 发任何请求之前读它，所以拒收时什么都还没动。
+ */
 export function loadEnrichment(dir: string): EnrichmentState | undefined {
   const p = join(dir, ENRICHMENT)
   if (!existsSync(p)) return undefined
-  return JSON.parse(readFileSync(p, 'utf8'))
-}
-
-const ACTIVITY_STATUSES: readonly unknown[] = ['active', 'cooling', 'dormant']
-const RISK_LEVELS: readonly unknown[] = ['low', 'medium', 'high']
-
-/**
- * D21.v（ADR-227）：没有可用作品样本、平台又不是 instagram 的账号，render 直接用文件里存的活跃状态与风险等级
- *（有样本的会重算，Instagram 没样本的指标整个不用；哪些算「原样用」与 `currentEnrichmentView` 共用 `storedMetricsUsedAsIs`）。这两样手改坏了就拒收，不显示成空白、不当成别的等级。
- * 只查这两样；文件读不读得成、别的字段对不对不在这里。
- */
-export function enrichmentValueProblems(file: string, state: EnrichmentState | undefined): string[] {
-  if (!state || !isRecord(state.accounts)) return []
-  const problems: string[] = []
-  for (const [key, account] of Object.entries(state.accounts as Record<string, unknown>)) {
-    if (!isRecord(account) || !storedMetricsUsedAsIs(account) || !isRecord(account.metrics)) continue
-    const metrics = account.metrics
-    const at = `${file} 里账号 ${shown(key)}`
-    const activity = metrics.activity_status
-    if (isRecord(activity) && activity.status === 'measured' && !ACTIVITY_STATUSES.includes(activity.value))
-      problems.push(`${at}的 metrics.activity_status 标为已测，值却是 ${shown(activity.value)}，应是 "active"、"cooling"、"dormant" 之一；改正这个账号后再跑`)
-    const risk = metrics.audience_quality_risk
-    if (isRecord(risk) && risk.status === 'measured' && !(isRecord(risk.value) && RISK_LEVELS.includes(risk.value.level)))
-      problems.push(`${at}的 metrics.audience_quality_risk 标为已测，等级却是 ${shown(isRecord(risk.value) ? risk.value.level : risk.value)}，应是 "low"、"medium"、"high" 之一；改正这个账号后再跑`)
-  }
-  return problems
-}
-
-/** render 用：读 enrichment.json 并按 D21.v 查那两样，有问题以 ReviewInputError 拒收（入口以 2 结束） */
-export function loadReviewEnrichment(dir: string): EnrichmentState | undefined {
-  let state: EnrichmentState | undefined
-  try { state = loadEnrichment(dir) } catch (e) {
+  let state: unknown
+  try { state = JSON.parse(readFileSync(p, 'utf8')) } catch (e) {
     if (!(e instanceof SyntaxError)) throw e
-    throw new ReviewInputError([`${join(dir, ENRICHMENT)} 不是合法的 JSON（${e.message}）；改正或删掉这个文件后再跑（删掉只是少了增强结果，报告照出）`])
+    throw new ReviewInputError([`${p} 不是合法的 JSON（${e.message}）；改正或删掉这个文件后再跑（删掉只是少了增强结果，要重新查的账号 enrich 会再花一次请求）`])
   }
-  const problems = enrichmentValueProblems(join(dir, ENRICHMENT), state)
-  if (problems.length) throw new ReviewInputError(problems)
-  return state
+  const problems = enrichmentSchemaProblems(p, state)
+  if (problems.length) throw new ReviewInputError(problems.map(line => `${line}；改正后再跑`))
+  return state as EnrichmentState
 }
 
 export function saveEnrichment(dir: string, state: EnrichmentState): void {

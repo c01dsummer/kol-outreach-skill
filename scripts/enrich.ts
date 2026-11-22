@@ -77,6 +77,7 @@ let task: TaskState
 let inputs: ReturnType<typeof loadReviewCreatorInputs>
 let creators: Creator[]
 let budget: Budget
+let state: EnrichmentState
 const newBudget = arg('--budget')
 try {
   task = loadTask(dir)
@@ -91,6 +92,8 @@ try {
     throw new Error(`${taskFile(dir)} 里的任务、品牌输入或续跑进度不合规：\n  ${[...taskProblems, ...calibrationProblems, ...progressProblems].join('\n  ')}`)
   }
   inputs = loadReviewCreatorInputs(dir)
+  // D21.w：增强结果整份对照格式说明，在改额、写任何文件与发请求之前；不合格式时下面统一以 2 退出
+  state = loadEnrichment(dir) ?? { version: 1, updated_at: '', accounts: {} }
   const relations = reviewRelations(inputs.previous, inputs.raw)
   const reviews = prepareTaskReviews(dir, task, inputs.previous, new Date().toISOString(), relations)
   creators = canonicalReviewLinks(reviews.project(inputs.previous, relations, task.brand_calibration?.version))
@@ -111,7 +114,6 @@ if (newBudget !== undefined) {
 }
 const refresh = argv.includes('--refresh')
 const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
-const state: EnrichmentState = loadEnrichment(dir) ?? { version: 1, updated_at: '', accounts: {} }
 const rawByKey = new Map(inputs.raw.map(c => [accountKey(c.platform, c.handle), c]))
 
 interface AccountRef {
@@ -124,16 +126,25 @@ interface AccountRef {
 
 const refs = new Map<string, AccountRef>()
 
+/**
+ * D21.x（ADR-232）：名单里的粉丝数、关注数抄进增强结果之前，不是有限数字的一律当没给。
+ * 关注数在名单读入时不查（ADR-227），原样抄过去会在增强结果里留下文字、算出 NaN，下次读入又被整份对照拒收。
+ */
+const finiteCount = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined
+
 const addRef = (platform: Platform, handle: string, fallback?: Creator) => {
   const k = accountKey(platform, handle)
   if (refs.has(k)) return
   const raw = rawByKey.get(k)
   const src = raw ?? fallback
+  const followers = finiteCount(src?.followers)
+  const following = finiteCount(src?.following)
   refs.set(k, {
     platform,
     handle,
-    ...(src?.followers === undefined ? {} : { followers: src.followers }),
-    ...(src?.following === undefined ? {} : { following: src.following }),
+    ...(followers === undefined ? {} : { followers }),
+    ...(following === undefined ? {} : { following }),
     ...(src?.is_private === undefined ? {} : { is_private: src.is_private }),
   })
 }
@@ -285,8 +296,8 @@ async function main() {
   const sampleMeasured = selected.filter(a => a.sample?.status === 'measured').length
   const sampleUnavailable = selected.filter(a => a.sample?.status === 'unavailable').length
   const riskMeasured = selected.filter(a => a.metrics?.audience_quality_risk.status === 'measured').length
-  const activityMeasured = selected.filter(a => a.metrics?.activity_status.status === 'measured').length
-  const activityUnavailable = selected.filter(a => a.metrics?.activity_status.status === 'unavailable').length
+  const activityMeasured = selected.filter(a => a.metrics?.activity_status?.status === 'measured').length
+  const activityUnavailable = selected.filter(a => a.metrics?.activity_status?.status === 'unavailable').length
   const highRisk = selected.filter(a =>
     a.metrics?.audience_quality_risk.status === 'measured' &&
     a.metrics.audience_quality_risk.value.level === 'high').length

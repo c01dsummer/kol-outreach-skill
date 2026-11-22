@@ -136,6 +136,8 @@
 | `scripts/lib/obs.ts` | 逻辑 | — | 契约 kol-test-observer/v1（`output-format.md` 末节，需求方逐字确认，ADR-186、ADR-187）：设了 `KOL_TEST_OBSERVER_EVENTS` 时以追加方式打开它指的文件（最后一行没有换行就先补一个），同步写就绪记录与每次预留尝试的预留记录；这时 collect 启动时只读一次 `.kol-save-fault.json`，选中保存点的第 k 次抛出、与磁盘写失败同一条路，并写命中记录，没生效就在退出时写未命中记录。记录只写进那个文件、不带前缀，stdout 与 stderr 不因此多写；文件打不开、写不进时以 1 退出；没设时什么也不读、不写。入口第一句调它，保存点由 `budget.ts` 的保存回调与 collect 收尾那次断点保存报给它 |
 | `scripts/lib/cost-json.ts` | 逻辑 | D13 D14 P3、D19 P1 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件；向恢复进度校验提供原始 JSON 数字 token，读入时留住源文本、判重复时才扫出每一层对象里的重复键及每一处原文（D19.k 只取根与根下一层）；整份写回时，读入根上没被改动的非费用数字按原文写出，费用三棵子树只走 D13 的专用路径；读入、找原文、查重复与写出都不逐层递归，能走多深不看机器栈大小（ADR-229）；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句；几个邮箱列几个，按出现先后用 `, ` 连成一个值 |
+| `scripts/lib/enrichment-check.ts` | 逻辑 | D21 | 增强结果（`enrichment.json`）整份对照格式说明：第一次用到时拿 Ajv 编好校验函数，把每处不合规翻成一句点名文件、账号、哪一格、读到什么的话；同一格缺的几项合成一句（D21.w） |
+| `scripts/lib/enrichment-schema.ts` | 逻辑 | D21 | 增强结果的格式说明（JSON Schema），由 `types.ts` 的 `EnrichmentState` 生成，勿手改；写成 `.ts` 是为了预编 JS 也认得 |
 | `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本范围归一化 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；新抓与缓存重算在这里共用窗口与媒体范围契约，入口脚本只负责调用与落盘 |
 | `scripts/lib/rows.ts` | 逻辑 | P1 P2 U5 U7 U9 | 旧行与排序保持；显式评审输出消费已投影判断，旧列前缀后追加评审列，按有效建议再按原层级和分数排序；草稿占位符原样穿透 |
 | `scripts/lib/csv.ts` | 逻辑 | D5 D4 | UTF-8 with BOM 与转义；名单里可能被当成公式的文字格先加 `'`；落盘走整体替换 |
@@ -144,7 +146,7 @@
 | `scripts/lib/safe-html.ts` | 逻辑 | P1 U12 | 报告网页的默认转义：带标签的模板 `html` 把插进去的取值一律转义，只有它自己拼出来的片段（`SafeHtml`）原样插入；`joinHtml` 把一串片段连起来；插进去的值缺了时拒绝（`MissingValueError`），报错点名那一格；`need` 给本该总有的取值用 |
 | `scripts/lib/draft-claims.ts` | 逻辑 | P2 | 扫开发信草稿里带数字的说法和固定词表里的承诺词，只拿已证实的产品事实对，列出对不上的，只在该账号作品文字里有的另列；只给评审 HTML 标出，不改草稿、不拦交付（ADR-199、ADR-209） |
 | `scripts/lib/draft-sources.ts` | 逻辑 | P2 | 拿评审正本里登记的出处，核开发信每一句所引原文是否真在他的简介、作品文案、昵称或任务里已证实的产品事实里，并列出有字没登记的行；另交出标成约时间、联系方式的登记的那几段字的位置，给数字扫描挪行用；只给评审 HTML 并排列出，不改草稿、不拦交付（ADR-210、ADR-215） |
-| `scripts/lib/task.ts` | 逻辑 | D6 D4 D14 D21 D23 D29 U9 | 任务目录的读写；新任务的目录名由产品名拼成，含 `/`、`\` 或 NUL 的产品名拼不成（`productDirProblem`，D29）；费用检查点只替换盘上任务的账目与次数，保留根预算和业务字段；**累加器与交付物是两个文件**，名单与去重状态分三步落盘，肯定的声明最后写 |
+| `scripts/lib/task.ts` | 逻辑 | D6 D4 D14 D21 D23 D29 U9 | 任务目录的读写；读增强结果时整份对照格式说明，不合规以 2 拒收（D21.w）；新任务的目录名由产品名拼成，含 `/`、`\` 或 NUL 的产品名拼不成（`productDirProblem`，D29）；费用检查点只替换盘上任务的账目与次数，保留根预算和业务字段；**累加器与交付物是两个文件**，名单与去重状态分三步落盘，肯定的声明最后写 |
 | `scripts/lib/types.ts` | 逻辑 | P1 D1 D8 D11 | 三态模型的定义处 —— 它把「没查到」和「查了没有」在类型层面分开；**D1 的身份键与支持的平台列表只此一份**，采集去重、记忆读写、账号评估都调它 —— 各写一份表达式时的「一致」只是巧合 |
 | `scripts/lib/counts.ts` | 逻辑 | P1 | 同一个人又被查到一次时，粉丝数、作品数两项读数与「未取得有效值」记号怎么合；搜索页内去重与跨关键词合并共用 |
 | `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 D11 D18 P1 | 唯一的数据源实现；IG 主页返回项在这里逐条带出肯定视频证据，不替下游决定报价或把无证据项删掉；响应结构走探测 cascade，识别不出时暴露顶层 key |
@@ -168,6 +170,7 @@
 | `scripts/check/start-process.ts` | 检查 | — | 通用启动函数（ADR-219）：`spawn`、`spawnSync`、`execFileSync` 包装，只认（程序, 参数数组, 选项?）一种写法：要起的程序末段是 `git`、`git.exe`，选项要经 shell，或写法不是这一种，都当场抛错，过了的参数原样交给 Node；认 git 用 `launch-count.ts` 的 `isGitProgram`。除 `scripts/check/child-process-registry.json`「登记」一节里的文件直接碰那个模块（哪些、为什么看那张表，ADR-217 的闸门管着），别的文件起进程都经它（「待挪」ADR-223 起清空） |
 | `scripts/check/trailer.ts` | 检查 | — | 提交信息的 trailer 块。当初两个闸门都要在提交信息里读指令，分支寿命那道 2026-09-18 撤了（ADR-76），现在调用方是体量闸门与变异负载闸门（`mutation-growth-ok:`，ADR-203）；而提交信息里也会举例说明这些指令 —— 判据借的是 git 自己的 trailer 定义，**只此一份** |
 | `scripts/check/spec-sync.ts` | 检查 | — | SPEC.md 的表格由 requirements.json 生成，两者不可能漂移 |
+| `scripts/check/enrichment-schema.ts` | 检查 | D21 | 从类型现生成增强结果的格式说明，`--write` 回写；入库那份与现生成的不同时需求测试 D21.y 变红 |
 | `scripts/check/spec-rule.ts` | 检查 | — | 需求登记表的**判定**：形状（根对象与每条需求：渲染要读的字段必须在，缺了会把空值写进生成的文档）、完整性（编号唯一、交点与决策记录编号真实存在、作废须有理由）、表格渲染与内容指纹（凡影响渲染的都进指纹，包括分类表及其顺序）、审计对一条需求的裁定（红线判据逐条认领，**单元断言与自检端到端跑过的两种认领同权**，但两份记录分开交进来：**只由自检认领的判据（单元断言一条都没认），必须有一条 `by: "selfcheck"` 的负片，否则硬失败** —— 认领与负片要来自同一头，缺省那个验证者够不到入口，指着它的变异不写 `by` 就只会「存活」；这一条与红线无关，凡是这种认领都要，⚠️ 但它不替判据拆分把关（一条负片盖住四半里的一半也算数）；一条都没认领同样是缺口；**只有没人认领的那条豁免**才把 `✓` 压成 `⊘` ——认领过的判据即便名下还挂着一条豁免，也算完整，不再是缺口）、报告里那两格的排版（「变异」与「判据 N(负片 K)+⊘M/T」——**判据级的负片此前在报告里一个字都没有**：变异的 `req` 两种编号混着写，而审计只拿需求号去查。两格都曾拼在入口的模板串里，谁也够不着，删掉一档照样全绿）、审计对一个交点的裁定（认领编号两侧顺序无关；**有红线的交点没有测试认领就是硬失败**）；不碰文件系统，因而可被测 |
 | `scripts/check/quoted.ts` | 检查 | — | 引文遮罩:一段 Markdown 里哪些行是在**演示**语法而不是使用它(围栏块、HTML 注释)。**凡是要按结构解析 Markdown 的地方都先过它** —— 同一个坑在两处各栽过一次 |
 | `scripts/check/adr-sync.ts` | 检查 | — | 决策记录一条一个文件；编号唯一、文件名与正文一致、索引不漂移，并守住 `DECISIONS.md` 不再装回整册；`docs/adr/历史/` 下的历史文件不进索引，只核它是文件、有同名主文件、第一行同号，且钉在 `docs/adr/历史文件指纹.json` 里的那段字节一个不变、只往后加（ADR-211，主文件只放现行结论那一份）。读、判、比、回写都在 `adr-rule.ts` 的 `adrSync`，入口只打印 |
@@ -220,6 +223,7 @@
 | `scripts/pid-boundary-contract-test.ts` | 测试夹具 | D4 | 仅由最窄PID组调用的独立合同：通过公开writeFileAtomic观察受控邻文件及写回结果，平台/proc模拟只在有界运行期间接入并还原；不导出生产上界判定，不改变其他组的共享状态。先冻结测试再取旧版合格语义红；夹具或接线失格不能归功于语义断言 |
 | `scripts/prebuilt-no-config-contract-test.ts` | 测试夹具 | — | 无配置缓存入口的有限合同适配器：只在选中组时加载，在独立临时根执行冻结producer及进程行为案例，经实际最终env调用当前工作树factory；旧164合同原件保留；同步self-TERM先用公开CLI的控制/五次同步/控制取得当前精确环境资格，再以R-before/C/R-after严格比较。新版正常Linux166、Darwin167标签汇入原八条字面断言，资格11/12另列；异步适配器由现有async组选中后await。坏绑定、缺标签、R失格或公开证据不全不记语义抓获，不以跳过测试换绿；不把Mac原件当Linux资格 |
 | `scripts/prebuilt-no-config-contract-data.ts` | 测试夹具 | — | 上述适配器的冻结运行成员、逐件原始哈希与八桶标签表；仅作可逆路径绑定及明示的运行子集清单。新无配置入口对照公开CLI，旧空配置owner对照固定已发布旧API，历史红记录与生产缓存格式分开；不是通用打包器。生命周期两份冻结入口经需求所有者授权由独立作者重冻（版本标识记在 ADR-70）：ready在求值后第一轮事件循环的check阶段发布、先写临时文件再rename就位，公开tsx在Node≥22.22.3上第一轮poll才装上信号转发，参照不再有ready已出、转发未装的窗口；随之换摘要的descriptor、preload spec与两份scoped manifest、patch-inventory记refreeze出处，组合冻结SHA与原fixture根manifest摘要仍指重冻前，运行期无人读（ADR-70「还第 2739 行」一节） |
+| `scripts/enrichment-released-samples-data.ts` | 测试夹具 | D21 | 各发布版本 enrich 照常写出的增强结果里形状互不相同的账号（D21.y）；改类型时替老任务目录验读不读得进 |
 | `scripts/prebuilt-clear-term-contract-test.ts` | 测试夹具 | — | 独立冻结的三对TERM清空行为：先实际公共CLI，再真实预编及N factory，比较raw和入口真实exit hook code；清空后才装观察器，KEEP为阳性控制。23个窄标签独立计数，只汇入原生命周期宏，不冒称属于旧167。宿主固定一次起独立Node控制器并清除其计数预载，内部仍同cwd/原factory；完整stdout先透传再核结果/三回执/标签闭合，ps轮询不污染宿主计数。只向已核隔离entry PID发信号，正常close/源身份及残留均核（ADR-158第二十九节）。内联入口的ready由同一次重冻改在求值后第一轮事件循环的check阶段写，控制器见到ready再发的TERM不会落在参照还没装上转发的那几毫秒里（ADR-70「还第 2739 行」一节） |
 | `scripts/prebuilt-owner-descendant-contract-test.ts` | 测试夹具 | — | 同配置后代的独立15例/60标签：当前公共API与实际CLI同args/cwd/env，先取得手推字段语义及原始退出参照资格，再核owner缓存路由与中间配置回退；固定一次控制器、全量公开回执先透传，源身份及唯一末行/标签/汇总严格闭合，R或夹具失格不算产品抓获（ADR-158第三十二节） |
 | `scripts/prebuilt-owner-descendant-contract-data.ts` | 测试夹具 | — | 上项两份冻结原件manifest/portable及原SHA；原15case、60断言和预期逐字保存，不另造C tuple；并非通用打包框架 |
@@ -470,6 +474,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 独立自检拆进程：全部子进程交回回报 → 合并失败数、认领、出处与各组子进程的当前目录 → 才核当前目录、判孤儿、打汇总、写入口认领（ADR-132、ADR-212） | `scripts/check/selfcheck.ts`、`scripts/check/group-rule.ts` | 先收尾再合并，子进程里的红与崩溃赶不上那句汇总，入口认领照样写出；合并时略过没交回的那一族，那几组没跑也算全绿 | 合并与读回报判定：M-H42-p M-H42-r M-H42-s M-H42-t M-H42-u M-H42-v M-H42-w M-H42-x M-H42-y M-H42-aa M-H42-ac M-H212-g；入口里的先后没有变异守着（要守它得起一次完整、非变异的拆进程跑，那一跑开头就删入口认领，需求测试里没有这样的夹具；「自己验自己」只拦指名自检来验的变异，ADR-132 第九节） |
 | 拆进程整跑的派工先后：带时间窗口的组（`mutation-cost-entry`、`claims-restoration-entry`）所在的族，等其余各族全部交回之后才按登记顺序一族一族单独跑（ADR-132 第十节） | `scripts/check/selfcheck.ts`、`scripts/check/group-rule.ts` | 并进队列或与别的族同时跑，几个子进程一起抢核时，这两组按子进程起停时刻下的判定可能误红，主干无故变红（2026-10-15 那一跑按形状推断属于这一类，没有直接证据，ADR-132 第十节） | 先后判定：M-H42-ak…ao；入口里「并行那段全部跑完才起单独那段」、名单 `TIME_WINDOW_GROUPS` 少写一组，都没有变异守着（同上一行的理由） |
 | 三个入口读旧名单／采集原件、校验评审正本／冻结来源／人工表 → 才改额、预留、请求或覆盖名单 | `scripts/collect.ts`、`scripts/enrich.ts`、`scripts/render.ts`、`scripts/lib/task-reviews.ts`、`scripts/lib/pipeline.ts` | 坏输入会在花钱或覆盖后才拒绝；旧派生判断可能绕过正本继续进入请求、分层或交付 | M-U9-o M-U9-p M-U9-q M-U9-x M-U9-z M-D23-s M-D21-ai |
+| enrich 与 render 读已有的增强结果（`enrichment.json`）并整份对照格式说明，合格 → 才改额、预留、请求或写交付物（ADR-232） | `scripts/enrich.ts`、`scripts/lib/task.ts` | enrich 先改额、发请求再读，坏的那一格要到 render 才拒，钱已经花了；读入不拒的话，手改坏的值一路带进报告 | M-D21-bu M-D21-bl |
 | collect 保留实际采集与费用 → 冻结新池 → 以初始人工授权及过滤前完整直接关系重验投影 → 保存正本 → 覆盖配对名单 | `scripts/collect.ts`、`scripts/lib/pipeline.ts`、`scripts/lib/task-reviews.ts` | 本次新发现关系产生冲突时，先保存新池会在拒绝前改变冻结分母；只传幸存者会漏掉已过滤账号的冲突 | M-U9-o M-U9-r M-D23-t |
 | render 当前 Agent／人工投影与完整直接关系 → memory／同行与公开样本复核 → 唯一一次计分分层 → 评审排序及三个 formatter | `scripts/render.ts`、`scripts/lib/task-reviews.ts` | 人工采用可能绕过联系过滤，旧 fit 或旧品牌判断可能形成错误层级，三格式也可能交出不同的有效建议 | M-U9-o M-U9-s M-U9-t M-U9-u M-U9-v M-U9-aa M-D21-ai M-P4-o M-P4-r M-D8-p |
 | 评审正本的准备、迁移与冻结只在内存 → 显式保存才写 `agent-review.json` → 真实写成功才把变化记为已保存 | `scripts/lib/task-reviews.ts` | 缺席的正本在准备任务时就被创建，旧判断迁移与候选冻结没显式保存就落了盘；写入失败之前就把待保存的变化和更新时间记成已保存，失败后留不住待保存的变化，恢复路径后也没法重试 | M-D21-ae M-D21-ag |
@@ -492,7 +497,7 @@ Agent 是编排者，它读 stdout 做决策。
 |---|---|---|---|
 | `probe` | `--config probe.json` | **不落盘** | 0 · 1 · 2 · **3** · **5** |
 | `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]`；旧名单、采集原件、评审正本及已有人工表 | `task.json` `creators.raw.json` `creators.json` · 内容变化时 `agent-review.json` | 0 · 1 · 2 · **3** · **4** · **5** · **6** · **7** |
-| `enrich` | `--dir <dir>`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** · **5** · **6** |
+| `enrich` | `--dir <dir>`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv` · 已有 `enrichment.json`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** · **5** · **6** |
 | `render` | `--dir <dir>` `[--ignore-memory]`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv` · `enrichment.json` · 已有 `lessons-read.json` · 当前 `memory/creators.json`） | 内容变化时 `agent-review.json` · `task.json` 的去重状态 · `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 1 · 2 · **6** · **7** |
 | `calibration version` | 子命令 `version` 与必填一次 `--dir <dir>`；既有 `task.json` 的 `brand_calibration` | 仅 `task.json` 的 `brand_calibration.version`（与 `updated_at`）；缺席、结构不合、已一致与保存失败不写 | 0 · 1 · 2 |
 | `sender` | 必填一次 `--dir <dir>` 与 `--name <姓名>`；既有 `task.json` | 仅 `task.json` 根上的 `sender_name`（与 `updated_at`）；姓名不合规、读不成对象或写重复的键时不写 | 0 · 1 · 2 |
