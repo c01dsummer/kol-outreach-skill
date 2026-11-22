@@ -17268,7 +17268,7 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     {
       const r = runWith(stacked, PR_BASE)
       exact('起点第 7 步：叠在没合的分支上 → 起点改成与 base 的共同祖先，只留这条自己的提交，下面那条的记在 inherited', r.got,
-        { ...measure('origin/main', SHA_OWN, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: ['sha-a1'] } })
+        { ...measure('origin/main', SHA_OWN, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: ['sha-a1'], moved: true } })
       eq('起点第 7 步：叠在没合的分支上，起点挪到与 base 的共同祖先',
         typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.base : r.got, SHA_OWN)
       eq('起点第 7 步：叠在没合的分支上，豁免只从这条自己的提交里找',
@@ -17281,6 +17281,8 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
         typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.sha : r.got, SHA_PR)
       eq('起点第 7 步：base 里已有的那个提交记在 inherited',
         typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.inherited : r.got, ['sha-a1'])
+      eq('起点第 7 步：起点挪到与 base 的共同祖先时 moved 为真（报告据此说下面那条的新增行不数）',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.moved : r.got, true)
       eq('起点第 7 步：主干那几问照旧，之后解析 base、取共同祖先、比两个起点、列 base 里没有的提交', r.asked,
         [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_BASE_ORIGIN, Q_LIST_FORK, Q_PR, Q_OWN, Q_MEET, Q_REACH])
     }
@@ -17288,7 +17290,7 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
       // base 就是主干那一头：与 base 的共同祖先就是与主干的共同祖先
       const r = runWith(onBranch({ [Q_PR]: SHA_PR, [`merge-base ${SHA_PR} HEAD`]: SHA_FORK, [`merge-base ${SHA_FORK} ${SHA_FORK}`]: SHA_FORK, [Q_REACH]: `${SHA_C2}\n${SHA_C1}` }), PR_BASE)
       exact('起点第 7 步：base 就是主干那一头 → 起点与提交跟没给 base 时一样，inherited 为空数组', r.got,
-        { ...measure('origin/main', SHA_FORK, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: [] } })
+        { ...measure('origin/main', SHA_FORK, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: [], moved: false } })
     }
     {
       // base 比主干那一头旧（开 PR 时的主干头，主干后来又合了别的、这条也合了进来）：与 base 的共同祖先更靠前，
@@ -17296,7 +17298,9 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
       const r = runWith(onBranch({ [Q_PR]: SHA_PR, [Q_OWN]: SHA_OWN, [Q_MEET]: SHA_OWN,
         [Q_REACH]: `${SHA_C2}\n${SHA_C1}\nsha-others-after-base` }), PR_BASE)
       exact('起点第 7 步：base 比主干那一头旧 → 起点不往回拉，量出来的与没给 base 一样', r.got,
-        { ...measure('origin/main', SHA_FORK, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: [] } })
+        { ...measure('origin/main', SHA_FORK, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: [], moved: false } })
+      eq('起点第 7 步：起点没挪时 moved 为假（报告不能说下面那条的新增行不数）',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.moved : r.got, false)
       eq('起点第 7 步：base 比主干那一头旧，起点仍是与主干的共同祖先',
         typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.base : r.got, SHA_FORK)
       eq('起点第 7 步：base 比主干那一头旧，主干上别人的提交不会被算成这条的',
@@ -17334,6 +17338,13 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     }
     eq('起点第 7 步：环境变量没设、空串、全是空白都算没给 base', [prBaseFrom(undefined), prBaseFrom(''), prBaseFrom('  ')], [undefined, undefined, undefined])
     eq('起点第 7 步：环境变量带首尾空白时去掉再用', prBaseFrom(' origin/a \n'), 'origin/a')
+    // 改 PR 的 base 不换 head、不触发 check.yml：另一份工作流在改 PR 信息时也重量，而且不按「base 变没变」跳过 ——
+    // 跳过的任务在 PR 上算通过，会把同一个 head 上更早的红灯盖掉（ADR-234 第一节）
+    const sizeWf = rf('.github/workflows/size-base.yml', 'utf8')
+    eq('改 base 也重量：工作流在改 PR 信息时也跑，传的是 base 分支名，检出 PR 的头',
+      ['types: [opened, synchronize, reopened, edited]', 'SIZE_PR_BASE: origin/${{ github.event.pull_request.base.ref }}',
+        'ref: ${{ github.event.pull_request.head.sha }}', 'fetch-depth: 0', 'npm run size'].filter(x => !sizeWf.includes(x)), [])
+    eq('改 base 也重量：工作流不按条件跳过、不给写权限', [/^\s*if:/m.test(sizeWf), /:\s*write/.test(sizeWf)], [false, false])
   }
 
   // ── 第 7 步在真 git 仓库上：B 叠在没合的 A 上、A 带 size-ok ────────────────
@@ -17365,7 +17376,7 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
       const counts = tally(merge(files, parseNumstat(ask(...NUMSTAT_IGNORING_SPACE, b.base, b.head) ?? '')))
       const waivers = b.commits.flatMap(c => scanMessage(ask('log', '-1', '--format=%B', c) ?? ''))
         .flatMap(v => v.kind === 'exempt' ? [{ category: v.category, reason: v.reason }] : [])
-      return { counts, waivers, judged: judge(counts, waivers, []), inherited: b.prBase?.inherited.length }
+      return { counts, waivers, judged: judge(counts, waivers, []), inherited: b.prBase?.inherited.length, moved: b.prBase?.moved }
     }
     const stackedB = report(aHead)
     eq('叠在没合的 A 上、给了 base：B 只算自己的 10 行源码',
@@ -17399,6 +17410,22 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     const stale = report(aHead)
     eq('给的是下面那条的旧头（明写的缺口）：A 新长的那一块算进 B',
       'counts' in stale ? stale.counts.源码 : stale, 110)
+
+    // B 叠在 A 上、又直接合了更新的主干（第二轮独立复核举的形状）：与 base 的分叉点不在与主干的分叉点之后，起点挪不了，
+    // A 那 500 行照样数、A 的豁免不认 —— 多拦、不漏拦（ADR-234 第三节明写）；moved 为假，报告不说「新增行不数」
+    g('checkout', '-q', 'main')
+    writeFileSync(join(repo, 'README.md'), '底\n主干又长了一行\n', 'utf8')
+    g('add', '-A'); g('commit', '-qm', '主干前进')
+    g('update-ref', 'refs/remotes/origin/main', 'HEAD')
+    g('checkout', '-q', 'b')
+    g('merge', '-q', '--no-edit', 'main')
+    const mergedMain = report('a')
+    eq('叠着的这条直接合了更新的主干：起点挪不了，A 的 500 行照样数（多拦不漏拦）',
+      'counts' in mergedMain ? mergedMain.counts.源码 : mergedMain, 510)
+    eq('叠着的这条直接合了更新的主干：A 的豁免照样不认',
+      'waivers' in mergedMain ? mergedMain.waivers : mergedMain, [])
+    eq('叠着的这条直接合了更新的主干：moved 为假',
+      'moved' in mergedMain ? mergedMain.moved : mergedMain, false)
 
     // 普通 PR 开出之后主干又合了一条带豁免的大改动、这条把主干合了进来；给的 base 是开 PR 时的旧主干头（独立复核举的形状）。
     // 起点不能往回拉：量出来的必须与不给 base 一样 —— 只算这条自己的 360 行，主干上那句豁免不算它的，超线照样拦下

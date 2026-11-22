@@ -110,13 +110,16 @@ const report = judge(counts, waivers, unjustified)
 
 // ── 报 ──────────────────────────────────────────────────────────
 
-const scope = onTrunk ? `${trunk} 的上一版` : prBase ? `这条 PR 的 base ${prBase.sha.slice(0, 7)}` : trunk
+const scope = onTrunk ? `${trunk} 的上一版` : prBase?.moved ? `这条 PR 的 base ${prBase.sha.slice(0, 7)}` : trunk
 const nCommits = commits.length
 console.log(`\n体量闸门 · 相对 ${scope}(${base.slice(0, 7)}..${head.slice(0, 7)},${nCommits} 个提交,${files.length} 个文件)\n`)
 // 用没用上 base 都说出来,0 条也照说(ADR-63 的做法):「没收窄」和「收窄了、没东西可收」是两回事
-if (prBase) {
+if (prBase?.moved) {
   console.log(`  只算这条 PR 自己的提交:base ${prBase.sha.slice(0, 7)} 里已有的 ${prBase.inherited.length} 个提交不算`
     + '(它们的新增行不数,提交信息里的 size-ok 也不认)\n')
+} else if (prBase) {
+  console.log(`  base ${prBase.sha.slice(0, 7)} 里已有的 ${prBase.inherited.length} 个提交,提交信息里的 size-ok 不认;`
+    + '起点仍是与主干的共同祖先(这条与 base 的分叉点不在它之后,比如直接合过更新的主干),它们若带新增行照样数 —— 多算、不少算\n')
 } else if (givenBase !== undefined) {
   console.log(`  给了 PR 的 base(${givenBase}),但 HEAD 就在主干上,没用它 —— 主干上只报数、不判定\n`)
 } else {

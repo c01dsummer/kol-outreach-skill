@@ -1,0 +1,39 @@
+name: size-base
+
+# 体量闸门按这条 PR 此刻的 base 再量一遍（ADR-234 第一节「改 base 也要重量」）。
+#
+# 为什么另起一份、不放进 check.yml：base 现在是体量闸门的输入，而改 PR 的 base 不换 head、不触发 check.yml
+# （默认只在开 PR、推新提交、重开时跑）。check.yml 要是加上改 PR 信息（edited）这种触发，改个标题就要重跑整条链；
+# 按「base 变没变」跳过又不行 —— 跳过的任务在 PR 上算通过，会把同一个 head 上更早的红灯盖掉。
+# 这一份只装依赖、跑体量闸门，一两分钟，改标题也照跑，每一跑都按事件里此刻的 base 量，不跳过。
+# 检出 PR 的头而不是合并结果：改 base 时 GitHub 重算合并结果是异步的，那一刻的合并结果可能还是按旧 base 合的。
+# ⚠️ 要它真能拦住合入，需求所有者要在 main 的分支保护里把「体量闸门（按此刻的 base）」加成必须通过（这项设置不在仓库里）。
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  size-base:
+    name: 体量闸门（按此刻的 base）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          # 要和主干、和 base 分支求共同祖先；浅克隆下体量闸门会拒答而不是放行
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit
+      - run: npm run size
+        env:
+          SIZE_PR_BASE: origin/${{ github.event.pull_request.base.ref }}

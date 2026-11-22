@@ -33168,8 +33168,8 @@
       "req": "harness",
       "why": "给了 base 时行数照旧从与主干的共同祖先量起 —— 下面那条分支的新增行算进这条",
       "file": "scripts/check/size-rule.ts",
-      "find": "base: meet === base ? own : base, onTrunk",
-      "replace": "base, onTrunk",
+      "find": "  const start = meet === base ? own : base\n",
+      "replace": "  const start = base\n",
       "by": "test",
       "kills": [
         "叠在没合的 A 上、给了 base：B 只算自己的 10 行源码"
@@ -33180,8 +33180,8 @@
       "req": "harness",
       "why": "「base 里已有几个提交不算」一律报 0 —— 报告说收窄了、却说不出收掉了什么",
       "file": "scripts/check/size-rule.ts",
-      "find": "inherited: commits.filter(c => !notInBase.has(c)) }",
-      "replace": "inherited: [] }",
+      "find": "inherited: commits.filter(c => !notInBase.has(c)), moved",
+      "replace": "inherited: [], moved",
       "by": "test",
       "kills": [
         "叠在没合的 A 上、给了 base：base 里已有的 A 那一个提交记在 inherited"
@@ -33216,8 +33216,8 @@
       "req": "harness",
       "why": "叠在没合的分支上时被当成在主干上 —— 入口只报数、不判定，超线的叠分支照样绿",
       "file": "scripts/check/size-rule.ts",
-      "find": "base ? own : base, onTrunk: false, commits",
-      "replace": "base ? own : base, onTrunk: true, commits",
+      "find": "base: start, onTrunk: false, commits",
+      "replace": "base: start, onTrunk: true, commits",
       "by": "test",
       "kills": [
         "起点第 7 步：叠在没合的分支上仍算不在主干上（照样判定）"
@@ -33240,8 +33240,8 @@
       "req": "harness",
       "why": "起点直接改成与 base 的共同祖先、不看它在不在与主干的共同祖先之后 —— base 是开 PR 时的旧主干头时，起点往回拉，主干上别人后来合的行数算进这条",
       "file": "scripts/check/size-rule.ts",
-      "find": "base: meet === base ? own : base, onTrunk",
-      "replace": "base: own, onTrunk",
+      "find": "  const start = meet === base ? own : base\n",
+      "replace": "  const start = own\n",
       "by": "test",
       "kills": [
         "base 是开 PR 时的旧主干头：只算这条自己的 360 行，不把主干上后来合的算进来"
@@ -33274,7 +33274,7 @@
     {
       "id": "M-H234-m",
       "req": "harness",
-      "why": "比两个起点答不上来时照旧往下量 —— 答不上来当成起点不用挪",
+      "why": "git 答不出「这条与 base 的分叉点在不在与主干的分叉点之后」时照旧往下量 —— 没问出来就当成不用挪",
       "file": "scripts/check/size-rule.ts",
       "find": "  if (meet === null) {\n    return cannot(",
       "replace": "  if (meet === null && own === '') {\n    return cannot(",
@@ -33286,7 +33286,7 @@
     {
       "id": "M-H234-n",
       "req": "harness",
-      "why": "按 base 列提交答不上来时当成「没有提交」 —— 这条自己的提交一个都不剩，豁免找不到也不报",
+      "why": "git 列不出哪些提交不在 base 里时当成「没有提交」 —— 这条自己的提交一个都不剩，豁免找不到也不报",
       "file": "scripts/check/size-rule.ts",
       "find": "  if (reach === null) {\n    return cannot(",
       "replace": "  if (reach === null && own === '') {\n    return cannot(",
@@ -33317,6 +33317,18 @@
       "by": "test",
       "kills": [
         "起点第 7 步：环境变量带首尾空白时去掉再用"
+      ]
+    },
+    {
+      "id": "M-H234-q",
+      "req": "harness",
+      "why": "起点没挪时也报「下面那条的新增行不数」—— 报告说收窄了，实际那些行照样算在这条头上",
+      "file": "scripts/check/size-rule.ts",
+      "find": "moved: start !== base }",
+      "replace": "moved: true }",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：起点没挪时 moved 为假（报告不能说下面那条的新增行不数）"
       ]
     }
   ],

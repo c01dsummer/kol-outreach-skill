@@ -341,9 +341,11 @@ export type Baseline =
 /**
  * 调用方给的 PR base 用上了:`given` 是原样给的那串,`sha` 是解析出来的提交;
  * `inherited` 是「按主干算是这条分支的、但已经在 base 里」的提交 —— 叠在下面那条没合的分支上的那些,
- * 它们的新增行与 `size-ok:` 都不算这条的。按主干开的 PR 这一项是空数组,照样说出来
+ * 它们的 `size-ok:` 不算这条的。按主干开的 PR 这一项是空数组,照样说出来。
+ * `moved` 是起点挪没挪到与 base 的共同祖先:挪了,它们的新增行也不数;没挪(这条与 base 的分叉点不在与主干的
+ * 分叉点之后,比如叠着的这条直接合过更新的主干),它们若带新增行照样数 —— 多算、不少算(ADR-234 第三节)
  */
-export type PrBase = { given: string; sha: string; inherited: string[] }
+export type PrBase = { given: string; sha: string; inherited: string[]; moved: boolean }
 
 /**
  * 调用方经环境变量给的 PR base(ADR-234):没设、空串、全是空白都算「没给」 —— CI 上推 main 那一跑
@@ -452,8 +454,9 @@ export function resolveBaseline(ask: GitAsk, prBase?: string): Baseline {
   }
   // 这条自己的提交 = 第 6 步按主干列出的、又不在 base 里的:只减不加
   const notInBase = new Set(reach.split('\n').filter(Boolean))
+  const start = meet === base ? own : base
   return {
-    kind: 'measure', trunk, head, base: meet === base ? own : base, onTrunk: false, commits: commits.filter(c => notInBase.has(c)),
-    prBase: { given: prBase, sha: resolved, inherited: commits.filter(c => !notInBase.has(c)) },
+    kind: 'measure', trunk, head, base: start, onTrunk: false, commits: commits.filter(c => notInBase.has(c)),
+    prBase: { given: prBase, sha: resolved, inherited: commits.filter(c => !notInBase.has(c)), moved: start !== base },
   }
 }
