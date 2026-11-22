@@ -58,7 +58,7 @@ function cannotAnswer(why: string, how: string): never {
  * 不是一个事后才跑的检查。
  */
 /**
- * 这条 PR 的 base,由调用方给(ADR-234,照 ADR-63 分支寿命闸门的形状:传事实、不传推断)。
+ * 这条 PR 的 base,由调用方给(ADR-235,照 ADR-63 分支寿命闸门的形状:传事实、不传推断)。
  * CI 上 pull_request 事件填 `origin/<base 分支名>`(base 分支此刻的头,不用事件里记的 base.sha —— 那是快照,base 分支往前走了它不一定跟);推 main 的那一跑这个表达式是空串,
  * 本地不设 —— 这两种都算「没给」,按主干量。PR 叠在另一条没合的 PR 上(base 选的是下面那条分支)时,
  * 下面那条已有的提交不算这条的:它们的新增行不数,它们提交信息里的 `size-ok:` 也不认。

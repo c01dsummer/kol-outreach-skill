@@ -1,4 +1,4 @@
-# ADR-234 PR 叠在没合的 PR 上时，体量闸门只数它自己的提交
+# ADR-235 PR 叠在没合的 PR 上时，体量闸门只数它自己的提交
 
 - 日期 · 2026-11-22
 - 类型：不属于反向输入的五类 —— 改的是检查链自己
@@ -7,7 +7,7 @@
 - 决定人与时间：需求所有者 2026-11-15 的选择（见上），做法照 ADR-63 的形状，不需要再选
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
 - 理由：见第一节
-- 连带改动：`scripts/check/size-rule.ts`（`resolveBaseline` 多一个可选参数、说明加第 7 步、`Baseline` 多一个可选的 `prBase`、新加 `prBaseFrom`）· `scripts/check/size.ts`（读环境变量 `SIZE_PR_BASE`，报告多一行说清用没用 base）· `.github/workflows/check.yml` 检查链那一步加 `SIZE_PR_BASE` · 新加 `.github/workflows/size-base.yml`（改 PR 信息时也重量） · `scripts/check/shard-load-rule.ts` 钉死的工作流跟着加几行，逐行比的那段抽成 `pinnedLinesFaults` 给 `size-base.yml` 也用 · `scripts/check/git-fixture.ts` 玩具仓库多认一个 `merge`，`XDG_CONFIG_HOME` 指到不可能存在的路径 · `scripts/test.ts` 体量闸门起点那组加第 7 步的假应答用例与一个真 git 玩具仓库 · `scripts/check/mutations.json` 新加 M-H234-a 到 q，M-H9-t 的锚点跟上新写法 · `process/6-INTEGRATE.md`「叠分支」两处说法改准 · `docs/ARCHITECTURE.md` 体量闸门两行 · ADR-145 一张欠条补状态行 · `docs/adr/README.md` 索引
+- 连带改动：`scripts/check/size-rule.ts`（`resolveBaseline` 多一个可选参数、说明加第 7 步、`Baseline` 多一个可选的 `prBase`、新加 `prBaseFrom`）· `scripts/check/size.ts`（读环境变量 `SIZE_PR_BASE`，报告多一行说清用没用 base）· `.github/workflows/check.yml` 检查链那一步加 `SIZE_PR_BASE` · 新加 `.github/workflows/size-base.yml`（改 PR 信息时也重量） · `scripts/check/shard-load-rule.ts` 钉死的工作流跟着加几行，逐行比的那段抽成 `pinnedLinesFaults` 给 `size-base.yml` 也用 · `scripts/check/git-fixture.ts` 玩具仓库多认一个 `merge`，`XDG_CONFIG_HOME` 指到不可能存在的路径 · `scripts/test.ts` 体量闸门起点那组加第 7 步的假应答用例与一个真 git 玩具仓库 · `scripts/check/mutations.json` 新加 M-H235-a 到 q，M-H9-t 的锚点跟上新写法 · `process/6-INTEGRATE.md`「叠分支」两处说法改准 · `docs/ARCHITECTURE.md` 体量闸门两行 · ADR-145 一张欠条补状态行 · `docs/adr/README.md` 索引
 - 同类：ADR-63（至少第 2 次；查的范围：正文所引、grep，树 e5e5e0b）
 
 ## 要用到的事实，各找谁要
@@ -50,7 +50,7 @@
 | 再让 B 直接合更新的主干（A 仍没合），给 base = 分支 a | 源码 510 行（A 那 500 行照样数）、A 的豁免不认、`moved` 为假 —— 多拦不漏拦（第三节） |
 | 另一条 P 从旧主干开出、加 360 行；主干后来合了 400 行带豁免的 M；P 把主干合进来；给 base = 旧主干头 | 源码 360 行、主干上那句豁免不算 P 的、超线拦下，与不给 base 量出同一组数（独立复核举的形状） |
 
-假应答那一组另外钉住：base 找不到、没有共同祖先、比两个起点答不上来、按 base 列不出提交，四种都无从判断；以 `-` 开头的不拿去问 git；base 比主干那一头旧时起点不往回拉；HEAD 在主干上时根本不去解析 base；环境变量的空串、空白与首尾空白。十七条变异（M-H234-a 到 q：找不到 base 退回按主干量、没有共同祖先退回按主干量、豁免照旧从按主干列出的提交里找、行数照旧从与主干的共同祖先量起、「不算」的那几个一律报 0、主干上也去用 base、报告里的 base 写成共同祖先、叠分支被当成在主干上、「给的是哪个 base」写成解析出来的提交、起点直接换成与 base 的共同祖先、自己的提交改成按 base 列出的那些、以 `-` 开头的也去问 git、比两个起点答不上来照旧往下量、按 base 列不出提交当成没有提交、空串当成给了 base、不去首尾空白、起点没挪也报「新增行不数」）都被点名的那条断言抓到。
+假应答那一组另外钉住：base 找不到、没有共同祖先、比两个起点答不上来、按 base 列不出提交，四种都无从判断；以 `-` 开头的不拿去问 git；base 比主干那一头旧时起点不往回拉；HEAD 在主干上时根本不去解析 base；环境变量的空串、空白与首尾空白。十七条变异（M-H235-a 到 q：找不到 base 退回按主干量、没有共同祖先退回按主干量、豁免照旧从按主干列出的提交里找、行数照旧从与主干的共同祖先量起、「不算」的那几个一律报 0、主干上也去用 base、报告里的 base 写成共同祖先、叠分支被当成在主干上、「给的是哪个 base」写成解析出来的提交、起点直接换成与 base 的共同祖先、自己的提交改成按 base 列出的那些、以 `-` 开头的也去问 git、比两个起点答不上来照旧往下量、按 base 列不出提交当成没有提交、空串当成给了 base、不去首尾空白、起点没挪也报「新增行不数」）都被点名的那条断言抓到。
 
 ## 三、仍然按不住的
 
@@ -81,10 +81,10 @@
 三个独立上下文按台账（868 条）分段按字面判过，本条上响了的：
 
 - ADR-145「启动数闸门入口的映射与吞错没有变异」（下一条碰 `launches.ts` 或 `resolveBaseline` 的改动，重新起算）：响了，没还。本条只给 `resolveBaseline` 加了一个可选参数，`launches.ts` 不传、映射与吞错一行没动；还法仍是把映射挪进 `launch-rule.ts`，与体量闸门无关。在 ADR-145 原块下补了「已重挂」状态行，从本条合入起重数。
-- ADR-89 第 92 行（加变异时看盖的是不是没人盖过）：核过，M-H234-a 到 q 全落在新写的第 7 步与 `prBaseFrom` 上，主干上没有变异盖它们；M-H9-t 只换锚点。
+- ADR-89 第 92 行（加变异时看盖的是不是没人盖过）：核过，M-H235-a 到 q 全落在新写的第 7 步与 `prBaseFrom` 上，主干上没有变异盖它们；M-H9-t 只换锚点。
 - ADR-99「开 PR 前核在途 PR」：每条 PR 都做的一步，结果写在 PR 正文。
 - ADR-80 第 87–88 行（下一个碰 `size-rule.ts` 的人顺手看一眼 `size-ok:` 的数）：主干提交信息里按字面数约 277 处，最近合入的三条（报告缺值、复评经验、增强结果整份校验）都带豁免，远不到死亡条件「四周 20 跑为 0」；本条自己没写 `size-ok:`。CI 红史那一半这里看不到，没核。
 
-拿不准、按窄读不响的：往入口脚本里加判定那一串（现行的是 ADR-232「入口判定仍在入口脚本里」）—— 窄读说的是产品那几个入口（ADR-197 第 96 行取过），本条改的是检查链入口；宽读那一半（`size.ts` 报告那三行只有读 diff 的人看）已挂成本条自己的欠条「体量闸门入口读没读 base 没有测试守着」，不另重挂。给检查链判定的返回值加新字段那一串（ADR-70、ADR-145、ADR-158，现行的是 ADR-198「新字段的变异改坏的是不是它的值没人核」）：`prBase` 的四个字段各有一条改坏它的值的变异（M-H234-e、g、i、q）且字段断言闸门绿，那张余下的是机器核不核，本条没碰它的判法。
+拿不准、按窄读不响的：往入口脚本里加判定那一串（现行的是 ADR-232「入口判定仍在入口脚本里」）—— 窄读说的是产品那几个入口（ADR-197 第 96 行取过），本条改的是检查链入口；宽读那一半（`size.ts` 报告那三行只有读 diff 的人看）已挂成本条自己的欠条「体量闸门入口读没读 base 没有测试守着」，不另重挂。给检查链判定的返回值加新字段那一串（ADR-70、ADR-145、ADR-158，现行的是 ADR-198「新字段的变异改坏的是不是它的值没人核」）：`prBase` 的四个字段各有一条改坏它的值的变异（M-H235-e、g、i、q）且字段断言闸门绿，那张余下的是机器核不核，本条没碰它的判法。
 
 CodeRabbit 首轮另提的两处，在本条里改了：`size-base.yml` 原先由测试找几个关键的字来核，注释里的字、`echo 'npm run size'` 都骗得过，改成与 `check.yml` 同一个比法（`pinnedLinesFaults`：去掉整行注释与空行后与钉死的样子逐行相同），不从文字猜 YAML 的结构；git 夹具挡了本机的系统、用户配置文件，挡不住用户级的忽略、属性文件（不走配置文件，从 `XDG_CONFIG_HOME` 或 `HOME/.config` 底下读，ADR-222 写明过），本机那份忽略文件要是写了 `scripts/`，玩具仓库里的提交就是空的，改成夹具把 `XDG_CONFIG_HOME` 指到 `/dev/null` 底下（不可能存在，git 读不到也不报错，本机验过），测试另在 `XDG_CONFIG_HOME` 与 `HOME/.config` 两处各放一份挡文件的忽略文件钉住。

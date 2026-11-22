@@ -33128,7 +33128,7 @@
       ]
     },
     {
-      "id": "M-H234-a",
+      "id": "M-H235-a",
       "req": "harness",
       "why": "给了 PR 的 base 却找不到这个提交时，退回按主干量 —— 叠在没合的分支上的 PR 又把下面那条的行数和豁免算成自己的",
       "file": "scripts/check/size-rule.ts",
@@ -33140,7 +33140,7 @@
       ]
     },
     {
-      "id": "M-H234-b",
+      "id": "M-H235-b",
       "req": "harness",
       "why": "给的 PR base 与 HEAD 没有共同祖先时，退回按主干量",
       "file": "scripts/check/size-rule.ts",
@@ -33152,7 +33152,7 @@
       ]
     },
     {
-      "id": "M-H234-c",
+      "id": "M-H235-c",
       "req": "harness",
       "why": "给了 base 时豁免照旧从按主干列出的提交里找 —— 下面那条分支的 size-ok 被这条捡到",
       "file": "scripts/check/size-rule.ts",
@@ -33164,7 +33164,7 @@
       ]
     },
     {
-      "id": "M-H234-d",
+      "id": "M-H235-d",
       "req": "harness",
       "why": "给了 base 时行数照旧从与主干的共同祖先量起 —— 下面那条分支的新增行算进这条",
       "file": "scripts/check/size-rule.ts",
@@ -33176,7 +33176,7 @@
       ]
     },
     {
-      "id": "M-H234-e",
+      "id": "M-H235-e",
       "req": "harness",
       "why": "「base 里已有几个提交不算」一律报 0 —— 报告说收窄了、却说不出收掉了什么",
       "file": "scripts/check/size-rule.ts",
@@ -33188,7 +33188,7 @@
       ]
     },
     {
-      "id": "M-H234-f",
+      "id": "M-H235-f",
       "req": "harness",
       "why": "HEAD 在主干上时也去用 PR 的 base —— 主干上那一跑的起点不再是上一版",
       "file": "scripts/check/size-rule.ts",
@@ -33200,7 +33200,7 @@
       ]
     },
     {
-      "id": "M-H234-g",
+      "id": "M-H235-g",
       "req": "harness",
       "why": "报告里「base 是哪个提交」写成与它的共同祖先 —— 说出来的 base 与给的不是同一个",
       "file": "scripts/check/size-rule.ts",
@@ -33212,7 +33212,7 @@
       ]
     },
     {
-      "id": "M-H234-h",
+      "id": "M-H235-h",
       "req": "harness",
       "why": "叠在没合的分支上时被当成在主干上 —— 入口只报数、不判定，超线的叠分支照样绿",
       "file": "scripts/check/size-rule.ts",
@@ -33224,7 +33224,7 @@
       ]
     },
     {
-      "id": "M-H234-i",
+      "id": "M-H235-i",
       "req": "harness",
       "why": "报告里「给的是哪个 base」写成解析出来的提交 —— 人对不上自己给的那一串",
       "file": "scripts/check/size-rule.ts",
@@ -33236,7 +33236,7 @@
       ]
     },
     {
-      "id": "M-H234-j",
+      "id": "M-H235-j",
       "req": "harness",
       "why": "起点直接改成与 base 的共同祖先、不看它在不在与主干的共同祖先之后 —— base 是开 PR 时的旧主干头时，起点往回拉，主干上别人后来合的行数算进这条",
       "file": "scripts/check/size-rule.ts",
@@ -33248,7 +33248,7 @@
       ]
     },
     {
-      "id": "M-H234-k",
+      "id": "M-H235-k",
       "req": "harness",
       "why": "这条自己的提交改成按 base 列出的那些、不再只减不加 —— base 是旧主干头时，主干上别人那句 size-ok 被这条捡到",
       "file": "scripts/check/size-rule.ts",
@@ -33260,7 +33260,7 @@
       ]
     },
     {
-      "id": "M-H234-l",
+      "id": "M-H235-l",
       "req": "harness",
       "why": "以 - 开头的 base 也交给 git 去问 —— `--all` 这类开关被当成提交名",
       "file": "scripts/check/size-rule.ts",
@@ -33272,7 +33272,7 @@
       ]
     },
     {
-      "id": "M-H234-m",
+      "id": "M-H235-m",
       "req": "harness",
       "why": "git 答不出「这条与 base 的分叉点在不在与主干的分叉点之后」时照旧往下量 —— 没问出来就当成不用挪",
       "file": "scripts/check/size-rule.ts",
@@ -33284,7 +33284,7 @@
       ]
     },
     {
-      "id": "M-H234-n",
+      "id": "M-H235-n",
       "req": "harness",
       "why": "git 列不出哪些提交不在 base 里时当成「没有提交」 —— 这条自己的提交一个都不剩，豁免找不到也不报",
       "file": "scripts/check/size-rule.ts",
@@ -33296,7 +33296,7 @@
       ]
     },
     {
-      "id": "M-H234-o",
+      "id": "M-H235-o",
       "req": "harness",
       "why": "环境变量是空串时也当成给了 base —— 推主干那一跑表达式落成空串，被当成「给了却找不到」而变红",
       "file": "scripts/check/size-rule.ts",
@@ -33308,7 +33308,7 @@
       ]
     },
     {
-      "id": "M-H234-p",
+      "id": "M-H235-p",
       "req": "harness",
       "why": "环境变量不去首尾空白 —— 带换行的 base 名拿去问 git 找不到",
       "file": "scripts/check/size-rule.ts",
@@ -33320,7 +33320,7 @@
       ]
     },
     {
-      "id": "M-H234-q",
+      "id": "M-H235-q",
       "req": "harness",
       "why": "起点没挪时也报「下面那条的新增行不数」—— 报告说收窄了，实际那些行照样算在这条头上",
       "file": "scripts/check/size-rule.ts",
@@ -33332,7 +33332,7 @@
       ]
     },
     {
-      "id": "M-H234-r",
+      "id": "M-H235-r",
       "req": "harness",
       "why": "夹具不挡用户级的忽略文件 —— 本机那份忽略文件写了 scripts/ 时，玩具仓库的提交是空的，体量断言跟着失真",
       "file": "scripts/check/git-fixture.ts",

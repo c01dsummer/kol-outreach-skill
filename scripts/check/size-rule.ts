@@ -343,12 +343,12 @@ export type Baseline =
  * `inherited` 是「按主干算是这条分支的、但已经在 base 里」的提交 —— 叠在下面那条没合的分支上的那些,
  * 它们的 `size-ok:` 不算这条的。按主干开的 PR 这一项是空数组,照样说出来。
  * `moved` 是起点挪没挪到与 base 的共同祖先:挪了,它们的新增行也不数;没挪(这条与 base 的分叉点不在与主干的
- * 分叉点之后,比如叠着的这条直接合过更新的主干),它们若带新增行照样数 —— 多算、不少算(ADR-234 第三节)
+ * 分叉点之后,比如叠着的这条直接合过更新的主干),它们若带新增行照样数 —— 多算、不少算(ADR-235 第三节)
  */
 export type PrBase = { given: string; sha: string; inherited: string[]; moved: boolean }
 
 /**
- * 调用方经环境变量给的 PR base(ADR-234):没设、空串、全是空白都算「没给」 —— CI 上推 main 那一跑
+ * 调用方经环境变量给的 PR base(ADR-235):没设、空串、全是空白都算「没给」 —— CI 上推 main 那一跑
  * 那个表达式落成空串;其余去掉首尾空白原样交回。
  */
 export function prBaseFrom(value: string | undefined): string | undefined {
@@ -375,7 +375,7 @@ export function prBaseFrom(value: string | undefined): string | undefined {
  *    `rev-parse --verify <prBase>^{commit}` 答不上来 → 无从判断(给了却找不到);
  *    `merge-base <base 的 sha> HEAD` 答不上来 → 无从判断(与 HEAD 没有共同祖先);比两个起点、按 base 列提交答不上来
  *    → 同样无从判断。这几种都不退回按主干量:
- *    退回去,叠在没合的分支上的 PR 就又把下面那条的行数和豁免算成自己的(ADR-234)。
+ *    退回去,叠在没合的分支上的 PR 就又把下面那条的行数和豁免算成自己的(ADR-235)。
  *    以 `-` 开头的不问 git,直接无从判断(那是开关,不是提交名)。
  *    **只减不加**:这条分支自己的提交 = 第 6 步列出的、又不在 `rev-list <base 的 sha>..<HEAD>` 里的;
  *    其余(已在 base 里的)原样记在 `prBase.inherited`。起点只往后挪:`merge-base <与 base 的共同祖先> <第 5 步的起点>`

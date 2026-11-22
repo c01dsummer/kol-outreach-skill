@@ -11,7 +11,7 @@
  * 3. 带什么环境：从本进程的环境起，先去掉全部 `GIT_` 开头的；调用方的 `env` 只许给 `ENV_KEYS` 里那几样（提交身份与日期、往上找仓库的天花板），
  *    值为 `undefined` 的当没给。再设 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_SYSTEM`、`GIT_CONFIG_GLOBAL` 指向 `/dev/null`（不读本机的系统、用户配置文件；后两个变量 git 2.32 起才认，更老的仍读用户配置）。
  *    用户级的忽略、属性文件是另一路（不走配置文件，从 `XDG_CONFIG_HOME`、没设时从 `HOME/.config` 底下的 `git/ignore`、`git/attributes` 读），
- *    所以 `XDG_CONFIG_HOME` 指到 `NO_USER_CONFIG`：一个不可能存在的路径（`/dev/null` 不是目录），git 读不到也不报错（ADR-234 第五节），
+ *    所以 `XDG_CONFIG_HOME` 指到 `NO_USER_CONFIG`：一个不可能存在的路径（`/dev/null` 不是目录），git 读不到也不报错（ADR-235 第五节），
  *    `GIT_CEILING_DIRECTORIES` 加上系统临时目录（往上找仓库找不出临时目录），与调用方给的用 `:` 拼。
  *
  * 起 git 用的函数在调用时从模块上取：自检记当前目录、计数预加载换掉模块上的函数后照样记得到、数得到。

@@ -1,6 +1,6 @@
 name: size-base
 
-# 体量闸门按这条 PR 此刻的 base 再量一遍（ADR-234 第一节「改 base 也要重量」）。
+# 体量闸门按这条 PR 此刻的 base 再量一遍（ADR-235 第一节「改 base 也要重量」）。
 #
 # 为什么另起一份、不放进 check.yml：base 现在是体量闸门的输入，而改 PR 的 base 不换 head、不触发 check.yml
 # （默认只在开 PR、推新提交、重开时跑）。check.yml 要是加上改 PR 信息（edited）这种触发，改个标题就要重跑整条链；

@@ -17245,7 +17245,7 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
       typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.commits : r.got, [SHA_C2, SHA_C1])
   }
 
-  // ── 第 7 步：调用方给了这条 PR 的 base（ADR-234）──────────────────────
+  // ── 第 7 步：调用方给了这条 PR 的 base（ADR-235）──────────────────────
   // 期望出自 resolveBaseline 说明第 7 步与卡上的关单标准：只数 base 里没有的提交（只减不加）；给了却找不到、
   // 或与 HEAD 没有共同祖先就拒答，不退回按主干量；base 就是主干那一头、或在主干上更旧时结果一点不变；起点只往后挪
   {
@@ -17339,7 +17339,7 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     eq('起点第 7 步：环境变量没设、空串、全是空白都算没给 base', [prBaseFrom(undefined), prBaseFrom(''), prBaseFrom('  ')], [undefined, undefined, undefined])
     eq('起点第 7 步：环境变量带首尾空白时去掉再用', prBaseFrom(' origin/a \n'), 'origin/a')
     // 改 PR 的 base 不换 head、不触发 check.yml：另一份工作流在改 PR 信息时也重量，而且不按「base 变没变」跳过 ——
-    // 跳过的任务在 PR 上算通过，会把同一个 head 上更早的红灯盖掉（ADR-234 第一节）
+    // 跳过的任务在 PR 上算通过，会把同一个 head 上更早的红灯盖掉（ADR-235 第一节）
     // 整份钉死、逐行比（与 check.yml 同一个比法，pinnedLinesFaults）：找几个关键的字会被注释里的字、`echo 'npm run size'` 骗过，
     // 不从文字猜 YAML 的结构。改了这份工作流就在同一条 PR 里改这里钉死的样子，评审看得见
     const SIZE_BASE_PIN = [
@@ -17442,13 +17442,13 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     eq('下面那条又长了带豁免的一块、上面那条合了进来，base 给分支此刻的头：A 新长的那句豁免不算 B 的',
       'waivers' in grown ? grown.waivers : grown, [])
     // 给的是开 PR 时记下的旧头（事件里的 base.sha 是快照）：起点只往后挪到旧头，A 新长的那一块与它的豁免照样算进来。
-    // 这是明写的缺口（ADR-234 第三节），所以 CI 传分支名、不传 base.sha；钉住它，免得哪天有人改回 base.sha 而以为没事
+    // 这是明写的缺口（ADR-235 第三节），所以 CI 传分支名、不传 base.sha；钉住它，免得哪天有人改回 base.sha 而以为没事
     const stale = report(aHead)
     eq('给的是下面那条的旧头（明写的缺口）：A 新长的那一块算进 B',
       'counts' in stale ? stale.counts.源码 : stale, 110)
 
     // B 叠在 A 上、又直接合了更新的主干（第二轮独立复核举的形状）：与 base 的分叉点不在与主干的分叉点之后，起点挪不了，
-    // A 那 500 行照样数、A 的豁免不认 —— 多拦、不漏拦（ADR-234 第三节明写）；moved 为假，报告不说「新增行不数」
+    // A 那 500 行照样数、A 的豁免不认 —— 多拦、不漏拦（ADR-235 第三节明写）；moved 为假，报告不说「新增行不数」
     g('checkout', '-q', 'main')
     writeFileSync(join(repo, 'README.md'), '底\n主干又长了一行\n', 'utf8')
     g('add', '-A'); g('commit', '-qm', '主干前进')

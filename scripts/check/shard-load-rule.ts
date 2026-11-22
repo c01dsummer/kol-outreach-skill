@@ -394,7 +394,7 @@ export function workflowWiringFaults(workflow: string, checkScript: string | und
 /**
  * 一份工作流与钉死的样子逐行比，比法见上面 `workflowWiringFaults` 的说明（去掉整行注释与空行，别的逐字比，怪空白一律红）。
  * `hint` 接在「与钉死的样子不一样」那句后面，告诉改的人去改哪一份钉死的样子。对得上交回 []。
- * 另一份工作流（`size-base.yml`，ADR-234）也用它钉：不从文字猜 YAML 的结构，同一个理由
+ * 另一份工作流（`size-base.yml`，ADR-235）也用它钉：不从文字猜 YAML 的结构，同一个理由
  */
 export function pinnedLinesFaults(workflow: string, want: readonly string[], hint: string): string[] {
   // 换行只认 \n 与 \r\n，空白只认空格与 tab：单独的 \r、U+0085、U+2028、全角空格、不换行空格……YAML 或 shell 会当真，
