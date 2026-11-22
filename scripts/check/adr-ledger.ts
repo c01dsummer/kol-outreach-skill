@@ -16,13 +16,13 @@
  * 所以没有哪一份台账在这里被放过；孤儿照旧由不带参数的这个入口与审计判。
  */
 import { citeReport, citeTable } from './cite-rule.js'
-import { adrDocs, iouNameFaults, entries, ledgerReport, orphanIous } from './debt-rule.js'
+import { adrDocs, iouNameFaults, ledgerReport, ledgerStatus, orphanIous } from './debt-rule.js'
 
 const docs = adrDocs()
 if (process.argv.includes('--cites')) {
   for (const line of citeReport(citeTable(docs))) console.log(line)
 } else {
-  const { out, err } = ledgerReport(entries(docs), orphanIous(docs), iouNameFaults(docs))
+  const { out, err } = ledgerReport(ledgerStatus(docs), orphanIous(docs), iouNameFaults(docs))
   for (const line of out) console.log(line)
   // 设退出码、不硬退出：全表几百行接在管道上，硬退出可能把末尾那几行截掉（`selfcheck.ts` 收尾那段记着实测）
   if (err) { console.error(err); process.exitCode = 1 }

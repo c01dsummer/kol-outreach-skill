@@ -39,7 +39,7 @@ import {
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, isGitProgram, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
-import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
+import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
 import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
@@ -17322,25 +17322,61 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   eq('真仓库里没有孤儿欠条', orphanIous(realAdr).map(o => `${o.file}:${o.line}`), [])
   eq('真仓库里三套写法都抽得到', new Set(entries(realAdr).map(e => e.notation)).size, 3)
 
-  // 末尾那句限定不是客套:去掉它,读的人会把条数当成「还欠着这么多」,
-  // 而这份清单根本不知道哪一条已经还了
-  const sum = ledgerSummary(entries(realAdr))
-  ok('汇总要写明不判已还', sum.includes('不判已还'))
+  // 末尾那句限定不是客套:去掉它,读的人会把「开着」当成「条件还没响」、把「已还」当成「核过真还了」,
+  // 而状态只是照人写的那一行读的
+  const sum = ledgerSummary(ledgerStatus(realAdr))
+  ok('汇总要写明状态照人写的状态行读、不判条件', sum.includes('状态照人写的状态行读，不判条件成没成立'))
   ok('汇总要写明不判踩没踩到', sum.includes('不判这次改动踩到了谁'))
 
+  // 台账读状态行（ADR-167，台账认得状态行那一片）：四种、两种指法，按「记录 + 行号」或「记录 + 短名字」配到重启条件上
+  const stLedger = (files: Record<string, string>) => ledgerStatus(new Map(Object.entries(files)))
+  const stOf = (l: ReturnType<typeof ledgerStatus>) => l.rows.map(r => `${r.entry.file.replace(/^docs\/adr\//, '')}:${r.entry.line} ${r.status}`)
+  eq('四种状态行都抽得出，键是记录加行号或记录加名字', statusLines(new Map([['docs/adr/ADR-9-x.md',
+    '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n> ⚠️ 收尾：ADR-2 第 4 行 · 不做\n> ⚠️ 已重挂：ADR-3「甲」 · 现行的是 ADR-4「乙」\n> ⚠️ **续挂**：ADR-5「丙」 · 到 2026-12-01']]))
+    .map(s => `${s.line} ${s.kind} ${s.key}`), ['1 已还 ADR-1:3', '2 收尾 ADR-2:4', '3 已重挂 ADR-3「甲」', '4 续挂 ADR-5「丙」'])
+  eq('围栏里演示的状态行不抽', statusLines(new Map([['docs/adr/ADR-9-x.md', '```\n⚠️ 续挂：ADR-1 第 3 行\n```']])), [])
+  const iouDoc = '# ADR-1 x\n\n> ⚠️ 欠条：缺 x · 重启条件：下次\n\n> ⚠️ 欠条「乙」：缺 y · 重启条件：下次\n'
+  eq('按行号关、按名字关、没有状态行的照旧开着', stOf(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc,
+    'docs/adr/ADR-2-y.md': '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n' })), ['ADR-1-x.md:3 已还', 'ADR-1-x.md:5 开着'])
+  eq('按名字关上', stOf(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc, 'docs/adr/ADR-2-y.md': '> ⚠️ 收尾：ADR-1「乙」 · 不做\n' })),
+    ['ADR-1-x.md:3 开着', 'ADR-1-x.md:5 收尾'])
+  eq('只有续挂行：算续挂，仍开着', stOf(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc, 'docs/adr/ADR-2-y.md': '> ⚠️ 续挂：ADR-1 第 3 行 · 到 2026-12-01\n' })),
+    ['ADR-1-x.md:3 续挂', 'ADR-1-x.md:5 开着'])
+  eq('续挂过、后来还上：算已还', stOf(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc,
+    'docs/adr/ADR-2-y.md': '> ⚠️ 续挂：ADR-1 第 3 行 · 到 2026-12-01\n\n> ⚠️ 已还：ADR-1 第 3 行 · 还在 #2\n' }))[0], 'ADR-1-x.md:3 已还')
+  // 拆过的记录：老状态行的行号指的是历史文件，不顺带关上主文件里同一行号的那张
+  eq('拆过的记录：按行号的状态行只配历史文件那张', stOf(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc, 'docs/adr/历史/ADR-1-x.md': iouDoc.replace('「乙」', '「丙」'),
+    'docs/adr/ADR-2-y.md': '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n' })).sort(),
+    ['ADR-1-x.md:3 开着', 'ADR-1-x.md:5 开着', '历史/ADR-1-x.md:3 已还', '历史/ADR-1-x.md:5 开着'])
+  // 指不到一条重启条件的：只报、不红，它想关的那张照旧开着
+  const stray = stLedger({ 'docs/adr/ADR-1-x.md': '# ADR-1 x\n\n## 死亡条件\n\n> **什么条件下撤**：没人用\n\n> ⚠️ 欠条：缺 x · 重启条件：下次\n',
+    'docs/adr/ADR-2-y.md': '> ⚠️ 已还：ADR-1 第 5 行 · 指的是死亡条件\n\n> ⚠️ 已还：ADR-1 第 99 行 · 没有这一行\n\n> ⚠️ 已还：ADR-1「没这张」\n' })
+  eq('配不上的状态行单列：指到死亡条件、指到不存在的行、名字对不上', stray.unmatched.map(s => `${s.line} ${s.key}`), ['1 ADR-1:5', '3 ADR-1:99', '5 ADR-1「没这张」'])
+  eq('死亡条件没有状态栏，重启条件照旧开着', stOf(stray), ['ADR-1-x.md:5 null', 'ADR-1-x.md:7 开着'])
+  eq('汇总：开着（含续挂）、三种关法各几条、配不上的几行', ledgerSummary(stLedger({ 'docs/adr/ADR-1-x.md': iouDoc + '\n> ⚠️ 欠条：缺 z · 重启条件：下次\n\n> ⚠️ 欠条：缺 w · 重启条件：下次\n',
+    'docs/adr/ADR-2-y.md': '> ⚠️ 续挂：ADR-1 第 3 行\n\n> ⚠️ 已重挂：ADR-1「乙」\n\n> ⚠️ 收尾：ADR-1 第 9 行\n\n> ⚠️ 已还：ADR-1 第 8 行\n' })),
+    '欠条台账 4 条 · 重启条件 4 · 重开讨论 0 · 死亡条件 0 · 重启条件里开着 2（其中续挂 1） · 已还 0 · 收尾 1 · 已重挂 1 · 配不上的状态行 1'
+      + ' —— 状态照人写的状态行读，不判条件成没成立、也不判这次改动踩到了谁')
+  eq('真仓库里四种状态行至少认得三种、配上的不少于配不上的', (l => [new Set(l.rows.map(r => r.status).filter(s => s && s !== '开着')).size >= 3,
+    l.rows.filter(r => r.status && r.status !== '开着').length > l.unmatched.length])(ledgerStatus(realAdr)), [true, true])
+
   // 全表由 `audit -- --debts` 与只读入口 `npm run adr-ledger` 共用（ADR-151 第二节第 1 条）。期望照格式手推：
-  // 条目一条一行、孤儿另标一行、空一行、末尾汇总；孤儿是硬失败，只读入口也要以 1 退出，所以那一句跟着孤儿走
+  // 条目一条一行（重启条件带状态栏）、配不上的状态行与孤儿各另标一行、空一行、末尾汇总；孤儿是硬失败，只读入口也要以 1 退出，所以那一句跟着孤儿走
   const debt = { file: 'docs/adr/X.md', line: 3, notation: '重启条件' as const, text: '⚠️ 欠条：缺 x · 重启条件：下次' }
   const lone = { file: 'docs/adr/Y.md', line: 5, notation: '重启条件' as const, text: '⚠️ 欠条：缺 z' }
-  const full = ledgerReport([debt], [lone])
-  eq('全表：条目一行、孤儿另标一行、空一行、末尾汇总', full.out, [
-    'docs/adr/X.md:3  [重启条件]  ⚠️ 欠条：缺 x · 重启条件：下次',
+  const one = (unmatched: StatusLine[] = []) => ({ rows: [{ entry: debt, status: '开着' as const }], unmatched })
+  const strayLine: StatusLine = { file: 'docs/adr/W.md', line: 2, kind: '已还', key: 'ADR-1:9', text: '⚠️ 已还：ADR-1 第 9 行' }
+  const full = ledgerReport(one([strayLine]), [lone])
+  eq('全表：条目带状态一行、配不上的状态行与孤儿另标一行、空一行、末尾汇总', full.out, [
+    'docs/adr/X.md:3  [重启条件]  [开着]  ⚠️ 欠条：缺 x · 重启条件：下次',
+    'docs/adr/W.md:2  [状态行配不上·已还]  ⚠️ 已还：ADR-1 第 9 行',
     'docs/adr/Y.md:5  [孤儿·没写重启条件]  ⚠️ 欠条：缺 z',
     '',
-    '  欠条台账 1 条 · 重启条件 1 · 重开讨论 0 · 死亡条件 0 —— 只抽取，不判已还、也不判这次改动踩到了谁',
+    '  欠条台账 1 条 · 重启条件 1 · 重开讨论 0 · 死亡条件 0 · 重启条件里开着 1（其中续挂 0） · 已还 0 · 收尾 0 · 已重挂 0 · 配不上的状态行 1'
+      + ' —— 状态照人写的状态行读，不判条件成没成立、也不判这次改动踩到了谁',
   ])
   eq('有孤儿时交回打在 stderr 的那一句', full.err, '\n✗ 欠条台账：1 张欠条没写重启条件')
-  eq('没有孤儿时不交回那一句', ledgerReport([debt], []).err, undefined)
+  eq('没有孤儿时不交回那一句，配不上的状态行也不交回', ledgerReport(one([strayLine]), []).err, undefined)
 
   // 欠条的短名字（ADR-211，欠条用短名字互指那一份）：块头 `⚠️ 欠条「名字」：…`，状态行按名字指，文件重写、挪进历史都不变
   eq('块头写了短名字就取出来，没写交回 null', [iouName('> ⚠️ 欠条「缓存没人守」：缺 x'), iouName('> ⚠️ **欠条**「加粗也认」：x'), iouName('> ⚠️ 欠条：缺 x'), iouName('> ⚠️ 欠条「 」：x')],
@@ -17373,13 +17409,13 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
     ['docs/adr/ADR-5-x.md', '> ⚠️ 欠条：没名字 · 重启条件：y'], ['docs/adr/历史/ADR-5-x.md', '> ⚠️ 欠条：老的 · 重启条件：y'],
     ['docs/adr/ADR-6-y.md', '> ⚠️ 欠条：没拆过 · 重启条件：y']])), ['docs/adr/ADR-5-x.md:1 拆过的记录，主文件里的欠条没起名字'])
   const dupe = { file: 'docs/adr/Z.md', line: 7, notation: '重启条件' as const, text: '和同一条记录里的另一张重名：⚠️ 欠条「甲」：z' }
-  const withDupe = ledgerReport([debt], [lone], [dupe])
+  const withDupe = ledgerReport(one(), [lone], [dupe])
   eq('全表：短名字有错的另标一行，排在孤儿后面', withDupe.out.slice(1, 3), [
     'docs/adr/Y.md:5  [孤儿·没写重启条件]  ⚠️ 欠条：缺 z',
     'docs/adr/Z.md:7  [短名字有错]  和同一条记录里的另一张重名：⚠️ 欠条「甲」：z',
   ])
   eq('孤儿和短名字有错都有：stderr 那一句两样都说', withDupe.err, '\n✗ 欠条台账：1 张欠条没写重启条件；1 张欠条的短名字有错（重名或取不出）')
-  eq('只有短名字有错：照样交回那一句', ledgerReport([debt], [], [dupe]).err, '\n✗ 欠条台账：1 张欠条的短名字有错（重名或取不出）')
+  eq('只有短名字有错：照样交回那一句', ledgerReport(one(), [], [dupe]).err, '\n✗ 欠条台账：1 张欠条的短名字有错（重名或取不出）')
   // 审计第 6 节：孤儿与短名字有错一张一行，审计每行计一次硬失败（ADR-211 的欠条「两处入口接线没有测试」）
   const hardLines = ledgerGaps([lone], [dupe])
   ok('审计硬失败：孤儿与短名字有错各一行，短名字那行点出文件与行号、说短名字有错',
@@ -17444,6 +17480,10 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
   eq('围栏与注释里的引用不算', cited({ ...ONE, 'ADR-2-乙.md': '```\nADR-1\n```\n\n<!-- ADR-1 -->\n' }, 1), [0, 0])
   // 欠条块里的单列，是需求所有者在提案 §7 第 5 项选的「排除」：一串欠条反复点同一条记录，不该把它顶到前列
   eq('只在欠条块里引的不进主计数、另成一栏', cited({ ...ONE, 'ADR-2-乙.md': '> ⚠️ 欠条：等 ADR-1 · 重启条件：下次\n' }, 1), [0, 1])
+  // 状态行是记账，和欠条块里的引用同类（ADR-167 历史文件第四节第 1 小节）：「现行的是 ADR-X」不算 ADR-X 被引一次
+  eq('只在状态行里引的不进主计数、另成一栏', cited({ ...ONE, 'ADR-2-乙.md': '> ⚠️ 已重挂：ADR-2 第 3 行 · 现行的是 ADR-1 第 5 行\n' }, 1), [0, 1])
+  eq('按名字写的状态行里引的也单列，状态行之后的正文照常算', [cited({ ...ONE, 'ADR-2-乙.md': '> ⚠️ 续挂：ADR-2「甲」 · 等 ADR-1\n' }, 1),
+    cited({ ...ONE, 'ADR-2-乙.md': '> ⚠️ 已还：ADR-2「甲」\n\nADR-1 在后面。\n' }, 1)], [[0, 1], [1, 0]])
   eq('块外也引过的不再算进欠条那一栏',
     cited({ ...ONE, 'ADR-2-乙.md': '照 ADR-1 做。\n\n> ⚠️ 欠条：等 ADR-1 · 重启条件：下次\n' }, 1), [1, 0])
   // 真仓库上「只在欠条块里引」那一栏的非零值，全出自块头以外的续行（独立复核指出）
@@ -17493,8 +17533,8 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
     { file: 'docs/adr/ADR-2-乙.md', no: 2, cited: 3, iouOnly: 1, lesson: true },
     { file: 'docs/adr/ADR-1-甲.md', no: 1, cited: 0, iouOnly: 0, lesson: false },
   ]), [
-    'docs/adr/ADR-2-乙.md  被引 3 · 只在欠条块里引 1 · 有教训栏',
-    'docs/adr/ADR-1-甲.md  被引 0 · 只在欠条块里引 0 · 无教训栏',
+    'docs/adr/ADR-2-乙.md  被引 3 · 只在欠条块或状态行里引 1 · 有教训栏',
+    'docs/adr/ADR-1-甲.md  被引 0 · 只在欠条块或状态行里引 0 · 无教训栏',
     '',
     '  被引表 2 条记录 · 被引 3 次及以上 1 · 1–2 次 0 · 0 次 1 · 有教训栏 1 · 前十条里有教训栏 1 —— 只报数，不设阈值，也不判哪几条是同一类',
   ])
@@ -25462,6 +25502,7 @@ await group('h-iou-file-reminder', () => {
   eq('状态行的键：已还、已重挂、收尾三种都认', [...closedKeys(new Map([['d.md',
     '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n> ⚠️ 已重挂：ADR-2 第 4 行 · 现行的是 ADR-3 第 5 行\n> ⚠️ 收尾：ADR-6 第 7 行 · 需求所有者 不做']]))].sort(),
     ['ADR-1:3', 'ADR-2:4', 'ADR-6:7'])
+  eq('续挂不算关上', [...closedKeys(new Map([['d.md', '> ⚠️ 续挂：ADR-1 第 3 行 · 到 2026-12-01\n> ⚠️ 续挂：ADR-1「甲」']]))], [])
   eq('围栏里演示的状态行不算', [...closedKeys(new Map([['d.md', '```\n⚠️ 已还：ADR-1 第 3 行\n```']]))], [])
   eq('条目的键取记录编号与行号，不是编号记录的文件没有键',
     [entryKey({ file: 'docs/adr/ADR-86-x.md', line: 118, notation: '重启条件', text: '' }), entryKey({ file: 'docs/adr/README.md', line: 2, notation: '重启条件', text: '' })],

@@ -9412,8 +9412,9 @@ group('adr-ledger-entry', [], () => {
   const clean = runToolBoth('adr-ledger 在只有决策记录的玩具树上跑', 'adr-ledger', [], root)
   // 玩具树里跑完仍只有 docs/：入口说的「不写任何文件」，也就是不留下覆盖记录或产出目录
   if (clean.ok) named('台账入口：没有覆盖记录与登记表时照样列出那一条欠条、末尾是汇总，以 0 退出，不留下任何文件',
-    clean.stdout === 'docs/adr/ADR-1-玩具.md:3  [重启条件]  ⚠️ 欠条：缺 x · 重启条件：下次碰 y 时\n\n'
-      + '  欠条台账 1 条 · 重启条件 1 · 重开讨论 0 · 死亡条件 0 —— 只抽取，不判已还、也不判这次改动踩到了谁\n'
+    clean.stdout === 'docs/adr/ADR-1-玩具.md:3  [重启条件]  [开着]  ⚠️ 欠条：缺 x · 重启条件：下次碰 y 时\n\n'
+      + '  欠条台账 1 条 · 重启条件 1 · 重开讨论 0 · 死亡条件 0 · 重启条件里开着 1（其中续挂 0） · 已还 0 · 收尾 0 · 已重挂 0 · 配不上的状态行 0'
+      + ' —— 状态照人写的状态行读，不判条件成没成立、也不判这次改动踩到了谁\n'
       && readdirSync(root).join() === 'docs' && readdirSync(join(root, 'docs')).join() === 'adr',
     `输出：\n${clean.stdout}stderr 末几行：${stderrTail(clean.stderr)}；玩具树根下：${readdirSync(root).join('、')}`)
   try { mkdirSync(join(adr, 'sub')); writeFileSync(join(adr, 'sub', 'ADR-2-孤儿.md'), '# ADR-2 孤儿\n\n> ⚠️ 欠条：缺 z，改天再说\n') }
@@ -9429,9 +9430,9 @@ group('adr-ledger-entry', [], () => {
   catch (e) { failed++; console.error(`  ✗ 台账入口被引夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`); return }
   const cites = runToolBoth('adr-ledger --cites 在还留着孤儿欠条的玩具树上跑', 'adr-ledger', ['--cites'], root, { status: 0, soft: [1] })
   if (cites.ok) named('台账入口：--cites 列出每条记录被几条别的记录引过，树里有孤儿欠条也以 0 退出，不留下任何文件',
-    cites.status === 0 && cites.stdout === 'docs/adr/ADR-1-玩具.md  被引 1 · 只在欠条块里引 0 · 无教训栏\n'
-      + 'docs/adr/sub/ADR-2-孤儿.md  被引 0 · 只在欠条块里引 1 · 无教训栏\n'
-      + 'docs/adr/ADR-3-引用.md  被引 0 · 只在欠条块里引 0 · 无教训栏\n\n'
+    cites.status === 0 && cites.stdout === 'docs/adr/ADR-1-玩具.md  被引 1 · 只在欠条块或状态行里引 0 · 无教训栏\n'
+      + 'docs/adr/sub/ADR-2-孤儿.md  被引 0 · 只在欠条块或状态行里引 1 · 无教训栏\n'
+      + 'docs/adr/ADR-3-引用.md  被引 0 · 只在欠条块或状态行里引 0 · 无教训栏\n\n'
       + '  被引表 3 条记录 · 被引 3 次及以上 0 · 1–2 次 1 · 0 次 2 · 有教训栏 0 · 前十条里有教训栏 0 —— 只报数，不设阈值，也不判哪几条是同一类\n'
       && readdirSync(root).join() === 'docs' && readdirSync(join(root, 'docs')).join() === 'adr',
     `退出码 ${cites.status}；输出：\n${cites.stdout}stderr 末几行：${stderrTail(cites.stderr)}；玩具树根下：${readdirSync(root).join('、')}`)

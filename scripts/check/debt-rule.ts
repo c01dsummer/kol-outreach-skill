@@ -1,15 +1,17 @@
 /**
- * 欠条台账 —— 把散在 `docs/adr/` 里的「什么时候回来」抽成一份可列的清单。
+ * 欠条台账 —— 把散在 `docs/adr/` 里的「什么时候回来」抽成一份可列的清单，并读出人写的状态行。
  *
- * **这个模块只抽取，不判断。** 它不说哪条欠条已经还了，也不说这次改动踩到了谁。
- * 那两件事都要读懂条件本身，而「读懂」是会随模型变强的那一侧，一张正则表不是 ——
- * 撤掉匹配那一半的理由记在 ADR-86，连同实测：一条写着「下一条往
- * `SELFCHECK_TOOLS` 里加东西的 PR」的欠条，照字面做那件事，diff 的 ± 行里
- * 那个词出现 **0** 次。
+ * **它读人写的那一行，不判条件。** 一张欠条开着还是关上，看的是有没有一行
+ * `⚠️ 已还／收尾／已重挂／续挂：ADR-N …` 指着它（写法见 `process/6-INTEGRATE.md`「登记怎么做」第 3 条）；
+ * 条件成没成立、这次改动踩到了谁，它一概不判 —— 那两件要读懂条件本身，而「读懂」是会随模型变强的
+ * 那一侧，一张正则表不是。撤掉匹配那一半的理由记在 ADR-86，连同实测：一条写着「下一条往
+ * `SELFCHECK_TOOLS` 里加东西的 PR」的欠条，照字面做那件事，diff 的 ± 行里那个词出现 **0** 次。
+ * 读状态行是 ADR-167（欠条台账机制）第一片，那一节写着为什么它仍在「替代跑的建」这一侧。
  *
  * 扫的范围是**调用方交进来的那些文件**，判据里写的范围也只到这里为止。
  * 两个调用方交的都是 `adrDocs` 读进来的那一批：`audit.ts` 第 6 节与只读入口 `adr-ledger.ts`。
- * 欠条块的定界（`iouBlocks`）还另有一个用处：被引表（`cite-rule.ts`）拿它把块里的引用单列。
+ * 欠条块的定界（`iouBlocks`）还另有一个用处：被引表（`cite-rule.ts`）拿它把块里的引用单列；
+ * 状态行的认法（`isStatusLine`）也给它，状态行里的引用同样单列。
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -246,18 +248,154 @@ export function iouNameFaults(docs: Map<string, string>): Entry[] {
 }
 
 /**
+ * 欠条所在的块：起点最靠后的那个包住它的块。两张欠条没隔开时，前一张的块会一直延到后一张里面（`iouBlocks`
+ * 写着这个定界的毛病），取第一个包住的块，后一张的条目就拿到前一张的短名字 —— 按名字关上前一张，后一张也跟着算关上。
+ * 点名提醒（`debt-touch-rule.ts`）与台账的状态栏用的是这一份。
+ */
+export function blockAt<B extends { start: number; end: number }>(blocks: B[], i: number): B | undefined {
+  return blocks.filter(b => b.start <= i && i < b.end).at(-1)
+}
+
+/**
+ * 条目的行号键：`ADR-86:118`；不是编号记录的文件交回 null。老状态行写的「ADR-86 第 118 行」指的是
+ * **写下它那一刻**那份文件的第 118 行，所以：
+ * - 没拆过的记录：就是主文件那一行；
+ * - 拆过的记录：旧正文原样搬进了历史文件，行号在那里不变 —— 键给历史文件的条目；主文件已经重写，
+ *   它的条目没有行号键（交回 null），只能按短名字关。反过来的话，重写后主文件第 118 行恰好是另一张开着的欠条，
+ *   一行老状态行就把它静默算成已关。
+ */
+export function entryKey(e: Entry, split: ReadonlySet<number> = new Set()): string | null {
+  const num = recordNum(e.file)
+  if (num === null) return null
+  if (!isHistory(e.file) && split.has(num)) return null
+  return `ADR-${num}:${e.line}`
+}
+
+/** 条目的名字键：所在欠条块的块头写了短名字时由 `recordKey` 拼，主文件与历史文件同一个键；没写名字交回 null。 */
+export function nameKey(file: string, name: string | null): string | null {
+  const num = recordNum(file)
+  return num === null || name === null ? null : recordKey(num, name)
+}
+
+/** 状态行的四种。前三种关上一张欠条，续挂不关（`process/6-INTEGRATE.md`「登记怎么做」第 3、5 条）。 */
+export type Status = '已还' | '收尾' | '已重挂' | '续挂'
+export const CLOSED_KINDS: ReadonlySet<Status> = new Set<Status>(['已还', '收尾', '已重挂'])
+
+/**
+ * 状态行的两种指法：
+ * - 老写法 `⚠️ 已还：ADR-N 第 M 行` 指到「记录 + 行号」，键写成 `ADR-N:M`（M 是台账每行开头那个行号）；
+ * - 新写法 `⚠️ 已还：ADR-N「短名字」` 指到「记录 + 欠条的短名字」，键由 `recordKey` 拼（ADR-211，欠条用短名字互指那一份）。
+ *   名字不随文件重写或挪进历史文件而变，所以新写的状态行都用这一种。
+ * 一行里任何位置出现都认（和 2026-11 以前点名提醒认已关的口径一样）。别的写法 —— 散文里一句「已还」、
+ * 「上文第 N 句那张欠条已还」、候选句记录的驳回块 —— 不认：它们指不到一条确定的条目。
+ */
+export const STATUS_BY_LINE = /⚠️\s*\*{0,2}(已还|已重挂|收尾|续挂)\*{0,2}\s*[：:]\s*ADR-(\d+)\s*第\s*(\d+)\s*行/g
+export const STATUS_BY_NAME = /⚠️\s*\*{0,2}(已还|已重挂|收尾|续挂)\*{0,2}\s*[：:]\s*ADR-(\d+)\s*「([^」\n]+)」/g
+
+export interface StatusLine {
+  file: string
+  line: number
+  kind: Status
+  /** 指到哪一张：`entryKey` 或 `nameKey` 的那种键 */
+  key: string
+  /** 这一行去掉 Markdown 装饰之后的原文 */
+  text: string
+}
+
+/** 一行里写着的状态（两种指法都算），按出现先后。 */
+function statusesIn(line: string): Array<{ kind: Status; key: string }> {
+  return [
+    ...[...line.matchAll(STATUS_BY_LINE)].map(m => ({ at: m.index, kind: m[1] as Status, key: `ADR-${Number(m[2])}:${Number(m[3])}` })),
+    // 名字不在这里限长：取出来去掉首尾空白，和欠条那一侧（`iouName`）同一个拼法，长短由那一侧判
+    ...[...line.matchAll(STATUS_BY_NAME)].map(m => ({ at: m.index, kind: m[1] as Status, key: recordKey(Number(m[2]), m[3].trim()) })),
+  ].sort((a, b) => a.at - b.at).map(({ kind, key }) => ({ kind, key }))
+}
+
+/** 这一行是不是状态行（被引表拿它把状态行里的引用单列）。不管遮罩，遮罩由调用方先过。 */
+export const isStatusLine = (line: string): boolean => statusesIn(line).length > 0
+
+/**
+ * 全部状态行，按文件路径、再按行排。围栏与 HTML 注释里的不算 —— ADR-167（欠条台账机制那一份）的历史文件
+ * 自己就在围栏里演示了这几种写法。一行里写了两处的，各算一条。
+ */
+export function statusLines(docs: Map<string, string>): StatusLine[] {
+  const out: StatusLine[] = []
+  for (const [file, text] of [...docs].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+    const lines = text.split('\n'), quoted = quotedMask(text)
+    lines.forEach((line, i) => {
+      if (quoted[i]) return
+      for (const s of statusesIn(line)) out.push({ file, line: i + 1, ...s, text: plain(line) })
+    })
+  }
+  return out
+}
+
+/** 台账一行的状态：开着（没有状态行指它）、续挂（只有续挂行指它，仍开着），或关上它的那一种。 */
+export type RowStatus = '开着' | Status
+
+export interface Row {
+  entry: Entry
+  /** 只有重启条件有状态；重开讨论与死亡条件不是欠条，没有这一栏（null） */
+  status: RowStatus | null
+}
+
+export interface Ledger {
+  rows: Row[]
+  /** 指不到任何一条重启条件的状态行：只报出来、不红，它想关的那张照旧算开着 */
+  unmatched: StatusLine[]
+}
+
+/**
+ * 台账加状态栏：每条重启条件按「记录 + 行号」（`entryKey`）或「记录 + 短名字」（`nameKey`）找指着它的状态行。
+ *
+ * - 有一行已还、收尾或已重挂指着它：关上，状态取最先写下的那一行（按文件路径、再按行）；
+ * - 只有续挂行指着它：续挂，仍算开着；
+ * - 都没有：开着。
+ *
+ * 只配重启条件：状态行指的那一行是重开讨论、死亡条件或什么都不是，就算配不上，单列出来、不红 ——
+ * 那张欠条照旧算开着，多列一条读的人排除得掉，少列一条没人会发现（ADR-86 第六节「不判已还」那条的理由，
+ * ADR-167 历史文件第四节第 1 小节）。
+ */
+export function ledgerStatus(docs: Map<string, string>): Ledger {
+  const split = splitRecords(docs)
+  const all = statusLines(docs)
+  const byKey = new Map<string, StatusLine[]>()
+  for (const s of all) byKey.set(s.key, [...byKey.get(s.key) ?? [], s])
+  const used = new Set<StatusLine>()
+  const rows: Row[] = []
+  for (const [file, text] of docs) {
+    const lines = text.split('\n')
+    const blocks = iouBlocks(lines, quotedMask(text))
+    for (const entry of entries(new Map([[file, text]]))) {
+      if (entry.notation !== '重启条件') { rows.push({ entry, status: null }); continue }
+      const block = blockAt(blocks, entry.line - 1)
+      const name = block ? iouName(lines[block.start]) : null
+      const found = [entryKey(entry, split), nameKey(file, name)].flatMap(k => k === null ? [] : byKey.get(k) ?? [])
+      for (const s of found) used.add(s)
+      const closing = found.find(s => CLOSED_KINDS.has(s.kind))
+      rows.push({ entry, status: closing ? closing.kind : found.length ? '续挂' : '开着' })
+    }
+  }
+  return { rows, unmatched: all.filter(s => !used.has(s)) }
+}
+
+/**
  * 报告里那一行。
  *
  * 怎么数、分几栏报都是判定，所以和 `coverageSummary` 一样留在判定模块里 ——
  * 留在入口的话没有任何一条测试够得着（`docs/CONVENTIONS.md` 第 10 条）。
- * 末尾那句限定不是客套：**这份清单不知道哪条已经还了**，去掉它，读的人会把
- * 条数当成「还欠着这么多」。
+ * 「开着」数的是重启条件，续挂的也算开着；已还、收尾、已重挂各报几条；配不上的状态行另报。
+ * 末尾那句限定不是客套：**状态是人写的那一行，不是这份清单判的**，去掉它，读的人会把「开着」
+ * 当成「条件还没响」、把「已还」当成「核过真还了」。
  */
-export function ledgerSummary(list: Entry[]): string {
-  const n = (k: Notation) => list.filter(e => e.notation === k).length
-  return `欠条台账 ${list.length} 条 · 重启条件 ${n('重启条件')} · ` +
+export function ledgerSummary({ rows, unmatched }: Ledger): string {
+  const n = (k: Notation) => rows.filter(r => r.entry.notation === k).length
+  const s = (k: RowStatus) => rows.filter(r => r.status === k).length
+  return `欠条台账 ${rows.length} 条 · 重启条件 ${n('重启条件')} · ` +
          `重开讨论 ${n('重开讨论')} · 死亡条件 ${n('死亡条件')}` +
-         ` —— 只抽取，不判已还、也不判这次改动踩到了谁`
+         ` · 重启条件里开着 ${s('开着') + s('续挂')}（其中续挂 ${s('续挂')}） · 已还 ${s('已还')} · 收尾 ${s('收尾')} · 已重挂 ${s('已重挂')}` +
+         ` · 配不上的状态行 ${unmatched.length}` +
+         ` —— 状态照人写的状态行读，不判条件成没成立、也不判这次改动踩到了谁`
 }
 
 /**
@@ -276,19 +414,21 @@ export function ledgerGaps(orphans: Entry[], badNames: Entry[]): string[] {
 }
 
 /**
- * 全表：每条一行、孤儿与短名字有错的各另标一行、空一行、末尾汇总；有孤儿或短名字有错时另交回打在 stderr 的那一句。
+ * 全表：每条一行（重启条件带状态栏）、配不上的状态行与孤儿、短名字有错的各另标一行、空一行、末尾汇总；
+ * 有孤儿或短名字有错时另交回打在 stderr 的那一句。配不上的状态行不进那一句：只报、不红。
  *
  * 两个入口打的是这一份 —— `npm run audit -- --debts` 与只读入口 `npm run adr-ledger`。
  * 各写一份的话，改了一处忘了另一处，症状是「同一份台账，两个入口说两样」。
  * 退出码跟着 `err` 走：有它就以 1 退出，孤儿与短名字有错都是硬失败，只读入口也不放过。
  */
-export function ledgerReport(list: Entry[], orphans: Entry[], badNames: Entry[] = []): { out: string[]; err?: string } {
+export function ledgerReport(ledger: Ledger, orphans: Entry[], badNames: Entry[] = []): { out: string[]; err?: string } {
   const out = [
-    ...list.map(e => `${e.file}:${e.line}  [${e.notation}]  ${e.text}`),
+    ...ledger.rows.map(({ entry: e, status }) => `${e.file}:${e.line}  [${e.notation}]${status ? `  [${status}]` : ''}  ${e.text}`),
+    ...ledger.unmatched.map(s => `${s.file}:${s.line}  [状态行配不上·${s.kind}]  ${s.text}`),
     ...orphans.map(o => `${o.file}:${o.line}  [孤儿·没写重启条件]  ${o.text}`),
     ...badNames.map(d => `${d.file}:${d.line}  [短名字有错]  ${d.text}`),
     '',
-    `  ${ledgerSummary(list)}`,
+    `  ${ledgerSummary(ledger)}`,
   ]
   const errs = [
     ...orphans.length ? [`${orphans.length} 张欠条没写重启条件`] : [],
