@@ -71,6 +71,7 @@ import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 import { realIo, writeAllSync } from './sync-write.js'
 import { spawn, type ChildProcess } from './start-process.js'
 import { runGitAsync } from './git-entry.js'
+import { REDS_DIR, REDS_PART_NAME, REDS_SCHEMA, type RedsRecord, creditedReds, earlyStopWanted, redsPartName } from './never-red-rule.js'
 
 /**
  * 本文件**唯一**的硬退出（ADR-70「硬退出收口」一节）：退出前要说的话先同步写满 fd 2，再退出。
@@ -99,6 +100,22 @@ if (costEnabled) try {
 } catch (e) {
   exitWith(1, `✗ 变异测试：上一跑留下的启动数文件删不掉（${e instanceof Error ? e.message : String(e)}）—— 留着它，检查链最后一步读到的是上一跑的数；未施加任何变异`,
     `\n  先把 ${LAUNCHES_FILE} 挪走或删掉再跑。`)
+}
+// 「每条负片红过哪些断言」那份记录（ADR-240）同样这一跑重写、开跑先删：留着上一跑的，`npm run never-red`
+// 读到的就是上一跑的；分份跑写的那几份一起删。删不掉同上，以 1 退出、不往下跑
+if (costEnabled) try {
+  if (existsSync(REDS_DIR)) for (const name of readdirSync(REDS_DIR))
+    if (REDS_PART_NAME.test(name)) rmSync(join(REDS_DIR, name), { force: true })
+} catch (e) {
+  exitWith(1, `✗ 变异测试：上一跑留下的「红过哪些断言」记录删不掉（${e instanceof Error ? e.message : String(e)}）—— 留着它，npm run never-red 读到的是上一跑的；未施加任何变异`,
+    `\n  先把 ${REDS_DIR} 下的 reds*.json 挪走或删掉再跑。`)
+}
+// 点名的都红了就停（见齐就停）开不开：缺省开；MUTATE_NO_EARLY_STOP=1 关掉，每一条都跑到底，记下的红过哪些断言才是全的（ADR-240）。
+// 读不出来就不跑：说不清这一跑停没停，记录就说不清是哪一种。派工的 worker 继承同一份环境，各自读到同一个值
+const earlyStop = earlyStopWanted(process.env.MUTATE_NO_EARLY_STOP)
+if (earlyStop === undefined) {
+  exitWith(1, `✗ 变异测试：说不清要不要提前停 —— MUTATE_NO_EARLY_STOP 只认 1（现在是 ${JSON.stringify(process.env.MUTATE_NO_EARLY_STOP)}）\n`,
+    '  照常提前停请把它去掉；未施加任何变异。')
 }
 let costContext: { identity: CostIdentity; combinations: CostCombination[] } | undefined
 const costBaselines: CostBaseline[] = []
@@ -558,6 +575,8 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
       // 停不停与启动数的判定共用一个谓词（`stopsEarly`，理由在它头上）；`kills === undefined` 那一半它也判，
       // 这里再写一遍只为让下面拿到收窄过的类型
       if (atStop !== undefined || kills === undefined || !stopsEarly(verifier, kills, only)) return
+      // 关了提前停的这一跑每一条都跑到底（ADR-240）；启动数的账照旧按会停记，这一跑不拿去比启动数
+      if (!earlyStop) return
       // **两股各自截**：合起来再截会把两者之间那个人为插入的换行当成行尾，于是先到的
       // 那一股的半行被当成整行 —— 名字写到一半就算数，后缀还没到就把人杀了（#99 评审指出）
       const whole = complete(out) + complete(err)
@@ -633,9 +652,11 @@ const runOne = async (m: Mut): Promise<Ran> => {
     const verifier = VERIFIERS[m.by ?? 'test']
     // 量的是验证者那一段：起验证者到它退出（或点名的都红了被停掉）—— 乘法要的就是这个数
     const r = await runTest(verifier, m.kills, onlyFor(m))
+    const outcome = judgeRun(r.status, r.output, verifier, m.kills, r.atStop)
     return {
-      outcome: judgeRun(r.status, r.output, verifier, m.kills, r.atStop),
-      status: r.status, stopped: r.atStop !== undefined, output: r.output, ms: r.ms, started: r.started,
+      outcome, status: r.status, stopped: r.atStop !== undefined, output: r.output, ms: r.ms, started: r.started,
+      // 这一次红过的有名字的断言，名字只认这个验证者清册里的（ADR-240）
+      red: creditedReds(outcome, r.output, inventoryOf(m.by ?? 'test')),
     }
   } finally {
     restoreMutation()
@@ -644,6 +665,8 @@ const runOne = async (m: Mut): Promise<Ran> => {
 
 /** 真跑了的每一条用的哪个验证者、跑了多久 —— 收尾时按验证者记账（ADR-99 第八节那个乘法） */
 const timed: { verifier: string; ms: number }[] = []
+/** 每一条红过哪些断言 —— 收尾时写成一份记录，`npm run never-red` 读（ADR-240） */
+const reds: RedsRecord[] = []
 
 /** 一条变异的结论怎么报、记在哪一摞里。**派工那一侧也走这里**，报告只此一份写法 */
 const record = (m: Mut, ran: Ran): void => {
@@ -657,6 +680,8 @@ const record = (m: Mut, ran: Ran): void => {
     costReported.add(m.id)
   }
   if (ran.outcome !== 'not-applied') timed.push({ verifier: m.by ?? 'test', ms: ran.ms })
+  const only = onlyFor(m)
+  reds.push({ id: m.id, by: m.by ?? 'test', ...(only === undefined ? {} : { only }), stopped: ran.stopped, red: ran.red ?? [] })
   if (ran.outcome === 'not-applied') {
     notApplied.push(m)
     console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)
@@ -1223,6 +1248,16 @@ for (const line of launchOutput) console.log(line)
 if (sharded) console.log(`  这一跑只跑第 ${shard.index}/${shard.count} 份：${mine.length} 条（整份 ${muts.length} 条，ADR-197）；子集基线与启动数只做这一份的配置（ADR-200）`)
 if (jobs === 1) for (const m of mine) { observeHand(m.id); record(m, await runOne(m)) }
 else await dispatch(jobs)
+// 红过哪些断言那份记录（ADR-240）：结论出来之前就写，有变异没被抓到的这一跑也照样留下 —— 每周不提前停的那一跑
+// 正要靠它出清单。派出去没回话的那几条不在里面，`never-red` 读的时候按「目录里有、记录里没有」拒出清单
+try {
+  mkdirSync(REDS_DIR, { recursive: true })
+  writeFileSync(join(REDS_DIR, redsPartName(shard.index, shard.count)), `${JSON.stringify({
+    schema: REDS_SCHEMA, head: comparison.head, earlyStop, shard: { index: shard.index, count: shard.count }, records: reds,
+  })}\n`)
+} catch (e) {
+  console.log(`  ⚠ 「红过哪些断言」那份记录没写成（${e instanceof Error ? e.message : String(e)}）—— 不影响这一跑的结论，npm run never-red 会说读不到`)
+}
 
 console.log()
 for (const e of exemptions) {

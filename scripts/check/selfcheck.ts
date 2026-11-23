@@ -8314,6 +8314,76 @@ group('literal-apply', [], () => {
     `a.ts 变成了 ${JSON.stringify(readFileSync(join(litTmp, 'a.ts'), 'utf8'))}`)
 })
 
+// ---- 每条负片红过哪些断言：入口真的记、照常跑时见齐就停、关了提前停跑到底；never-red 真的读记录出清单（ADR-240）----
+group('mutation-reds-entry', [], () => {
+  // 判定在 never-red-rule.ts，由需求测试 h-never-red 断言、M-H240-* 守着；剩下的那一半是入口：mutate 真的把每条负片
+  // 红过哪些写进记录、照常跑时见齐就停（停下之后那一句没记上）、MUTATE_NO_EARLY_STOP=1 时跑到底（那一句记上了），
+  // never-red 真的读那份记录出清单。mutate.ts 与 never-red.ts 都在验证基础设施闭包里，指名自检的变异施不上去，
+  // 这一半只有这组夹具守着。
+  // 玩具树里一条变异把 'P' 换成 'Q'；假验证者见了 Q 先红「甲」，停三秒再红「丙」、打汇总。「乙」从不红
+  const rTmp = join(tmp, 'mutation-reds')
+  mkdirSync(join(rTmp, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(rTmp, 'docs'), { recursive: true })
+  writeFileSync(join(rTmp, 'docs', 'requirements.json'),
+    JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+  writeFileSync(join(rTmp, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB, 'utf8')
+  writeFileSync(join(rTmp, 'a.ts'), "const s = 'P'\n", 'utf8')
+  writeFileSync(join(rTmp, 'scripts', 'check', 'selfcheck.ts'),
+    ["import { readFileSync } from 'node:fs'",
+     'const endPath = (label: string, _rest: unknown[]): void => {',
+     '  console.error(`  ✗ ${label}`)',
+     '  process.exitCode = 1',
+     '}',
+     'const named = (_label: string, _pass: boolean): void => {}',
+     "named('乙', true)",
+     "if (readFileSync('a.ts', 'utf8').includes('Q')) {",
+     "  endPath('甲', [])",
+     '  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000)',
+     "  endPath('丙', [])",
+     "  console.error('✗ 脚本自检：2 项失败')",
+     '}',
+     ''].join('\n'), 'utf8')
+  // never-red 两个验证者的清册都读：需求测试那一份放一条从没被跑到的
+  writeFileSync(join(rTmp, 'scripts', 'test.ts'), "const ok = (_label: string, _cond: boolean): void => {}\nok('丁', true)\n", 'utf8')
+  writeFileSync(join(rTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+    { id: 'M-X-r', req: 'X1', why: '把那个字面量换掉', file: 'a.ts', find: "'P'", replace: "'Q'", by: 'selfcheck', kills: ['甲'] },
+  ] }), 'utf8')
+  const redsFile = join(rTmp, 'output', 'mutation-reds', 'reds.json')
+  const readReds = (): { earlyStop?: unknown; records?: unknown } => {
+    try { return JSON.parse(readFileSync(redsFile, 'utf8')) } catch { return {} }
+  }
+  const stop = runToolBoth('mutate 照常跑：每条负片红过哪些断言写进记录', 'mutate', [], rTmp, { status: 0 })
+  if (stop.ok) {
+    const got = readReds()
+    named('记录：照常跑时见齐就停，停下之后那一句没记上',
+      got.earlyStop === true && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', stopped: true, red: ['甲'] }]),
+      `记录是 ${JSON.stringify(got)}`)
+  }
+  const full = runBoth('mutate 关了提前停：每一条跑到底再记', [S(SELFCHECK_TOOLS.mutate)], rTmp, { status: 0 },
+    { ...mutationFixtureEnv('mutate', [], rTmp), MUTATE_NO_EARLY_STOP: '1' })
+  if (full.ok) {
+    const got = readReds()
+    named('记录：关了提前停跑到底，停下之后那一句也记上了',
+      got.earlyStop === false && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', stopped: false, red: ['丙', '甲'] }]),
+      `记录是 ${JSON.stringify(got)}`)
+  }
+  const list = runToolBoth('never-red 读记录出清单', 'never-red', [], rTmp, { status: 0 })
+  if (list.ok) {
+    named('never-red：从没红过的列出来，红过的不列，跑没跑到分开',
+      /没有负片跑到：\n\s+· （不在任何一组） ｜ 丁/.test(list.stdout) && /跑到了，没红过：\n\s+· （不在任何一组） ｜ 乙/.test(list.stdout)
+        && !/｜ 甲/.test(list.stdout) && !/｜ 丙/.test(list.stdout) && list.stdout.includes('每一条负片都跑到了底'),
+      list.stdout)
+  }
+  // 记录对不上变异目录（多了一条没记的），不出清单、以 1 结束
+  writeFileSync(join(rTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+    { id: 'M-X-r', req: 'X1', why: '把那个字面量换掉', file: 'a.ts', find: "'P'", replace: "'Q'", by: 'selfcheck', kills: ['甲'] },
+    { id: 'M-X-s', req: 'X1', why: '没跑过的一条', file: 'a.ts', find: "'P'", replace: "'R'", by: 'selfcheck', kills: ['甲'] },
+  ] }), 'utf8')
+  const stale = runToolBoth('never-red 记录对不上变异目录即以 1 结束', 'never-red', [], rTmp, { status: 1 })
+  if (stale.ok) named('never-red：记录对不上变异目录时说出缺了哪条、不出清单',
+    stale.stderr.includes('M-X-s') && !stale.stdout.includes('｜ 乙'), stale.stderr)
+})
+
 // ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
 group('mutate-kills-fixture-unresolved', [], () => {
   // 判据在 mutate-rule.ts（扫源码建清册、裁定点得着点不着），由 scripts/test.ts 断言、

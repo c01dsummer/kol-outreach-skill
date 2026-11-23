@@ -84,6 +84,11 @@ export interface Ran {
    * 只供成本取数，不改变原结论；实际 spawn 观察由后续入口接线提供。
    */
   started?: boolean
+  /**
+   * 这一次红过的有名字的断言（`never-red-rule.ts` 的 `creditedReds`，ADR-240）。缺席是旧回报没记，
+   * 不当成「什么都没红」。派工跑时要穿过 worker 的进程边界，同别的字段一样写进汇报行、由 `parseReport` 逐项验
+   */
+  red?: string[]
 }
 
 /**
@@ -138,8 +143,13 @@ export function parseReport(line: string): ({ id: string } & Ran) | undefined {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined
   const hasStarted = Object.hasOwn(r, 'started')
   if (hasStarted && typeof started !== 'boolean') return undefined
+  // 红过的断言一项一项验：混进一个不是名字的东西，清单上就会多出或少掉一条，而看不出是这一行坏了
+  const red = r.red
+  const hasRed = Object.hasOwn(r, 'red')
+  if (hasRed && !(Array.isArray(red) && red.every(x => typeof x === 'string'))) return undefined
   return { id, outcome: outcome as Outcome, status, stopped, output, ms,
-    ...(hasStarted ? { started: started as boolean } : {}) }
+    ...(hasStarted ? { started: started as boolean } : {}),
+    ...(hasRed ? { red: [...red as string[]] } : {}) }
 }
 
 /** 派给一个 worker 的下一步：一个编号，或者关掉它的输入 —— 它收完手上那条就退出 */
