@@ -26997,6 +26997,10 @@ await group('h-adr-plain-index', () => {
   eq('白话目录：同样表头的第二张表不算目录表，只认第一张', [twice.length, twice[0]?.includes('第 7 行起另有一张表'), twice[1]?.includes('ADR-2 在')], [2, true, true])
   const quoted = plainIndexFaults([1], table(row('01')) + '\n> ' + PLAIN_INDEX_HEAD + '\n> |---|---|---|---|\n> ' + row('01') + '\n')
   eq('白话目录：引用块里套的表也报红，报到引用块开头那一行', [quoted.length, quoted[0]?.includes('第 7 行起另有一张表')], [1, true])
+  const commentOnly = plainIndexFaults([1, 2, 3], table(row('01', '<!-- 待补 -->'), row('02', '定了乙 <!-- 备注 -->'), row('03', '**<!-- 待补 -->**')))
+  eq('白话目录：只写了 HTML 注释的格子算空（套在加粗里也算），有字带注释的不算', [commentOnly.length, commentOnly.map(f => f.includes('空格子') ? f.match(/第 (\d+) 行/)?.[1] : '')], [2, ['5', '7']])
+  const bare = plainIndexFaults([1, 2], table('ADR-01 | 定了甲 | 无 | 无 |', 'XADR-02 | 定了乙 | 无 | 无 |'))
+  eq('白话目录：开头省了竖线的行照样认出整个编号，多一个字的编号不当成对的', [bare.length, bare[0]?.includes('第 6 行') && bare[0]?.includes('第一格应是'), bare[1]?.includes('ADR-2 在')], [2, true, true])
   // 接线：npm run adr 读目录时调到它，缺一行就红
   const root = mkdtempSync(join(tmpdir(), 'kol-adr-plain-'))
   try {

@@ -33482,7 +33482,7 @@
       "req": "harness",
       "why": "只写了占位（&nbsp;、<br>、一个横线）的格子当成写了 —— 看着有字，其实什么都没说",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "['', '-', '—', '–'].includes(c.replace(/&nbsp;|<br\\s*\\/?>/gi, '').trim())",
+      "find": "['', '-', '—', '–'].includes(visibleText(Lexer.lexInline(c)).replace(/&nbsp;/gi, '').trim())",
       "replace": "c.trim() === ''",
       "by": "test",
       "kills": [
@@ -33571,6 +33571,42 @@
       "by": "test",
       "kills": [
         "白话目录：目录表之外另有一张表报红，点出行号"
+      ]
+    },
+    {
+      "id": "M-H236-v",
+      "req": "harness",
+      "why": "空格判断把 HTML 注释当成字 —— 只写了 <!-- 待补 --> 的格子照样过",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "tokens.map(t => t.type === 'html' ? '' :",
+      "replace": "tokens.map(t => false ? '' :",
+      "by": "test",
+      "kills": [
+        "白话目录：只写了 HTML 注释的格子算空（套在加粗里也算），有字带注释的不算"
+      ]
+    },
+    {
+      "id": "M-H236-w",
+      "req": "harness",
+      "why": "空格判断退回手写的「去掉占位、整格是一个注释就算空」 —— 套在加粗里的注释看不见，却被当成写了字",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "visibleText(Lexer.lexInline(c)).replace(/&nbsp;/gi, '').trim())",
+      "replace": "c.replace(/&nbsp;|<br\\s*\\/?>/gi, '').replace(/^<!--.*-->$/, '').trim())",
+      "by": "test",
+      "kills": [
+        "白话目录：只写了 HTML 注释的格子算空（套在加粗里也算），有字带注释的不算"
+      ]
+    },
+    {
+      "id": "M-H236-x",
+      "req": "harness",
+      "why": "开头省了竖线的行不补竖线 —— 编号头一个字被吃掉，XADR-2 被当成 ADR-2",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "raw.trim().startsWith('|') ? raw : `|${raw.trim()}`",
+      "replace": "raw",
+      "by": "test",
+      "kills": [
+        "白话目录：开头省了竖线的行照样认出整个编号，多一个字的编号不当成对的"
       ]
     },
     {
