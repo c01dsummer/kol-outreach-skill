@@ -33412,7 +33412,7 @@
       "replace": "  if (false) faults.push(",
       "by": "test",
       "kills": [
-        "白话目录：没有表头报红"
+        "白话目录：没有表头报红（没有表，那一行也不算数）"
       ]
     },
     {
@@ -33420,8 +33420,8 @@
       "req": "harness",
       "why": "说明里围栏中举例的行也当目录行 —— 举个例子就多出一行假记录",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "    if (mask[i]) return\n",
-      "replace": "    if (mask[i] && false) return\n",
+      "find": "    if (mask[i] || !line.trim().startsWith('|')",
+      "replace": "    if (!line.trim().startsWith('|')",
       "by": "test",
       "kills": [
         "白话目录：围栏代码块里举例的行不当目录行"
@@ -33480,8 +33480,8 @@
       "req": "harness",
       "why": "表头之前写的行也当目录行 —— 说明文字里一行看着像目录行，就冒充了那份记录",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "if (head !== -1 && i < head) faults.push",
-      "replace": "if (false) faults.push",
+      "find": "const inTable = (i: number) => head !== -1 && i >= head + 2 && i < end",
+      "replace": "const inTable = (i: number) => head !== -1 && i < end",
       "by": "test",
       "kills": [
         "白话目录：表头之前的行不算目录里的行，报红"
@@ -33942,6 +33942,42 @@
       "by": "test",
       "kills": [
         "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H236-r",
+      "req": "harness",
+      "why": "表后隔了空行再写的行也当目录行 —— 读的人在表里看不到那一行，检查却当它在",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "lines[end].trim().startsWith('|')) end++",
+      "replace": "lines[end].trim() !== '###') end++",
+      "by": "test",
+      "kills": [
+        "白话目录：表后隔了空行再写的行不算目录里的行，报红，那份记录也算缺"
+      ]
+    },
+    {
+      "id": "M-H236-s",
+      "req": "harness",
+      "why": "表里第一格空着或写错的行悄悄跳过 —— 那一行写了什么都没人核",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (!m || cells[0]?.trim() !== `ADR-${m[1]}`) { faults.push(",
+      "replace": "if (!m) return; if (cells[0]?.trim() !== `ADR-${m[1]}`) { faults.push(",
+      "by": "test",
+      "kills": [
+        "白话目录：表里第一格不是 ADR-编号的行报红（空着、写错都报）"
+      ]
+    },
+    {
+      "id": "M-H236-t",
+      "req": "harness",
+      "why": "不在表里的、像目录行的行悄悄跳过 —— 隔了空行的那一行逃过核对",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (!inTable(i)) { faults.push(",
+      "replace": "if (!inTable(i)) { return; faults.push(",
+      "by": "test",
+      "kills": [
+        "白话目录：表后隔了空行再写的行不算目录里的行，报红，那份记录也算缺"
       ]
     },
     {
