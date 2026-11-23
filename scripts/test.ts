@@ -29,7 +29,7 @@ import { prepareTaskReviews } from './lib/task-reviews.js'
  */
 
 import { configurationKey, costObservation, configurationCost, configurationCostLines, type CostInput, type CostIdentity, type CostRoute, type CostBaseline, type CostMutation, type CostSummary } from './check/jobs-rule.js'
-import { REDS_PART_NAME, type RedsPart, creditedReds, earlyStopWanted, mergeParts, neverRed, readRedsPart, redsPartName } from './check/never-red-rule.js'
+import { REDS_PART_NAME, type RedsPart, creditedReds, earlyStopWanted, mergeParts, neverRed, ranAssertions, readRedsPart, redsPartName } from './check/never-red-rule.js'
 import type { RunVerdict } from './check/mutate-rule.js'
 import { stopsEarly } from './check/mutate-rule.js'
 import {
@@ -27063,12 +27063,12 @@ harness('从没被负片弄红过的断言：每一条负片红过哪些、记�
     [true, true, false, false, false])
 
   const head = 'a'.repeat(40)
-  const rec = (id: string, extra: Record<string, unknown> = {}) => ({ id, by: 'test', stopped: false, red: ['甲'], ...extra })
+  const rec = (id: string, extra: Record<string, unknown> = {}) => ({ id, by: 'test', ran: true, stopped: false, red: ['甲'], ...extra })
   const part = (extra: Record<string, unknown> = {}) =>
-    ({ schema: 'mutation-reds/v1', head, earlyStop: true, shard: { index: 2, count: 3 }, records: [rec('M-1', { only: ['g1'] }), rec('M-2', { by: 'selfcheck', stopped: true })], ...extra })
+    ({ schema: 'mutation-reds/v1', head, earlyStop: true, shard: { index: 2, count: 3 }, records: [rec('M-1', { only: ['g1'] }), rec('M-2', { by: 'selfcheck', ran: false, stopped: true })], ...extra })
   eq('读记录：合规的一份原样读回，没写 only 的不凭空多出 only',
     readRedsPart(part()), { schema: 'mutation-reds/v1', head, earlyStop: true, shard: { index: 2, count: 3 },
-      records: [{ id: 'M-1', by: 'test', only: ['g1'], stopped: false, red: ['甲'] }, { id: 'M-2', by: 'selfcheck', stopped: true, red: ['甲'] }] })
+      records: [{ id: 'M-1', by: 'test', only: ['g1'], ran: true, stopped: false, red: ['甲'] }, { id: 'M-2', by: 'selfcheck', ran: false, stopped: true, red: ['甲'] }] })
   // 拒要拒得出一句话：读的时候抛出去也算没拒住
   const fault = (raw: unknown): boolean => { try { return 'fault' in readRedsPart(raw) } catch { return false } }
   ok('读记录：不是对象的拒', fault([part()]))
@@ -27078,15 +27078,17 @@ harness('从没被负片弄红过的断言：每一条负片红过哪些、记�
   ok('读记录：第几份比共几份大的拒', fault(part({ shard: { index: 2, count: 1 } })))
   ok('读记录：第几份是 0 的拒', fault(part({ shard: { index: 0, count: 1 } })))
   ok('读记录：records 不是一组的拒', fault(part({ records: {} })))
-  ok('读记录：一条少了 red 的拒，不当成什么都没红', fault(part({ records: [{ id: 'M-1', by: 'test', stopped: false }] })))
+  ok('读记录：一条少了 red 的拒，不当成什么都没红', fault(part({ records: [{ id: 'M-1', by: 'test', ran: true, stopped: false }] })))
   ok('读记录：red 里混进不是名字的拒', fault(part({ records: [rec('M-1', { red: ['甲', 3] })] })))
   ok('读记录：only 里混进不是组名的拒', fault(part({ records: [rec('M-1', { only: [1] })] })))
   ok('读记录：一条的 stopped 不是真假值的拒', fault(part({ records: [rec('M-1', { stopped: 1 })] })))
+  ok('读记录：一条少了 ran 的拒，不当成跑到过', fault(part({ records: [{ id: 'M-1', by: 'test', stopped: false, red: [] }] })))
+  ok('读记录：一条的 ran 不是真假值的拒', fault(part({ records: [rec('M-1', { ran: 'yes' })] })))
 
   const p = (index: number, count: number, ids: string[], extra: Partial<RedsPart> = {}): { name: string; part: RedsPart } => ({
     name: redsPartName(index, count),
     part: { schema: 'mutation-reds/v1', head, earlyStop: true, shard: { index, count },
-      records: ids.map(id => ({ id, by: 'test', stopped: id === 'M-2', red: [] })), ...extra } })
+      records: ids.map(id => ({ id, by: 'test', ran: true, stopped: id === 'M-2', red: [] })), ...extra } })
   const merged = mergeParts([p(2, 2, ['M-2']), p(1, 2, ['M-1'])], ['M-1', 'M-2'])
   eq('拼记录：两份拼回一跑，记着停下的有几条', 'fault' in merged ? merged : [merged.head, merged.earlyStop, merged.records.map(r => r.id).sort(), merged.stopped],
     [head, true, ['M-1', 'M-2'], 1])
@@ -27103,7 +27105,7 @@ harness('从没被负片弄红过的断言：每一条负片红过哪些、记�
   ok('拼记录：记了目录里没有的拒', mfault([p(1, 1, ['M-1', 'M-2', 'M-3'])]))
 
   const labels = new Map<string, string | undefined>([['乙', 'g2'], ['甲', 'g1'], ['丙', 'g1'], ['丁', undefined], ['戊', 'g3']])
-  const r = (red: string[], only?: string[]) => ({ id: 'M', by: 'test', stopped: false, red, ...(only === undefined ? {} : { only }) })
+  const r = (red: string[], only?: string[], ran = true) => ({ id: 'M', by: 'test', ran, stopped: false, red, ...(only === undefined ? {} : { only }) })
   eq('清单：红过的不列，没红过的分跑没跑到，先按组再按名字排',
     neverRed(labels, [r(['甲'], ['g1']), r([], ['g2'])]),
     [{ label: '丁', reached: false }, { label: '丙', group: 'g1', reached: true },
@@ -27111,6 +27113,14 @@ harness('从没被负片弄红过的断言：每一条负片红过哪些、记�
   eq('清单：有一条整跑的负片，所有断言都算跑到了（不在任何一组的也算）',
     neverRed(labels, [r(['甲', '乙', '丙'])]), [{ label: '丁', reached: true }, { label: '戊', group: 'g3', reached: true }])
   eq('清单：一条负片都没有，全都没跑到', neverRed(new Map([['甲', 'g1']]), []), [{ label: '甲', group: 'g1', reached: false }])
+  eq('清单：选了那一组却跑不起来的负片不算跑到过它', neverRed(new Map([['甲', 'g1']]), [r([], ['g1'], false)]),
+    [{ label: '甲', group: 'g1', reached: false }])
+  eq('清单：整跑却跑不起来的负片也不算跑到过谁', neverRed(new Map([['丁', undefined]]), [r([], undefined, false)]),
+    [{ label: '丁', reached: false }])
+
+  // 断言真跑了的只有抓到、红错了地方、存活三档
+  eq('断言跑没跑：五档里只有抓到、红错了地方、存活算跑了',
+    (['caught', 'elsewhere', 'survived', 'crashed', 'not-applied'] as const).map(ranAssertions), [true, true, true, false, false])
 
   // 红过哪些断言要穿过 worker 的进程边界：跟着结论写进汇报行，读回来逐项验
   const ranRed = { outcome: 'caught' as const, status: 1, stopped: true, output: '', ms: 5, red: ['甲', '乙'] }

@@ -71,7 +71,7 @@ import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 import { realIo, writeAllSync } from './sync-write.js'
 import { spawn, type ChildProcess } from './start-process.js'
 import { runGitAsync } from './git-entry.js'
-import { REDS_DIR, REDS_PART_NAME, REDS_SCHEMA, type RedsRecord, creditedReds, earlyStopWanted, redsPartName } from './never-red-rule.js'
+import { REDS_DIR, REDS_PART_NAME, REDS_SCHEMA, type RedsRecord, creditedReds, earlyStopWanted, ranAssertions, redsPartName } from './never-red-rule.js'
 
 /**
  * 本文件**唯一**的硬退出（ADR-70「硬退出收口」一节）：退出前要说的话先同步写满 fd 2，再退出。
@@ -637,7 +637,7 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
  */
 const runOne = async (m: Mut): Promise<Ran> => {
   const orig = readFileSync(m.file, 'utf8')
-  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0, started: false }
+  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0, started: false, red: [] }
   beginMutation(m.file, orig)
   try {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
@@ -655,8 +655,9 @@ const runOne = async (m: Mut): Promise<Ran> => {
     const outcome = judgeRun(r.status, r.output, verifier, m.kills, r.atStop)
     return {
       outcome, status: r.status, stopped: r.atStop !== undefined, output: r.output, ms: r.ms, started: r.started,
-      // 这一次红过的有名字的断言，名字只认这个验证者清册里的（ADR-240）
-      red: creditedReds(outcome, r.output, inventoryOf(m.by ?? 'test')),
+      // 这一次红过的有名字的断言，名字只认这个验证者清册里的（ADR-240）。停下的那一次与判结论一样只认停下那一刻的输出：
+      // 停掉之后才冒出来的、被截了半截的那一行不算
+      red: creditedReds(outcome, r.atStop ?? r.output, inventoryOf(m.by ?? 'test')),
     }
   } finally {
     restoreMutation()
@@ -681,7 +682,9 @@ const record = (m: Mut, ran: Ran): void => {
   }
   if (ran.outcome !== 'not-applied') timed.push({ verifier: m.by ?? 'test', ms: ran.ms })
   const only = onlyFor(m)
-  reds.push({ id: m.id, by: m.by ?? 'test', ...(only === undefined ? {} : { only }), stopped: ran.stopped, red: ran.red ?? [] })
+  // 没带红过哪些的回报（旧 worker）不记：记成「什么都没红」清单就多报；少了这一条，never-red 拼记录时说缺了哪条、不出清单
+  if (ran.red === undefined) console.log(`  ⚠ ${m.id}  回报里没有红过哪些断言，这一条不进记录`)
+  else reds.push({ id: m.id, by: m.by ?? 'test', ...(only === undefined ? {} : { only }), ran: ranAssertions(ran.outcome), stopped: ran.stopped, red: ran.red })
   if (ran.outcome === 'not-applied') {
     notApplied.push(m)
     console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)

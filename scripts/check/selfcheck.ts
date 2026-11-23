@@ -289,8 +289,13 @@ const run = (label: string, args: string[], cwd = process.cwd(),
 const GIT_ISOLATED: NodeJS.ProcessEnv = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
 for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR',
   'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) GIT_ISOLATED[key] = undefined
-const mutationFixtureEnv = (tool: keyof typeof SELFCHECK_TOOLS, rest: readonly string[], cwd: string): NodeJS.ProcessEnv => {
-  if (tool === 'anchors' || tool === 'shard-load') return GIT_ISOLATED
+// 玩具树里起的 mutate 不认外面带进来的「提前停」开关：外面写了 MUTATE_NO_EARLY_STOP=1 再跑自检，见齐就停的那几组夹具
+// 就会照着不停跑、白白红掉（ADR-240）。要关提前停的夹具自己显式写上
+const mutationFixtureEnv = (tool: keyof typeof SELFCHECK_TOOLS, rest: readonly string[], cwd: string): NodeJS.ProcessEnv =>
+  tool === 'mutate' ? { MUTATE_NO_EARLY_STOP: undefined, ...mutationFixtureEnvOf(tool, rest, cwd) } : mutationFixtureEnvOf(tool, rest, cwd)
+const mutationFixtureEnvOf = (tool: keyof typeof SELFCHECK_TOOLS, rest: readonly string[], cwd: string): NodeJS.ProcessEnv => {
+  // never-red 问一句工作区在哪个提交，与记录对：同样不认继承来的仓库指向
+  if (tool === 'anchors' || tool === 'shard-load' || tool === 'never-red') return GIT_ISOLATED
   // 准入读物包的入口也读 git（清单写出自哪个提交）：同样隔离；玩具树在 tmp 下、没有 .git，天花板设在它的父目录，
   // 往上找不到仓库 —— 清单该写「无从确认」（ADR-202 第二节第 0 份）
   if (tool === 'admission') return { ...GIT_ISOLATED, GIT_CEILING_DIRECTORIES: dirname(resolve(cwd)) }
@@ -8349,6 +8354,10 @@ group('mutation-reds-entry', [], () => {
     { id: 'M-X-r', req: 'X1', why: '把那个字面量换掉', file: 'a.ts', find: "'P'", replace: "'Q'", by: 'selfcheck', kills: ['甲'] },
   ] }), 'utf8')
   const redsFile = join(rTmp, 'output', 'mutation-reds', 'reds.json')
+  // 上一跑分份留下的一份：开跑要先删掉，不然 never-red 会把它和这一跑拼在一起
+  const leftover = join(rTmp, 'output', 'mutation-reds', 'reds-2-of-3.json')
+  mkdirSync(dirname(leftover), { recursive: true })
+  writeFileSync(leftover, '{}', 'utf8')
   const readReds = (): { earlyStop?: unknown; records?: unknown } => {
     try { return JSON.parse(readFileSync(redsFile, 'utf8')) } catch { return {} }
   }
@@ -8356,22 +8365,24 @@ group('mutation-reds-entry', [], () => {
   if (stop.ok) {
     const got = readReds()
     named('记录：照常跑时见齐就停，停下之后那一句没记上',
-      got.earlyStop === true && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', stopped: true, red: ['甲'] }]),
+      got.earlyStop === true && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', ran: true, stopped: true, red: ['甲'] }]),
       `记录是 ${JSON.stringify(got)}`)
+    named('记录：开跑先删上一跑留下的那几份', !existsSync(leftover), `${leftover} 还在`)
   }
   const full = runBoth('mutate 关了提前停：每一条跑到底再记', [S(SELFCHECK_TOOLS.mutate)], rTmp, { status: 0 },
     { ...mutationFixtureEnv('mutate', [], rTmp), MUTATE_NO_EARLY_STOP: '1' })
   if (full.ok) {
     const got = readReds()
     named('记录：关了提前停跑到底，停下之后那一句也记上了',
-      got.earlyStop === false && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', stopped: false, red: ['丙', '甲'] }]),
+      got.earlyStop === false && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', ran: true, stopped: false, red: ['丙', '甲'] }]),
       `记录是 ${JSON.stringify(got)}`)
   }
   const list = runToolBoth('never-red 读记录出清单', 'never-red', [], rTmp, { status: 0 })
   if (list.ok) {
     named('never-red：从没红过的列出来，红过的不列，跑没跑到分开',
       /没有负片跑到：\n\s+· （不在任何一组） ｜ 丁/.test(list.stdout) && /跑到了，没红过：\n\s+· （不在任何一组） ｜ 乙/.test(list.stdout)
-        && !/｜ 甲/.test(list.stdout) && !/｜ 丙/.test(list.stdout) && list.stdout.includes('每一条负片都跑到了底'),
+        && !/｜ 甲/.test(list.stdout) && !/｜ 丙/.test(list.stdout) && list.stdout.includes('每一条负片都跑到了底')
+        && !list.stdout.includes('⚠ 记录验的是'),
       list.stdout)
   }
   // 记录对不上变异目录（多了一条没记的），不出清单、以 1 结束

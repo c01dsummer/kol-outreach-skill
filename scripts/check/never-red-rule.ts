@@ -64,6 +64,15 @@ export function creditedReds(outcome: Outcome, output: string, inventory: Readon
   return [...found].sort()
 }
 
+/**
+ * 这一次验证者的断言是不是真的跑了：抓到、红错了地方、存活这三档是；跑不起来那一档出过进程级或夹具级的失败，
+ * 断言跑没跑到说不准，锚点失效那一档压根没起验证者。只有真跑了的那几条才算「跑到过」它那一组（`neverRed`）——
+ * 一组的负片全都跑不起来的话，那一组的断言不是「跑到了，没红过」，是没跑到
+ */
+export function ranAssertions(outcome: Outcome): boolean {
+  return outcome === 'caught' || outcome === 'elsewhere' || outcome === 'survived'
+}
+
 /** 一条负片在这一跑里的记录 */
 export interface RedsRecord {
   id: string
@@ -71,6 +80,8 @@ export interface RedsRecord {
   by: string
   /** 只跑了验证者的哪几组；没有这一项是整跑 */
   only?: string[]
+  /** 验证者的断言是不是真的跑了（`ranAssertions`）；没跑的不算跑到过它那一组 */
+  ran: boolean
   /** 这一次是不是因为点名的都红了被提前停下 —— 停了的话，后面的断言没跑到 */
   stopped: boolean
   /** 红过的有名字的断言（`creditedReds`） */
@@ -111,11 +122,11 @@ export function readRedsPart(raw: unknown): RedsPart | { fault: string } {
   for (const [i, x] of r.records.entries()) {
     const e = x as Record<string, unknown> | null
     if (e === null || typeof e !== 'object' || typeof e.id !== 'string' || e.id === '' || typeof e.by !== 'string'
-      || typeof e.stopped !== 'boolean' || !isStrings(e.red) || (Object.hasOwn(e, 'only') && !isStrings(e.only))) {
+      || typeof e.ran !== 'boolean' || typeof e.stopped !== 'boolean' || !isStrings(e.red) || (Object.hasOwn(e, 'only') && !isStrings(e.only))) {
       return { fault: `第 ${i + 1} 条记录缺字段或字段类型不对` }
     }
     records.push({ id: e.id, by: e.by, ...(Object.hasOwn(e, 'only') ? { only: [...e.only as string[]] } : {}),
-      stopped: e.stopped, red: [...e.red] })
+      ran: e.ran, stopped: e.stopped, red: [...e.red] })
   }
   return { schema: REDS_SCHEMA, head: r.head, earlyStop: r.earlyStop,
     shard: { index: s.index as number, count: s.count as number }, records: records }
@@ -174,7 +185,7 @@ export interface NeverRed {
   /** 所在的组；不在任何一组里的没有这一项 */
   group?: string
   /**
-   * 有没有一条负片跑到过它：有一条整跑的就算都跑到了；否则要有一条选了它那一组。
+   * 有没有一条负片跑到过它：只数断言真跑了的那几条（`ran`）；其中有一条整跑的就算都跑到了，否则要有一条选了它那一组。
    * 不在任何一组里的，只有整跑的负片跑得到它。没跑到的，再多负片也弄不红它 —— 两种分开报
    */
   reached: boolean
@@ -186,8 +197,9 @@ export interface NeverRed {
  */
 export function neverRed(labels: ReadonlyMap<string, string | undefined>, records: readonly RedsRecord[]): NeverRed[] {
   const red = new Set(records.flatMap(r => r.red))
-  const whole = records.some(r => r.only === undefined)
-  const groups = new Set(records.flatMap(r => r.only ?? []))
+  const ran = records.filter(r => r.ran)
+  const whole = ran.some(r => r.only === undefined)
+  const groups = new Set(ran.flatMap(r => r.only ?? []))
   const out: NeverRed[] = []
   for (const [label, group] of labels) {
     if (red.has(label)) continue

@@ -33867,7 +33867,7 @@
       "req": "harness",
       "why": "有整跑的负片也不算跑到 —— 不在任何组的那几条报成没跑到",
       "file": "scripts/check/never-red-rule.ts",
-      "find": "const whole = records.some(r => r.only === undefined)",
+      "find": "const whole = ran.some(r => r.only === undefined)",
       "replace": "const whole = false",
       "by": "test",
       "kills": [
@@ -34052,6 +34052,68 @@
       "by": "test",
       "kills": [
         "拼记录：一份都没有的拒"
+      ]
+    },
+    {
+      "id": "M-H240-bb",
+      "req": "harness",
+      "why": "存活那一档不算断言跑过 —— 只有存活变异的那一组被报成没跑到",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return outcome === 'caught' || outcome === 'elsewhere' || outcome === 'survived'",
+      "replace": "return outcome === 'caught' || outcome === 'elsewhere'",
+      "by": "test",
+      "kills": [
+        "断言跑没跑：五档里只有抓到、红错了地方、存活算跑了"
+      ]
+    },
+    {
+      "id": "M-H240-bc",
+      "req": "harness",
+      "why": "跑不起来那一档也算断言跑过",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return outcome === 'caught' || outcome === 'elsewhere' || outcome === 'survived'",
+      "replace": "return outcome === 'crashed' || outcome === 'caught' || outcome === 'elsewhere' || outcome === 'survived'",
+      "by": "test",
+      "kills": [
+        "断言跑没跑：五档里只有抓到、红错了地方、存活算跑了"
+      ]
+    },
+    {
+      "id": "M-H240-bd",
+      "req": "harness",
+      "why": "读记录不验 ran —— 少了它的一条被读成跑没跑都说不准的样子",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "      || typeof e.ran !== 'boolean' || typeof e.stopped",
+      "replace": "      || typeof e.stopped",
+      "by": "test",
+      "kills": [
+        "读记录：一条少了 ran 的拒，不当成跑到过",
+        "读记录：一条的 ran 不是真假值的拒"
+      ]
+    },
+    {
+      "id": "M-H240-be",
+      "req": "harness",
+      "why": "读回来的 ran 反了",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "ran: e.ran, stopped: e.stopped",
+      "replace": "ran: !e.ran, stopped: e.stopped",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-bf",
+      "req": "harness",
+      "why": "清单不看断言跑没跑 —— 跑不起来的负片也算跑到过它那一组",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "const ran = records.filter(r => r.ran)",
+      "replace": "const ran = records",
+      "by": "test",
+      "kills": [
+        "清单：选了那一组却跑不起来的负片不算跑到过它",
+        "清单：整跑却跑不起来的负片也不算跑到过谁"
       ]
     }
   ],

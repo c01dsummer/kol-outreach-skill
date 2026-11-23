@@ -13,6 +13,8 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { duplicateIds } from './attribution-rule.js'
+import { askGit } from './git-entry.js'
 import { VERIFIERS, groupOfLabel, labelsOf } from './mutate-rule.js'
 import { REDS_DIR, REDS_PART_NAME, type RedsPart, mergeParts, neverRed, readRedsPart } from './never-red-rule.js'
 
@@ -30,6 +32,9 @@ const main = (): void => {
     fail(`读不出变异目录（${e instanceof Error ? e.message : String(e)}）`)
     return
   }
+  // 读变异编号的地方都先过 duplicateIds（ADR-34 第 90 行那一类）：目录里同号两条，拼记录时按编号对就分不出是哪一条
+  const dup = duplicateIds(catalogIds.map(id => ({ id })))
+  if (dup.length > 0) { fail(`变异目录里编号重复：${dup.join('、')}`); return }
   const names = existsSync(REDS_DIR) ? readdirSync(REDS_DIR).filter(n => REDS_PART_NAME.test(n)).sort() : []
   const parts: { name: string; part: RedsPart }[] = []
   for (const name of names) {
@@ -46,6 +51,11 @@ const main = (): void => {
   if ('fault' in merged) { fail(`${REDS_DIR} 里的记录用不了 —— ${merged.fault}`); return }
 
   console.log(`从没被负片弄红过的有名字的断言（提交 ${merged.head.slice(0, 7)}，${merged.records.length} 条负片的记录）`)
+  // 清册是从工作区的源码收的；记录验的要不是这个提交，跑完之后改过的断言名字会对不上，清单照样出、但要说出来
+  const now = askGit('rev-parse', 'HEAD')
+  if (now !== merged.head) {
+    console.log(`  ⚠ 记录验的是 ${merged.head.slice(0, 7)}，工作区现在是 ${now === null ? '（读不出）' : now.slice(0, 7)}：那之后改过名字的断言会被报成没红过`)
+  }
   console.log(merged.earlyStop
     ? `  ⚠ 这份记录是照常「点名的都红了就停」跑出来的，其中 ${merged.stopped} 条停在了半路：停下之后的断言没跑到，下面可能多报。准的那份看每周不提前停的那一跑`
     : '  这份记录每一条负片都跑到了底（没开提前停），下面是准的')
