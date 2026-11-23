@@ -185,9 +185,9 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
 每周一北京时间 04:00，GitHub 上 `never-red` 那个工作流（`.github/workflows/never-red.yml`，ADR-240）把全部变异关掉「见齐就停」整跑一遍，
 列出从没被任何变异弄红过的有名字的断言。这一段只抄它的数，清单本身不抄。
 
-- **哪一跑**：`GET /repos/c01dsummer/kol-outreach-skill/actions/workflows/never-red.yml/runs?branch=main&per_page=2`，
+- **哪一跑**：`GET /repos/c01dsummer/kol-outreach-skill/actions/workflows/never-red.yml/runs?branch=main&status=completed&per_page=10`（只列跑完了的），
   取创建时间在 `<日期>` 往前 7 天那天 00:00（含）到 `<日期>` 当天例程开跑之间（北京时间）最晚的那一跑，叫「本周那一跑」；它之前的那一跑叫「上一跑」。
-  还没跑完的不取（`status` 不是 `completed`），往前取一个。
+  这一页里找不齐两跑就加 `&page=2`、`&page=3` 往后翻，翻到某一页一条都没有还没找到的，那一跑写 `无从确认：<原因>`。
 - **读什么**：那一跑「清单」那个 job 的日志（手头的 GitHub 工具读 job 日志，或 `GET /repos/c01dsummer/kol-outreach-skill/actions/jobs/<job id>/logs`），
   找以 `NEVER_RED_JSON ` 开头的那一行，后面是一段 JSON。上一跑照样读。
 - **写什么**：本周那一跑的 run id 与它验的提交前 7 位（JSON 的 `head`）；`earlyStop` 是 `false` 才照抄，是 `true` 写 `无从确认：那一跑没关提前停`；

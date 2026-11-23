@@ -685,7 +685,8 @@ const record = (m: Mut, ran: Ran): void => {
     costReported.add(m.id)
   }
   if (ran.outcome !== 'not-applied') timed.push({ verifier: m.by ?? 'test', ms: ran.ms })
-  const only = onlyFor(m)
+  // 记的是这一次真跑了的那几组：选中的连同它们依赖的（路由的 executes）—— 依赖组的断言也跑了，只记选中的会把它们报成没跑到
+  const only = onlyFor(m) === undefined ? undefined : [...routesById!.get(m.id)!.executes]
   // 没带红过哪些的回报（旧 worker）不记：记成「什么都没红」清单就多报；少了这一条，never-red 拼记录时说缺了哪条、不出清单
   if (ran.red === undefined) console.log(`  ⚠ ${m.id}  回报里没有红过哪些断言，这一条不进记录`)
   else reds.push({ id: m.id, by: m.by ?? 'test', ...(only === undefined ? {} : { only }), ran: ranAssertions(ran.outcome), stopped: ran.stopped, red: ran.red })

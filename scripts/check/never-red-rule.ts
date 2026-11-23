@@ -78,7 +78,7 @@ export interface RedsRecord {
   id: string
   /** 由哪个验证者来验（`test` 或 `selfcheck`） */
   by: string
-  /** 只跑了验证者的哪几组；没有这一项是整跑 */
+  /** 只跑了验证者的哪几组（选中的连同它们依赖的，都真跑了）；没有这一项是整跑 */
   only?: string[]
   /** 验证者的断言是不是真的跑了（`ranAssertions`）；没跑的不算跑到过它那一组 */
   ran: boolean
