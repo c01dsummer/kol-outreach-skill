@@ -856,6 +856,19 @@
       ]
     },
     {
+      "id": "M-P1-bp",
+      "req": "P1.b",
+      "why": "挑作品那一列时把没查到的播放数当 0 —— 和真实 0 并列、谁在前挑谁，运营看到的「最好作品」可能是一条根本不知道播放量的",
+      "file": "scripts/lib/rows.ts",
+      "find": "      return (known(a.plays) ? 0 : 1) - (known(b.plays) ? 0 : 1)",
+      "replace": "      return (b.plays ?? 0) - (a.plays ?? 0)",
+      "by": "test",
+      "kills": [
+        "没查到播放数的排在真实 0 后面 → 挑有数字的那条",
+        "播放数算坏成 NaN 也算没查到 → 挑有数字的那条"
+      ]
+    },
+    {
       "id": "M-U5-a",
       "req": "U5",
       "why": "空分层不建 sheet —— 运营会以为是漏了数据，而不是这一层真的没人",

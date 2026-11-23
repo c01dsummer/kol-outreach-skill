@@ -229,7 +229,7 @@
     {"config":"[\"test\",[\"p1-missing-values\",\"p1-score-unqueried\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"p1-missing-values\"]]","launches":0,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"p1-output-values\",\"u9-review-output\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
-    {"config":"[\"test\",[\"p1-output-values\"]]","launches":0,"maxPaid":null,"running":7,"stopping":0},
+    {"config":"[\"test\",[\"p1-output-values\"]]","launches":0,"maxPaid":null,"running":8,"stopping":0},
     {"config":"[\"test\",[\"p1-plays\",\"p1-score-unqueried\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"p1-profile-state\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"p1-provider\"]]","launches":0,"maxPaid":null,"running":7,"stopping":0},
