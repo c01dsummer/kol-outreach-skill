@@ -8153,6 +8153,11 @@ group('mutate-verifier-wiring-invalid', [], () => {
     // （#97 第二轮评审指出）。JSON 里就是要写成字符串，所以这里绕过类型
     { id: 'M-X-h', req: 'X1', why: 'kills 还写着老写法那个字符串', file: 'a.ts', find: 'x', replace: 'v',
       by: 'selfcheck', kills: '某条夹具' as unknown as string[] },
+    // 接线本身没错、却在自己验自己的一条（改的是自检的种子文件）：接线那一道排在自己验自己之前，
+    // 入口在接线那一道就以 1 结束，走不到它。两道对调的话，它先被当成自己验自己打回，
+    // 上面四条接线错一条都报不出来 —— 这两道的先后由它守着（ADR-238）
+    { id: 'M-X-i', req: 'X1', why: '接线没错、改的却是自检自己要用的文件', by: 'selfcheck', kills: ['某条夹具'],
+      file: 'scripts/check/selfcheck.ts', find: 'x', replace: 'u' },
   ] }), 'utf8')
   const badBy = runTool('mutate 的验证者接线不成立即以退出码 1 结束', 'mutate', [], wireTmp, { status: 1 })
   if (badBy === undefined) {
