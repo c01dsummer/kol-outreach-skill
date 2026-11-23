@@ -87,6 +87,7 @@
 - **欠条点名提醒**：`npm run debt-touch` —— 这条分支改到的文件被哪几条开着的欠条写进了正文；只提醒、不拦，CI 每跑也列一次（ADR-196）
 - **变异清单**：`npm run mutate -- --brief` —— 只列每条变异「违反了什么」，不含实现原文。
   给**写测试的那个上下文**用，见 `process/4-VERIFY.md` 的「给测试上下文一张准入读物清单」
+- **从没红过的断言**：`npm run never-red` —— 读上一次 `npm run mutate` 留下的记录，列出从没被任何变异弄红过的有名字的断言；只报不拦。平时的检查见齐就停，会多报；准的那份每周一由 GitHub 上 `never-red` 那个定时任务不停地整跑一遍出（ADR-240）
 - **准入读物包**：`npm run admission -- <需求编号> <包目录>` —— 给没读实现、要写测试的那个上下文出包，见 ADR-202
 - **文档同步表**：`docs/SYNC.md`
 - **打 tag**：`.github/workflows/release.yml`，手动触发，在 `main` 的头上打 `X.Y.Z` 轻量 tag
