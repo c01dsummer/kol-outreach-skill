@@ -8335,7 +8335,9 @@ group('mutation-reds-entry', [], () => {
   // 红过哪些写进记录、照常跑时见齐就停（停下之后那一句没记上）、MUTATE_NO_EARLY_STOP=1 时跑到底（那一句记上了），
   // never-red 真的读那份记录出清单。mutate.ts 与 never-red.ts 都在验证基础设施闭包里，指名自检的变异施不上去，
   // 这一半只有这组夹具守着。
-  // 玩具树里一条变异把 'P' 换成 'Q'；假验证者见了 Q 先红「甲」，停三秒再红「丙」、打汇总。「乙」从不红
+  // 玩具树里一条变异把 'P' 换成 'Q'；假验证者见了 Q 先红「甲」，停三秒再红「丙」、打汇总。「乙」从不红。
+  // 「甲」「丙」在「顶」组，「顶」依赖「底」组、「乙」在「底」组：变异点名「甲」只选了「顶」，可「底」也跟着跑了 ——
+  // 记录要记成跑了这两组，清单才把「乙」报成「跑到了，没红过」而不是「没有负片跑到」
   const rTmp = join(tmp, 'mutation-reds')
   mkdirSync(join(rTmp, 'scripts', 'check'), { recursive: true })
   mkdirSync(join(rTmp, 'docs'), { recursive: true })
@@ -8350,12 +8352,18 @@ group('mutation-reds-entry', [], () => {
      '  process.exitCode = 1',
      '}',
      'const named = (_label: string, _pass: boolean): void => {}',
-     "named('乙', true)",
-     "if (readFileSync('a.ts', 'utf8').includes('Q')) {",
-     "  endPath('甲', [])",
-     '  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000)',
-     "  endPath('丙', [])",
-     "  console.error('✗ 脚本自检：2 项失败')",
+     'const group = (_id: string, _needs: string[], fn: () => void): void => fn()',
+     "group('底', [], () => { named('乙', true) })",
+     "group('顶', ['底'], () => {",
+     "  if (readFileSync('a.ts', 'utf8').includes('Q')) {",
+     "    endPath('甲', [])",
+     '    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000)',
+     "    endPath('丙', [])",
+     "    console.error('✗ 脚本自检：2 项失败')",
+     '  }',
+     '})',
+     "if (process.argv.some(a => a.startsWith('--only=')) && !readFileSync('a.ts', 'utf8').includes('Q')) {",
+     "  console.log('✓ 脚本自检（只跑 2 组）：点名的那几组都跑完了，一条断言都没红')",
      '}',
      ''].join('\n'), 'utf8')
   // never-red 两个验证者的清册都读：需求测试那一份放一条从没被跑到的
@@ -8375,7 +8383,7 @@ group('mutation-reds-entry', [], () => {
   if (stop.ok) {
     const got = readReds()
     named('记录：照常跑时见齐就停，停下之后那一句没记上',
-      got.earlyStop === true && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', ran: true, stopped: true, red: ['甲'] }]),
+      got.earlyStop === true && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', only: ['底', '顶'], ran: true, stopped: true, red: ['甲'] }]),
       `记录是 ${JSON.stringify(got)}`)
     named('记录：开跑先删上一跑留下的那几份', !existsSync(leftover), `${leftover} 还在`)
   }
@@ -8384,13 +8392,13 @@ group('mutation-reds-entry', [], () => {
   if (full.ok) {
     const got = readReds()
     named('记录：关了提前停跑到底，停下之后那一句也记上了',
-      got.earlyStop === false && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', ran: true, stopped: false, red: ['丙', '甲'] }]),
+      got.earlyStop === false && JSON.stringify(got.records) === JSON.stringify([{ id: 'M-X-r', by: 'selfcheck', only: ['底', '顶'], ran: true, stopped: false, red: ['丙', '甲'] }]),
       `记录是 ${JSON.stringify(got)}`)
   }
   const list = runToolBoth('never-red 读记录出清单', 'never-red', [], rTmp, { status: 0 })
   if (list.ok) {
-    named('never-red：从没红过的列出来，红过的不列，跑没跑到分开',
-      /没有负片跑到：\n\s+· （不在任何一组） ｜ 丁/.test(list.stdout) && /跑到了，没红过：\n\s+· （不在任何一组） ｜ 乙/.test(list.stdout)
+    named('never-red：从没红过的列出来，红过的不列，跑没跑到分开，依赖组也算跑到了',
+      /没有负片跑到：\n\s+· （不在任何一组） ｜ 丁/.test(list.stdout) && /跑到了，没红过：\n\s+· 底 ｜ 乙/.test(list.stdout)
         && !/｜ 甲/.test(list.stdout) && !/｜ 丙/.test(list.stdout) && list.stdout.includes('每一条负片都跑到了底')
         && !list.stdout.includes('⚠ 记录验的是'),
       list.stdout)
