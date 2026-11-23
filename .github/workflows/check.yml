@@ -77,6 +77,12 @@ jobs:
       - run: npm ci --prefer-offline --no-audit
       # 与本地 `npm run check` 同一串，只少了变异与启动数两步（各在下面的 job 里）
       - run: npm run anchors && npm run size && npm run shard-load && npm run ticket-refs && npm run child-process-use && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run fields && npm run compile && npm test && npm run selfcheck && npm run audit
+        # 体量闸门只数这条 PR 自己的提交：PR 叠在另一条没合的 PR 上（base 选的是下面那条分支）时，
+        # 下面那条已有的提交连同它的 size-ok 豁免都不算这条的（ADR-235）。给的是 base 分支此刻的头（origin/<分支名>，
+        # 上面取完整历史时拉下来了），不用事件里记的 base.sha：那是开 PR 时的快照，base 分支往前走了它不一定跟。
+        # 推 main 时这个表达式是空串，按主干量
+        env:
+          SIZE_PR_BASE: ${{ github.event.pull_request.base.ref && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
       # 只提醒：这一跑改到的文件被哪几条开着的欠条写进了正文（需求所有者 2026-11-14 要的；ADR-196）。
       # 汇总那一句打成一条 notice（PR 的 Checks 页与这一跑的总览上看得到），全文写进这一跑的 Summary。
       # 「改到的」与体量闸门同一个起点：PR 上是这次合并用的主干头，推 main 时是上一版。

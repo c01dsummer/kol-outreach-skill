@@ -335,6 +335,26 @@ export type Baseline =
   | { kind: 'not-applicable'; trunk: string }
   /** 量 `base..head`;`commits` 是这条分支自己的提交(豁免只从这些提交信息里找) */
   | { kind: 'measure'; trunk: string; head: string; base: string; onTrunk: boolean; commits: string[] }
+    /** 调用方给了 PR 的 base、而且 HEAD 不在主干上时多一个 `prBase`(见 `resolveBaseline` 第 7 步);没给时没有这个键 */
+    & { prBase?: PrBase }
+
+/**
+ * 调用方给的 PR base 用上了:`given` 是原样给的那串,`sha` 是解析出来的提交;
+ * `inherited` 是「按主干算是这条分支的、但已经在 base 里」的提交 —— 叠在下面那条没合的分支上的那些,
+ * 它们的 `size-ok:` 不算这条的。按主干开的 PR 这一项是空数组,照样说出来。
+ * `moved` 是起点挪没挪到与 base 的共同祖先:挪了,它们的新增行也不数;没挪(这条与 base 的分叉点不在与主干的
+ * 分叉点之后,比如叠着的这条直接合过更新的主干),它们若带新增行照样数 —— 多算、不少算(ADR-235 第三节)
+ */
+export type PrBase = { given: string; sha: string; inherited: string[]; moved: boolean }
+
+/**
+ * 调用方经环境变量给的 PR base(ADR-235):没设、空串、全是空白都算「没给」 —— CI 上推 main 那一跑
+ * 那个表达式落成空串;其余去掉首尾空白原样交回。
+ */
+export function prBaseFrom(value: string | undefined): string | undefined {
+  const given = value?.trim()
+  return given === undefined || given === '' ? undefined : given
+}
 
 /**
  * 体量闸门从哪里量起 —— `docs/CONVENTIONS.md` 第十节后半句「哪些提交算这条分支自己的」。
@@ -351,11 +371,23 @@ export type Baseline =
  * 5. 共同祖先就是 HEAD 自己 → HEAD 在主干上(`onTrunk`):改和上一版比,起点是 `rev-parse <HEAD>^1`;
  *    没有上一版 → 不适用。否则起点就是共同祖先。
  * 6. 这条分支自己的提交 = `rev-list <起点>..<HEAD>` 按行拆开、去掉空行(没有提交时是空数组)。
+ * 7. 只在调用方给了 `prBase`(这条 PR 的 base,CI 上是 `origin/<base 分支名>`,即 base 分支此刻的头)、而且 HEAD 不在主干上时:
+ *    `rev-parse --verify <prBase>^{commit}` 答不上来 → 无从判断(给了却找不到);
+ *    `merge-base <base 的 sha> HEAD` 答不上来 → 无从判断(与 HEAD 没有共同祖先);比两个起点、按 base 列提交答不上来
+ *    → 同样无从判断。这几种都不退回按主干量:
+ *    退回去,叠在没合的分支上的 PR 就又把下面那条的行数和豁免算成自己的(ADR-235)。
+ *    以 `-` 开头的不问 git,直接无从判断(那是开关,不是提交名)。
+ *    **只减不加**:这条分支自己的提交 = 第 6 步列出的、又在 `rev-list <base 的 sha>..<HEAD>` 里的(后者列的正是不在 base 里的提交);
+ *    其余(已在 base 里的)原样记在 `prBase.inherited`。起点只往后挪:`merge-base <与 base 的共同祖先> <第 5 步的起点>`
+ *    答的就是第 5 步的起点(它是前者的祖先,叠在下面那条上)时,起点改成与 base 的共同祖先;否则(base 比主干那一头旧、
+ *    或两边各走各的)起点不动。给的 base 再旧,也只会少减、不会把主干上别人的行数和豁免算进来(独立复核指出的洞)。
+ *    判据是祖先关系(git 列提交按的就是它),不是提交图的形状(ADR-63 的教训)。
+ *    base 就是主干那一头、或在主干上更旧的一处时,结果与没给一点不变;HEAD 在主干上时不问这一步(主干上只报数、不判定)。
  *
  * 主干上照样量、照样报数,只是入口不据此判红:这个闸门守的是待评审的改动,
  * CI 跑在推送之后,在主干上判红只会让主干变红(`size.ts` 里有完整理由)。
  */
-export function resolveBaseline(ask: GitAsk): Baseline {
+export function resolveBaseline(ask: GitAsk, prBase?: string): Baseline {
   const cannot = (why: string, how: string): Baseline => ({ kind: 'cannot-answer', why, how })
 
   const head = ask('rev-parse', 'HEAD')
@@ -391,5 +423,40 @@ export function resolveBaseline(ask: GitAsk): Baseline {
     return cannot(`列不出 ${base.slice(0, 7)}..${head.slice(0, 7)} 之间的提交,找不了 size-ok 豁免`,
       `手工跑 \`git rev-list ${base.slice(0, 7)}..${head.slice(0, 7)}\`,看 git 报什么(常见是仓库损坏)。`)
   }
-  return { kind: 'measure', trunk, head, base, onTrunk, commits: listed.split('\n').filter(Boolean) }
+  const commits = listed.split('\n').filter(Boolean)
+  if (prBase === undefined || onTrunk) return { kind: 'measure', trunk, head, base, onTrunk, commits }
+
+  // 以 `-` 开头的不是提交名,交给 git 会被当成开关(`--all` 这类);在这里就说「不认得」,不往下问
+  if (prBase.startsWith('-')) {
+    return cannot(`给的 PR base ${JSON.stringify(prBase)} 以 - 开头,不是提交名`, '给提交号或分支名(CI 上是 `origin/<base 分支名>`)。')
+  }
+  const resolved = ask('rev-parse', '--verify', `${prBase}^{commit}`)
+  if (resolved === null) {
+    return cannot(`给了这条 PR 的 base(${JSON.stringify(prBase)}),却找不到这个提交`,
+      'CI 上取完整历史(`fetch-depth: 0`);本地先 `git fetch` 把 base 那条分支拉下来,或者不给 base、按主干量。')
+  }
+  const own = ask('merge-base', resolved, 'HEAD')
+  if (own === null) {
+    return cannot(`给的 PR base ${resolved.slice(0, 7)} 与 HEAD 没有共同祖先`,
+      '确认 PR 的 base 选对了分支;不退回按主干量 —— 那正是叠分支继承下面那条行数和豁免的那条路。')
+  }
+  // 起点只往后挪、不往回拉:与主干的共同祖先是与 base 的共同祖先的祖先(叠在下面那条上),才改从后者量;
+  // base 比主干那一头旧、或两边各走各的,起点照旧 —— 往回拉会把主干上别人的行数和豁免算进来
+  const meet = ask('merge-base', own, base)
+  if (meet === null) {
+    return cannot(`问不出 ${own.slice(0, 7)} 与 ${base.slice(0, 7)} 的共同祖先`,
+      `手工跑 \`git merge-base ${own.slice(0, 7)} ${base.slice(0, 7)}\`,看 git 报什么(常见是仓库损坏)。`)
+  }
+  const reach = ask('rev-list', `${resolved}..${head}`)
+  if (reach === null) {
+    return cannot(`列不出 ${resolved.slice(0, 7)}..${head.slice(0, 7)} 之间的提交,找不了 size-ok 豁免`,
+      `手工跑 \`git rev-list ${resolved.slice(0, 7)}..${head.slice(0, 7)}\`,看 git 报什么(常见是仓库损坏)。`)
+  }
+  // 这条自己的提交 = 第 6 步按主干列出的、又不在 base 里的:只减不加
+  const notInBase = new Set(reach.split('\n').filter(Boolean))
+  const start = meet === base ? own : base
+  return {
+    kind: 'measure', trunk, head, base: start, onTrunk: false, commits: commits.filter(c => notInBase.has(c)),
+    prBase: { given: prBase, sha: resolved, inherited: commits.filter(c => !notInBase.has(c)), moved: start !== base },
+  }
 }
