@@ -8,12 +8,14 @@
  *   「只认加粗和书名号里的短词」—— 自造的词几乎都是加粗或打书名号引进来的；不靠分词去猜哪段话是新词。
  * - **行号引用**：`ADR-数字:行号`。术语表「编号怎么读」那一节说这是旧写法、不再新写。
  * - **没配白话的需求编号**：`P2`、`D31.x` 这种，只认需求清单（`docs/requirements.json`）里真有的需求与判据编号，
- *   后面紧跟着全角或半角括号、书名号或全角冒号的算配了白话，别的都列。
+ *   后面紧跟着全角或半角括号、书名号或全角冒号的算配了白话（编号外面套着加粗之类的，越过收尾记号再看），别的都列。
  *
  * 认得的词只有两个来源，都由入口从仓库里现读，这里不维护任何手写表：术语表每一行的第一格（`glossaryTerms`），
  * 和各份 Markdown 的标题（`headingTexts`）。围栏代码块与 HTML 注释里的行不算（`quotedMask`），
- * 行内代码（反引号里的）也先去掉 —— 那是在演示写法，不是在用它。
+ * 行内代码（反引号里的，由解析器认）也先去掉 —— 那是在演示写法，不是在用它。
  */
+import { Lexer, type Token } from 'marked'
+import { addedLines } from './field-use-rule.js'
 import { quotedMask } from './quoted.js'
 
 /** 一处提示：哪个文件第几行、哪一种、原文 */
@@ -30,8 +32,27 @@ export const isShortWord = (w: string): boolean => {
   return n >= 2 && n <= SHORT_MAX && !BREAKS.test(t)
 }
 
-/** 去掉行内代码：成对的反引号连同里面的字换成空格（位置不挪，只为后面不把演示的写法当成在用） */
-export const stripCodeSpans = (line: string): string => line.replace(/(`+)[^`]*?\1/g, m => ' '.repeat(m.length))
+/** 一行里各段行内代码在原文里的起止：交给 Markdown 解析器（`marked`）认，起止反引号串等长、没配对的不算，不自己写正则 */
+function codeSpanRanges(line: string): [number, number][] {
+  const out: [number, number][] = []
+  // 各记号的原文按先后排在父记号的原文里；套着的（加粗、链接里的）在父记号那一段里往后找
+  const walk = (tokens: readonly Token[], from: number, to: number): void => {
+    let at = from
+    for (const t of tokens) {
+      const i = line.indexOf(t.raw, at)
+      if (i < 0 || i + t.raw.length > to) continue
+      if (t.type === 'codespan') out.push([i, i + t.raw.length])
+      else if ('tokens' in t && Array.isArray(t.tokens)) walk(t.tokens as Token[], i, i + t.raw.length)
+      at = i + t.raw.length
+    }
+  }
+  walk(Lexer.lexInline(line), 0, line.length)
+  return out
+}
+
+/** 去掉行内代码：每段行内代码连同反引号换成空格（位置不挪，只为后面不把演示的写法当成在用） */
+export const stripCodeSpans = (line: string): string =>
+  codeSpanRanges(line).reduce((s, [a, b]) => s.slice(0, a) + ' '.repeat(b - a) + s.slice(b), line)
 
 /** 术语表：每张表每一行的第一格算词条；格子里用「、」「/」分开的几种写法各算一个，反引号、书名号里的也各算一个 */
 export function glossaryTerms(text: string): Set<string> {
@@ -88,12 +109,14 @@ export function lineHits(raw: string, known: JargonKnown): LineHit[] {
   const line = stripCodeSpans(raw), out: LineHit[] = [], seen = new Set<string>()
   for (const m of line.matchAll(/\*\*([^*\n]+?)\*\*|「([^」\n]+)」/g)) {
     const w = (m[1] ?? m[2]).replace(/[*「」]/g, '').trim() // 加粗套书名号（**「词」**、「**词**」）的，按里面那个词认
-    if (!isShortWord(w) || seen.has(w) || known.terms.has(w) || known.headings.some(h => h.includes(w))) continue
+    // 需求清单里的编号（`**P2**`）不当生词：配没配白话归下面「需求编号」那一种管
+    if (!isShortWord(w) || seen.has(w) || known.terms.has(w) || known.reqIds.has(w) || known.headings.some(h => h.includes(w))) continue
     seen.add(w); out.push({ kind: '生词', word: w })
   }
   for (const m of line.matchAll(/ADR-\d+:\d+/g)) out.push({ kind: '行号引用', word: m[0] })
   for (const m of line.matchAll(ID_RE)) {
-    if (!known.reqIds.has(m[1]) || GLOSSED.test(line.slice(m.index! + m[0].length))) continue
+    // 编号外面套的加粗、斜体、删除线（`**P2**（…）`）先越过它的收尾记号，再看后面配没配白话
+    if (!known.reqIds.has(m[1]) || GLOSSED.test(line.slice(m.index! + m[0].length).replace(/^[*_~]+/, ''))) continue
     out.push({ kind: '没配白话的需求编号', word: m[1] })
   }
   return out
@@ -113,6 +136,33 @@ export function jargonHits(added: ReadonlyMap<string, ReadonlySet<number>>, read
     }
   }
   return out
+}
+
+/**
+ * 扫哪些行：`changed` 是改过的文件（相对仓库根），只看 `.md`；`diffOf` 交回那一份的 `git diff -U0` 原文，块头交给
+ * 字段断言闸门那套 `addedLines` 读。哪一份 `diffOf` 抛错（被当成二进制之类），只跳过那一份并记下原因，不让整份提示落空。
+ */
+export function addedMarkdown(changed: readonly string[], diffOf: (file: string) => string): { added: Map<string, Set<number>>; skipped: string[] } {
+  const added = new Map<string, Set<number>>(), skipped: string[] = []
+  for (const file of changed.filter(f => f.endsWith('.md'))) {
+    try {
+      for (const [f, ns] of addedLines([[file, diffOf(file)]])) added.set(f, ns)
+    } catch (error) { skipped.push(`${file}（${(error as Error).message.split('\n')[0]}）`) }
+  }
+  return { added, skipped }
+}
+
+/**
+ * 认得的词从哪里来：`tracked` 是仓库里跟踪的文件，`read` 按路径交回全文（读不到抛错）。术语表、需求清单不在就当空；
+ * 各份 `.md` 的标题里，这次新加的那几行（`added`）不算 —— 新造一个词、顺手拿它起个标题，不该就此不报。
+ */
+export function knownFrom(tracked: readonly string[], read: (file: string) => string, added: ReadonlyMap<string, ReadonlySet<number>>): JargonKnown {
+  const has = (f: string) => tracked.includes(f)
+  return {
+    terms: has('docs/GLOSSARY.md') ? glossaryTerms(read('docs/GLOSSARY.md')) : new Set<string>(),
+    headings: tracked.filter(f => f.endsWith('.md')).flatMap(f => { try { return headingTexts(read(f), added.get(f)) } catch { return [] } }),
+    reqIds: has('docs/requirements.json') ? requirementIds(read('docs/requirements.json')) : new Set<string>(),
+  }
 }
 
 /** 汇总一句（进 CI 的通知，只有固定文案与数字） */

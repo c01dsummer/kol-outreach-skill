@@ -41,7 +41,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerSummary, orphanIous, recordNum, splitRecords } from './check/debt-rule.js'
 import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
-import { glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
+import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, testOnlyMentions, useLines } from './check/child-process-use-rule.js'
@@ -27040,6 +27040,14 @@ await group('h-jargon', () => {
   eq('术语表：括号里的别名单算一个，空白也断开', ['已查询但未取得有效值', '怪值', '更正块', '⚠️'].map(w => more.has(w)), [true, true, true, true])
   eq('标题：这次新加的标题行不算已有的标题', headingTexts('# 旧标题\n\n## 新词丁\n', new Set([3])), ['旧标题'])
   eq('需求编号：后面跟全角冒号的算配了白话', lineHits('P2：不许编造', known), [])
+  eq('行内代码按等长的反引号串认：里面套着短的反引号串、没配对的反引号都不错认',
+    [lineHits('`` **新词戊** ` x ``', known), lineHits('`` 没配对的 **新词己**', known), stripCodeSpans('甲 **`乙`** 丙')],
+    [[], [{ kind: '生词', word: '新词己' }], '甲 **' + ' '.repeat(3) + '** 丙'])
+  eq('需求编号：外面套着加粗的，越过收尾记号再看配没配白话',
+    [lineHits('**P2**（用户筛选条件）', known), lineHits('**P2** 要守', known)], [[], [{ kind: '没配白话的需求编号', word: 'P2' }]])
+  const diffOf = (f: string) => { if (f === 'bad.md') throw new Error('当成二进制\n第二行'); return `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -0,0 +1,2 @@\n+甲\n+乙\n` }
+  const scan = addedMarkdown(['a.md', 'x.ts', 'bad.md'], diffOf)
+  eq('扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因', [[...scan.added.keys()], [...(scan.added.get('a.md') ?? [])], scan.skipped], [['a.md'], [1, 2], ['bad.md（当成二进制）']])
   const text = '# 标题\n\n新加**新词甲**\n\n```\n「围栏里」\n```\n<!-- 「注释里」 -->\n旧行**新词乙**\n'
   const hits = jargonHits(new Map([['a.md', new Set([3, 6, 8])], ['b.ts', new Set([1])]]), f => f === 'a.md' ? text : '「代码文件」', known)
   eq('整次改动：只看 .md 新加的行，围栏与注释里的不算', hits, [{ file: 'a.md', line: 3, kind: '生词', word: '新词甲' }])
