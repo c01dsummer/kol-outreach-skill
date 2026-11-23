@@ -241,6 +241,7 @@ export function listings(adr152: string): Map<string, Listing> {
     const cells = cellsOf(l)
     const day = /^(\d{4}-\d{2}-\d{2})#\d+$/.exec(cells[0] ?? '')?.[1]
     if (day === undefined || cells.length < 3) continue
+    if (Number.isNaN(Date.parse(`${day}T00:00:00Z`))) continue // 2026-13-01 这种日子算不出到期，整份清单不能因它打不出来
     const verdict = cells.at(-1)!
     for (const item of splitItems(cells[1])) {
       const key = item.replace(/^ +| +$/g, '')
