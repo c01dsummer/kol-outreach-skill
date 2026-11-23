@@ -856,6 +856,19 @@
       ]
     },
     {
+      "id": "M-P1-bp",
+      "req": "P1.b",
+      "why": "挑作品那一列时把没查到的播放数当 0 —— 和真实 0 并列、谁在前挑谁，运营看到的「最好作品」可能是一条根本不知道播放量的",
+      "file": "scripts/lib/rows.ts",
+      "find": "      return (known(a.plays) ? 0 : 1) - (known(b.plays) ? 0 : 1)",
+      "replace": "      return (b.plays ?? 0) - (a.plays ?? 0)",
+      "by": "test",
+      "kills": [
+        "没查到播放数的排在真实 0 后面 → 挑有数字的那条",
+        "播放数算坏成 NaN 也算没查到 → 挑有数字的那条"
+      ]
+    },
+    {
       "id": "M-U5-a",
       "req": "U5",
       "why": "空分层不建 sheet —— 运营会以为是漏了数据，而不是这一层真的没人",
@@ -33414,6 +33427,66 @@
       "by": "test",
       "kills": [
         "环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件"
+      ]
+    },
+    {
+      "id": "M-H238-a",
+      "req": "harness",
+      "why": "开跑前先查自己验自己、后查接线 —— 一条验证者名字写错的变异先被当成自己验自己打回，人改完再撞第二堵墙",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const order: readonly PrecheckStep[] = ['wiring', 'self-verify', 'labels']",
+      "replace": "const order: readonly PrecheckStep[] = ['self-verify', 'wiring', 'labels']",
+      "by": "test",
+      "kills": [
+        "三道体检先后：三道都有毛病时交回接线那一道"
+      ]
+    },
+    {
+      "id": "M-H238-b",
+      "req": "harness",
+      "why": "开跑前先查点的夹具、后查自己验自己 —— 整份不算数的证据先被当成功劳记错了人打回",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const order: readonly PrecheckStep[] = ['wiring', 'self-verify', 'labels']",
+      "replace": "const order: readonly PrecheckStep[] = ['wiring', 'labels', 'self-verify']",
+      "by": "test",
+      "kills": [
+        "三道体检先后：接线没毛病、后两道都有时交回自己验自己"
+      ]
+    },
+    {
+      "id": "M-H238-c",
+      "req": "harness",
+      "why": "前一道已有毛病还接着问后面几道 —— 名字不认得的验证者被拿去建清册，入口抛出一个栈而不是说清哪条写错了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  for (const s of order) {\n    const found = checks[s]()",
+      "replace": "  const answers = order.map(x => checks[x]())\n  for (const s of order) {\n    const found = answers[order.indexOf(s)]",
+      "by": "test",
+      "kills": [
+        "三道体检先后：接线有毛病就不再问后两道"
+      ]
+    },
+    {
+      "id": "M-H238-d",
+      "req": "harness",
+      "why": "交回的那一道带的毛病不是它自己的 —— 报出来的那几条变异对不上",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (found.length) return { step: s, faults: found }",
+      "replace": "    if (found.length) return { step: s, faults: [] }",
+      "by": "test",
+      "kills": [
+        "三道体检先后：交回的是接线那一道自己的毛病"
+      ]
+    },
+    {
+      "id": "M-H238-e",
+      "req": "harness",
+      "why": "交回的总说是第一道 —— 自己验自己的变异被报成验证者接线不成立",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { step: s, faults: found }",
+      "replace": "return { step: order[0], faults: found }",
+      "by": "test",
+      "kills": [
+        "三道体检先后：接线没毛病、后两道都有时交回自己验自己"
       ]
     }
   ],
