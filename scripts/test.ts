@@ -16166,26 +16166,28 @@ harness('变异夹具建历史不继承六项 Git 仓库指向')
 // 后者的审计探针仅在自建临时目录中保护转交，不能称为六次无探针副作用演练。
 const keys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
   'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'] as const
-const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-fixture-git-env-')))
-const clean: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
-for (const key of keys) delete clean[key]
+// 独占临时根与诱饵仓库都由 git 夹具的 withToyRepo 开：建仓不读本机配置、带提交身份，跑完或抛错整个删掉（ADR-239）。
+// 下面这一段不重新缩进，免得整段都算改动
+// 跑测试的进程身上若本来带着六项之一（比如在 git 钩子里跑），这一组先从本进程环境里拿掉、跑完放回：
+// git 夹具正是 M-H64 改的地方，不拿掉的话施变后它会经测试自己建诱饵、起入口时漏出去，写进外面那个仓库
+const inherited = Object.fromEntries(keys.filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))
+for (const key of keys) delete process.env[key]
+let owner = ''
+try {
+withToyRepo((_, more) => {
+owner = more('owner')
+// 起入口的环境也从夹具拿：去掉继承来的全部 GIT_*、不读本机的系统与用户配置，不自己列要挡哪些（ADR-233 第七节）
+const clean: NodeJS.ProcessEnv = fixtureEnv({})
 delete clean.NODE_OPTIONS
 delete clean.MUTATING // 两轮都跑普通真实子集，不借施变运行跳过夹具准备或认领约束。
-// 造诱饵仓库经 git 夹具：它自己去掉继承来的 GIT_*、不读本机配置
-const git = (cwd: string, args: string[]) => {
-  const r = fixtureGit(args, { cwd })
-  if (r.error || r.status !== 0) throw new Error(`Git 隔离测试未造好夹具：${r.error?.message ?? r.stderr}`)
-  return r.stdout.trim()
-}
 const repo = (name: string) => {
-  const dir = join(owner, name); mkdirSync(dir)
-  git(dir, ['init', '-q']); git(dir, ['config', 'user.name', 'Decoy Owner'])
-  git(dir, ['config', 'user.email', 'decoy@example.invalid'])
+  const toy = toyRepoAt(join(owner, name)); mkdirSync(toy.dir)
+  toy.git('init', '-q')
   // 提交可启动后台维护；快照前让自有仓库静止，保留所有 Git 文件的字节审计。
-  git(dir, ['config', 'gc.auto', '0']); git(dir, ['config', 'maintenance.auto', 'false'])
-  writeFileSync(join(dir, 'sentinel.txt'), 'independent decoy content\n')
-  git(dir, ['add', '.']); git(dir, ['commit', '-qm', 'decoy sentinel'])
-  return dir
+  toy.git('config', 'gc.auto', '0'); toy.git('config', 'maintenance.auto', 'false')
+  toy.write('sentinel.txt', 'independent decoy content\n')
+  toy.git('add', '.'); toy.git('commit', '-qm', 'decoy sentinel')
+  return toy.dir
 }
 // 全仓库字节与路径审计包含工作区文件及 .git 的 config/index/refs/logs/objects；不依赖 HEAD 有没有变。
 const snapshot = (dir: string): Map<string, string> => {
@@ -16220,7 +16222,6 @@ const entry = (name: string, extra: NodeJS.ProcessEnv) => {
   if (!completed) console.log(`     selfcheck=${JSON.stringify(output)}`)
   return completed
 }
-try {
   const unguarded = repo('unguarded-decoy'), before = snapshot(unguarded)
   const completed = entry('unguarded-run', { GIT_DIR: join(unguarded, '.git') })
   ok('Git 隔离无探针对照：真实 mutation-duplicate-ids 入口执行完成', completed)
@@ -16303,10 +16304,11 @@ console.log('positive complete');`], { cwd: control, env: { ...observerEnv, KOL_
   eq('Git 建历史隔离：不继承 GIT_OBJECT_DIRECTORY', leaked('GIT_OBJECT_DIRECTORY'), [])
   eq('Git 建历史隔离：不继承 GIT_ALTERNATE_OBJECT_DIRECTORIES', leaked('GIT_ALTERNATE_OBJECT_DIRECTORIES'), [])
   eq('Git 建历史隔离：不继承 GIT_COMMON_DIR', leaked('GIT_COMMON_DIR'), [])
+})
 } finally {
-  rmSync(owner, { recursive: true, force: true })
-  if (existsSync(owner)) throw new Error('Git 隔离测试未回收独占临时根')
+  Object.assign(process.env, inherited)
 }
+if (owner === '' || existsSync(owner)) throw new Error('Git 隔离测试未回收独占临时根')
 })
 
 await group('h-selfcheck-selection-entry', () => {
