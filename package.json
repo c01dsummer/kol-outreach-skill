@@ -29,6 +29,7 @@
     "selfcheck": "tsx scripts/check/selfcheck.ts",
     "audit": "tsx scripts/check/audit.ts",
     "adr-ledger": "tsx scripts/check/adr-ledger.ts",
+    "due-list": "tsx scripts/check/revisit-due.ts --list",
     "same-spot": "tsx scripts/check/same-spot.ts",
     "debt-touch": "tsx scripts/check/debt-touch.ts",
     "jargon": "tsx scripts/check/jargon.ts",
