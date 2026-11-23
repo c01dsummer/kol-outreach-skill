@@ -485,6 +485,29 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
   return mut.kills.length === 0 ? 'missing-kills' : undefined
 }
 
+/** 开跑前按先后问的那三道体检 */
+export type PrecheckStep = 'wiring' | 'self-verify' | 'labels'
+
+/**
+ * 开跑前那三道体检的先后：接线成不成立 → 自己验自己 → `kills` 点的夹具立不立得住（ADR-238）。
+ *
+ * 由粗到细：名字不认得连判定都拿不到验证者；自己验自己是**这份证据整份不算数**；点不着夹具是
+ * **证据算数、功劳记错了人**。反过来排，一条自己验自己的变异会先因为名字问题被打回，人改完名字
+ * 再撞第二堵墙。每一道交一个函数进来，照这个先后逐道问，交回第一道有毛病的那一道和它的毛病，
+ * 后面的**不再问** —— 不只是省事：第三道要读验证者的源码建清册，拿到不认得的验证者会当场抛。
+ * 三道都没毛病交回 `undefined`。先后原先写在入口里、在验证基础设施闭包里，指名自检的变异施不上去，
+ * 挪到这里才配得上变异。
+ */
+export function firstPrecheckFault<T>(checks: { readonly [K in PrecheckStep]: () => readonly T[] }):
+  { step: PrecheckStep; faults: readonly T[] } | undefined {
+  const order: readonly PrecheckStep[] = ['wiring', 'self-verify', 'labels']
+  for (const s of order) {
+    const found = checks[s]()
+    if (found.length) return { step: s, faults: found }
+  }
+  return undefined
+}
+
 /**
  * 源码里的**硬退出**各在第几行 —— 验证者一处也不许有，交回空表才算过。
  *
