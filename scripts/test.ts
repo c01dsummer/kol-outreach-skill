@@ -60,7 +60,7 @@ import {
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitFaults, exitRace,
   judgeRun, killsMatched,
   labelFault, notAssertion,
-  labelFaults,
+  labelFaults, firstPrecheckFault,
   groupOfLabel, labelsOf, leadWired, processFailed, unmarkedDiagnostics, wiringFault,
   anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, batchBlobs, notARepo, stagedResidue,
 } from './check/mutate-rule.js'
@@ -5710,6 +5710,12 @@ suite('P1', '作品那一列：没问过作品不得显示成「文案是空的�
      desc({ recent_posts: [
        { desc: 'low', plays: 1 }, { desc: 'top', plays: 9 }, { desc: 'last', plays: 3 },
      ] }), 'top')
+  eq('没查到播放数的排在真实 0 后面 → 挑有数字的那条',
+     desc({ recent_posts: [{ desc: 'unknown' }, { desc: 'zero', plays: 0 }] }), 'zero')
+  eq('播放数算坏成 NaN 也算没查到 → 挑有数字的那条',
+     desc({ recent_posts: [{ desc: 'broken', plays: NaN }, { desc: 'five', plays: 5 }] }), 'five')
+  eq('供应商透传的 null 也算没查到 → 排在真实 0 后面',
+     desc({ recent_posts: [{ desc: 'null', plays: null as unknown as number }, { desc: 'zero', plays: 0 }] }), 'zero')
 
   // 补齐：同一个人先从兜底路径进来（没作品），后来被别的词从 reels 搜到（带作品）
   const t = { keyword: 'k', dimension: 'scene', platform: 'instagram' } as any
@@ -9798,6 +9804,39 @@ await group('h-claims-restore', () => {
 
 await group('h-mutate', () => {
 // 预期来自独立 oracle；宿主控制和断言不以被测判定给自己打分。
+harness('开跑前三道体检的先后：接线 → 自己验自己 → 点的夹具，见了第一道毛病就不再往下问（ADR-238）')
+{
+  // 每一道记下自己被问过没有；第三道在前面有毛病时被问到就抛 —— 入口里它拿到不认得的验证者正是这样
+  const asked: string[] = []
+  const step = (name: string, faults: string[], throwIfAsked = false) => () => {
+    asked.push(name)
+    if (throwIfAsked) throw new Error(`${name} 不该被问到`)
+    return faults
+  }
+  let all: ReturnType<typeof firstPrecheckFault<string>> | 'threw'
+  try {
+    all = firstPrecheckFault({ wiring: step('接线', ['甲']), 'self-verify': step('自己验自己', ['乙']), labels: step('夹具', ['丙'], true) })
+  } catch { all = 'threw' }
+  ok('三道体检先后：三道都有毛病时交回接线那一道', all !== 'threw' && all?.step === 'wiring')
+  ok('三道体检先后：交回的是接线那一道自己的毛病', all !== 'threw' && JSON.stringify(all?.faults) === '["甲"]')
+  ok('三道体检先后：接线有毛病就不再问后两道', JSON.stringify(asked) === '["接线"]')
+
+  asked.length = 0
+  let mid: ReturnType<typeof firstPrecheckFault<string>> | 'threw'
+  try {
+    mid = firstPrecheckFault({ wiring: step('接线', []), 'self-verify': step('自己验自己', ['乙']), labels: step('夹具', ['丙'], true) })
+  } catch { mid = 'threw' }
+  ok('三道体检先后：接线没毛病、后两道都有时交回自己验自己', mid !== 'threw' && mid?.step === 'self-verify')
+  ok('三道体检先后：自己验自己有毛病就不再问点的夹具', JSON.stringify(asked) === '["接线","自己验自己"]')
+
+  asked.length = 0
+  const last = firstPrecheckFault({ wiring: step('接线', []), 'self-verify': step('自己验自己', []), labels: step('夹具', ['丙']) })
+  ok('三道体检先后：只有点的夹具有毛病时交回它', last?.step === 'labels' && JSON.stringify(last.faults) === '["丙"]')
+  asked.length = 0
+  const none = firstPrecheckFault({ wiring: step('接线', []), 'self-verify': step('自己验自己', []), labels: step('夹具', []) })
+  ok('三道体检先后：三道都没毛病交回 undefined，三道都问过', none === undefined && JSON.stringify(asked) === '["接线","自己验自己","夹具"]')
+}
+
 harness('工具选跑：真实调用与无资格证据分开')
 {
   let normalWiring = false
@@ -26930,8 +26969,9 @@ await group('h-adr-plain-index', () => {
   const escaped = plainIndexFaults([1], table(row('01', '甲 \\| 乙')))
   eq('白话目录：格子里转义的竖线不算分格', escaped, [])
   const noHead = plainIndexFaults([1], ['# 目录', row('01'), ''].join('\n'))
-  eq('白话目录：没有表头报红（没有表，那一行也不算数）', [noHead[0]?.includes('没有表头'), noHead.some(f => f.includes('第 2 行') && f.includes('不在表头下面')), noHead.some(f => f.includes('ADR-1 在'))], [true, true, true])
+  eq('白话目录：没有表头报红（没有表，那一行也不算数）', [noHead.some(f => f.includes('没有表头')), noHead.some(f => f.includes('第 2 行') && f.includes('不在目录表里')), noHead.some(f => f.includes('ADR-1 在'))], [true, true, true])
   eq('白话目录：围栏代码块里举例的行不当目录行', plainIndexFaults([1], table(row('01')) + '```\n' + row('05') + '\n```\n'), [])
+  eq('白话目录：缩进四格的代码块里举例的行不当目录行', plainIndexFaults([1], table(row('01')) + '\n    ' + row('05') + '\n'), [])
   const five = plainIndexFaults([1], table('| ADR-01 | 甲 | 乙 | 丙 | 丁 |'))
   eq('白话目录：多一格（格子里没转义的竖线）也报红，说出这一行几格', [five.length, five[0]?.includes('这一行是 5 格')], [1, true])
   const firstBlank = plainIndexFaults([1], table(row('01', ' ')))
@@ -26939,17 +26979,27 @@ await group('h-adr-plain-index', () => {
   const placeholder = plainIndexFaults([1, 2, 3], table(row('01', '&nbsp;'), row('02', '定了甲', '<br>'), row('03', '定了甲', '无', '-')))
   eq('白话目录：只写占位（&nbsp;、<br>、一个横线）的格子算空，三行各报一次', [placeholder.length, placeholder.every(f => f.includes('空格子'))], [3, true])
   const fencedHead = plainIndexFaults([1], ['```', PLAIN_INDEX_HEAD, '```', row('01'), ''].join('\n'))
-  eq('白话目录：围栏代码块里举例的表头不算表头', [fencedHead[0]?.includes('没有表头')], [true])
+  eq('白话目录：围栏代码块里举例的表头不算表头', [fencedHead.some(f => f.includes('没有表头'))], [true])
+  const indented = plainIndexFaults([1], ['    ' + PLAIN_INDEX_HEAD, '    |---|---|---|---|', '    ' + row('01'), ''].join('\n'))
+  eq('白话目录：整张表缩进四格（页面上是代码块）不算目录表', [indented.length, indented[0]?.includes('没有表头'), indented[1]?.includes('ADR-1 在')], [2, true, true])
+  const otherHead = plainIndexFaults([1], ['| 编号 | 定了什么 | 影响 | 欠 |', '|---|---|---|---|', row('01'), ''].join('\n'))
+  eq('白话目录：表头差一个字就不是目录表', [otherHead.some(f => f.includes('没有表头')), otherHead.some(f => f.includes('第 1 行起另有一张表')), otherHead.some(f => f.includes('ADR-1 在'))], [true, true, true])
   const commented = plainIndexFaults([1], table(row('01'), row('01') + ' <!-- 又一行 -->'))
-  eq('白话目录：行尾挂 HTML 注释报红，不让那一行逃过核对', [commented.length, commented.some(f => f.includes('HTML 注释')), commented.some(f => f.includes('同一个编号'))], [1, true, false])
+  eq('白话目录：行尾挂 HTML 注释的行照样核，逃不过重复', [commented.some(f => f.includes('第 6 行') && f.includes('同一个编号'))], [true])
   const noSep = plainIndexFaults([1], ['# 目录', PLAIN_INDEX_HEAD, row('01'), ''].join('\n'))
-  eq('白话目录：表头下少了分隔行报红，点出行号', [noSep[0]?.includes('第 3 行') && noSep[0]?.includes('分隔行')], [true])
+  eq('白话目录：表头下少了分隔行报红，点出那几行', [noSep.some(f => f.includes('没有表头')), noSep.filter(f => f.includes('不在目录表里')).map(f => f.match(/第 (\d+) 行/)?.[1])], [true, ['2', '3']])
   const above = plainIndexFaults([1], [row('01'), '', PLAIN_INDEX_HEAD, '|---|---|---|---|', ''].join('\n'))
-  eq('白话目录：表头之前的行不算目录里的行，报红', [above.length, above[0]?.includes('第 1 行') && above[0]?.includes('表头之前'), above[1]?.includes('ADR-1 在')], [2, true, true])
+  eq('白话目录：表头之前的行不算目录里的行，报红', [above.length, above[0]?.includes('第 1 行') && above[0]?.includes('不在目录表里'), above[1]?.includes('ADR-1 在')], [2, true, true])
   const detached = plainIndexFaults([1, 2], table(row('01')) + '\n' + row('02') + '\n')
-  eq('白话目录：表后隔了空行再写的行不算目录里的行，报红，那份记录也算缺', [detached.length, detached[0]?.includes('第 7 行') && detached[0]?.includes('隔了空行'), detached[1]?.includes('ADR-2 在')], [2, true, true])
+  eq('白话目录：表后隔了空行再写的行不算目录里的行，报红，那份记录也算缺', [detached.length, detached[0]?.includes('第 7 行') && detached[0]?.includes('不在目录表里'), detached[1]?.includes('ADR-2 在')], [2, true, true])
   const noNumber = plainIndexFaults([1], table(row('01'), '| | 定了甲 | 无 | 无 |', '| ADR-x | 定了甲 | 无 | 无 |'))
   eq('白话目录：表里第一格不是 ADR-编号的行报红（空着、写错都报）', [noNumber.length, noNumber.every(f => f.includes('第一格应是')), noNumber.map(f => f.match(/第 (\d+) 行/)?.[1])], [2, true, ['6', '7']])
+  const second = plainIndexFaults([1], table(row('01')) + '\n| 甲 | 乙 |\n|---|---|\n| 1 | 2 |\n')
+  eq('白话目录：目录表之外另有一张表报红，点出行号', [second.length, second[0]?.includes('第 7 行起另有一张表')], [1, true])
+  const twice = plainIndexFaults([1, 2], table(row('01')) + '\n' + [PLAIN_INDEX_HEAD, '|---|---|---|---|', row('02'), ''].join('\n'))
+  eq('白话目录：同样表头的第二张表不算目录表，只认第一张', [twice.length, twice[0]?.includes('第 7 行起另有一张表'), twice[1]?.includes('ADR-2 在')], [2, true, true])
+  const quoted = plainIndexFaults([1], table(row('01')) + '\n> ' + PLAIN_INDEX_HEAD + '\n> |---|---|---|---|\n> ' + row('01') + '\n')
+  eq('白话目录：引用块里套的表也报红，报到引用块开头那一行', [quoted.length, quoted[0]?.includes('第 7 行起另有一张表')], [1, true])
   // 接线：npm run adr 读目录时调到它，缺一行就红
   const root = mkdtempSync(join(tmpdir(), 'kol-adr-plain-'))
   try {
