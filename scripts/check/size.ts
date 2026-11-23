@@ -14,7 +14,7 @@
 import { askGit, gitOrThrow } from './git-entry.js'
 import {
   BUDGET, CATEGORIES, NUMSTAT, NUMSTAT_IGNORING_SPACE, type Waiver,
-  discount, judge, merge, parseNumstat, resolveBaseline, scanMessage, tally,
+  discount, judge, merge, parseNumstat, prBaseFrom, resolveBaseline, scanMessage, tally,
 } from './size-rule.js'
 
 /**
@@ -57,13 +57,20 @@ function cannotAnswer(why: string, how: string): never {
  * 而主干红了是这套方法最要避免的事。真要拦住直推主干,那是分支保护的活,
  * 不是一个事后才跑的检查。
  */
-const baseline = resolveBaseline(tryGit)
+/**
+ * 这条 PR 的 base,由调用方给(ADR-235,照 ADR-63 分支寿命闸门的形状:传事实、不传推断)。
+ * CI 上 pull_request 事件填 `origin/<base 分支名>`(base 分支此刻的头,不用事件里记的 base.sha —— 那是快照,base 分支往前走了它不一定跟);推 main 的那一跑这个表达式是空串,
+ * 本地不设 —— 这两种都算「没给」,按主干量。PR 叠在另一条没合的 PR 上(base 选的是下面那条分支)时,
+ * 下面那条已有的提交不算这条的:它们的新增行不数,它们提交信息里的 `size-ok:` 也不认。
+ */
+const givenBase = prBaseFrom(process.env.SIZE_PR_BASE)
+const baseline = resolveBaseline(tryGit, givenBase)
 if (baseline.kind === 'cannot-answer') cannotAnswer(baseline.why, baseline.how)
 if (baseline.kind === 'not-applicable') {
   console.log(`✓ 体量闸门:不适用 —— HEAD 就是 ${baseline.trunk} 且没有父提交`)
   process.exit(0)
 }
-const { trunk, head, base, onTrunk, commits } = baseline
+const { trunk, head, base, onTrunk, commits, prBase } = baseline
 
 // ── 量 ──────────────────────────────────────────────────────────
 
@@ -103,9 +110,23 @@ const report = judge(counts, waivers, unjustified)
 
 // ── 报 ──────────────────────────────────────────────────────────
 
-const scope = onTrunk ? `${trunk} 的上一版` : trunk
+const scope = onTrunk ? `${trunk} 的上一版` : prBase?.moved ? `这条 PR 的 base ${prBase.sha.slice(0, 7)}` : trunk
 const nCommits = commits.length
 console.log(`\n体量闸门 · 相对 ${scope}(${base.slice(0, 7)}..${head.slice(0, 7)},${nCommits} 个提交,${files.length} 个文件)\n`)
+// 用没用上 base 都说出来,0 条也照说(ADR-63 的做法):「没收窄」和「收窄了、没东西可收」是两回事
+if (prBase?.moved) {
+  console.log(`  只算这条 PR 自己的提交:base ${prBase.sha.slice(0, 7)} 里已有的 ${prBase.inherited.length} 个提交不算`
+    + '(它们的新增行不数,提交信息里的 size-ok 也不认)\n')
+} else if (prBase && prBase.inherited.length === 0) {
+  console.log(`  给了 PR 的 base ${prBase.sha.slice(0, 7)},这条按主干算的提交没有一个已在 base 里:与按主干量一样\n`)
+} else if (prBase) {
+  console.log(`  base ${prBase.sha.slice(0, 7)} 里已有的 ${prBase.inherited.length} 个提交,提交信息里的 size-ok 不认;`
+    + '起点仍是与主干的共同祖先(这条与 base 的分叉点不在它之后,比如直接合过更新的主干),它们若带新增行照样数 —— 多算、不少算\n')
+} else if (givenBase !== undefined) {
+  console.log(`  给了 PR 的 base(${givenBase}),但 HEAD 就在主干上,没用它 —— 主干上只报数、不判定\n`)
+} else {
+  console.log('  没给 PR 的 base(环境变量 SIZE_PR_BASE),按主干量:叠在没合的分支上时,下面那条的行数和豁免会算进来\n')
+}
 for (const c of CATEGORIES) {
   const n = counts[c]
   const b = BUDGET[c]

@@ -77,8 +77,16 @@ const topGeo = (c: Creator): string => {
 const bestPost = (c: Creator): string => {
   const posts = c.recent_posts
   if (!posts?.length) return '未查询'
-  // 挑播放最高的那条。缺播放数的按 0 排，与真实 0 并列并保留原顺序；只用于展示，不写回数据
-  return [...posts].sort((a, b) => (b.plays ?? 0) - (a.plays ?? 0))[0].desc   // P1 例外：仅排序取展示项
+  // 挑播放最高的那条；只用于展示，不写回数据。没查到播放数的排在所有有数字的后面
+  // （真实 0 也在它前面）—— 不知道不等于 0（P1）。「没查到」按值认，不按类型认：
+  // 供应商原样透传的 null、算坏了的 NaN 都不是一个播放数。同档之间保留原顺序（sort 是稳定的）
+  const known = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
+  return [...posts].sort((a, b) => {
+    if (!known(a.plays) || !known(b.plays)) {
+      return (known(a.plays) ? 0 : 1) - (known(b.plays) ? 0 : 1)
+    }
+    return b.plays - a.plays
+  })[0].desc
 }
 
 const metricCell = <T>(m: ManualMeasurement<T> | undefined, format: (value: T) => unknown): unknown => {
