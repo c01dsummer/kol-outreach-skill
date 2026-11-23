@@ -12,8 +12,8 @@
     "sha256": "2c9fbc46e52960005d28f76335d324e983237bff00bc3dc11ff8cc6e1147ebce"
   },
   "ADR-154-十句通用句还没进-process：逐句记来源、起因与欠条.md": {
-    "bytes": 179336,
-    "sha256": "67afd5c809717ce14b716e96757e9d85f60f9d4e0eab7c8edad015eb0b19c0e5"
+    "bytes": 179324,
+    "sha256": "10d13ee760dc73898e415dd3b639776527c1fc1149b118b5c9b1299abf279056"
   },
   "ADR-158-检查链改用裸-node-跑预编的-JS，缺一份就照旧-tsx.md": {
     "bytes": 166803,
