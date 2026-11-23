@@ -33419,10 +33419,10 @@
     {
       "id": "M-H236-g",
       "req": "harness",
-      "why": "没有表头也放过 —— 表格读不成表",
+      "why": "没有目录表也不报 —— 表格读不成表，所有记录只报「缺那一行」，看不出是表坏了",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "  if (head === -1) faults.push(",
-      "replace": "  if (false) faults.push(",
+      "find": "    faults.push(`${PLAIN_INDEX_FILE} 里没有表头",
+      "replace": "    void (`${PLAIN_INDEX_FILE} 里没有表头",
       "by": "test",
       "kills": [
         "白话目录：没有表头报红（没有表，那一行也不算数）"
@@ -33431,73 +33431,50 @@
     {
       "id": "M-H236-h",
       "req": "harness",
-      "why": "说明里围栏中举例的行也当目录行 —— 举个例子就多出一行假记录",
+      "why": "代码块里举例的行也当成表外的目录行报红 —— 说明里举个例子就红",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "    if (mask[i] || !line.trim().startsWith('|')",
-      "replace": "    if (!line.trim().startsWith('|')",
+      "find": "if (t.type === 'code' || t.type === 'html' || t.type === 'space') return []",
+      "replace": "if (t.type === 'space') return []",
       "by": "test",
       "kills": [
         "白话目录：围栏代码块里举例的行不当目录行"
       ]
     },
     {
-      "id": "M-H236-i",
-      "req": "harness",
-      "why": "决策记录检查不再跳过目录文件 —— 白话目录被当成一份格式不对的记录报红",
-      "file": "scripts/check/adr-rule.ts",
-      "find": "|| file === PINS_FILE || file === PLAIN_INDEX_FILE) continue",
-      "replace": "|| file === PINS_FILE) continue",
-      "by": "test",
-      "kills": [
-        "白话目录：补上那一行就绿，目录文件不当成一份记录进索引"
-      ]
-    },
-    {
-      "id": "M-H236-j",
-      "req": "harness",
-      "why": "决策记录检查不核白话目录 —— 新记录漏补那一行，npm run adr 照样绿",
-      "file": "scripts/check/adr-rule.ts",
-      "find": "  errors.push(...plainIndexFaults(",
-      "replace": "  void (plainIndexFaults(",
-      "by": "test",
-      "kills": [
-        "白话目录：npm run adr 里查得到，缺一行就红"
-      ]
-    },
-    {
       "id": "M-H236-k",
       "req": "harness",
-      "why": "目录里写了 HTML 注释也不报 —— 行尾挂个注释，那一行就从核对里消失，重复或多出的行查不到",
+      "why": "认表之前先去掉行首缩进 —— 页面上是代码块的那张表被当成目录表核过",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "if (text.includes('<!--')) faults.push",
-      "replace": "if (false) faults.push",
+      "find": "const tokens = marked.lexer(text, { gfm: true })",
+      "replace": "const tokens = marked.lexer(text.replace(/^ {4}/gm, ''), { gfm: true })",
       "by": "test",
       "kills": [
-        "白话目录：行尾挂 HTML 注释报红，不让那一行逃过核对"
+        "白话目录：整张表缩进四格（页面上是代码块）不算目录表"
       ]
     },
     {
       "id": "M-H236-l",
       "req": "harness",
-      "why": "表头下少了分隔行不报 —— 那不是一张表，读的人看到的是一堆竖线",
+      "why": "表头不一字不差也当目录表 —— 栏目名写错了，读的人看到的不是那四栏",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "else if (!SEPARATOR_RE.test(",
-      "replace": "else if (false && !SEPARATOR_RE.test(",
+      "find": "&& (t as Tokens.Table).header.every((c, i) => c.text.trim() === HEAD_CELLS[i])",
+      "replace": "&& true",
       "by": "test",
       "kills": [
-        "白话目录：表头下少了分隔行报红，点出行号"
+        "白话目录：表头差一个字就不是目录表"
       ]
     },
     {
       "id": "M-H236-m",
       "req": "harness",
-      "why": "表头之前写的行也当目录行 —— 说明文字里一行看着像目录行，就冒充了那份记录",
+      "why": "表外以「|」开头的行悄悄跳过 —— 表头下少了分隔行、隔了空行、写在表头之前的那一行逃过核对",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "const inTable = (i: number) => head !== -1 && i >= head + 2 && i < end",
-      "replace": "const inTable = (i: number) => head !== -1 && i < end",
+      "find": "return t.raw.split('\\n').flatMap((l, i) => l.trim().startsWith('|')",
+      "replace": "return t.raw.split('\\n').flatMap((l, i) => l.trim().startsWith('|||')",
       "by": "test",
       "kills": [
-        "白话目录：表头之前的行不算目录里的行，报红"
+        "白话目录：表头之前的行不算目录里的行，报红",
+        "白话目录：表后隔了空行再写的行不算目录里的行，报红，那份记录也算缺"
       ]
     },
     {
@@ -33539,25 +33516,25 @@
     {
       "id": "M-H236-q",
       "req": "harness",
-      "why": "围栏代码块里举例写的表头也当成表头 —— 真表头丢了也不报",
+      "why": "目录表之外的表不报 —— 另写一张表，里面的行谁也不核",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "lines.findIndex((l, i) => !mask[i] && l.trim()",
-      "replace": "lines.findIndex((l, i) => l.trim()",
+      "find": "if (t.type === 'table') return [{ kind: 'table', at: 0 }]",
+      "replace": "if (t.type === 'table') return []",
       "by": "test",
       "kills": [
-        "白话目录：围栏代码块里举例的表头不算表头"
+        "白话目录：目录表之外另有一张表报红，点出行号"
       ]
     },
     {
       "id": "M-H236-r",
       "req": "harness",
-      "why": "表后隔了空行再写的行也当目录行 —— 读的人在表里看不到那一行，检查却当它在",
+      "why": "引用块、列表里套的表和行不报 —— 套一层就逃过核对",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "lines[end].trim().startsWith('|')) end++",
-      "replace": "lines[end].trim() !== '###') end++",
+      "find": "return children.flatMap(strays).map(",
+      "replace": "return [].map(",
       "by": "test",
       "kills": [
-        "白话目录：表后隔了空行再写的行不算目录里的行，报红，那份记录也算缺"
+        "白话目录：引用块里套的表也报红，报到引用块开头那一行"
       ]
     },
     {
@@ -33565,8 +33542,8 @@
       "req": "harness",
       "why": "表里第一格空着或写错的行悄悄跳过 —— 那一行写了什么都没人核",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "if (!m || cells[0]?.trim() !== `ADR-${m[1]}`) { faults.push(",
-      "replace": "if (!m) return; if (cells[0]?.trim() !== `ADR-${m[1]}`) { faults.push(",
+      "find": "if (!m) { faults.push(`${PLAIN_INDEX_FILE} 第 ${at} 行第一格应是",
+      "replace": "if (!m) { return; faults.push(`${PLAIN_INDEX_FILE} 第 ${at} 行第一格应是",
       "by": "test",
       "kills": [
         "白话目录：表里第一格不是 ADR-编号的行报红（空着、写错都报）"
@@ -33575,13 +33552,49 @@
     {
       "id": "M-H236-t",
       "req": "harness",
-      "why": "不在表里的、像目录行的行悄悄跳过 —— 隔了空行的那一行逃过核对",
+      "why": "同样表头的第二张表顶替第一张 —— 前面那张表里的行全都不算了",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "if (!inTable(i)) { faults.push(",
-      "replace": "if (!inTable(i)) { return; faults.push(",
+      "find": "if (isDirectoryTable(t) && directory === undefined) {",
+      "replace": "if (isDirectoryTable(t)) {",
       "by": "test",
       "kills": [
-        "白话目录：表后隔了空行再写的行不算目录里的行，报红，那份记录也算缺"
+        "白话目录：同样表头的第二张表不算目录表，只认第一张"
+      ]
+    },
+    {
+      "id": "M-H236-u",
+      "req": "harness",
+      "why": "行号按块数、不按块里的行数 —— 报出来的行号对不上，找不到是哪一行",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "line += (t.raw.match(/\\n/g) ?? []).length",
+      "replace": "line += 1",
+      "by": "test",
+      "kills": [
+        "白话目录：目录表之外另有一张表报红，点出行号"
+      ]
+    },
+    {
+      "id": "M-H236-i",
+      "req": "harness",
+      "why": "决策记录检查不再跳过目录文件 —— 白话目录被当成一份格式不对的记录报红",
+      "file": "scripts/check/adr-rule.ts",
+      "find": "|| file === PINS_FILE || file === PLAIN_INDEX_FILE) continue",
+      "replace": "|| file === PINS_FILE) continue",
+      "by": "test",
+      "kills": [
+        "白话目录：补上那一行就绿，目录文件不当成一份记录进索引"
+      ]
+    },
+    {
+      "id": "M-H236-j",
+      "req": "harness",
+      "why": "决策记录检查不核白话目录 —— 新记录漏补那一行，npm run adr 照样绿",
+      "file": "scripts/check/adr-rule.ts",
+      "find": "  errors.push(...plainIndexFaults(",
+      "replace": "  void (plainIndexFaults(",
+      "by": "test",
+      "kills": [
+        "白话目录：npm run adr 里查得到，缺一行就红"
       ]
     },
     {
