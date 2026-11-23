@@ -25,6 +25,7 @@
     "skill": "tsx scripts/check/skill.ts",
     "adr": "tsx scripts/check/adr-sync.ts",
     "mutate": "tsx scripts/check/mutate.ts",
+    "never-red": "tsx scripts/check/never-red.ts",
     "selfcheck": "tsx scripts/check/selfcheck.ts",
     "audit": "tsx scripts/check/audit.ts",
     "adr-ledger": "tsx scripts/check/adr-ledger.ts",

@@ -1,0 +1,104 @@
+name: never-red
+
+# 每周一次：把全部变异关掉「见齐就停」整跑一遍，记下每一条红过哪些有名字的断言，列出从没红过的（ADR-240）。
+# 平时的检查照常见齐就停（省时间），停下之后的断言没跑到，那样记出来的清单会多报；准的这份在这里出。
+# 只报不拦：不是必需检查，不挡任何合并。清单在「清单」那个 job 的日志与这一跑的 Summary 里，
+# 每周回访照 docs/REVISIT.md 读日志里那一行 NEVER_RED_JSON。
+on:
+  schedule:
+    # 周日 20:00 UTC = 周一北京时间 04:00：赶在周一 08:50 的回访之前跑完
+    - cron: '0 20 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一时刻只跑一份；手动多点一次排在后面，不顶掉正在跑的
+concurrency:
+  group: never-red
+  cancel-in-progress: false
+
+jobs:
+  mutate:
+    name: 不提前停的整跑（第 ${{ matrix.shard }}/3 份）
+    runs-on: ubuntu-latest
+    # 关了提前停，一条卡住的变异不会再被「见齐就停」截住；本机 4 核不停整跑全部约 31 分钟，这里给足余量，不等满默认的六小时
+    timeout-minutes: 120
+    strategy:
+      # 一份红了别的照跑完：清单要三份齐了才出
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # 与 check.yml 的 mutate 那个 job 同样的两步：变异的验证者里有起入口、要断网的自检组
+      - name: 装 bubblewrap（外层断网要它）
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap
+          command -v bwrap
+          bwrap --version
+      - name: 关掉用户命名空间限制（bwrap 断网要它）
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+      - run: npm ci --prefer-offline --no-audit
+      - run: npm run compile
+      # 变异一步要一个可信的旧版本来比维护变化；定时触发的事件里没有，取这个提交的上一版
+      - name: 定变异基线（这个提交的上一版）
+        run: echo "MUTATE_BASE_SHA=$(git rev-parse HEAD^1)" >> "$GITHUB_ENV"
+      # 有变异没被抓到时这一步照实红；记录在判结论之前已经写好，下一步照传
+      - run: npm run mutate
+        env:
+          MUTATE_SHARD: ${{ matrix.shard }}/3
+          MUTATE_JOBS: '6'
+          MUTATE_NO_EARLY_STOP: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-reds-${{ matrix.shard }}
+          path: output/mutation-reds/reds-${{ matrix.shard }}-of-3.json
+          if-no-files-found: error
+          retention-days: 14
+
+  list:
+    name: 清单
+    needs: [mutate]
+    # 有一份变异红了也要出清单；三份记录缺一份时 never-red 自己以 1 结束、说缺了哪份
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutation-reds-*
+          merge-multiple: true
+          path: output/mutation-reds
+      - name: 列出从没红过的断言
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          npm run -s never-red 2>&1 | tee never-red.txt
+          status=$?
+          # 出不了清单（缺一份、对不上）时那句话也进 Summary，再照实以它的退出码结束
+          { echo '```'; cat never-red.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: never-red
+          path: never-red.txt
+          retention-days: 90

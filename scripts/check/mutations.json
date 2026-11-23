@@ -34390,6 +34390,706 @@
       "kills": [
         "三道体检先后：接线没毛病、后两道都有时交回自己验自己"
       ]
+    },
+    {
+      "id": "M-H240-a",
+      "req": "harness",
+      "why": "红错了地方那一档的红不算数 —— 断言真红过的被列成从没红过",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (outcome !== 'caught' && outcome !== 'elsewhere') return []",
+      "replace": "if (outcome !== 'caught') return []",
+      "by": "test",
+      "kills": [
+        "红过的断言：红错了地方那一档也算（断言是真红了）"
+      ]
+    },
+    {
+      "id": "M-H240-b",
+      "req": "harness",
+      "why": "跑不起来那一档的红也算数 —— 崩溃顺带打出的红被记成断言的功劳",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (outcome !== 'caught' && outcome !== 'elsewhere') return []",
+      "replace": "if (outcome === 'survived' || outcome === 'not-applied') return []",
+      "by": "test",
+      "kills": [
+        "红过的断言：跑不起来那一档一条都不算"
+      ]
+    },
+    {
+      "id": "M-H240-c",
+      "req": "harness",
+      "why": "行首带空格的失败行不认 —— 缩进打出的红都被漏掉",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "const rest = line.trimStart()",
+      "replace": "const rest = line",
+      "by": "test",
+      "kills": [
+        "红过的断言：名字正好对上、名字接全角冒号两种都认，排好序不重复"
+      ]
+    },
+    {
+      "id": "M-H240-d",
+      "req": "harness",
+      "why": "不在清册里的名字也收 —— 清单对着清册算，收进来的是别的东西",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (inventory.has(body)) found.add(body)",
+      "replace": "found.add(body)",
+      "by": "test",
+      "kills": [
+        "红过的断言：清册里没有的名字不收"
+      ]
+    },
+    {
+      "id": "M-H240-e",
+      "req": "harness",
+      "why": "只看第一个全角冒号 —— 名字里自己带冒号的断言红了也认不出",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "at = body.indexOf('：', at + 1)",
+      "replace": "at = -1",
+      "by": "test",
+      "kills": [
+        "红过的断言：名字里自己带全角冒号的，后面再接一个冒号也认得出"
+      ]
+    },
+    {
+      "id": "M-H240-f",
+      "req": "harness",
+      "why": "冒号前面那一截不查清册就收 —— 带记号的那几句被当成断言红了",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (inventory.has(head)) found.add(head)",
+      "replace": "found.add(head)",
+      "by": "test",
+      "kills": [
+        "红过的断言：名字正好对上、名字接全角冒号两种都认，排好序不重复"
+      ]
+    },
+    {
+      "id": "M-H240-g",
+      "req": "harness",
+      "why": "红过的断言不排序 —— 同一跑写出的记录先后随输出变",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return [...found].sort()",
+      "replace": "return [...found]",
+      "by": "test",
+      "kills": [
+        "红过的断言：名字正好对上、名字接全角冒号两种都认，排好序不重复"
+      ]
+    },
+    {
+      "id": "M-H240-h",
+      "req": "harness",
+      "why": "提前停开关写了 0 或空串也当成没写 —— 说不清这一跑停没停",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (raw === undefined) return true",
+      "replace": "if (raw === undefined || raw === '' || raw === '0') return true",
+      "by": "test",
+      "kills": [
+        "提前停开关：写 0 读不出来，不当成没写",
+        "提前停开关：写空串读不出来"
+      ]
+    },
+    {
+      "id": "M-H240-i",
+      "req": "harness",
+      "why": "提前停开关读不出来时照常停 —— 写错的值被悄悄当成没写",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return raw === '1' ? false : undefined",
+      "replace": "return raw === '1' ? false : true",
+      "by": "test",
+      "kills": [
+        "提前停开关：写 0 读不出来，不当成没写"
+      ]
+    },
+    {
+      "id": "M-H240-j",
+      "req": "harness",
+      "why": "分份的记录文件名不带共几份 —— 拼的时候核不了份数",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "`reds-${index}-of-${count}.json`",
+      "replace": "`reds-${index}.json`",
+      "by": "test",
+      "kills": [
+        "记录文件名：分份时带第几份、共几份"
+      ]
+    },
+    {
+      "id": "M-H240-k",
+      "req": "harness",
+      "why": "第 0 份的文件也当成记录 —— 不存在的那一份被拿来拼",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "/^reds(?:-([1-9]\\d*)-of-([1-9]\\d*))?\\.json$/",
+      "replace": "/^reds(?:-(\\d+)-of-(\\d+))?\\.json$/",
+      "by": "test",
+      "kills": [
+        "记录文件名：认得整份与分份两种，别的不认"
+      ]
+    },
+    {
+      "id": "M-H240-l",
+      "req": "harness",
+      "why": "格式名不核 —— 别的格式的文件被当成记录读",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (r.schema !== REDS_SCHEMA) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "读记录：格式名不对的拒"
+      ]
+    },
+    {
+      "id": "M-H240-m",
+      "req": "harness",
+      "why": "提交号不核完整 —— 几份是不是验的同一个提交核不准",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": " || !/^[0-9a-f]{40}$/.test(r.head)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读记录：提交号不是完整 40 位的拒"
+      ]
+    },
+    {
+      "id": "M-H240-n",
+      "req": "harness",
+      "why": "停没停不核是真假值 —— 清单头上那句说不清",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (typeof r.earlyStop !== 'boolean') return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "读记录：停没停不是真假值的拒"
+      ]
+    },
+    {
+      "id": "M-H240-o",
+      "req": "harness",
+      "why": "第几份比共几份还大也收",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": " || (s.index as number) > (s.count as number)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读记录：第几份比共几份大的拒"
+      ]
+    },
+    {
+      "id": "M-H240-p",
+      "req": "harness",
+      "why": "第 0 份也收",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": " || (s.index as number) < 1",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读记录：第几份是 0 的拒"
+      ]
+    },
+    {
+      "id": "M-H240-q",
+      "req": "harness",
+      "why": "records 不是一组也往下读",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (!Array.isArray(r.records)) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "读记录：records 不是一组的拒"
+      ]
+    },
+    {
+      "id": "M-H240-r",
+      "req": "harness",
+      "why": "少了 red 的那条当成什么都没红 —— 清单多报",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": " || !isStrings(e.red)",
+      "replace": " || (Object.hasOwn(e, 'red') && !isStrings(e.red))",
+      "by": "test",
+      "kills": [
+        "读记录：一条少了 red 的拒，不当成什么都没红"
+      ]
+    },
+    {
+      "id": "M-H240-s",
+      "req": "harness",
+      "why": "red 里混进不是名字的也收",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": " || !isStrings(e.red)",
+      "replace": " || !Array.isArray(e.red)",
+      "by": "test",
+      "kills": [
+        "读记录：red 里混进不是名字的拒"
+      ]
+    },
+    {
+      "id": "M-H240-t",
+      "req": "harness",
+      "why": "only 里混进不是组名的也收 —— 跑没跑到那一栏算错",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": " || (Object.hasOwn(e, 'only') && !isStrings(e.only))",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读记录：only 里混进不是组名的拒"
+      ]
+    },
+    {
+      "id": "M-H240-u",
+      "req": "harness",
+      "why": "一条的停没停不核",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "|| typeof e.stopped !== 'boolean'",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读记录：一条的 stopped 不是真假值的拒"
+      ]
+    },
+    {
+      "id": "M-H240-v",
+      "req": "harness",
+      "why": "整跑的那条读回来变成只跑了零组 —— 跑没跑到那一栏全错",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "...(Object.hasOwn(e, 'only') ? { only: [...e.only as string[]] } : {})",
+      "replace": "only: [...(e.only ?? []) as string[]]",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-w",
+      "req": "harness",
+      "why": "读回来的停没停与红过哪些被丢掉",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "stopped: e.stopped, red: [...e.red] })",
+      "replace": "stopped: false, red: [] })",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-x",
+      "req": "harness",
+      "why": "读回来的验证者被写死成需求测试 —— 自检那边的红记到了别人头上",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "records.push({ id: e.id, by: e.by,",
+      "replace": "records.push({ id: e.id, by: 'test',",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-y",
+      "req": "harness",
+      "why": "读回来的第几份被写死成整份",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "shard: { index: s.index as number, count: s.count as number }, records: records }",
+      "replace": "shard: { index: 1, count: 1 }, records: records }",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-z",
+      "req": "harness",
+      "why": "一份记录都没有也出清单 —— 每一条都成了从没红过",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (parts.length === 0) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "拼记录：一份都没有的拒"
+      ]
+    },
+    {
+      "id": "M-H240-aa",
+      "req": "harness",
+      "why": "文件名与里面写的第几份对不上也收",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (name !== redsPartName(part.shard.index, part.shard.count)) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "拼记录：文件名与里面写的第几份对不上的拒"
+      ]
+    },
+    {
+      "id": "M-H240-ab",
+      "req": "harness",
+      "why": "几份验的不是同一个提交也拼在一起",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (part.head !== first.head) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "拼记录：两份验的不是同一个提交的拒"
+      ]
+    },
+    {
+      "id": "M-H240-ac",
+      "req": "harness",
+      "why": "一份停一份不停也拼在一起 —— 清单头上那句说错",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (part.earlyStop !== first.earlyStop) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "拼记录：一份停一份不停的拒"
+      ]
+    },
+    {
+      "id": "M-H240-ad",
+      "req": "harness",
+      "why": "份数不一样的几份也拼在一起",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (part.shard.count !== first.shard.count) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "拼记录：两份分的份数不一样的拒"
+      ]
+    },
+    {
+      "id": "M-H240-ae",
+      "req": "harness",
+      "why": "缺了一份或同一份来两次也拼",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (JSON.stringify(indices) !== JSON.stringify(want)) {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": [
+        "拼记录：缺了一份的拒",
+        "拼记录：同一份来了两次的拒"
+      ]
+    },
+    {
+      "id": "M-H240-af",
+      "req": "harness",
+      "why": "同一条负片记两次也收",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (seen.has(r.id)) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "拼记录：同一条负片记了两次的拒"
+      ]
+    },
+    {
+      "id": "M-H240-ag",
+      "req": "harness",
+      "why": "目录里有的没记也出清单 —— 没回话的那条弄红过的断言被列成从没红过",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (missing.length) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "拼记录：目录里有的没记的拒"
+      ]
+    },
+    {
+      "id": "M-H240-ah",
+      "req": "harness",
+      "why": "记了目录里没有的也出清单",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (extra.length) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "拼记录：记了目录里没有的拒"
+      ]
+    },
+    {
+      "id": "M-H240-ai",
+      "req": "harness",
+      "why": "停下了几条报成零 —— 清单头上说准了，其实多报",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "stopped: records.filter(r => r.stopped).length }",
+      "replace": "stopped: 0 }",
+      "by": "test",
+      "kills": [
+        "拼记录：两份拼回一跑，记着停下的有几条"
+      ]
+    },
+    {
+      "id": "M-H240-aj",
+      "req": "harness",
+      "why": "拼回来的一跑一律说没提前停",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return { head: first.head, earlyStop: first.earlyStop,",
+      "replace": "return { head: first.head, earlyStop: !first.earlyStop,",
+      "by": "test",
+      "kills": [
+        "拼记录：两份拼回一跑，记着停下的有几条"
+      ]
+    },
+    {
+      "id": "M-H240-ak",
+      "req": "harness",
+      "why": "红过的也列进清单",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "if (red.has(label)) continue",
+      "replace": "if (false) continue",
+      "by": "test",
+      "kills": [
+        "清单：红过的不列，没红过的分跑没跑到，先按组再按名字排"
+      ]
+    },
+    {
+      "id": "M-H240-al",
+      "req": "harness",
+      "why": "有整跑的负片也不算跑到 —— 不在任何组的那几条报成没跑到",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "const whole = ran.some(r => r.only === undefined)",
+      "replace": "const whole = false",
+      "by": "test",
+      "kills": [
+        "清单：有一条整跑的负片，所有断言都算跑到了（不在任何一组的也算）"
+      ]
+    },
+    {
+      "id": "M-H240-am",
+      "req": "harness",
+      "why": "没有负片选的那一组也算跑到 —— 再多负片也弄不红的报成跑到了没红",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "(group !== undefined && groups.has(group))",
+      "replace": "group !== undefined",
+      "by": "test",
+      "kills": [
+        "清单：红过的不列，没红过的分跑没跑到，先按组再按名字排"
+      ]
+    },
+    {
+      "id": "M-H240-an",
+      "req": "harness",
+      "why": "清单不排序 —— 同一组的不挨在一起",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return out.sort((a, b) => cmp(a.group ?? '', b.group ?? '') || cmp(a.label, b.label))",
+      "replace": "return out",
+      "by": "test",
+      "kills": [
+        "清单：红过的不列，没红过的分跑没跑到，先按组再按名字排"
+      ]
+    },
+    {
+      "id": "M-H240-ao",
+      "req": "harness",
+      "why": "清单上的一条丢了所在的组",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "out.push(group === undefined ? { label, reached } : { label, group, reached })",
+      "replace": "out.push({ label, reached })",
+      "by": "test",
+      "kills": [
+        "清单：红过的不列，没红过的分跑没跑到，先按组再按名字排"
+      ]
+    },
+    {
+      "id": "M-H240-ap",
+      "req": "harness",
+      "why": "汇报行里红过的断言混进不是名字的也读",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "if (hasRed && !(Array.isArray(red) && red.every(x => typeof x === 'string'))) return undefined",
+      "replace": "if (hasRed && !Array.isArray(red)) return undefined",
+      "by": "test",
+      "kills": [
+        "汇报行：红过的断言里混进不是名字的，整行认不出"
+      ]
+    },
+    {
+      "id": "M-H240-aq",
+      "req": "harness",
+      "why": "汇报行读回来丢了红过哪些 —— 派工跑的那几条全被记成什么都没红",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "    ...(hasRed ? { red: [...red as string[]] } : {}) }",
+      "replace": "    }",
+      "by": "test",
+      "kills": [
+        "汇报行：红过的断言写下去读回来还是它"
+      ]
+    },
+    {
+      "id": "M-H240-ar",
+      "req": "harness",
+      "why": "旧回报读回来凭空多出「什么都没红」",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "    ...(hasRed ? { red: [...red as string[]] } : {}) }",
+      "replace": "    red: hasRed ? [...red as string[]] : [] }",
+      "by": "test",
+      "kills": [
+        "汇报行：没写红过哪些的旧回报照常读得出，也不凭空多出那一项"
+      ]
+    },
+    {
+      "id": "M-H240-as",
+      "req": "harness",
+      "why": "读回来的负片编号被改了样 —— 拼的时候对不上变异目录",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "records.push({ id: e.id,",
+      "replace": "records.push({ id: String(e.id).toLowerCase(),",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-at",
+      "req": "harness",
+      "why": "读回来的格式名不是读进来的那一个",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return { schema: REDS_SCHEMA, head: r.head,",
+      "replace": "return { schema: 'mutation-reds/v0', head: r.head,",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-au",
+      "req": "harness",
+      "why": "读回来的提交号变了样 —— 几份核不出是同一个提交",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "head: r.head, earlyStop: r.earlyStop,",
+      "replace": "head: String(r.head).toUpperCase(), earlyStop: r.earlyStop,",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-av",
+      "req": "harness",
+      "why": "读回来的停没停反了 —— 清单头上那句说反",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "earlyStop: r.earlyStop,\n",
+      "replace": "earlyStop: !r.earlyStop,\n",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-aw",
+      "req": "harness",
+      "why": "读回来丢了一条负片的记录",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "count: s.count as number }, records: records }",
+      "replace": "count: s.count as number }, records: [...records].slice(1) }",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-ax",
+      "req": "harness",
+      "why": "读不出的那一份没交回毛病 —— 入口当成读出来了",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return { fault: '不是一个对象' }",
+      "replace": "return { foult: '不是一个对象' } as unknown as { fault: string }",
+      "by": "test",
+      "kills": [
+        "读记录：不是对象的拒"
+      ]
+    },
+    {
+      "id": "M-H240-ay",
+      "req": "harness",
+      "why": "拼回来的提交号变了样",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return { head: first.head,",
+      "replace": "return { head: String(first.head).slice(1),",
+      "by": "test",
+      "kills": [
+        "拼记录：两份拼回一跑，记着停下的有几条"
+      ]
+    },
+    {
+      "id": "M-H240-az",
+      "req": "harness",
+      "why": "拼回来丢了一条负片的记录",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "earlyStop: first.earlyStop, records: records, stopped",
+      "replace": "earlyStop: first.earlyStop, records: [...records].slice(1), stopped",
+      "by": "test",
+      "kills": [
+        "拼记录：两份拼回一跑，记着停下的有几条"
+      ]
+    },
+    {
+      "id": "M-H240-ba",
+      "req": "harness",
+      "why": "拼不起来时没交回毛病 —— 入口照常出清单",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return { fault: '一份记录都没有 —— 先跑一遍 npm run mutate' }",
+      "replace": "return { foult: '一份记录都没有' } as unknown as MergedReds",
+      "by": "test",
+      "kills": [
+        "拼记录：一份都没有的拒"
+      ]
+    },
+    {
+      "id": "M-H240-bb",
+      "req": "harness",
+      "why": "存活那一档不算断言跑过 —— 只有存活变异的那一组被报成没跑到",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return outcome === 'caught' || outcome === 'elsewhere' || outcome === 'survived'",
+      "replace": "return outcome === 'caught' || outcome === 'elsewhere'",
+      "by": "test",
+      "kills": [
+        "断言跑没跑：五档里只有抓到、红错了地方、存活算跑了"
+      ]
+    },
+    {
+      "id": "M-H240-bc",
+      "req": "harness",
+      "why": "跑不起来那一档也算断言跑过",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "return outcome === 'caught' || outcome === 'elsewhere' || outcome === 'survived'",
+      "replace": "return outcome === 'crashed' || outcome === 'caught' || outcome === 'elsewhere' || outcome === 'survived'",
+      "by": "test",
+      "kills": [
+        "断言跑没跑：五档里只有抓到、红错了地方、存活算跑了"
+      ]
+    },
+    {
+      "id": "M-H240-bd",
+      "req": "harness",
+      "why": "读记录不验 ran —— 少了它的一条被读成跑没跑都说不准的样子",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "      || typeof e.ran !== 'boolean' || typeof e.stopped",
+      "replace": "      || typeof e.stopped",
+      "by": "test",
+      "kills": [
+        "读记录：一条少了 ran 的拒，不当成跑到过",
+        "读记录：一条的 ran 不是真假值的拒"
+      ]
+    },
+    {
+      "id": "M-H240-be",
+      "req": "harness",
+      "why": "读回来的 ran 反了",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "ran: e.ran, stopped: e.stopped",
+      "replace": "ran: !e.ran, stopped: e.stopped",
+      "by": "test",
+      "kills": [
+        "读记录：合规的一份原样读回，没写 only 的不凭空多出 only"
+      ]
+    },
+    {
+      "id": "M-H240-bf",
+      "req": "harness",
+      "why": "清单不看断言跑没跑 —— 跑不起来的负片也算跑到过它那一组",
+      "file": "scripts/check/never-red-rule.ts",
+      "find": "const ran = records.filter(r => r.ran)",
+      "replace": "const ran = records",
+      "by": "test",
+      "kills": [
+        "清单：选了那一组却跑不起来的负片不算跑到过它",
+        "清单：整跑却跑不起来的负片也不算跑到过谁"
+      ]
     }
   ],
   "exemptions": [
