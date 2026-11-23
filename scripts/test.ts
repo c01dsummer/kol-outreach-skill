@@ -16166,13 +16166,16 @@ const keys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTOR
   'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'] as const
 // 独占临时根与诱饵仓库都由 git 夹具的 withToyRepo 开：建仓不读本机配置、带提交身份，跑完或抛错整个删掉（ADR-239）。
 // 下面这一段不重新缩进，免得整段都算改动
+// 跑测试的进程身上若本来带着六项之一（比如在 git 钩子里跑），这一组先从本进程环境里拿掉、跑完放回：
+// git 夹具正是 M-H64 改的地方，不拿掉的话施变后它会经测试自己建诱饵、起入口时漏出去，写进外面那个仓库
+const inherited = Object.fromEntries(keys.filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))
+for (const key of keys) delete process.env[key]
 let owner = ''
+try {
 withToyRepo((_, more) => {
 owner = more('owner')
-// 起入口的环境也从夹具拿：去掉继承来的全部 GIT_*、不读本机的系统与用户配置，不自己列要挡哪些（ADR-233 第七节）。
-// 六项再删一遍：fixtureEnv 正是 M-H64 改的地方，跑测试的进程身上若本来带着其中一项，不能靠被测的那一行替测试挡
+// 起入口的环境也从夹具拿：去掉继承来的全部 GIT_*、不读本机的系统与用户配置，不自己列要挡哪些（ADR-233 第七节）
 const clean: NodeJS.ProcessEnv = fixtureEnv({})
-for (const key of keys) delete clean[key]
 delete clean.NODE_OPTIONS
 delete clean.MUTATING // 两轮都跑普通真实子集，不借施变运行跳过夹具准备或认领约束。
 const repo = (name: string) => {
@@ -16300,6 +16303,9 @@ console.log('positive complete');`], { cwd: control, env: { ...observerEnv, KOL_
   eq('Git 建历史隔离：不继承 GIT_ALTERNATE_OBJECT_DIRECTORIES', leaked('GIT_ALTERNATE_OBJECT_DIRECTORIES'), [])
   eq('Git 建历史隔离：不继承 GIT_COMMON_DIR', leaked('GIT_COMMON_DIR'), [])
 })
+} finally {
+  Object.assign(process.env, inherited)
+}
 if (owner === '' || existsSync(owner)) throw new Error('Git 隔离测试未回收独占临时根')
 })
 
