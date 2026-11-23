@@ -19,7 +19,7 @@ import {
   type Claims,
 } from './claims.js'
 import { citeSummary, citeTable } from './cite-rule.js'
-import { ADR_DIR, adrDocs, iouNameFaults, entries as debtEntries, ledgerGaps, ledgerReport, ledgerSummary, orphanIous } from './debt-rule.js'
+import { ADR_DIR, adrDocs, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous } from './debt-rule.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 import {
   REDLINE_CAT, criteriaCell, mutationCell, requirementVerdict, tensionEvidence, tensionVerdict,
@@ -259,14 +259,14 @@ for (const r of reqs) {
 
 // ---- 6. 欠条台账：三套「什么时候回来」的写法，抽成一份清单 ----
 /**
- * 这一节**只抽取，不判断** —— 它不说哪条欠条已经还了，也不说这次改动踩到了谁。
- * 撤掉匹配那一半的理由在 ADR-86：读懂条件是会随模型变强的那一侧，正则不是。
+ * 这一节**读人写的状态行，不判条件** —— 哪张开着、哪张已还，照指着它的那一行状态行报；
+ * 条件成没成立、这次改动踩到了谁，它不说。撤掉匹配那一半的理由在 ADR-86：读懂条件是会随模型变强的那一侧，正则不是。
  *
  * 决策记录不在 `sources` 里（上面 `ADR_DIR` 那段说了为什么），所以单独读一遍 ——
  * 读哪些、全表怎么打，与只读入口 `adr-ledger.ts` 是同一份（`debt-rule.ts` 的 `adrDocs`、`ledgerReport`）。
  */
 const adrs = adrDocs()
-const debts = debtEntries(adrs)
+const debts = ledgerStatus(adrs)
 /** 硬失败先判,再看要不要只打清单 —— 反过来的话 `--debts` 这条路把闸门跳过去了 */
 const orphans = orphanIous(adrs)
 const badNames = iouNameFaults(adrs)
@@ -336,7 +336,7 @@ const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accep
 // 三个名单怎么数、分几栏报，都是判定，在 `audit-rule.ts` 里（第一轮评审指出）
 console.log(`  ${coverageSummary(allCrit, redlineCrit, testedCriteria, entryCriteria, exemptIds)}`)
 console.log(`  ${ledgerSummary(debts)}`)
-console.log('    认三种写法，别的形状不在账上 · 全表：`npm run audit -- --debts`')
+console.log('    条件认三种写法、状态行认四种两种指法，别的形状不在账上 · 全表：`npm run audit -- --debts`')
 // 被引表只多这一行分布（ADR-151 第一节 P2、第三节第 1 条）；全表挂在只读入口上，新克隆上也跑得起来
 console.log(`  ${citeSummary(citeTable(adrs))} · 全表：\`npm run adr-ledger -- --cites\``)
 

@@ -10,11 +10,12 @@
  * 仓库里受控文件的路径本身（`pathNames`），所以没有一张会漂的手写表；代码标识符、需求编号、
  * 「某模块」「某类改动」这种写法一律认不出，那部分仍靠人读台账。
  *
- * 条目来自 `debt-rule.ts` 的 `entries`，块的定界来自它的 `iouBlocks` —— 不另抽一份，
- * 免得两边对「哪些是欠条」说两样。已还／已重挂／收尾那几种状态行（写法见 `process/6-INTEGRATE.md`
- * 「登记怎么做」）台账今天还不读（ADR-167 欠条「台账认不出状态行」），这里先按同一写法读，只用来不列已关的那些。
+ * 条目来自 `debt-rule.ts` 的 `entries`，块的定界来自它的 `iouBlocks`，状态行来自它的 `statusLines` —— 不另抽一份，
+ * 免得两边对「哪些是欠条」「哪张已经关上」说两样。这里只用状态行不列已关的那些；续挂不关，照旧提醒。
  */
-import { entries, iouBlocks, iouName, isHistory, recordKey, recordNum, splitRecords, type Entry } from './debt-rule.js'
+import { CLOSED_KINDS, blockAt, entries, entryKey, iouBlocks, iouName, nameKey, splitRecords, statusLines, type Entry } from './debt-rule.js'
+
+export { entryKey, nameKey }
 import { quotedMask } from './quoted.js'
 
 /** git 的一次调用：参数进、标准输出出，失败就抛。入口给真的 git，测试给假的。 */
@@ -86,47 +87,11 @@ export function namedFiles(text: string, names: Map<string, string>): string[] {
 }
 
 /**
- * 已关上的那几张，两种指法：
- * - 老写法 `⚠️ 已还／已重挂／收尾：ADR-N 第 M 行` 指到「记录 + 行号」，键写成 `ADR-N:M`；
- * - 新写法 `⚠️ 已还：ADR-N「短名字」` 指到「记录 + 欠条的短名字」，键由 `recordKey` 拼（ADR-211，欠条用短名字互指那一份）。
- *   名字不随文件重写或挪进历史文件而变，所以新写的状态行都用这一种。
- * 围栏与 HTML 注释里的不算 —— ADR-167（欠条台账机制那一份）第四节第 1 小节自己就在围栏里演示了这几种写法。
+ * 已关上的那几张的键：已还、已重挂、收尾三种状态行指着的（`debt-rule.ts` 的 `statusLines`，两种指法都认）。
+ * 续挂不算关上 —— 条件响了、这次还不了，那张照旧开着。
  */
-export const CLOSING = /⚠️\s*\*{0,2}(已还|已重挂|收尾)\*{0,2}\s*[：:]\s*ADR-(\d+)\s*第\s*(\d+)\s*行/g
-export const CLOSING_BY_NAME = /⚠️\s*\*{0,2}(已还|已重挂|收尾)\*{0,2}\s*[：:]\s*ADR-(\d+)\s*「([^」\n]+)」/g
 export function closedKeys(docs: Map<string, string>): Set<string> {
-  const out = new Set<string>()
-  for (const text of docs.values()) {
-    const lines = text.split('\n'), quoted = quotedMask(text)
-    lines.forEach((line, i) => {
-      if (quoted[i]) return
-      for (const m of line.matchAll(CLOSING)) out.add(`ADR-${Number(m[2])}:${Number(m[3])}`)
-      // 名字不在这里限长：取出来去掉首尾空白，和欠条那一侧（`iouName`）同一个拼法，长短由那一侧判
-      for (const m of line.matchAll(CLOSING_BY_NAME)) out.add(recordKey(Number(m[2]), m[3].trim()))
-    })
-  }
-  return out
-}
-
-/**
- * 条目的行号键：`ADR-86:118`；不是编号记录的文件交回 null。老状态行写的「ADR-86 第 118 行」指的是
- * **写下它那一刻**那份文件的第 118 行，所以：
- * - 没拆过的记录：就是主文件那一行；
- * - 拆过的记录：旧正文原样搬进了历史文件，行号在那里不变 —— 键给历史文件的条目；主文件已经重写，
- *   它的条目没有行号键（交回 null），只能按短名字关。反过来的话，重写后主文件第 118 行恰好是另一张开着的欠条，
- *   一行老状态行就把它静默算成已关。
- */
-export function entryKey(e: Entry, split: ReadonlySet<number> = new Set()): string | null {
-  const num = recordNum(e.file)
-  if (num === null) return null
-  if (!isHistory(e.file) && split.has(num)) return null
-  return `ADR-${num}:${e.line}`
-}
-
-/** 条目的名字键：所在欠条块的块头写了短名字时由 `recordKey` 拼，主文件与历史文件同一个键；没写名字交回 null。 */
-export function nameKey(file: string, name: string | null): string | null {
-  const num = recordNum(file)
-  return num === null || name === null ? null : recordKey(num, name)
+  return new Set(statusLines(docs).filter(s => CLOSED_KINDS.has(s.kind)).map(s => s.key))
 }
 
 export interface Hit {
@@ -155,9 +120,8 @@ export function entryTexts(docs: Map<string, string>): Array<{ entry: Entry; tex
     const blocks = iouBlocks(lines, quoted)
     for (const entry of entries(new Map([[file, text]]))) {
       const i = entry.line - 1
-      // 取起点最靠后的那个块：两张欠条没隔开时，前一张的块会一直延到后一张里面（`debt-rule.ts` 的 `iouBlocks`
-      // 写着这个定界的毛病），取第一个包住的块，后一张的条目就拿到前一张的短名字 —— 按名字关上前一张，后一张也跟着不提醒
-      const block = blocks.filter(b => b.start <= i && i < b.end).at(-1)
+      // 取起点最靠后的那个块（`blockAt` 写着为什么）
+      const block = blockAt(blocks, i)
       out.push({ entry, text: block
         ? lines.slice(block.start, block.end).filter((_, k) => !quoted[block.start + k]).join('\n')
         : lines[i], name: block ? iouName(lines[block.start]) : null })
