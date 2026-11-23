@@ -10,9 +10,9 @@
  * 自己一条条认写法，每漏一种就多一个洞（ADR-236 末尾）。
  * 目录表 = 顶层那张表头一字不差的表；表外任何一行以「|」开头的文字、目录表之外的任何表，都报红（不悄悄跳过）。
  * 表内每一行的格子照原文按竖线切（`cellsOf`，转义的竖线不算分格）：解析器会把多出的格子丢掉、少的补空，
- * 那样「这一行几格」就看不出来了。只写占位（`&nbsp;`、`<br>`、一个横线）的格子算空。
+ * 那样「这一行几格」就看不出来了。只写占位（HTML 注释、`&nbsp;`、`<br>`、一个横线）的格子算空；开头那根竖线省了的行照样认。
  */
-import { marked, type Token, type Tokens } from 'marked'
+import { Lexer, marked, type Token, type Tokens } from 'marked'
 import { cellsOf } from './adr-fact-table.js'
 
 /** 目录文件名（放在 `docs/adr/` 下，不是一份决策记录，`adrSync` 读目录时跳过它） */
@@ -20,8 +20,11 @@ export const PLAIN_INDEX_FILE = '白话目录.md'
 /** 表头一字不差 */
 export const PLAIN_INDEX_HEAD = '| 编号 | 定了什么 | 对用户有什么影响 | 还欠什么 |'
 const HEAD_CELLS = cellsOf(PLAIN_INDEX_HEAD)
-/** 只写了占位、看着有字其实没写的格子 */
-const blankCell = (c: string): boolean => ['', '-', '—', '–'].includes(c.replace(/&nbsp;|<br\s*\/?>/gi, '').trim())
+/** 一格在页面上看得见的字：交给解析器切成行内记号，HTML（注释、`<br>` 之类的标签）不显示、不算字，套着的记号（加粗、链接）只算里面的字 */
+const visibleText = (tokens: readonly Token[]): string =>
+  tokens.map(t => t.type === 'html' ? '' : 'tokens' in t && Array.isArray(t.tokens) ? visibleText(t.tokens as Token[]) : t.raw).join('')
+/** 只写了占位、看着有字其实没写的格子（只有注释、`&nbsp;`、`<br>`、一个横线） */
+const blankCell = (c: string): boolean => ['', '-', '—', '–'].includes(visibleText(Lexer.lexInline(c)).replace(/&nbsp;/gi, '').trim())
 /** 目录行：第一格是 `ADR-<编号>`（编号可带前导零，与记录文件名一致） */
 const ROW_RE = /^ADR-(\d+)$/
 
@@ -70,7 +73,8 @@ export function plainIndexFaults(nums: readonly number[], text: string | undefin
     const rows = directory.token.raw.split('\n').slice(2).filter(l => l.trim() !== '')
     rows.forEach((raw, k) => {
       const at = directory!.line + 2 + k
-      const cells = cellsOf(raw)
+      // 开头那根竖线 GFM 允许省略；`cellsOf` 从第二个字起读，省了就先补上，免得把编号头一个字吃掉
+      const cells = cellsOf(raw.trim().startsWith('|') ? raw : `|${raw.trim()}`)
       const m = ROW_RE.exec(cells[0] ?? '')
       if (!m) { faults.push(`${PLAIN_INDEX_FILE} 第 ${at} 行第一格应是 \`ADR-<编号>\``); return }
       const num = Number(m[1])
