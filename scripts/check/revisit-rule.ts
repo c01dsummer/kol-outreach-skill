@@ -9,7 +9,7 @@
  */
 import { basename } from 'node:path'
 import { cellsOf } from './adr-fact-table.js'
-import { CONDITION, IOU_NAME, entryKey, iouBlocks, iouName, blockAt, ledgerStatus, nameKey, splitRecords, statusLines, type Row } from './debt-rule.js'
+import { CONDITION, IOU_NAME, entryKey, iouBlocks, iouName, blockAt, ledgerStatus, nameKey, recordNum, splitRecords, statusLines, type Row } from './debt-rule.js'
 import { gitText } from './git-entry.js'
 import { quotedMask } from './quoted.js'
 
@@ -222,12 +222,17 @@ export const DUE_LIMIT = 10
 export const VERDICTS: ReadonlySet<string> = new Set(['还', '收尾', '留'])
 
 /** 一项最近一次列给需求所有者：那一行的 id 里的日期，与人判栏原样的字 */
-export interface Listing { day: string; verdict: string }
+export interface Listing {
+  day: string
+  verdict: string
+  /** 这一项哪一次列出判过「留」（不只看最近一次：判过留、续挂行没落下、四周后再列没判的，仍要标续挂过） */
+  kept: boolean
+}
 
 /**
  * ADR-152 候选表里每一项最近一次列出。候选行认第一格是 `YYYY-MM-DD#N` 的表行（回访每块的 id 写法），
  * 第二格按书名号外的「、」切开（与 `listedItems` 同一种切法），最后一格是人判栏。同一项列过几次取日期最晚的那一次，
- * 同一天的取后写的那一行。
+ * 同一天的取后写的那一行。哪一次判过「留」都记下（`kept`）。
  */
 export function listings(adr152: string): Map<string, Listing> {
   const out = new Map<string, Listing>()
@@ -240,7 +245,8 @@ export function listings(adr152: string): Map<string, Listing> {
     for (const item of splitItems(cells[1])) {
       const key = item.replace(/^ +| +$/g, '')
       const old = out.get(key)
-      if (!old || old.day <= day) out.set(key, { day, verdict })
+      const kept = (old?.kept ?? false) || verdict.trim() === '留'
+      out.set(key, !old || old.day <= day ? { day, verdict, kept } : { ...old, kept })
     }
   }
   return out
@@ -256,7 +262,7 @@ export interface DueItem {
   date?: string
   /** 续挂写的那天里最晚的一天；没续挂过给 undefined */
   until?: string
-  /** 改挂过来之前那几张里有续挂过的 */
+  /** 自己或改挂过来之前那几张续挂过（有续挂行就算，不管写没写到哪天） */
   carried: boolean
 }
 
@@ -281,7 +287,7 @@ const later = (a: string | undefined, b: string | undefined): string | undefined
  * - 取不到登记日、也没续挂过、没列过的：不列，只数（不能当成最老的先列）。
  *
  * 次序：列过没判的在前，其余在后；两段各按登记日从早到晚（`rowCompare`）。
- * 续挂过、或判过留、或改挂过来之前续挂过的，行尾标「续挂过，只能还或收尾」（「留」只许一次，ADR-167 第三节）。
+ * 续挂过（自己或改挂过来之前那几张）、或哪一次列出判过留的，行尾标「续挂过，只能还或收尾」（「留」只许一次，ADR-167 第三节）。
  */
 export function dueList(items: DueItem[], today: string, listed: Map<string, Listing>, days = DUE_DAYS, limit = DUE_LIMIT): {
   lines: string[] // 字段不入断言：到期清单那一组按全文比这几行
@@ -293,10 +299,10 @@ export function dueList(items: DueItem[], today: string, listed: Map<string, Lis
   const again: Pick[] = [], due: Pick[] = []
   let undated = 0
   for (const it of items) {
-    const last = [it.key, ...it.aliases].map(k => listed.get(k)).filter((l): l is Listing => l !== undefined)
-      .reduce<Listing | undefined>((a, b) => a === undefined || a.day <= b.day ? b : a, undefined)
+    const ls = [it.key, ...it.aliases].map(k => listed.get(k)).filter((l): l is Listing => l !== undefined)
+    const last = ls.reduce<Listing | undefined>((a, b) => a === undefined || a.day <= b.day ? b : a, undefined)
     const judged = last !== undefined && VERDICTS.has(last.verdict.trim())
-    const second = it.until !== undefined || it.carried || (judged && last!.verdict.trim() === '留')
+    const second = it.until !== undefined || it.carried || ls.some(l => l.kept)
     const tag = second ? ' · 续挂过，只能还或收尾' : ''
     if (last !== undefined && !judged) { again.push({ date: it.date, key: it.key, tag: ' · 列过没判' + tag }); continue }
     const on = [it.date === undefined ? undefined : addDays(it.date, days), it.until, judged ? addDays(last!.day, days) : undefined]
@@ -312,11 +318,21 @@ export function dueList(items: DueItem[], today: string, listed: Map<string, Lis
   }
 }
 
-/** 状态行里「现行的是 ADR-N「名字」」或「现行的是 ADR-N 第 M 行」那一处，按台账的键（`nameKey` / `entryKey` 那种）交回；没写给 null */
-export function currentOf(text: string): string | null {
-  const m = /现行的是\s*ADR-(\d+)\s*(?:「([^」\n]+)」|第\s*(\d+)\s*行)/.exec(text)
+/**
+ * 状态行里「现行的是」后面指的那一张，按台账的键（`nameKey` / `entryKey` 那种）交回。认三种写法：
+ * 「ADR-N「名字」」「ADR-N 第 M 行」，和「本条第 M 行」—— 本条就是这一行所在的那条记录（`self`，不给就不认这一种）。
+ * 别的写法（「那一行」「本条下一张」「本块下面第一张」、只在散文里说「余额由 … 承接」）不猜，给 null。
+ */
+export function currentOf(text: string, self?: number | null): string | null {
+  const m = /现行的是\s*(?:ADR-(\d+)\s*(?:「([^」\n]+)」|第\s*(\d+)\s*行)|本条第\s*(\d+)\s*行)/.exec(text)
   if (!m) return null
+  if (m[4] !== undefined) return self == null ? null : `ADR-${self}:${Number(m[4])}`
   return m[2] !== undefined ? `ADR-${Number(m[1])}「${m[2].trim()}」` : `ADR-${Number(m[1])}:${Number(m[3])}`
+}
+
+/** 已重挂行里有几行认不出现行的是哪一张（`currentOf` 给 null 的）：这几张的接手者到期清单接不回原来的登记日，按自己的算 */
+export function movesUnread(docs: Map<string, string>): number {
+  return statusLines(docs).filter(s => s.kind === '已重挂' && currentOf(s.text, recordNum(s.file)) === null).length
 }
 
 /** 台账键换成回访里的记法：`ADR-9:5` → `ADR-9 第 5 行`，按名字的原样 */
@@ -356,11 +372,11 @@ export function dueItems(git: Git, run: string, docs: Map<string, string>): DueI
     const keys = keysOf(r)
     const own = rowOf(r)
     const aliases = [...own.aliases]
-    let date = own.date, carried = false
+    let date = own.date, carried = all.some(x => x.kind === '续挂' && keys.includes(x.key))
     const seen = new Set<Row>([r])
     const walk = (targets: string[]): void => {
       for (const s of all) {
-        if (s.kind !== '已重挂' || !targets.includes(currentOf(s.text) ?? '')) continue
+        if (s.kind !== '已重挂' || !targets.includes(currentOf(s.text, recordNum(s.file)) ?? '')) continue
         const src = byKey.get(s.key)
         if (!src || seen.has(src)) continue
         seen.add(src)

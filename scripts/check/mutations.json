@@ -29910,17 +29910,17 @@
       "find": "    if (day === undefined || cells.length < 3) continue",
       "replace": "    if (cells.length < 3) continue",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样；读过、没进候选的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的不算列过"]
     },
     {
       "id": "M-H167-t",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "同一项列过几次只认第一次 —— 后来判了「还」，清单还当它是早先那次「留」",
-      "find": "      if (!old || old.day <= day) out.set(key, { day, verdict })",
-      "replace": "      if (!old) out.set(key, { day, verdict })",
+      "find": "out.set(key, !old || old.day <= day ? { day, verdict, kept } : { ...old, kept })",
+      "replace": "out.set(key, !old ? { day, verdict, kept } : { ...old, kept })",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样；读过、没进候选的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的不算列过"]
     },
     {
       "id": "M-H167-u",
@@ -29930,7 +29930,7 @@
       "find": "    const judged = last !== undefined && VERDICTS.has(last.verdict.trim())",
       "replace": "    const judged = last !== undefined && last.verdict.trim() !== ''",
       "by": "test",
-      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
+      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列、更早判过留的标续挂过；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
     },
     {
       "id": "M-H167-v",
@@ -29940,7 +29940,7 @@
       "find": "again.push({ date: it.date, key: it.key, tag: ' · 列过没判' + tag }); continue",
       "replace": "due.push({ date: it.date, key: it.key, tag }); continue",
       "by": "test",
-      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
+      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列、更早判过留的标续挂过；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
     },
     {
       "id": "M-H167-w",
@@ -29960,7 +29960,7 @@
       "find": "const on = [it.date === undefined ? undefined : addDays(it.date, days), it.until, judged",
       "replace": "const on = [it.date === undefined ? undefined : addDays(it.date, days), undefined, judged",
       "by": "test",
-      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
+      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列、更早判过留的标续挂过；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
     },
     {
       "id": "M-H167-y",
@@ -29990,17 +29990,17 @@
       "find": "    const second = it.until !== undefined || it.carried ||",
       "replace": "    const second = it.until !== undefined ||",
       "by": "test",
-      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
+      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列、更早判过留的标续挂过；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
     },
     {
       "id": "M-H167-ab",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "判过「留」的再列时不标 —— 第二次还能再选留",
-      "find": "(judged && last!.verdict.trim() === '留')",
-      "replace": "false",
+      "find": " || ls.some(l => l.kept)",
+      "replace": "",
       "by": "test",
-      "kills": ["到期清单：判了留的，四周后再列时标续挂过"]
+      "kills": ["到期清单：判了留的，四周后再列时标续挂过", "到期清单：判过留、续挂行没落下，四周后再列又没判的，仍标续挂过（不让他第二次判留）"]
     },
     {
       "id": "M-H167-ac",
@@ -30010,7 +30010,7 @@
       "find": "[...again.sort(rowCompare), ...due.sort(rowCompare)]",
       "replace": "[...again, ...due].sort(rowCompare)",
       "by": "test",
-      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
+      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列、更早判过留的标续挂过；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
     },
     {
       "id": "M-H167-ad",
@@ -30020,7 +30020,7 @@
       "find": "    if (on === undefined) { undated++; continue }",
       "replace": "    if (on === undefined) continue",
       "by": "test",
-      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
+      "kills": ["到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列、更早判过留的标续挂过；续挂没到那天不列；没满 28 天不列；取不到登记日只数"]
     },
     {
       "id": "M-H167-ae",
@@ -30080,7 +30080,7 @@
       "find": "`ADR-${Number(m[1])}「${m[2].trim()}」`",
       "replace": "`ADR-${Number(m[1])}「${m[2]}」`",
       "by": "test",
-      "kills": ["「现行的是」两种写法都换成台账的键；没写给 null"]
+      "kills": ["「现行的是」三种写法都换成台账的键：「本条第 M 行」按这一行所在的记录、不给记录就不认；别的写法与没写给 null"]
     },
     {
       "id": "M-H167-ak",
@@ -30097,8 +30097,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-due.ts",
       "why": "入口不读 ADR-152 的人判 —— 判过的照样再列",
-      "find": "dueList(dueItems(realGit, run, adrDocs()), today, listings(adr152()))",
-      "replace": "dueList(dueItems(realGit, run, adrDocs()), today, new Map())",
+      "find": "dueList(dueItems(realGit, run, docs), today, listings(adr152()))",
+      "replace": "dueList(dueItems(realGit, run, docs), today, new Map())",
       "by": "test",
       "kills": ["入口 --list：读整份决策记录与 ADR-152 的人判，按给的那天判到期，最老先列，第一行是几个数；只读，工作区一个字没动"]
     },
@@ -30107,20 +30107,20 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "人判栏的字丢了 —— 判过的全当没判",
-      "find": "out.set(key, { day, verdict })",
-      "replace": "out.set(key, { day, ...{ verdict: '' } })",
+      "find": "? { day, verdict, kept } :",
+      "replace": "? { day, ...{ verdict: '' }, kept } :",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样；读过、没进候选的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的不算列过"]
     },
     {
       "id": "M-H167-an",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "列出那天记错 —— 判过的哪天满四周算不对",
-      "find": "out.set(key, { day, verdict })",
-      "replace": "out.set(key, { ...{ day: '2026-01-01' }, verdict })",
+      "find": "? { day, verdict, kept } :",
+      "replace": "? { ...{ day: '2026-01-01' }, verdict, kept } :",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样；读过、没进候选的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的不算列过"]
     },
     {
       "id": "M-H167-ao",
@@ -30169,6 +30169,116 @@
       "why": "改挂过来之前续挂过的不标",
       "find": "      carried,\n    }",
       "replace": "      ...{ carried: false },\n    }",
+      "by": "test",
+      "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
+    },
+    {
+      "id": "M-H167-at",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "「本条第 M 行」不认 —— 同一条记录里改挂过来的接不回原来的登记日",
+      "find": "  if (m[4] !== undefined) return self == null ? null : `ADR-${self}:${Number(m[4])}`\n",
+      "replace": "  if (m[4] !== undefined) return null\n",
+      "by": "test",
+      "kills": ["「现行的是」三种写法都换成台账的键：「本条第 M 行」按这一行所在的记录、不给记录就不认；别的写法与没写给 null", "到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天", "已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出"]
+    },
+    {
+      "id": "M-H167-au",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "没给记录也认「本条第 M 行」—— 拼出 ADR-undefined 的键",
+      "find": "return self == null ? null :",
+      "replace": "return",
+      "by": "test",
+      "kills": ["「现行的是」三种写法都换成台账的键：「本条第 M 行」按这一行所在的记录、不给记录就不认；别的写法与没写给 null"]
+    },
+    {
+      "id": "M-H167-av",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "「本条第 M 行」后面不许有空白 —— 「本条第 11 行」这种常见写法认不出",
+      "find": "|本条第\\s*(\\d+)\\s*行)/",
+      "replace": "|本条第(\\d+)行)/",
+      "by": "test",
+      "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天", "已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出"]
+    },
+    {
+      "id": "M-H167-aw",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "改挂往回找时不告诉 currentOf 是哪条记录 —— 「本条第 M 行」一律接不上",
+      "find": "targets.includes(currentOf(s.text, recordNum(s.file)) ?? '')",
+      "replace": "targets.includes(currentOf(s.text) ?? '')",
+      "by": "test",
+      "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
+    },
+    {
+      "id": "M-H167-ax",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "认不出的行数不给记录 —— 「本条第 M 行」都算认不出",
+      "find": "s.kind === '已重挂' && currentOf(s.text, recordNum(s.file)) === null",
+      "replace": "s.kind === '已重挂' && currentOf(s.text) === null",
+      "by": "test",
+      "kills": ["已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出"]
+    },
+    {
+      "id": "M-H167-ay",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "认不出的行数不只数已重挂 —— 已还、续挂行也算进去",
+      "find": "s.kind === '已重挂' && currentOf(s.text, recordNum(s.file)) === null",
+      "replace": "currentOf(s.text, recordNum(s.file)) === null",
+      "by": "test",
+      "kills": ["已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出"]
+    },
+    {
+      "id": "M-H167-az",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "入口不打认不出的行数 —— 改挂接不上的有多少看不见",
+      "find": "  console.log(`已重挂行里认不出现行那张的 ${movesUnread(docs)} 行：它们的接手者按自己的登记日算`)\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["入口 --list：读整份决策记录与 ADR-152 的人判，按给的那天判到期，最老先列，第一行是几个数；只读，工作区一个字没动"]
+    },
+    {
+      "id": "M-H167-ba",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "只看这一次判没判留 —— 更早判过留、后来判了别的，就忘了用过那一次",
+      "find": "const kept = (old?.kept ?? false) || verdict.trim() === '留'",
+      "replace": "const kept = verdict.trim() === '留'",
+      "by": "test",
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的不算列过"]
+    },
+    {
+      "id": "M-H167-bb",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "最新那次列出不记判过留",
+      "find": "? { day, verdict, kept } :",
+      "replace": "? { day, verdict, ...{ kept: false } } :",
+      "by": "test",
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的不算列过"]
+    },
+    {
+      "id": "M-H167-bc",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "写在后面的更早一次判了留不记",
+      "find": "{ ...old, kept })",
+      "replace": "{ ...old, ...{ kept: false } })",
+      "by": "test",
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的不算列过"]
+    },
+    {
+      "id": "M-H167-bd",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "自己续挂过不算续挂过 —— 续挂行没写到哪天的就不标",
+      "find": "carried = all.some(x => x.kind === '续挂' && keys.includes(x.key))",
+      "replace": "carried = false",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
     },

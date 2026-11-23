@@ -7,13 +7,13 @@
  *   tsx scripts/check/revisit-due.ts --born [--run <提交>] < 两道门判「过」的行（`文件|行号|…`）
  *     按登记日排好打出来。
  *   tsx scripts/check/revisit-due.ts --list [--today <日期>] [--run <提交>]   （`npm run due-list`）
- *     到期清单：开着、到期或列过没判的，最老先列，最多 10 张；第一行是几个数。`--today` 缺省是今天（北京时间）。
+ *     到期清单：开着、到期或列过没判的，最老先列，最多 10 张；第一行是几个数，末行是已重挂行里认不出现行那张的行数。`--today` 缺省是今天（北京时间）。
  *
  * `--run` 缺省 `origin/main`。欠条正文读工作区里的文件（回访在主干的检出上跑）。只读，不写任何文件。
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { adrDocs } from './debt-rule.js'
-import { beijingDate, bornReport, cliGit, dueItems, dueList, dueReport, dueRow, listedItems, listings, periodicEntries } from './revisit-rule.js'
+import { beijingDate, bornReport, cliGit, dueItems, dueList, dueReport, dueRow, listedItems, listings, movesUnread, periodicEntries } from './revisit-rule.js'
 
 const args = process.argv.slice(2)
 const opt = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1] }
@@ -27,7 +27,9 @@ const adr152 = () => readdirSync('docs/adr').filter(f => /^ADR-152-.*\.md$/.test
 const cut = opt('--due')
 if (args.includes('--list')) {
   const today = opt('--today') ?? beijingDate(Date.now() / 1000)
-  for (const l of dueList(dueItems(realGit, run, adrDocs()), today, listings(adr152())).lines) console.log(l)
+  const docs = adrDocs()
+  for (const l of dueList(dueItems(realGit, run, docs), today, listings(adr152())).lines) console.log(l)
+  console.log(`已重挂行里认不出现行那张的 ${movesUnread(docs)} 行：它们的接手者按自己的登记日算`)
 } else if (cut !== undefined) {
   const stdin = readFileSync(0, 'utf8')
   const rows = periodicEntries(stdin).map(e => dueRow(realGit, run, e.file, e.line, text(e.file)))
