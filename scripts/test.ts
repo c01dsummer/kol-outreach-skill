@@ -27050,14 +27050,20 @@ await group('h-jargon', () => {
   eq('需求编号：外面套着加粗的，越过收尾记号再看配没配白话',
     [lineHits('**P2**（用户筛选条件）', known), lineHits('**P2** 要守', known)], [[], [{ kind: '没配白话的需求编号', word: 'P2' }]])
   eq('需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认',
-    [lineHits('_P2_（用户筛选条件）', known), lineHits('_P2_ 要守', known), lineHits('foo_P2 与 P2_x 与 a_P2_b', known)],
-    [[], [{ kind: '没配白话的需求编号', word: 'P2' }], []])
+    [lineHits('_P2_（用户筛选条件）', known), lineHits('_P2_ 要守', known), lineHits('__P2__ 要守', known), lineHits('foo_P2 与 P2_x 与 a_P2_b', known)],
+    [[], [{ kind: '没配白话的需求编号', word: 'P2' }], [{ kind: '没配白话的需求编号', word: 'P2' }], []])
   const diffOf = (f: string) => { if (f === 'bad.md') throw new Error('当成二进制\n第二行'); return `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -0,0 +1,2 @@\n+甲\n+乙\n` }
   const scan = addedMarkdown(['a.md', 'x.ts', 'bad.md'], diffOf)
   eq('扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因', [[...scan.added.keys()], [...(scan.added.get('a.md') ?? [])], scan.skipped], [['a.md'], [1, 2], ['bad.md（当成二进制）']])
   const text = '# 标题\n\n新加**新词甲**\n\n```\n「围栏里」\n```\n<!-- 「注释里」 -->\n旧行**新词乙**\n'
-  const hits = jargonHits(new Map([['a.md', new Set([3, 6, 8])], ['b.ts', new Set([1])]]), f => f === 'a.md' ? text : '「代码文件」', known)
+  const { hits } = jargonHits(new Map([['a.md', new Set([3, 6, 8])], ['b.ts', new Set([1])]]), f => f === 'a.md' ? text : '「代码文件」', known)
   eq('整次改动：只看 .md 新加的行，围栏与注释里的不算', hits, [{ file: 'a.md', line: 3, kind: '生词', word: '新词甲' }])
+  const spanning = '示例 `开始\n**新词庚** P2 ADR-1:2\n结束`，后面**新词辛**\n\n    缩进的**新词壬**\n\n<!-- 跨行\n**新词癸** -->\n> 引用里 `**新词子**`\n> 与 **新词丑**\n'
+  eq('整次改动：整份交给解析器认 —— 跨行的行内代码、缩进代码块、跨行注释里的不算，同一行代码外的照报，引用块里不跨行的行内代码也认',
+    jargonHits(new Map([['s.md', new Set([2, 3, 5, 8, 9, 10])]]), () => spanning, known).hits,
+    [{ file: 's.md', line: 3, kind: '生词', word: '新词辛' }, { file: 's.md', line: 10, kind: '生词', word: '新词丑' }])
+  const unread = jargonHits(new Map([['gone.md', new Set<number>()], ['locked.md', new Set([1])]]), f => new Error(`${f} 没权限\n细节`), known)
+  eq('整次改动：有新加的行却读不到的那一份记下来，不当成没东西可报；没有新加行的（删掉的）不读', [unread.hits, unread.unread], [[], ['locked.md（读不到：locked.md 没权限）']])
   eq('全文：每处一行带位置与种类，最后是汇总；没有时只有汇总', [jargonLines(hits)[0], jargonLines(hits).at(-1)?.includes('1 处生词、0 处行号引用、0 处没配白话的需求编号'), jargonLines([]).length, jargonSummary([]).includes('没有要配白话的写法')],
     ['a.md:3  [生词]  新词甲', true, 1, true])
 })
@@ -27088,6 +27094,13 @@ await group('h-jargon-entry', () => {
     eq('入口：在 CI 里汇总一句打成 notice，全文写进 Summary，仍以 0 退出', [inCi.status,
       inCi.stdout.includes('::notice title=生词提示::生词提示：新加的行里有 1 处生词、1 处行号引用、1 处没配白话的需求编号'),
       summaryText.startsWith('### 生词提示\n'), summaryText.includes('docs/a.md:4  [生词]  新词')], [0, true, true, true])
+    // 叠在 work 上的一条：给了 base（CI 上的 SIZE_PR_BASE）就从 work 量起，work 自己新加的那几行不算这条的
+    toy.git('checkout', '-q', '-b', 'stacked')
+    toy.write('docs/b.md', '上层**上层词**\n')
+    toy.git('add', '-A'); toy.git('commit', '-qm', 's')
+    const listed = (r: { stdout: string }) => r.stdout.split('\n').filter(l => l.startsWith('docs/'))
+    eq('入口：叠在别的分支上、给了 base 时只列这条自己新加的行；没给 base 时从主干量起，下面那条的也列',
+      [listed(run({ SIZE_PR_BASE: 'work' })), listed(run({ SIZE_PR_BASE: '' })).length], [['docs/b.md:1  [生词]  上层词'], 4])
     rmSync(join(toy.dir, '.git'), { recursive: true, force: true })
     const bare = run()
     eq('入口：不是 git 仓库时说无从比较，仍以 0 退出', [bare.status, bare.stdout.startsWith('生词提示：无从比较（')], [0, true])

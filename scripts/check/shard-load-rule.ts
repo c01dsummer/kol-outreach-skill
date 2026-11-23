@@ -240,6 +240,8 @@ const WORKFLOW_PIN: readonly string[] = [
   "        continue-on-error: true",
   "        timeout-minutes: 2",
   "        run: npm run -s jargon",
+  "        env:",
+  "          SIZE_PR_BASE: ${{ github.event.pull_request.base.ref && format('origin/{0}', github.event.pull_request.base.ref) || '' }}",
   "      - uses: actions/upload-artifact@v4",
   "        with:",
   "          name: selfcheck-launches",

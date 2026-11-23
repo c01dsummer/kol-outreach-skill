@@ -15,7 +15,7 @@ import { appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { askGit, gitOrThrow } from './git-entry.js'
 import { addedMarkdown, jargonHits, jargonLines, jargonSummary, knownFrom } from './jargon-rule.js'
-import { resolveBaseline } from './size-rule.js'
+import { prBaseFrom, resolveBaseline } from './size-rule.js'
 
 const git = (...args: string[]): string => gitOrThrow(args)
 const zList = (out: string): string[] => out.split('\0').filter(n => n !== '')
@@ -34,7 +34,8 @@ function toGithub(summary: string, lines: string[]): void {
 }
 
 function main(): void {
-  const baseline = resolveBaseline(askGit)
+  // 这条 PR 的 base 由 CI 给（`SIZE_PR_BASE`，与体量闸门同一个变量）：叠在别的 PR 上时，下面那条的新加行不算这条的
+  const baseline = resolveBaseline(askGit, prBaseFrom(process.env.SIZE_PR_BASE))
   if (baseline.kind !== 'measure') {
     const why = baseline.kind === 'cannot-answer' ? baseline.why : `HEAD 就是 ${baseline.trunk} 且没有父提交`
     const line = `生词提示：无从比较（${why}）`
@@ -46,9 +47,8 @@ function main(): void {
   const { added, skipped } = addedMarkdown(changed, file => git('diff', '--no-renames', '--no-relative', '--no-color', '--no-ext-diff', '--no-textconv',
     '--text', '--diff-algorithm=myers', '--indent-heuristic', '-U0', '--inter-hunk-context=0', baseline.base, '--', `:(top,literal)${file}`))
   const known = knownFrom(zList(git('ls-files', '-z')), read, added)
-  // 改过、却已经删掉的文件没有新加的行（只删的块），读不到也不要紧
-  const hits = jargonHits(added, f => { try { return read(f) } catch { return '' } }, known)
-  const lines = [...jargonLines(hits), ...skipped.map(s => `  （这一份没法比、跳过了：${s}）`)]
+  const { hits, unread } = jargonHits(added, f => { try { return read(f) } catch (error) { return error as Error } }, known)
+  const lines = [...jargonLines(hits), ...[...skipped, ...unread].map(s => `  （这一份没法比、跳过了：${s}）`)]
   for (const line of lines) console.log(line)
   toGithub(jargonSummary(hits), lines)
 }

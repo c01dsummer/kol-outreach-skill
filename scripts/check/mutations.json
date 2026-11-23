@@ -33566,7 +33566,7 @@
       "req": "harness",
       "why": "行内代码里演示的写法也当成在用",
       "file": "scripts/check/jargon-rule.ts",
-      "find": "codeSpanRanges(line).reduce((s, [a, b]) => s.slice(0, a) + ' '.repeat(b - a) + s.slice(b), line)",
+      "find": "blankRanges(line, codeRanges(line, Lexer.lexInline(line)).filter(([a, b]) => line.slice(a, b).startsWith('`')))",
       "replace": "line",
       "by": "test",
       "kills": [
@@ -33732,10 +33732,10 @@
     {
       "id": "M-H237-r",
       "req": "harness",
-      "why": "围栏与注释里的新加行也看",
+      "why": "代码块与注释里的新加行也看 —— 整份不交给解析器认",
       "file": "scripts/check/jargon-rule.ts",
-      "find": "if (mask[n - 1] || lines[n - 1] === undefined) continue",
-      "replace": "if (lines[n - 1] === undefined) continue",
+      "find": "const lines = blankRanges(text, codeRanges(text, marked.lexer(text, { gfm: true }))).split('\\n')",
+      "replace": "const lines = text.split('\\n')",
       "by": "test",
       "kills": [
         "整次改动：只看 .md 新加的行，围栏与注释里的不算"
@@ -33807,8 +33807,8 @@
       "req": "harness",
       "why": "报出来的位置写错了文件",
       "file": "scripts/check/jargon-rule.ts",
-      "find": "out.push({ file: file, line: n,",
-      "replace": "out.push({ file: '', line: n,",
+      "find": "hits.push({ file: file, line: n,",
+      "replace": "hits.push({ file: '', line: n,",
       "by": "test",
       "kills": [
         "整次改动：只看 .md 新加的行，围栏与注释里的不算"
@@ -33939,8 +33939,8 @@
       "req": "harness",
       "why": "行内代码退回手写正则认 —— 起止反引号串不等长时把正文里的加粗当成在用、报成生词",
       "file": "scripts/check/jargon-rule.ts",
-      "find": "walk(Lexer.lexInline(line), 0, line.length)",
-      "replace": "for (const m of line.matchAll(/(`+)[^`]*?\\1/g)) out.push([m.index!, m.index! + m[0].length])",
+      "find": "walk(tokens, 0, text.length)",
+      "replace": "for (const m of text.matchAll(/(`+)[^`]*?\\1/g)) out.push([m.index!, m.index! + m[0].length])",
       "by": "test",
       "kills": [
         "行内代码按等长的反引号串认：里面套着短的反引号串、没配对的反引号都不错认"
@@ -34052,6 +34052,90 @@
       "by": "test",
       "kills": [
         "需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认"
+      ]
+    },
+    {
+      "id": "M-H237-as",
+      "req": "harness",
+      "why": "入口不读 CI 给的 base —— 叠在别的 PR 上时，下面那条新加的行也列",
+      "file": "scripts/check/jargon.ts",
+      "find": "resolveBaseline(askGit, prBaseFrom(process.env.SIZE_PR_BASE))",
+      "replace": "resolveBaseline(askGit)",
+      "by": "test",
+      "kills": [
+        "入口：叠在别的分支上、给了 base 时只列这条自己新加的行；没给 base 时从主干量起，下面那条的也列"
+      ]
+    },
+    {
+      "id": "M-H237-at",
+      "req": "harness",
+      "why": "代码块（缩进四格的）里的字也当正文看",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "t.type === 'codespan' || t.type === 'code' || t.type === 'html'",
+      "replace": "t.type === 'codespan' || t.type === 'html'",
+      "by": "test",
+      "kills": [
+        "整次改动：整份交给解析器认 —— 跨行的行内代码、缩进代码块、跨行注释里的不算，同一行代码外的照报，引用块里不跨行的行内代码也认"
+      ]
+    },
+    {
+      "id": "M-H237-au",
+      "req": "harness",
+      "why": "HTML 与注释里的字也当正文看",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "t.type === 'codespan' || t.type === 'code' || t.type === 'html'",
+      "replace": "t.type === 'codespan' || t.type === 'code'",
+      "by": "test",
+      "kills": [
+        "整次改动：整份交给解析器认 —— 跨行的行内代码、缩进代码块、跨行注释里的不算，同一行代码外的照报，引用块里不跨行的行内代码也认"
+      ]
+    },
+    {
+      "id": "M-H237-av",
+      "req": "harness",
+      "why": "退回一行一行单看 —— 跨行的行内代码、注释认不出来",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "const lines = blankRanges(text, codeRanges(text, marked.lexer(text, { gfm: true }))).split('\\n')",
+      "replace": "const lines = text.split('\\n').map(stripCodeSpans)",
+      "by": "test",
+      "kills": [
+        "整次改动：整份交给解析器认 —— 跨行的行内代码、缩进代码块、跨行注释里的不算，同一行代码外的照报，引用块里不跨行的行内代码也认"
+      ]
+    },
+    {
+      "id": "M-H237-ax",
+      "req": "harness",
+      "why": "读不到的那一份不记 —— 读的人以为它没东西可报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return { hits, unread }",
+      "replace": "return { hits, unread: [] }",
+      "by": "test",
+      "kills": [
+        "整次改动：有新加的行却读不到的那一份记下来，不当成没东西可报；没有新加行的（删掉的）不读"
+      ]
+    },
+    {
+      "id": "M-H237-ay",
+      "req": "harness",
+      "why": "交回的提示丢光 —— 整次改动什么都不报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return { hits, unread }",
+      "replace": "return { unread, hits: [] }",
+      "by": "test",
+      "kills": [
+        "整次改动：只看 .md 新加的行，围栏与注释里的不算"
+      ]
+    },
+    {
+      "id": "M-H237-az",
+      "req": "harness",
+      "why": "没有新加行的（删掉的）那一份也去读 —— 读不到就被当成没法比",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "    if (ns.length === 0) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "整次改动：有新加的行却读不到的那一份记下来，不当成没东西可报；没有新加行的（删掉的）不读"
       ]
     },
     {

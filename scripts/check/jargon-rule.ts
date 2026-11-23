@@ -11,10 +11,10 @@
  *   后面紧跟着全角或半角括号、书名号或全角冒号的算配了白话（编号外面套着加粗之类的，越过收尾记号再看），别的都列。
  *
  * 认得的词只有两个来源，都由入口从仓库里现读，这里不维护任何手写表：术语表每一行的第一格（`glossaryTerms`），
- * 和各份 Markdown 的标题（`headingTexts`）。围栏代码块与 HTML 注释里的行不算（`quotedMask`），
- * 行内代码（反引号里的，由解析器认）也先去掉 —— 那是在演示写法，不是在用它。
+ * 和各份 Markdown 的标题（`headingTexts`）。代码块、行内代码、HTML 与注释里的字不算（整份交给解析器认，`codeRanges`）
+ * —— 那是在演示写法，不是在用它。
  */
-import { Lexer, type Token } from 'marked'
+import { Lexer, marked, type Token } from 'marked'
 import { addedLines } from './field-use-rule.js'
 import { quotedMask } from './quoted.js'
 
@@ -32,27 +32,36 @@ export const isShortWord = (w: string): boolean => {
   return n >= 2 && n <= SHORT_MAX && !BREAKS.test(t)
 }
 
-/** 一行里各段行内代码在原文里的起止：交给 Markdown 解析器（`marked`）认，起止反引号串等长、没配对的不算，不自己写正则 */
-function codeSpanRanges(line: string): [number, number][] {
+/**
+ * 一段 Markdown 里「不显示成正文」的几段在原文里的起止：代码块（围栏的、缩进四格的）、行内代码、HTML（块与行内，含注释）。
+ * 交给 Markdown 解析器（`marked`）认 —— 起止反引号串等长、没配对的不算、行内代码跨行，都照解析器 —— 不自己写正则。
+ */
+function codeRanges(text: string, tokens: readonly Token[]): [number, number][] {
   const out: [number, number][] = []
-  // 各记号的原文按先后排在父记号的原文里；套着的（加粗、链接里的）在父记号那一段里往后找
-  const walk = (tokens: readonly Token[], from: number, to: number): void => {
+  // 各记号的原文按先后排在父记号的原文里，在父记号那一段里往后找。引用块、列表里跨行的段落，解析器交回的原文去掉了
+  // 行首的「>」或缩进，在原文里找不到，整段跳过 —— 那里不跨行的行内代码由 `lineHits` 逐行再认一次，跨行的认不出（ADR-237 欠条）
+  const walk = (list: readonly Token[], from: number, to: number): void => {
     let at = from
-    for (const t of tokens) {
-      const i = line.indexOf(t.raw, at)
+    for (const t of list) {
+      const kids = [...('tokens' in t && Array.isArray(t.tokens) ? t.tokens : []), ...('items' in t && Array.isArray(t.items) ? t.items : [])] as Token[]
+      const i = text.indexOf(t.raw, at)
       if (i < 0 || i + t.raw.length > to) continue
-      if (t.type === 'codespan') out.push([i, i + t.raw.length])
-      else if ('tokens' in t && Array.isArray(t.tokens)) walk(t.tokens as Token[], i, i + t.raw.length)
+      if (t.type === 'codespan' || t.type === 'code' || t.type === 'html') out.push([i, i + t.raw.length])
+      else walk(kids, i, i + t.raw.length)
       at = i + t.raw.length
     }
   }
-  walk(Lexer.lexInline(line), 0, line.length)
+  walk(tokens, 0, text.length)
   return out
 }
 
+/** 把 `ranges` 里的字换成空格（换行留着、位置不挪） */
+const blankRanges = (text: string, ranges: readonly [number, number][]): string =>
+  ranges.reduce((s, [a, b]) => s.slice(0, a) + s.slice(a, b).replace(/[^\n]/g, ' ') + s.slice(b), text)
+
 /** 去掉行内代码：每段行内代码连同反引号换成空格（位置不挪，只为后面不把演示的写法当成在用） */
 export const stripCodeSpans = (line: string): string =>
-  codeSpanRanges(line).reduce((s, [a, b]) => s.slice(0, a) + ' '.repeat(b - a) + s.slice(b), line)
+  blankRanges(line, codeRanges(line, Lexer.lexInline(line)).filter(([a, b]) => line.slice(a, b).startsWith('`')))
 
 /** 术语表：每张表每一行的第一格算词条；格子里用「、」「/」分开的几种写法各算一个，反引号、书名号里的也各算一个 */
 export function glossaryTerms(text: string): Set<string> {
@@ -126,18 +135,25 @@ export function lineHits(raw: string, known: JargonKnown): LineHit[] {
 
 /**
  * 整次改动：`added` 是「文件 → 新加的行号」（`field-use-rule.ts` 的 `addedLines` 读出来的），
- * `read` 按路径交回文件现在的全文。只看 `.md`；围栏与注释里的行不算。
+ * `read` 按路径交回文件现在的全文，读不到交回那个错。只看 `.md`。
+ * 整份交给解析器（`codeRanges`）先把代码块、行内代码（含跨行的）、HTML 与注释换成空格，再一行行看新加的那几行 ——
+ * 一行一行单看，跨行的行内代码、注释就认不出来。有新加的行却读不到的那一份记进 `unread`（不当成没东西可报）。
  */
-export function jargonHits(added: ReadonlyMap<string, ReadonlySet<number>>, read: (file: string) => string, known: JargonKnown): JargonHit[] {
-  const out: JargonHit[] = []
+export function jargonHits(added: ReadonlyMap<string, ReadonlySet<number>>, read: (file: string) => string | Error, known: JargonKnown): { hits: JargonHit[]; unread: string[] } {
+  const hits: JargonHit[] = [], unread: string[] = []
   for (const file of [...added.keys()].filter(f => f.endsWith('.md')).sort()) {
-    const text = read(file), lines = text.split('\n'), mask = quotedMask(text)
-    for (const n of [...added.get(file)!].sort((a, b) => a - b)) {
-      if (mask[n - 1] || lines[n - 1] === undefined) continue
-      for (const h of lineHits(lines[n - 1], known)) out.push({ file: file, line: n, kind: h.kind, word: h.word })
+    const ns = [...added.get(file)!].sort((a, b) => a - b)
+    if (ns.length === 0) continue
+    const got = read(file)
+    if (got instanceof Error) { unread.push(`${file}（读不到：${got.message.split('\n')[0]}）`); continue }
+    const text = got.replace(/\r\n?/g, '\n')
+    const lines = blankRanges(text, codeRanges(text, marked.lexer(text, { gfm: true }))).split('\n')
+    for (const n of ns) {
+      if (lines[n - 1] === undefined || lines[n - 1].trim() === '') continue
+      for (const h of lineHits(lines[n - 1], known)) hits.push({ file: file, line: n, kind: h.kind, word: h.word })
     }
   }
-  return out
+  return { hits, unread }
 }
 
 /**
