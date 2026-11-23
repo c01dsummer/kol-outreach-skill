@@ -239,12 +239,11 @@ const miswired = (): string[] => muts.flatMap(m => {
 // 绿或红都不算数（ADR-70「两处接缝」第二条）。**整条判据都在 `verifier-rule.ts`**，
 // 连遍历也在：递归到多深是判定，不是 I/O（评审指出）—— 留在入口的话，「少走一层」
 // 这种坏法没有任何断言够得着，而闭包缩小的那一头是放行。入口只出一个读法。
-let infraSize = 0
-const selfVerified = (): string[] => {
-  const infra = infraClosure(f => existsSync(f) ? readFileSync(f, 'utf8') : undefined)
-  infraSize = infra.length
-  return muts.filter(m => selfVerifying(m, infra)).map(m => `${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`)
-}
+// 闭包用到才建、只建一次：报错那句的文件数也从它来，不靠哪一道先跑过
+let infraBuilt: string[] | undefined
+const infraOf = (): string[] => infraBuilt ??= infraClosure(f => existsSync(f) ? readFileSync(f, 'utf8') : undefined)
+const selfVerified = (): string[] => muts.filter(m => selfVerifying(m, infraOf()))
+  .map(m => `${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`)
 
 // 点的那些夹具真的在，而且各自只有一条叫那个名字 —— 判据在 `mutate-rule.ts` 的
 // `labelsOf` / `labelFault`。**扫源码也是判定**（`mutate-restore.ts` 判字面形状那条的同一路数）：
@@ -301,7 +300,7 @@ if (precheck?.step === 'wiring') {
 if (precheck?.step === 'self-verify') {
   exitWith(1, `✗ 变异集：${precheck.faults.length} 条在自己验自己 —— 它们的绿或红都不算数\n`,
     ...precheck.faults.map(w => `  ${w}`),
-    `\n  验证基础设施闭包共 ${infraSize} 个文件。要么把变异挪到被测对象上，要么让缺省那个验证者来验它。`)
+    `\n  验证基础设施闭包共 ${infraOf().length} 个文件。要么把变异挪到被测对象上，要么让缺省那个验证者来验它。`)
 }
 if (precheck?.step === 'labels') {
   exitWith(1, `✗ 变异集：${precheck.faults.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`,

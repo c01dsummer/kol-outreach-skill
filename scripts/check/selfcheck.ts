@@ -8202,6 +8202,11 @@ group('self-verify', [], () => {
     // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
   } else if (!selfVer.includes('在自己验自己')) {
     failed++; console.error('  ✗ mutate 没报出「这条变异在自己验自己」')
+  } else if (!selfVer.includes('M-X-e  改的 scripts/check/leaf.ts 是 selfcheck 自己要用的东西')) {
+    // 标题对、底下列的却是别一道的毛病：入口把三道交给判定时交错了位置（ADR-238）
+    failed++; console.error('  ✗ mutate 在「自己验自己」底下列的不是那条变异改了验证者自己要用的文件')
+  } else if (!/验证基础设施闭包共 [1-9][0-9]* 个文件/.test(selfVer)) {
+    failed++; console.error('  ✗ mutate 报的验证基础设施闭包文件数不是正数')
   }
 })
 
@@ -8353,6 +8358,9 @@ group('mutate-kills-fixture-unresolved', [], () => {
     failed++; console.error('  ✗ mutate 没报出「点的夹具不在清册里」')
   } else if (!badKills.includes('不止一条夹具叫')) {
     failed++; console.error('  ✗ mutate 没报出「点的那个名字有重名」')
+  } else if (!badKills.includes('条点的夹具立不住')) {
+    // 底下列的对、标题却是别一道的：入口把三道交给判定时交错了位置（ADR-238）
+    failed++; console.error('  ✗ mutate 把点不着夹具报在了别一道的标题底下')
   }
 })
 
