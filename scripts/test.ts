@@ -59,7 +59,7 @@ import {
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitFaults, exitRace,
   judgeRun, killsMatched,
   labelFault, notAssertion,
-  labelFaults,
+  labelFaults, firstPrecheckFault,
   groupOfLabel, labelsOf, leadWired, processFailed, unmarkedDiagnostics, wiringFault,
   anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, batchBlobs, notARepo, stagedResidue,
 } from './check/mutate-rule.js'
@@ -5707,6 +5707,12 @@ suite('P1', '作品那一列：没问过作品不得显示成「文案是空的�
      desc({ recent_posts: [
        { desc: 'low', plays: 1 }, { desc: 'top', plays: 9 }, { desc: 'last', plays: 3 },
      ] }), 'top')
+  eq('没查到播放数的排在真实 0 后面 → 挑有数字的那条',
+     desc({ recent_posts: [{ desc: 'unknown' }, { desc: 'zero', plays: 0 }] }), 'zero')
+  eq('播放数算坏成 NaN 也算没查到 → 挑有数字的那条',
+     desc({ recent_posts: [{ desc: 'broken', plays: NaN }, { desc: 'five', plays: 5 }] }), 'five')
+  eq('供应商透传的 null 也算没查到 → 排在真实 0 后面',
+     desc({ recent_posts: [{ desc: 'null', plays: null as unknown as number }, { desc: 'zero', plays: 0 }] }), 'zero')
 
   // 补齐：同一个人先从兜底路径进来（没作品），后来被别的词从 reels 搜到（带作品）
   const t = { keyword: 'k', dimension: 'scene', platform: 'instagram' } as any
@@ -9795,6 +9801,39 @@ await group('h-claims-restore', () => {
 
 await group('h-mutate', () => {
 // 预期来自独立 oracle；宿主控制和断言不以被测判定给自己打分。
+harness('开跑前三道体检的先后：接线 → 自己验自己 → 点的夹具，见了第一道毛病就不再往下问（ADR-238）')
+{
+  // 每一道记下自己被问过没有；第三道在前面有毛病时被问到就抛 —— 入口里它拿到不认得的验证者正是这样
+  const asked: string[] = []
+  const step = (name: string, faults: string[], throwIfAsked = false) => () => {
+    asked.push(name)
+    if (throwIfAsked) throw new Error(`${name} 不该被问到`)
+    return faults
+  }
+  let all: ReturnType<typeof firstPrecheckFault<string>> | 'threw'
+  try {
+    all = firstPrecheckFault({ wiring: step('接线', ['甲']), 'self-verify': step('自己验自己', ['乙']), labels: step('夹具', ['丙'], true) })
+  } catch { all = 'threw' }
+  ok('三道体检先后：三道都有毛病时交回接线那一道', all !== 'threw' && all?.step === 'wiring')
+  ok('三道体检先后：交回的是接线那一道自己的毛病', all !== 'threw' && JSON.stringify(all?.faults) === '["甲"]')
+  ok('三道体检先后：接线有毛病就不再问后两道', JSON.stringify(asked) === '["接线"]')
+
+  asked.length = 0
+  let mid: ReturnType<typeof firstPrecheckFault<string>> | 'threw'
+  try {
+    mid = firstPrecheckFault({ wiring: step('接线', []), 'self-verify': step('自己验自己', ['乙']), labels: step('夹具', ['丙'], true) })
+  } catch { mid = 'threw' }
+  ok('三道体检先后：接线没毛病、后两道都有时交回自己验自己', mid !== 'threw' && mid?.step === 'self-verify')
+  ok('三道体检先后：自己验自己有毛病就不再问点的夹具', JSON.stringify(asked) === '["接线","自己验自己"]')
+
+  asked.length = 0
+  const last = firstPrecheckFault({ wiring: step('接线', []), 'self-verify': step('自己验自己', []), labels: step('夹具', ['丙']) })
+  ok('三道体检先后：只有点的夹具有毛病时交回它', last?.step === 'labels' && JSON.stringify(last.faults) === '["丙"]')
+  asked.length = 0
+  const none = firstPrecheckFault({ wiring: step('接线', []), 'self-verify': step('自己验自己', []), labels: step('夹具', []) })
+  ok('三道体检先后：三道都没毛病交回 undefined，三道都问过', none === undefined && JSON.stringify(asked) === '["接线","自己验自己","夹具"]')
+}
+
 harness('工具选跑：真实调用与无资格证据分开')
 {
   let normalWiring = false
