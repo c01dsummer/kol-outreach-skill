@@ -8,13 +8,16 @@
  *
  * - **引用** = 一行里的 `ADR-<编号>`。斜杠接写的 `ADR-16/17/23` 每个编号各算一次；
  *   别的简写（`ADR-97、99`、「第 97 条」）不认。编号按数比，`ADR-8` 与 `ADR-08` 是同一条
- * - **按文件去重**：一条记录引另一条十次，也只算一条
+ * - **按引用方的记录编号去重**：一条记录引另一条十次，也只算一条；主文件与历史文件算同一条（见下面「拆过的记录算一条」）
  * - **排自引**：记录提到自己的编号不算
  * - **过引文遮罩**：围栏代码块与 HTML 注释里的不算（`quoted.ts`）
  * - **欠条块里的单列**：块的定界与孤儿闸门是同一份（`debt-rule.ts` 的 `iouBlocks`）。
  *   主计数只数在块外引过它的记录；只在块里引过它的另成一栏，两栏加起来就是引过它的记录数。
  *   块头要以「⚠️ 欠条」开头 —— 「⚠️ 某日，那张又响了 … · 重启条件：…」那种重挂写法不算欠条块，
  *   块里的引用进主计数（与孤儿闸门同一个定义；量出来的效果记在 ADR-151 历史文件的第七节）
+ * - **状态行里的也单列**：`⚠️ 已还／收尾／已重挂／续挂：ADR-N …` 那一行（`debt-rule.ts` 的 `isStatusLine`，
+ *   与台账同一个认法）是记账，和欠条块里的引用同类 —— 「现行的是 ADR-X「…」」不该把 ADR-X 算成被引一次
+ *   （ADR-167 历史文件第四节第 1 小节）。只看状态行那一行本身，续写到下一行的不算
  * - **只认 `ADR-<编号>-<标题>.md` 这些文件**（`adr-rule.ts` 的 `FILE_RE`），引用方与被引方都是。
  *   索引 `README.md` 把每条都列一遍，算进来的话每条都白多一；引到目录里没有的编号，不进表
  * - **教训栏**：有一行以 `##`／`###` 加「教训」开头（节标题前可以带「四、」这样的序号），或以 `- `
@@ -25,7 +28,7 @@
  */
 import { basename } from 'node:path'
 import { FILE_RE } from './adr-rule.js'
-import { iouBlocks, isHistory } from './debt-rule.js'
+import { iouBlocks, isHistory, isStatusLine } from './debt-rule.js'
 import { quotedMask } from './quoted.js'
 
 const REF = /ADR-(\d+)((?:\/\d+)*)/g
@@ -34,9 +37,9 @@ const LESSON = /^#{2,3}\s*(?:[一二三四五六七八九十百]+、\s*)?教训|
 export interface CiteRow {
   file: string
   no: number
-  /** 在欠条块外引过它的别的记录数 */
+  /** 在欠条块与状态行之外引过它的别的记录数 */
   cited: number
-  /** 只在欠条块里引过它的别的记录数 */
+  /** 只在欠条块或状态行里引过它的别的记录数 */
   iouOnly: number
   lesson: boolean
 }
@@ -67,6 +70,7 @@ export function citeTable(docs: Map<string, string>): CiteRow[] {
     const quoted = quotedMask(text)
     const inIou = lines.map(() => false)
     for (const { start, end } of iouBlocks(lines, quoted)) for (let k = start; k < end; k++) inIou[k] = true
+    lines.forEach((line, k) => { if (isStatusLine(line)) inIou[k] = true })
     lines.forEach((line, i) => {
       if (quoted[i]) return
       if (LESSON.test(line)) lessons.add(self)
@@ -105,7 +109,7 @@ export function citeSummary(rows: CiteRow[]): string {
 /** `npm run adr-ledger -- --cites` 打的全表：一条一行、空一行、末尾汇总。 */
 export function citeReport(rows: CiteRow[]): string[] {
   return [
-    ...rows.map(r => `${r.file}  被引 ${r.cited} · 只在欠条块里引 ${r.iouOnly} · ${r.lesson ? '有' : '无'}教训栏`),
+    ...rows.map(r => `${r.file}  被引 ${r.cited} · 只在欠条块或状态行里引 ${r.iouOnly} · ${r.lesson ? '有' : '无'}教训栏`),
     '',
     `  ${citeSummary(rows)}`,
   ]

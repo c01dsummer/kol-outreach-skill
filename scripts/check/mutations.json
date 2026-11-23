@@ -7879,12 +7879,12 @@
       "id": "M-H41-c",
       "req": "harness",
       "file": "scripts/check/debt-rule.ts",
-      "why": "汇总末尾那句限定被拿掉 —— 台账并不知道哪一条已经还了，去掉限定之后那个条数读起来就是「还欠着这么多」，而它其实只是「抽到了这么多」",
-      "find": "` —— 只抽取，不判已还、也不判这次改动踩到了谁`",
+      "why": "汇总末尾那句限定被拿掉 —— 状态是照人写的状态行读的，去掉限定之后「开着」读起来就是「条件还没响」、「已还」读起来就是「核过真还了」，而台账两样都没判",
+      "find": "` —— 状态照人写的状态行读，不判条件成没成立、也不判这次改动踩到了谁`",
       "replace": "''",
       "by": "test",
       "kills": [
-        "汇总要写明不判已还"
+        "汇总要写明状态照人写的状态行读、不判条件"
       ]
     },
     {
@@ -7908,7 +7908,7 @@
       "replace": "",
       "by": "test",
       "kills": [
-        "全表：条目一行、孤儿另标一行、空一行、末尾汇总"
+        "全表：条目带状态一行、配不上的状态行与孤儿另标一行、空一行、末尾汇总"
       ]
     },
     {
@@ -28704,25 +28704,27 @@
     {
       "id": "M-H196-h",
       "req": "harness",
-      "file": "scripts/check/debt-touch-rule.ts",
+      "file": "scripts/check/debt-rule.ts",
       "why": "围栏里演示状态行写法的那几行也被当成真的状态行 —— 一张开着的欠条被一段示例「关」掉，从提醒里消失，而漏报正是这条提醒失效的意思",
-      "find": "      if (quoted[i]) return\n      for (const m of line.matchAll(CLOSING))",
-      "replace": "      for (const m of line.matchAll(CLOSING))",
+      "find": "      if (quoted[i]) return\n      for (const st of statusesIn(line))",
+      "replace": "      for (const st of statusesIn(line))",
       "by": "test",
       "kills": [
-        "围栏里演示的状态行不算"
+        "围栏里演示的状态行不算",
+        "围栏里演示的状态行不抽"
       ]
     },
     {
       "id": "M-H196-i",
       "req": "harness",
-      "file": "scripts/check/debt-touch-rule.ts",
+      "file": "scripts/check/debt-rule.ts",
       "why": "状态行只认已还、已重挂，不认收尾 —— 需求所有者定了不做的欠条照样当开着列出来",
-      "find": "export const CLOSING = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾)",
-      "replace": "export const CLOSING = /⚠️\\s*\\*{0,2}(已还|已重挂)",
+      "find": "export const STATUS_BY_LINE = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾|续挂)",
+      "replace": "export const STATUS_BY_LINE = /⚠️\\s*\\*{0,2}(已还|已重挂|续挂)",
       "by": "test",
       "kills": [
-        "状态行的键：已还、已重挂、收尾三种都认"
+        "状态行的键：已还、已重挂、收尾三种都认",
+        "四种状态行都抽得出，键是记录加行号或记录加名字"
       ]
     },
     {
@@ -29079,27 +29081,29 @@
     {
       "id": "M-H211-g",
       "req": "harness",
-      "file": "scripts/check/debt-touch-rule.ts",
+      "file": "scripts/check/debt-rule.ts",
       "why": "按短名字写的状态行不认 —— 欠条挪进历史文件、行号全变以后，已经还了的欠条照样被当成开着的反复提醒",
-      "find": "      for (const m of line.matchAll(CLOSING_BY_NAME)) out.add(recordKey(Number(m[2]), m[3].trim()))\n",
+      "find": "    ...[...line.matchAll(STATUS_BY_NAME)].map(m => ({ at: m.index, kind: m[1] as Status, key: recordKey(Number(m[2]), m[3].trim()) })),\n",
       "replace": "",
       "by": "test",
       "kills": [
         "状态行按短名字指：三种都认，键是记录加名字",
-        "挪进历史文件的欠条，按名字关上：不列，只计数"
+        "挪进历史文件的欠条，按名字关上：不列，只计数",
+        "按名字关上"
       ]
     },
     {
       "id": "M-H211-h",
       "req": "harness",
-      "file": "scripts/check/debt-touch-rule.ts",
+      "file": "scripts/check/debt-rule.ts",
       "why": "拆过的记录，主文件的条目照旧给行号键 —— 主文件重写后第 M 行恰好是另一张开着的欠条时，一行指旧正文第 M 行的老状态行就把它静默算成已关、不再提醒",
       "find": "  if (!isHistory(e.file) && split.has(num)) return null\n",
       "replace": "",
       "by": "test",
       "kills": [
         "行号键：没拆过的主文件、拆过的历史文件有，拆过的主文件没有",
-        "拆过的记录：老状态行按行号关的是历史文件那张，不顺带关上主文件同一行号的那张"
+        "拆过的记录：老状态行按行号关的是历史文件那张，不顺带关上主文件同一行号的那张",
+        "拆过的记录：按行号的状态行只配历史文件那张"
       ]
     },
     {
@@ -29129,10 +29133,10 @@
     {
       "id": "M-H211-k",
       "req": "harness",
-      "file": "scripts/check/debt-touch-rule.ts",
+      "file": "scripts/check/debt-rule.ts",
       "why": "两张欠条没隔开时，后一张的条目拿到前一张的短名字 —— 按名字关上前一张，后一张开着的欠条也不再提醒",
-      "find": "      const block = blocks.filter(b => b.start <= i && i < b.end).at(-1)",
-      "replace": "      const block = blocks.find(b => b.start <= i && i < b.end)",
+      "find": "  return blocks.filter(b => b.start <= i && i < b.end).at(-1)",
+      "replace": "  return blocks.find(b => b.start <= i && i < b.end)",
       "by": "test",
       "kills": [
         "两张没隔开的欠条各拿自己的名字",
@@ -29653,13 +29657,14 @@
     {
       "id": "M-H211-o",
       "req": "harness",
-      "file": "scripts/check/debt-touch-rule.ts",
+      "file": "scripts/check/debt-rule.ts",
       "why": "按名字写的「收尾」状态行不认 —— 需求所有者定了不做、已收尾的欠条照样被当成开着的反复提醒",
-      "find": "export const CLOSING_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾)",
-      "replace": "export const CLOSING_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂)",
+      "find": "export const STATUS_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾|续挂)",
+      "replace": "export const STATUS_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂|续挂)",
       "by": "test",
       "kills": [
-        "状态行按短名字指：三种都认，键是记录加名字"
+        "状态行按短名字指：三种都认，键是记录加名字",
+        "按名字关上"
       ]
     },
     {
@@ -29672,6 +29677,229 @@
       "by": "test",
       "kills": [
         "拆过的记录主文件里没起名字的欠条：报一条；历史文件里、没拆过的记录里没名字的不报"
+      ]
+    },
+    {
+      "id": "M-H167-a",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "状态行不认续挂 —— 条件响了、这次还不了的那张，台账看不出它续挂过，「续挂只许一次」从此没有东西数得出",
+      "find": "export const STATUS_BY_LINE = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾|续挂)",
+      "replace": "export const STATUS_BY_LINE = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾)",
+      "by": "test",
+      "kills": [
+        "四种状态行都抽得出，键是记录加行号或记录加名字",
+        "只有续挂行：算续挂，仍开着"
+      ]
+    },
+    {
+      "id": "M-H167-b",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "续挂过、后来又还上的那张，状态取最先写下的那一行 —— 一行续挂盖住后来的已还，关上的欠条照旧报成开着",
+      "find": "      const closing = found.find(s => CLOSED_KINDS.has(s.kind))",
+      "replace": "      const closing = found[0]",
+      "by": "test",
+      "kills": [
+        "续挂过、后来还上：算已还"
+      ]
+    },
+    {
+      "id": "M-H167-c",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "死亡条件与重开讨论也收状态行 —— 指到它们的状态行被当成配上了，不再单列，读的人看不见那一行指错了地方",
+      "find": "      if (entry.notation !== '重启条件') { list.push({ entry, status: null }); continue }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "配不上的状态行单列：指到死亡条件、指到不存在的行、名字对不上",
+        "死亡条件没有状态栏，重启条件照旧开着"
+      ]
+    },
+    {
+      "id": "M-H167-d",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "台账只按行号配、不按短名字配 —— 按名字写的状态行（新写的都是这种）形同没写，已关的欠条照旧报成开着",
+      "find": "      const found = [entryKey(entry, split), nameKey(file, name)].flatMap(",
+      "replace": "      const found = [entryKey(entry, split)].flatMap(",
+      "by": "test",
+      "kills": [
+        "按名字关上"
+      ]
+    },
+    {
+      "id": "M-H167-e",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "配不上的状态行静默丢掉 —— 一行指错了行号的已还没人看得见，它想关的那张照旧开着，也没人知道为什么",
+      "find": "  return { rows: list, unmatched: all.filter(s => !used.has(s)) }",
+      "replace": "  return { rows: list, unmatched: [] }",
+      "by": "test",
+      "kills": [
+        "配不上的状态行单列：指到死亡条件、指到不存在的行、名字对不上",
+        "汇总：开着（含续挂）、三种关法各几条、配不上的几行"
+      ]
+    },
+    {
+      "id": "M-H167-f",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "「开着」不算续挂的 —— 续挂的那张仍没还，从开着的条数里漏掉，积压看起来比实际少",
+      "find": "${s('开着') + s('续挂')}（其中续挂",
+      "replace": "${s('开着')}（其中续挂",
+      "by": "test",
+      "kills": [
+        "汇总：开着（含续挂）、三种关法各几条、配不上的几行"
+      ]
+    },
+    {
+      "id": "M-H167-g",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "全表不列配不上的状态行 —— 汇总里报了几行，全表里却找不到是哪几行",
+      "find": "    ...ledger.unmatched.map(s => `${s.file}:${s.line}  [状态行配不上·${s.kind}]  ${s.text}`),\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "全表：条目带状态一行、配不上的状态行与孤儿另标一行、空一行、末尾汇总"
+      ]
+    },
+    {
+      "id": "M-H167-h",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "被引表不单列状态行里的引用 —— 「现行的是 ADR-X」这种记账把 ADR-X 算成被引一次，被引多的前列里混进只是被记账点到的记录",
+      "find": "    lines.forEach((line, k) => { if (isStatusLine(line)) inIou[k] = true })\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "只在状态行里引的不进主计数、另成一栏",
+        "按名字写的状态行里引的也单列，状态行之后的正文照常算"
+      ]
+    },
+    {
+      "id": "M-H167-i",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "点名提醒把续挂当成关上 —— 条件响了、这次还不了的那张从提醒里消失，而它仍欠着",
+      "find": "statusLines(docs).filter(s => CLOSED_KINDS.has(s.kind))",
+      "replace": "statusLines(docs)",
+      "by": "test",
+      "kills": [
+        "续挂不算关上"
+      ]
+    },
+    {
+      "id": "M-H167-j",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "状态行的行号差一 —— 全表里「状态行配不上」那一行指到它上面一行，读的人照着找找不到",
+      "find": "out.push({ file, line: i + 1, kind:",
+      "replace": "out.push({ file, line: i, kind:",
+      "by": "test",
+      "kills": [
+        "一行状态行抽出来的五样：文件、行号、种类、键、去掉装饰的原文",
+        "四种状态行都抽得出，键是记录加行号或记录加名字"
+      ]
+    },
+    {
+      "id": "M-H167-k",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "状态行的原文不去 Markdown 装饰 —— 全表里那一行带着引用记号与加粗，和条目那几行的写法对不上",
+      "find": "key, text: plain(line) })",
+      "replace": "key, text: line })",
+      "by": "test",
+      "kills": [
+        "一行状态行抽出来的五样：文件、行号、种类、键、去掉装饰的原文"
+      ]
+    },
+    {
+      "id": "M-H167-l",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "状态行丢了所在的文件 —— 配不上的那一行在全表里只剩行号，不知道去哪一份找",
+      "find": "for (const st of statusesIn(line)) out.push({ file, line: i + 1,",
+      "replace": "for (const st of statusesIn(line)) out.push({ line: i + 1,",
+      "by": "test",
+      "kills": [
+        "一行状态行抽出来的五样：文件、行号、种类、键、去掉装饰的原文"
+      ]
+    },
+    {
+      "id": "M-H167-m",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "状态行的种类一律记成已还 —— 续挂、收尾、已重挂分不出来，续挂的那张被当成关上",
+      "find": "kind: st.kind,",
+      "replace": "kind: '已还' as Status,",
+      "by": "test",
+      "kills": [
+        "一行状态行抽出来的五样：文件、行号、种类、键、去掉装饰的原文",
+        "只有续挂行：算续挂，仍开着"
+      ]
+    },
+    {
+      "id": "M-H167-n",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "状态行指到哪一张的键丢了 —— 一行状态行也配不上，已关的欠条全被报成开着",
+      "find": "key: st.key,",
+      "replace": "key: '',",
+      "by": "test",
+      "kills": [
+        "一行状态行抽出来的五样：文件、行号、种类、键、去掉装饰的原文",
+        "按行号关、按名字关、没有状态行的照旧开着"
+      ]
+    },
+    {
+      "id": "M-H167-o",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "台账少了一条 —— 全表与汇总都少数，读的人看不出少了哪一条",
+      "find": "  return { rows: list, unmatched",
+      "replace": "  return { rows: [], unmatched",
+      "by": "test",
+      "kills": [
+        "按行号关、按名字关、没有状态行的照旧开着"
+      ]
+    },
+    {
+      "id": "M-H167-p",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "按名字写的状态行不认续挂 —— 新写的续挂行都按名字写，台账看不出那张续挂过",
+      "find": "export const STATUS_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾|续挂)",
+      "replace": "export const STATUS_BY_NAME = /⚠️\\s*\\*{0,2}(已还|已重挂|收尾)",
+      "by": "test",
+      "kills": [
+        "四种状态行都抽得出，键是记录加行号或记录加名字"
+      ]
+    },
+    {
+      "id": "M-H167-q",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "几行关法并存时取最后一行 —— 同一张欠条的种类随写法先后翻来翻去，和说明里「取排在最前的那一行」对不上",
+      "find": "      const closing = found.find(s => CLOSED_KINDS.has(s.kind))",
+      "replace": "      const closing = found.findLast(s => CLOSED_KINDS.has(s.kind))",
+      "by": "test",
+      "kills": [
+        "几行关法并存：取排在最前的那一行，按名字指的也一起排"
+      ]
+    },
+    {
+      "id": "M-H167-r",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "按行号指的与按名字指的不放在一起排 —— 按行号的永远排在前面，种类取的不是排在最前的那一行",
+      "find": "        .sort((a, b) => order.get(a)! - order.get(b)!)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "几行关法并存：取排在最前的那一行，按名字指的也一起排"
       ]
     },
     {
