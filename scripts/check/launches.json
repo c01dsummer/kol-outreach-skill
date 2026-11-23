@@ -140,6 +140,7 @@
     {"config":"[\"test\",[\"h-admission\"]]","launches":0,"maxPaid":null,"running":72,"stopping":0},
     {"config":"[\"test\",[\"h-admission-exit-code\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-adr-fact-table\"]]","launches":0,"maxPaid":null,"running":27,"stopping":0},
+    {"config":"[\"test\",[\"h-adr-plain-index\"]]","launches":0,"maxPaid":null,"running":17,"stopping":0},
     {"config":"[\"test\",[\"h-blackbox-many-task-files\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-check-rules\"]]","launches":0,"maxPaid":null,"running":212,"stopping":0},
     {"config":"[\"test\",[\"h-child-process-entry\",\"h-child-process-judge\"]]","launches":12,"maxPaid":null,"running":3,"stopping":0},

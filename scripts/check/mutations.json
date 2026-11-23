@@ -33408,8 +33408,8 @@
       "req": "harness",
       "why": "没有表头也放过 —— 表格读不成表",
       "file": "scripts/check/adr-plain-index.ts",
-      "find": "if (!lines.some((l, i) =>",
-      "replace": "if (false && !lines.some((l, i) =>",
+      "find": "  if (head === -1) faults.push(",
+      "replace": "  if (false) faults.push(",
       "by": "test",
       "kills": [
         "白话目录：没有表头报红"
@@ -33449,6 +33449,90 @@
       "by": "test",
       "kills": [
         "白话目录：npm run adr 里查得到，缺一行就红"
+      ]
+    },
+    {
+      "id": "M-H236-k",
+      "req": "harness",
+      "why": "目录里写了 HTML 注释也不报 —— 行尾挂个注释，那一行就从核对里消失，重复或多出的行查不到",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (text.includes('<!--')) faults.push",
+      "replace": "if (false) faults.push",
+      "by": "test",
+      "kills": [
+        "白话目录：行尾挂 HTML 注释报红，不让那一行逃过核对"
+      ]
+    },
+    {
+      "id": "M-H236-l",
+      "req": "harness",
+      "why": "表头下少了分隔行不报 —— 那不是一张表，读的人看到的是一堆竖线",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "else if (!SEPARATOR_RE.test(",
+      "replace": "else if (false && !SEPARATOR_RE.test(",
+      "by": "test",
+      "kills": [
+        "白话目录：表头下少了分隔行报红，点出行号"
+      ]
+    },
+    {
+      "id": "M-H236-m",
+      "req": "harness",
+      "why": "表头之前写的行也当目录行 —— 说明文字里一行看着像目录行，就冒充了那份记录",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (head !== -1 && i < head) faults.push",
+      "replace": "if (false) faults.push",
+      "by": "test",
+      "kills": [
+        "白话目录：表头之前的行不算目录里的行，报红"
+      ]
+    },
+    {
+      "id": "M-H236-n",
+      "req": "harness",
+      "why": "只写了占位（&nbsp;、<br>、一个横线）的格子当成写了 —— 看着有字，其实什么都没说",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "['', '-', '—', '–'].includes(c.replace(/&nbsp;|<br\\s*\\/?>/gi, '').trim())",
+      "replace": "c.trim() === ''",
+      "by": "test",
+      "kills": [
+        "白话目录：只写占位（&nbsp;、<br>、一个横线）的格子算空，三行各报一次"
+      ]
+    },
+    {
+      "id": "M-H236-o",
+      "req": "harness",
+      "why": "格子比四格多也不报 —— 格子里没转义的竖线把一句话切成两格，后半句跑进了别的栏",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "if (cells.length !== 4) faults.push",
+      "replace": "if (cells.length < 4) faults.push",
+      "by": "test",
+      "kills": [
+        "白话目录：多一格（格子里没转义的竖线）也报红，说出这一行几格"
+      ]
+    },
+    {
+      "id": "M-H236-p",
+      "req": "harness",
+      "why": "「定了什么」那一格空着不报 —— 只看后两格，最要紧的那句没写也是绿的",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "cells.slice(1).some(blankCell)",
+      "replace": "cells.slice(2).some(blankCell)",
+      "by": "test",
+      "kills": [
+        "白话目录：「定了什么」那一格空着也报红"
+      ]
+    },
+    {
+      "id": "M-H236-q",
+      "req": "harness",
+      "why": "围栏代码块里举例写的表头也当成表头 —— 真表头丢了也不报",
+      "file": "scripts/check/adr-plain-index.ts",
+      "find": "lines.findIndex((l, i) => !mask[i] && l.trim()",
+      "replace": "lines.findIndex((l, i) => l.trim()",
+      "by": "test",
+      "kills": [
+        "白话目录：围栏代码块里举例的表头不算表头"
       ]
     },
     {

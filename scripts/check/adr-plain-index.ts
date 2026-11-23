@@ -5,7 +5,9 @@
  * 编号与 `docs/adr/` 下的记录一一对应 —— 新记录没补那一行、目录里多出没有记录的一行、同一个编号写了两行，
  * 都报红；四格任何一格是空的也报红。写得白不白、说得对不对，仍由写的人和评审读（`docs/GLOSSARY.md` 那套白话规矩）。
  *
- * 引文（围栏代码块、HTML 注释）里的行不算，先过 `quotedMask`：说明里举的例子不当目录行。
+ * 围栏代码块里的行不算，先过 `quotedMask`：说明里举的例子不当目录行。目录里不许写 HTML 注释 ——
+ * `quotedMask` 遇到行尾注释会把整行当引文，一行目录行后面挂个注释就从核对里消失了。
+ * 目录行只认表头之后、紧跟分隔行的那张表；只写占位（`&nbsp;`、`<br>`、一个横线）的格子算空。
  */
 import { cellsOf } from './adr-fact-table.js'
 import { quotedMask } from './quoted.js'
@@ -14,6 +16,10 @@ import { quotedMask } from './quoted.js'
 export const PLAIN_INDEX_FILE = '白话目录.md'
 /** 表头一字不差 */
 export const PLAIN_INDEX_HEAD = '| 编号 | 定了什么 | 对用户有什么影响 | 还欠什么 |'
+/** 表头下面那一行：四格的分隔行 */
+const SEPARATOR_RE = /^\|(\s*:?-+:?\s*\|){4}$/
+/** 只写了占位、看着有字其实没写的格子 */
+const blankCell = (c: string): boolean => ['', '-', '—', '–'].includes(c.replace(/&nbsp;|<br\s*\/?>/gi, '').trim())
 /** 目录行：第一格是 `ADR-<编号>`（编号可带前导零，与记录文件名一致） */
 const ROW_RE = /^\|\s*ADR-(\d+)\s*\|/
 
@@ -26,9 +32,10 @@ export function plainIndexFaults(nums: readonly number[], text: string | undefin
   const faults: string[] = []
   const lines = text.split('\n')
   const mask = quotedMask(text)
-  if (!lines.some((l, i) => !mask[i] && l.trim() === PLAIN_INDEX_HEAD)) {
-    faults.push(`${PLAIN_INDEX_FILE} 里没有表头 \`${PLAIN_INDEX_HEAD}\``)
-  }
+  if (text.includes('<!--')) faults.push(`${PLAIN_INDEX_FILE} 里有 HTML 注释：目录里不许写注释，挂在行尾会让那一行逃过核对`)
+  const head = lines.findIndex((l, i) => !mask[i] && l.trim() === PLAIN_INDEX_HEAD)
+  if (head === -1) faults.push(`${PLAIN_INDEX_FILE} 里没有表头 \`${PLAIN_INDEX_HEAD}\``)
+  else if (!SEPARATOR_RE.test((lines[head + 1] ?? '').trim())) faults.push(`${PLAIN_INDEX_FILE} 第 ${head + 2} 行应是表头下的分隔行 \`|---|---|---|---|\``)
   const seen = new Map<number, number>()
   lines.forEach((line, i) => {
     if (mask[i]) return
@@ -36,12 +43,13 @@ export function plainIndexFaults(nums: readonly number[], text: string | undefin
     if (!m) return
     const num = Number(m[1])
     const where = `${PLAIN_INDEX_FILE} 第 ${i + 1} 行（ADR-${m[1]}）`
+    if (head !== -1 && i < head) faults.push(`${where} 在表头之前，不在目录表里`)
     const first = seen.get(num)
     if (first !== undefined) faults.push(`${where} 与第 ${first} 行是同一个编号，一份记录只写一行`)
     else seen.set(num, i + 1)
     const cells = cellsOf(line)
     if (cells.length !== 4) faults.push(`${where} 应是四格（编号、定了什么、对用户有什么影响、还欠什么），这一行是 ${cells.length} 格`)
-    else if (cells.slice(1).some(c => c.trim() === '')) faults.push(`${where} 有空格子：定了什么、对用户有什么影响、还欠什么三格都要写（没有就写「无」）`)
+    else if (cells.slice(1).some(blankCell)) faults.push(`${where} 有空格子（或只写了占位）：定了什么、对用户有什么影响、还欠什么三格都要写（没有就写「无」）`)
   })
   const have = new Set(nums)
   for (const n of [...have].sort((a, b) => a - b)) {
