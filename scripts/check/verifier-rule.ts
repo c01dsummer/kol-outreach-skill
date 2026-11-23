@@ -86,6 +86,7 @@ export const SELFCHECK_TOOLS = {
   admission: 'check/admission.ts',
   'shard-load': 'check/shard-load.ts',
   'shard-weights': 'check/shard-weights.ts',
+  'never-red': 'check/never-red.ts',
 } as const
 
 /**
