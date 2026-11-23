@@ -14,7 +14,7 @@
  * 和各份 Markdown 的标题（`headingTexts`）。代码块、行内代码、HTML 与注释里的字不算（整份交给解析器认，`codeRanges`）
  * —— 那是在演示写法，不是在用它。
  */
-import { Lexer, marked, type Token } from 'marked'
+import { Lexer, marked, type Token, type Tokens } from 'marked'
 import { addedLines } from './field-use-rule.js'
 import { quotedMask } from './quoted.js'
 
@@ -43,7 +43,9 @@ function codeRanges(text: string, tokens: readonly Token[]): [number, number][] 
   const walk = (list: readonly Token[], from: number, to: number): void => {
     let at = from
     for (const t of list) {
-      const kids = [...('tokens' in t && Array.isArray(t.tokens) ? t.tokens : []), ...('items' in t && Array.isArray(t.items) ? t.items : [])] as Token[]
+      // 表格的格子不在 tokens／items 里，在表头 header[] 与各行 rows[][] 的 tokens 里，按原文里的先后：表头从左到右，再一行一行
+      const cells = t.type === 'table' ? [...(t as Tokens.Table).header, ...(t as Tokens.Table).rows.flat()].flatMap(c => c.tokens) : []
+      const kids = [...('tokens' in t && Array.isArray(t.tokens) ? t.tokens : []), ...('items' in t && Array.isArray(t.items) ? t.items : []), ...cells] as Token[]
       const i = text.indexOf(t.raw, at)
       if (i < 0 || i + t.raw.length > to) continue
       if (t.type === 'codespan' || t.type === 'code' || t.type === 'html') out.push([i, i + t.raw.length])

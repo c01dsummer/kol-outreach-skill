@@ -34139,6 +34139,18 @@
       ]
     },
     {
+      "id": "M-H237-ba",
+      "req": "harness",
+      "why": "表格格子里的记号不往下走 —— 格子里注释中的写法被当成正文报出来",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": ", ...cells] as Token[]",
+      "replace": "] as Token[]",
+      "by": "test",
+      "kills": [
+        "整次改动：表格格子里注释中的不算，同一格子正文里的照报"
+      ]
+    },
+    {
       "id": "M-H236-r",
       "req": "harness",
       "why": "引用块、列表里套的表和行不报 —— 套一层就逃过核对",

@@ -27064,6 +27064,9 @@ await group('h-jargon', () => {
   eq('整次改动：整份交给解析器认 —— 跨行的行内代码、缩进代码块、跨行注释里的不算，同一行代码外的照报，引用块里不跨行的行内代码也认',
     jargonHits(new Map([['s.md', new Set([2, 3, 5, 8, 9, 10])]]), () => spanning, known).hits,
     [{ file: 's.md', line: 3, kind: '生词', word: '新词辛' }, { file: 's.md', line: 10, kind: '生词', word: '新词丑' }])
+  const table = '| 示例 |\n| --- |\n| <!-- ADR-1:2 --> |\n| 正文 ADR-1:2 |\n'
+  eq('整次改动：表格格子里注释中的不算，同一格子正文里的照报', jargonHits(new Map([['t.md', new Set([3, 4])]]), () => table, known).hits,
+    [{ file: 't.md', line: 4, kind: '行号引用', word: 'ADR-1:2' }])
   const unread = jargonHits(new Map([['gone.md', new Set<number>()], ['locked.md', new Set([1])]]), f => new Error(`${f} 没权限\n细节`), known)
   eq('整次改动：有新加的行却读不到的那一份记下来，不当成没东西可报；没有新加行的（删掉的）不读', [unread.hits, unread.unread], [[], ['locked.md（读不到：locked.md 没权限）']])
   eq('全文：每处一行带位置与种类，最后是汇总；没有时只有汇总', [jargonLines(hits)[0], jargonLines(hits).at(-1)?.includes('1 处生词、0 处行号引用、0 处没配白话的需求编号'), jargonLines([]).length, jargonSummary([]).includes('没有要配白话的写法')],
