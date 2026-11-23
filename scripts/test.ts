@@ -16691,7 +16691,7 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
       mkdirSync(dirname(join(root, 'docs', 'adr', f)), { recursive: true })
       writeFileSync(join(root, 'docs', 'adr', f), t)
     }
-    // 白话目录（ADR-235）：没单给时按主文件补齐，让这几条只看它们要看的那一件事
+    // 白话目录（ADR-236）：没单给时按主文件补齐，让这几条只看它们要看的那一件事
     if (!(PLAIN_INDEX_FILE in files)) {
       const rows = Object.keys(files).flatMap(f => { const m = /^ADR-(\d+)-/.exec(f); return m ? [`| ADR-${m[1]} | 甲 | 无 | 无 |`] : [] })
       writeFileSync(join(root, 'docs', 'adr', PLAIN_INDEX_FILE), [PLAIN_INDEX_HEAD, '|---|---|---|---|', ...rows, ''].join('\n'))
@@ -26619,7 +26619,7 @@ await group('h-adr-fact-table', () => {
 })
 
 await group('h-adr-plain-index', () => {
-  harness('决策记录白话目录：每份记录一行、编号一一对应、四格都填了（ADR-235）')
+  harness('决策记录白话目录：每份记录一行、编号一一对应、四格都填了（ADR-236）')
   const table = (...rows: string[]) => ['# 目录', '', PLAIN_INDEX_HEAD, '|---|---|---|---|', ...rows, ''].join('\n')
   const row = (n: string, a = '定了甲', b = '无', c = '无') => `| ADR-${n} | ${a} | ${b} | ${c} |`
   eq('白话目录：一一对应、格都填了时不报', plainIndexFaults([1, 2], table(row('01'), row('02'))), [])

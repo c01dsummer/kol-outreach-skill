@@ -33128,7 +33128,7 @@
       ]
     },
     {
-      "id": "M-H235-a",
+      "id": "M-H236-a",
       "req": "harness",
       "why": "白话目录文件不在时不报 —— 新仓库或误删了目录，没人知道每份记录少了白话那一行",
       "file": "scripts/check/adr-plain-index.ts",
@@ -33140,7 +33140,7 @@
       ]
     },
     {
-      "id": "M-H235-b",
+      "id": "M-H236-b",
       "req": "harness",
       "why": "同一个编号写了两行不报 —— 两行说法不一，读的人不知道信哪一行",
       "file": "scripts/check/adr-plain-index.ts",
@@ -33152,7 +33152,7 @@
       ]
     },
     {
-      "id": "M-H235-c",
+      "id": "M-H236-c",
       "req": "harness",
       "why": "新加的决策记录没补白话那一行也不报 —— 目录悄悄落后于记录",
       "file": "scripts/check/adr-plain-index.ts",
@@ -33164,7 +33164,7 @@
       ]
     },
     {
-      "id": "M-H235-d",
+      "id": "M-H236-d",
       "req": "harness",
       "why": "目录里多出没有记录的一行不报 —— 写错编号的那一行冒充别的记录",
       "file": "scripts/check/adr-plain-index.ts",
@@ -33176,7 +33176,7 @@
       ]
     },
     {
-      "id": "M-H235-e",
+      "id": "M-H236-e",
       "req": "harness",
       "why": "格子空着也放过 —— 「还欠什么」没写就当成没有欠",
       "file": "scripts/check/adr-plain-index.ts",
@@ -33188,7 +33188,7 @@
       ]
     },
     {
-      "id": "M-H235-f",
+      "id": "M-H236-f",
       "req": "harness",
       "why": "少一格也放过 —— 漏写一栏的行照样算数",
       "file": "scripts/check/adr-plain-index.ts",
@@ -33200,7 +33200,7 @@
       ]
     },
     {
-      "id": "M-H235-g",
+      "id": "M-H236-g",
       "req": "harness",
       "why": "没有表头也放过 —— 表格读不成表",
       "file": "scripts/check/adr-plain-index.ts",
@@ -33212,7 +33212,7 @@
       ]
     },
     {
-      "id": "M-H235-h",
+      "id": "M-H236-h",
       "req": "harness",
       "why": "说明里围栏中举例的行也当目录行 —— 举个例子就多出一行假记录",
       "file": "scripts/check/adr-plain-index.ts",
@@ -33224,7 +33224,7 @@
       ]
     },
     {
-      "id": "M-H235-i",
+      "id": "M-H236-i",
       "req": "harness",
       "why": "决策记录检查不再跳过目录文件 —— 白话目录被当成一份格式不对的记录报红",
       "file": "scripts/check/adr-rule.ts",
@@ -33236,7 +33236,7 @@
       ]
     },
     {
-      "id": "M-H235-j",
+      "id": "M-H236-j",
       "req": "harness",
       "why": "决策记录检查不核白话目录 —— 新记录漏补那一行，npm run adr 照样绿",
       "file": "scripts/check/adr-rule.ts",

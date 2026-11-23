@@ -1,5 +1,5 @@
 /**
- * 决策记录的白话目录（`docs/adr/白话目录.md`，ADR-235）：每份决策记录一行白话，原文不动。
+ * 决策记录的白话目录（`docs/adr/白话目录.md`，ADR-236）：每份决策记录一行白话，原文不动。
  *
  * 机器只管「一一对应、格都填了」：目录里每一行是 `| ADR-<编号> | 定了什么 | 对用户有什么影响 | 还欠什么 |`，
  * 编号与 `docs/adr/` 下的记录一一对应 —— 新记录没补那一行、目录里多出没有记录的一行、同一个编号写了两行，
@@ -22,7 +22,7 @@ const ROW_RE = /^\|\s*ADR-(\d+)\s*\|/
  * 返回每一处问题一句话；一一对应、格都填了时返回空数组。
  */
 export function plainIndexFaults(nums: readonly number[], text: string | undefined): string[] {
-  if (text === undefined) return [`缺少 docs/adr/${PLAIN_INDEX_FILE}（每份决策记录一行白话，ADR-235）`]
+  if (text === undefined) return [`缺少 docs/adr/${PLAIN_INDEX_FILE}（每份决策记录一行白话，ADR-236）`]
   const faults: string[] = []
   const lines = text.split('\n')
   const mask = quotedMask(text)

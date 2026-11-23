@@ -308,7 +308,7 @@ export function adrSync(root: string, write: boolean, ask?: GitAsk): { ok: boole
     errors.push(...factTableFaults(file, Number(h[1]), text))
   }
   errors.push(...checkAll(adrs))
-  // 每份记录在白话目录里有一行、格都填了（ADR-235）
+  // 每份记录在白话目录里有一行、格都填了（ADR-236）
   const plainPath = join(dir, PLAIN_INDEX_FILE)
   errors.push(...plainIndexFaults(adrs.map(a => a.num), existsSync(plainPath) ? readFileSync(plainPath, 'utf8') : undefined))
 
