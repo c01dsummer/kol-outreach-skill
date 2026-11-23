@@ -27049,6 +27049,9 @@ await group('h-jargon', () => {
     [[], [{ kind: '生词', word: '新词己' }], '甲 **' + ' '.repeat(3) + '** 丙'])
   eq('需求编号：外面套着加粗的，越过收尾记号再看配没配白话',
     [lineHits('**P2**（用户筛选条件）', known), lineHits('**P2** 要守', known)], [[], [{ kind: '没配白话的需求编号', word: 'P2' }]])
+  eq('需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认',
+    [lineHits('_P2_（用户筛选条件）', known), lineHits('_P2_ 要守', known), lineHits('foo_P2 与 P2_x 与 a_P2_b', known)],
+    [[], [{ kind: '没配白话的需求编号', word: 'P2' }], []])
   const diffOf = (f: string) => { if (f === 'bad.md') throw new Error('当成二进制\n第二行'); return `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -0,0 +1,2 @@\n+甲\n+乙\n` }
   const scan = addedMarkdown(['a.md', 'x.ts', 'bad.md'], diffOf)
   eq('扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因', [[...scan.added.keys()], [...(scan.added.get('a.md') ?? [])], scan.skipped], [['a.md'], [1, 2], ['bad.md（当成二进制）']])

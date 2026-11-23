@@ -101,7 +101,9 @@ export interface JargonKnown {
   readonly reqIds: ReadonlySet<string>
 }
 
-const ID_RE = /(?<![A-Za-z0-9_.\-])([PSDFU]\d+(?:\.[a-z]+\d*)?)(?![A-Za-z0-9_\-])/g
+// 编号两头不能连着字母数字（长在别的词里的不算）；下划线只在它另一头也连着字母数字时才算词的一部分，
+// 单独一根下划线是斜体记号（`_P2_`），照样认
+const ID_RE = /(?<![A-Za-z0-9.\-]|[A-Za-z0-9]_)([PSDFU]\d+(?:\.[a-z]+\d*)?)(?![A-Za-z0-9\-]|_[A-Za-z0-9])/g
 const GLOSSED = /^\s*[（(「：]/
 
 /** 一行里的提示（已去掉行内代码）。生词按出现先后、同一行同一个词只报一次。 */

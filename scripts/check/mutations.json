@@ -33710,7 +33710,7 @@
       "req": "harness",
       "why": "长在别的词里的也当需求编号（MP2 里的 P2）",
       "file": "scripts/check/jargon-rule.ts",
-      "find": "const ID_RE = /(?<![A-Za-z0-9_.\\-])",
+      "find": "const ID_RE = /(?<![A-Za-z0-9.\\-]|[A-Za-z0-9]_)",
       "replace": "const ID_RE = /",
       "by": "test",
       "kills": [
@@ -34016,6 +34016,42 @@
       "by": "test",
       "kills": [
         "扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因"
+      ]
+    },
+    {
+      "id": "M-H237-ap",
+      "req": "harness",
+      "why": "编号前头的下划线一律当成词的一部分 —— 斜体的 _P2_ 没配白话也不报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "(?<![A-Za-z0-9.\\-]|[A-Za-z0-9]_)",
+      "replace": "(?<![A-Za-z0-9_.\\-])",
+      "by": "test",
+      "kills": [
+        "需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认"
+      ]
+    },
+    {
+      "id": "M-H237-aq",
+      "req": "harness",
+      "why": "编号前头的下划线一律不算词的一部分 —— foo_P2 这种长在词里的也报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "(?<![A-Za-z0-9.\\-]|[A-Za-z0-9]_)",
+      "replace": "(?<![A-Za-z0-9.\\-])",
+      "by": "test",
+      "kills": [
+        "需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认"
+      ]
+    },
+    {
+      "id": "M-H237-ar",
+      "req": "harness",
+      "why": "编号后头的下划线一律不算词的一部分 —— P2_x 这种长在词里的也报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "(?![A-Za-z0-9\\-]|_[A-Za-z0-9])",
+      "replace": "(?![A-Za-z0-9\\-])",
+      "by": "test",
+      "kills": [
+        "需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认"
       ]
     },
     {
