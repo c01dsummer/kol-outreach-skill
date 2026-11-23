@@ -27074,7 +27074,7 @@ await group('h-jargon-entry', () => {
   harness('生词提示的入口：在玩具仓库里真起，列得出三种、CI 输出、无从比较各情形都以 0 退出')
   const entry = join(process.cwd(), 'scripts/check/jargon.ts')
   withToyRepo(toy => {
-    const run = (extra: Record<string, string> = {}) => cxSpawnSync(...tsxCommand([entry]), { cwd: toy.dir, encoding: 'utf8', timeout: 60_000, env: { ...fixtureEnv({}), GITHUB_ACTIONS: '', ...extra } })
+    const run = (extra: Record<string, string> = {}) => cxSpawnSync(...tsxCommand([entry]), { cwd: toy.dir, encoding: 'utf8', timeout: 60_000, env: { ...fixtureEnv({}), GITHUB_ACTIONS: '', SIZE_PR_BASE: '', ...extra } })
     toy.git('init', '-q', '-b', 'main')
     toy.write('docs/GLOSSARY.md', '| 词 | 白话 |\n|---|---|\n| 红线 | 五条需求 |\n')
     toy.write('docs/requirements.json', '{"requirements":[{"id":"P2","accept":[]}]}\n')
