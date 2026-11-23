@@ -29,6 +29,7 @@ import { prepareTaskReviews } from './lib/task-reviews.js'
  */
 
 import { configurationKey, costObservation, configurationCost, configurationCostLines, type CostInput, type CostIdentity, type CostRoute, type CostBaseline, type CostMutation, type CostSummary } from './check/jobs-rule.js'
+import { REDS_PART_NAME, type RedsPart, creditedReds, earlyStopWanted, mergeParts, neverRed, ranAssertions, readRedsPart, redsPartName } from './check/never-red-rule.js'
 import type { RunVerdict } from './check/mutate-rule.js'
 import { stopsEarly } from './check/mutate-rule.js'
 import {
@@ -104,6 +105,7 @@ import {
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import { FACT_TABLE_FROM, FACT_TABLE_HEAD, OLD_GAPS, cellsOf, factTableFaults } from './check/adr-fact-table.js'
+import { PLAIN_INDEX_FILE, PLAIN_INDEX_HEAD, plainIndexFaults } from './check/adr-plain-index.js'
 import {
   type ChainCommit, DOCS_BLOCK, type ReviewComment, type Round, type Spot, WAIVER_TABLE_HEAD, WHOLE_FILE, type Waiver as SpotWaiver,
   chainFrom, changedRecords, freshWaivers, codeSpots, docSpots, hitsOf, positionIn, roundsOf, sameSpot, spotText, spotsOf, waiversOf,
@@ -385,7 +387,9 @@ const GROUPS: readonly Group[] = [
   { id: 'h-child-process-stand-in', needs: [] },
   { id: 'h-child-process-stand-in-spies', needs: [] },
   { id: 'h-adr-fact-table', needs: [] },
+  { id: 'h-adr-plain-index', needs: [] },
   { id: 'h-same-spot', needs: [] },
+  { id: 'h-never-red', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -14050,8 +14054,8 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 按字符串排（admission < adr（第三个字符 m < r） < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/admission.ts', 'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
-    'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/observer-cert.ts', 'scripts/check/selfcheck.ts',
-    'scripts/check/shard-load.ts', 'scripts/check/shard-weights.ts', 'scripts/check/skill.ts',
+    'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/never-red.ts', 'scripts/check/observer-cert.ts',
+    'scripts/check/selfcheck.ts', 'scripts/check/shard-load.ts', 'scripts/check/shard-weights.ts', 'scripts/check/skill.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
@@ -16729,6 +16733,11 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
     for (const [f, t] of Object.entries(files)) {
       mkdirSync(dirname(join(root, 'docs', 'adr', f)), { recursive: true })
       writeFileSync(join(root, 'docs', 'adr', f), t)
+    }
+    // 白话目录（ADR-236）：没单给时按主文件补齐，让这几条只看它们要看的那一件事
+    if (!(PLAIN_INDEX_FILE in files)) {
+      const rows = Object.keys(files).flatMap(f => { const m = /^ADR-(\d+)-/.exec(f); return m ? [`| ADR-${m[1]} | 甲 | 无 | 无 |`] : [] })
+      writeFileSync(join(root, 'docs', 'adr', PLAIN_INDEX_FILE), [PLAIN_INDEX_HEAD, '|---|---|---|---|', ...rows, ''].join('\n'))
     }
     return root
   }
@@ -26978,8 +26987,81 @@ await group('h-adr-fact-table', () => {
     mkdirSync(join(root, 'docs', 'adr'), { recursive: true })
     writeFileSync(join(root, 'docs', 'adr', 'README.md'), '# 索引\n\n<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->\n<!-- END:GENERATED -->\n')
     writeFileSync(join(root, 'docs', 'adr', 'ADR-300-甲.md'), head + '## 二、别的\n')
+    writeFileSync(join(root, 'docs', 'adr', PLAIN_INDEX_FILE), `${PLAIN_INDEX_HEAD}\n|---|---|---|---|\n| ADR-300 | 甲 | 无 | 无 |\n`)
     const r = adrSync(root, false)
     eq('找谁要那一节：npm run adr 里查得到，缺了就红', [r.ok, r.err.some(e => e.includes('缺「要用到的事实，各找谁要」一节'))], [false, true])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-adr-plain-index', () => {
+  harness('决策记录白话目录：每份记录一行、编号一一对应、四格都填了（ADR-236）')
+  const table = (...rows: string[]) => ['# 目录', '', PLAIN_INDEX_HEAD, '|---|---|---|---|', ...rows, ''].join('\n')
+  const row = (n: string, a = '定了甲', b = '无', c = '无') => `| ADR-${n} | ${a} | ${b} | ${c} |`
+  eq('白话目录：一一对应、格都填了时不报', plainIndexFaults([1, 2], table(row('01'), row('02'))), [])
+  eq('白话目录：编号带前导零也认（与记录文件名一致）', plainIndexFaults([7], table(row('07'))), [])
+  const missingFile = plainIndexFaults([1], undefined)
+  eq('白话目录：文件不在报红', [missingFile.length, missingFile[0]?.includes('缺少')], [1, true])
+  const missingRow = plainIndexFaults([1, 2], table(row('01')))
+  eq('白话目录：新记录没补那一行报红，点出编号', [missingRow.length, missingRow[0]?.includes('ADR-2 在') && missingRow[0]?.includes('没有那一行')], [1, true])
+  const extra = plainIndexFaults([1], table(row('01'), row('09')))
+  eq('白话目录：多出没有记录的一行报红，点出编号与行号', [extra.length, extra[0]?.includes('ADR-9') && extra[0]?.includes('第 6 行') && extra[0]?.includes('没有这份记录')], [1, true])
+  const dup = plainIndexFaults([1], table(row('01'), row('01', '又一行')))
+  eq('白话目录：同一个编号两行报红，点出两处行号', [dup.length, dup[0]?.includes('第 6 行') && dup[0]?.includes('第 5 行')], [1, true])
+  const empty = plainIndexFaults([1], table(row('01', '定了甲', ' ', '无')))
+  eq('白话目录：有空格子报红', [empty.length, empty[0]?.includes('空格子')], [1, true])
+  const short = plainIndexFaults([1], table('| ADR-01 | 定了甲 | 无 |'))
+  eq('白话目录：不是四格报红，说出这一行几格', [short.length, short[0]?.includes('这一行是 3 格')], [1, true])
+  const escaped = plainIndexFaults([1], table(row('01', '甲 \\| 乙')))
+  eq('白话目录：格子里转义的竖线不算分格', escaped, [])
+  const noHead = plainIndexFaults([1], ['# 目录', row('01'), ''].join('\n'))
+  eq('白话目录：没有表头报红（没有表，那一行也不算数）', [noHead.some(f => f.includes('没有表头')), noHead.some(f => f.includes('第 2 行') && f.includes('不在目录表里')), noHead.some(f => f.includes('ADR-1 在'))], [true, true, true])
+  eq('白话目录：围栏代码块里举例的行不当目录行', plainIndexFaults([1], table(row('01')) + '```\n' + row('05') + '\n```\n'), [])
+  eq('白话目录：缩进四格的代码块里举例的行不当目录行', plainIndexFaults([1], table(row('01')) + '\n    ' + row('05') + '\n'), [])
+  const five = plainIndexFaults([1], table('| ADR-01 | 甲 | 乙 | 丙 | 丁 |'))
+  eq('白话目录：多一格（格子里没转义的竖线）也报红，说出这一行几格', [five.length, five[0]?.includes('这一行是 5 格')], [1, true])
+  const firstBlank = plainIndexFaults([1], table(row('01', ' ')))
+  eq('白话目录：「定了什么」那一格空着也报红', [firstBlank.length, firstBlank[0]?.includes('空格子')], [1, true])
+  const placeholder = plainIndexFaults([1, 2, 3], table(row('01', '&nbsp;'), row('02', '定了甲', '<br>'), row('03', '定了甲', '无', '-')))
+  eq('白话目录：只写占位（&nbsp;、<br>、一个横线）的格子算空，三行各报一次', [placeholder.length, placeholder.every(f => f.includes('空格子'))], [3, true])
+  const fencedHead = plainIndexFaults([1], ['```', PLAIN_INDEX_HEAD, '```', row('01'), ''].join('\n'))
+  eq('白话目录：围栏代码块里举例的表头不算表头', [fencedHead.some(f => f.includes('没有表头'))], [true])
+  const indented = plainIndexFaults([1], ['    ' + PLAIN_INDEX_HEAD, '    |---|---|---|---|', '    ' + row('01'), ''].join('\n'))
+  eq('白话目录：整张表缩进四格（页面上是代码块）不算目录表', [indented.length, indented[0]?.includes('没有表头'), indented[1]?.includes('ADR-1 在')], [2, true, true])
+  const otherHead = plainIndexFaults([1], ['| 编号 | 定了什么 | 影响 | 欠 |', '|---|---|---|---|', row('01'), ''].join('\n'))
+  eq('白话目录：表头差一个字就不是目录表', [otherHead.some(f => f.includes('没有表头')), otherHead.some(f => f.includes('第 1 行起另有一张表')), otherHead.some(f => f.includes('ADR-1 在'))], [true, true, true])
+  const commented = plainIndexFaults([1], table(row('01'), row('01') + ' <!-- 又一行 -->'))
+  eq('白话目录：行尾挂 HTML 注释的行照样核，逃不过重复', [commented.some(f => f.includes('第 6 行') && f.includes('同一个编号'))], [true])
+  const noSep = plainIndexFaults([1], ['# 目录', PLAIN_INDEX_HEAD, row('01'), ''].join('\n'))
+  eq('白话目录：表头下少了分隔行报红，点出那几行', [noSep.some(f => f.includes('没有表头')), noSep.filter(f => f.includes('不在目录表里')).map(f => f.match(/第 (\d+) 行/)?.[1])], [true, ['2', '3']])
+  const above = plainIndexFaults([1], [row('01'), '', PLAIN_INDEX_HEAD, '|---|---|---|---|', ''].join('\n'))
+  eq('白话目录：表头之前的行不算目录里的行，报红', [above.length, above[0]?.includes('第 1 行') && above[0]?.includes('不在目录表里'), above[1]?.includes('ADR-1 在')], [2, true, true])
+  const detached = plainIndexFaults([1, 2], table(row('01')) + '\n' + row('02') + '\n')
+  eq('白话目录：表后隔了空行再写的行不算目录里的行，报红，那份记录也算缺', [detached.length, detached[0]?.includes('第 7 行') && detached[0]?.includes('不在目录表里'), detached[1]?.includes('ADR-2 在')], [2, true, true])
+  const noNumber = plainIndexFaults([1], table(row('01'), '| | 定了甲 | 无 | 无 |', '| ADR-x | 定了甲 | 无 | 无 |'))
+  eq('白话目录：表里第一格不是 ADR-编号的行报红（空着、写错都报）', [noNumber.length, noNumber.every(f => f.includes('第一格应是')), noNumber.map(f => f.match(/第 (\d+) 行/)?.[1])], [2, true, ['6', '7']])
+  const second = plainIndexFaults([1], table(row('01')) + '\n| 甲 | 乙 |\n|---|---|\n| 1 | 2 |\n')
+  eq('白话目录：目录表之外另有一张表报红，点出行号', [second.length, second[0]?.includes('第 7 行起另有一张表')], [1, true])
+  const twice = plainIndexFaults([1, 2], table(row('01')) + '\n' + [PLAIN_INDEX_HEAD, '|---|---|---|---|', row('02'), ''].join('\n'))
+  eq('白话目录：同样表头的第二张表不算目录表，只认第一张', [twice.length, twice[0]?.includes('第 7 行起另有一张表'), twice[1]?.includes('ADR-2 在')], [2, true, true])
+  const quoted = plainIndexFaults([1], table(row('01')) + '\n> ' + PLAIN_INDEX_HEAD + '\n> |---|---|---|---|\n> ' + row('01') + '\n')
+  eq('白话目录：引用块里套的表也报红，报到引用块开头那一行', [quoted.length, quoted[0]?.includes('第 7 行起另有一张表')], [1, true])
+  const commentOnly = plainIndexFaults([1, 2, 3], table(row('01', '<!-- 待补 -->'), row('02', '定了乙 <!-- 备注 -->'), row('03', '**<!-- 待补 -->**')))
+  eq('白话目录：只写了 HTML 注释的格子算空（套在加粗里也算），有字带注释的不算', [commentOnly.length, commentOnly.map(f => f.includes('空格子') ? f.match(/第 (\d+) 行/)?.[1] : '')], [2, ['5', '7']])
+  const bare = plainIndexFaults([1, 2], table('ADR-01 | 定了甲 | 无 | 无 |', 'XADR-02 | 定了乙 | 无 | 无 |'))
+  eq('白话目录：开头省了竖线的行照样认出整个编号，多一个字的编号不当成对的', [bare.length, bare[0]?.includes('第 6 行') && bare[0]?.includes('第一格应是'), bare[1]?.includes('ADR-2 在')], [2, true, true])
+  // 接线：npm run adr 读目录时调到它，缺一行就红
+  const root = mkdtempSync(join(tmpdir(), 'kol-adr-plain-'))
+  try {
+    mkdirSync(join(root, 'docs', 'adr'), { recursive: true })
+    writeFileSync(join(root, 'docs', 'adr', 'README.md'), '# 索引\n\n<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->\n<!-- END:GENERATED -->\n')
+    writeFileSync(join(root, 'docs', 'adr', 'ADR-01-甲.md'), '# ADR-01 甲\n')
+    writeFileSync(join(root, 'docs', 'adr', 'ADR-02-乙.md'), '# ADR-02 乙\n')
+    writeFileSync(join(root, 'docs', 'adr', PLAIN_INDEX_FILE), table(row('01')))
+    const r = adrSync(root, false)
+    eq('白话目录：npm run adr 里查得到，缺一行就红', [r.ok, r.err.some(e => e.includes('ADR-2 在') && e.includes('没有那一行'))], [false, true])
+    writeFileSync(join(root, 'docs', 'adr', PLAIN_INDEX_FILE), table(row('01'), row('02')))
+    const fixed = adrSync(root, true)
+    eq('白话目录：补上那一行就绿，目录文件不当成一份记录进索引', [fixed.ok, rf(join(root, 'docs', 'adr', 'README.md'), 'utf8').includes(PLAIN_INDEX_FILE)], [true, false])
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -27116,6 +27198,103 @@ await group('h-same-spot', () => {
     ['pull-requests: read', 'contents: read', 'pull_request_review:', 'synchronize', 'npm run same-spot', 'cancel-in-progress: true'].filter(x => !wf.includes(x)), [])
   eq('同一处：工作流不给写权限', /:\s*write/.test(wf), false)
   eq('同一处：工作流不用单条行内意见那个事件，并发按事件分组', [wf.includes('pull_request_review_comment:'), wf.includes('-${{ github.event_name }}')], [false, true])
+})
+
+await group('h-never-red', () => {
+harness('从没被负片弄红过的断言：每一条负片红过哪些、记录怎么读怎么拼、清单怎么算（ADR-240）')
+{
+  // 预期都是手写的，不拿被测判定给自己打分
+  const inv = new Map([['甲', 1], ['乙', 1], ['丙', 1], ['戊：己', 1]])
+  const out = ['  ✗ 甲', '✗ 乙：细节', '  ✓ 丙', '  ✗ 丁', '  ✗ 甲', '✗ 甲乙', '✗丙', '  ✗ 丙（进程）：崩了', '  ✗ 戊：己：细节'].join('\n')
+  eq('红过的断言：名字正好对上、名字接全角冒号两种都认，排好序不重复', creditedReds('caught', out, inv), ['乙', '戊：己', '甲'])
+  eq('红过的断言：红错了地方那一档也算（断言是真红了）', creditedReds('elsewhere', '✗ 甲\n', inv), ['甲'])
+  eq('红过的断言：跑不起来那一档一条都不算', creditedReds('crashed', '✗ 甲\n', inv), [])
+  eq('红过的断言：存活那一档一条都不算', creditedReds('survived', '✗ 甲\n', inv), [])
+  eq('红过的断言：锚点失效那一档一条都不算', creditedReds('not-applied', '✗ 甲\n', inv), [])
+  eq('红过的断言：名字后面接的不是全角冒号不认', creditedReds('caught', '✗ 甲乙\n✗ 甲:半角\n', inv), [])
+  eq('红过的断言：名字里自己带全角冒号的，后面再接一个冒号也认得出', creditedReds('caught', '✗ 戊：己：细节\n', inv), ['戊：己'])
+  eq('红过的断言：清册里没有的名字不收', creditedReds('caught', '✗ 丁\n', inv), [])
+
+  // 提前停的开关：没写照常停，写 1 不停，别的值读不出来
+  eq('提前停开关：没写就照常停', earlyStopWanted(undefined), true)
+  eq('提前停开关：写 1 就不停', earlyStopWanted('1'), false)
+  eq('提前停开关：写 0 读不出来，不当成没写', earlyStopWanted('0'), undefined)
+  eq('提前停开关：写空串读不出来', earlyStopWanted(''), undefined)
+
+  eq('记录文件名：整跑一份叫 reds.json', redsPartName(1, 1), 'reds.json')
+  eq('记录文件名：分份时带第几份、共几份', redsPartName(2, 3), 'reds-2-of-3.json')
+  eq('记录文件名：认得整份与分份两种，别的不认',
+    ['reds.json', 'reds-2-of-3.json', 'reds-0-of-3.json', 'launches.json', 'reds.json.bak'].map(n => REDS_PART_NAME.test(n)),
+    [true, true, false, false, false])
+
+  const head = 'a'.repeat(40)
+  const rec = (id: string, extra: Record<string, unknown> = {}) => ({ id, by: 'test', ran: true, stopped: false, red: ['甲'], ...extra })
+  const part = (extra: Record<string, unknown> = {}) =>
+    ({ schema: 'mutation-reds/v1', head, earlyStop: true, shard: { index: 2, count: 3 }, records: [rec('M-1', { only: ['g1'] }), rec('M-2', { by: 'selfcheck', ran: false, stopped: true })], ...extra })
+  eq('读记录：合规的一份原样读回，没写 only 的不凭空多出 only',
+    readRedsPart(part()), { schema: 'mutation-reds/v1', head, earlyStop: true, shard: { index: 2, count: 3 },
+      records: [{ id: 'M-1', by: 'test', only: ['g1'], ran: true, stopped: false, red: ['甲'] }, { id: 'M-2', by: 'selfcheck', ran: false, stopped: true, red: ['甲'] }] })
+  // 拒要拒得出一句话：读的时候抛出去也算没拒住
+  const fault = (raw: unknown): boolean => { try { return 'fault' in readRedsPart(raw) } catch { return false } }
+  ok('读记录：不是对象的拒', fault([part()]))
+  ok('读记录：格式名不对的拒', fault(part({ schema: 'mutation-reds/v0' })))
+  ok('读记录：提交号不是完整 40 位的拒', fault(part({ head: 'a'.repeat(7) })))
+  ok('读记录：停没停不是真假值的拒', fault(part({ earlyStop: 'yes' })))
+  ok('读记录：第几份比共几份大的拒', fault(part({ shard: { index: 2, count: 1 } })))
+  ok('读记录：第几份是 0 的拒', fault(part({ shard: { index: 0, count: 1 } })))
+  ok('读记录：records 不是一组的拒', fault(part({ records: {} })))
+  ok('读记录：一条少了 red 的拒，不当成什么都没红', fault(part({ records: [{ id: 'M-1', by: 'test', ran: true, stopped: false }] })))
+  ok('读记录：red 里混进不是名字的拒', fault(part({ records: [rec('M-1', { red: ['甲', 3] })] })))
+  ok('读记录：only 里混进不是组名的拒', fault(part({ records: [rec('M-1', { only: [1] })] })))
+  ok('读记录：一条的 stopped 不是真假值的拒', fault(part({ records: [rec('M-1', { stopped: 1 })] })))
+  ok('读记录：一条少了 ran 的拒，不当成跑到过', fault(part({ records: [{ id: 'M-1', by: 'test', stopped: false, red: [] }] })))
+  ok('读记录：一条的 ran 不是真假值的拒', fault(part({ records: [rec('M-1', { ran: 'yes' })] })))
+
+  const p = (index: number, count: number, ids: string[], extra: Partial<RedsPart> = {}): { name: string; part: RedsPart } => ({
+    name: redsPartName(index, count),
+    part: { schema: 'mutation-reds/v1', head, earlyStop: true, shard: { index, count },
+      records: ids.map(id => ({ id, by: 'test', ran: true, stopped: id === 'M-2', red: [] })), ...extra } })
+  const merged = mergeParts([p(2, 2, ['M-2']), p(1, 2, ['M-1'])], ['M-1', 'M-2'])
+  eq('拼记录：两份拼回一跑，记着停下的有几条', 'fault' in merged ? merged : [merged.head, merged.earlyStop, merged.records.map(r => r.id).sort(), merged.stopped],
+    [head, true, ['M-1', 'M-2'], 1])
+  const mfault = (parts: { name: string; part: RedsPart }[], ids = ['M-1', 'M-2']): boolean => { try { return 'fault' in mergeParts(parts, ids) } catch { return false } }
+  ok('拼记录：一份都没有的拒', mfault([]))
+  ok('拼记录：文件名与里面写的第几份对不上的拒', mfault([{ ...p(1, 2, ['M-1']), name: 'reds.json' }, p(2, 2, ['M-2'])]))
+  ok('拼记录：两份验的不是同一个提交的拒', mfault([p(1, 2, ['M-1']), p(2, 2, ['M-2'], { head: 'b'.repeat(40) })]))
+  ok('拼记录：一份停一份不停的拒', mfault([p(1, 2, ['M-1']), p(2, 2, ['M-2'], { earlyStop: false })]))
+  ok('拼记录：两份分的份数不一样的拒', mfault([p(1, 2, ['M-1']), p(2, 3, ['M-2'])]))
+  ok('拼记录：缺了一份的拒', mfault([p(1, 2, ['M-1', 'M-2'])]))
+  ok('拼记录：同一份来了两次的拒', mfault([p(1, 2, ['M-1']), p(1, 2, ['M-2'])]))
+  ok('拼记录：同一条负片记了两次的拒', mfault([p(1, 1, ['M-1', 'M-2', 'M-1'])]))
+  ok('拼记录：目录里有的没记的拒', mfault([p(1, 1, ['M-1'])]))
+  ok('拼记录：记了目录里没有的拒', mfault([p(1, 1, ['M-1', 'M-2', 'M-3'])]))
+
+  const labels = new Map<string, string | undefined>([['乙', 'g2'], ['甲', 'g1'], ['丙', 'g1'], ['丁', undefined], ['戊', 'g3']])
+  const r = (red: string[], only?: string[], ran = true) => ({ id: 'M', by: 'test', ran, stopped: false, red, ...(only === undefined ? {} : { only }) })
+  eq('清单：红过的不列，没红过的分跑没跑到，先按组再按名字排',
+    neverRed(labels, [r(['甲'], ['g1']), r([], ['g2'])]),
+    [{ label: '丁', reached: false }, { label: '丙', group: 'g1', reached: true },
+     { label: '乙', group: 'g2', reached: true }, { label: '戊', group: 'g3', reached: false }])
+  eq('清单：有一条整跑的负片，所有断言都算跑到了（不在任何一组的也算）',
+    neverRed(labels, [r(['甲', '乙', '丙'])]), [{ label: '丁', reached: true }, { label: '戊', group: 'g3', reached: true }])
+  eq('清单：一条负片都没有，全都没跑到', neverRed(new Map([['甲', 'g1']]), []), [{ label: '甲', group: 'g1', reached: false }])
+  eq('清单：选了那一组却跑不起来的负片不算跑到过它', neverRed(new Map([['甲', 'g1']]), [r([], ['g1'], false)]),
+    [{ label: '甲', group: 'g1', reached: false }])
+  eq('清单：整跑却跑不起来的负片也不算跑到过谁', neverRed(new Map([['丁', undefined]]), [r([], undefined, false)]),
+    [{ label: '丁', reached: false }])
+
+  // 断言真跑了的只有抓到、红错了地方、存活三档
+  eq('断言跑没跑：五档里只有抓到、红错了地方、存活算跑了',
+    (['caught', 'elsewhere', 'survived', 'crashed', 'not-applied'] as const).map(ranAssertions), [true, true, true, false, false])
+
+  // 红过哪些断言要穿过 worker 的进程边界：跟着结论写进汇报行，读回来逐项验
+  const ranRed = { outcome: 'caught' as const, status: 1, stopped: true, output: '', ms: 5, red: ['甲', '乙'] }
+  eq('汇报行：红过的断言写下去读回来还是它', parseReport(reportLine('M-X-r', ranRed)), { id: 'M-X-r', ...ranRed })
+  eq('汇报行：红过的断言里混进不是名字的，整行认不出',
+    parseReport(reportLine('M-X-r', ranRed).replace('["甲","乙"]', '["甲",2]')), undefined)
+  ok('汇报行：没写红过哪些的旧回报照常读得出，也不凭空多出那一项',
+    (() => { const back = parseReport(reportLine('M-X-r', { ...ranRed, red: undefined })); return back !== undefined && !Object.hasOwn(back, 'red') })())
+}
 })
 
 await group('d19-config-known-gap', () => {
