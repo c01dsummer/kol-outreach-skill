@@ -46,7 +46,7 @@ import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
   executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, routeReport, type RouteSnapshot,
-  anchorMatches, applyMutation, baselineFault, stopsEarly, wiringFault,
+  anchorMatches, applyMutation, baselineFault, firstPrecheckFault, stopsEarly, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH, mutationSourceIdentity } from './claims.js'
 import {
@@ -247,35 +247,26 @@ const SAY: Record<WiringFault, (m: Mut) => string> = {
   'kills-without-by': () => '写了 kills 却没写 by —— 缺省验证者那些不点名（ADR-70 说这条延伸另外评定）',
   'kills-not-list': m => `kills 要写成一组名字（["…"]），${m.by} 那条写的不是`,
 }
-const miswired = muts.flatMap(m => {
+const miswired = (): string[] => muts.flatMap(m => {
   const fault = wiringFault(m)
   return fault === undefined ? [] : [`${m.id}  ${SAY[fault](m)}`]
 })
-if (miswired.length) {
-  exitWith(1, `✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`,
-    ...miswired.map(w => `  ${w}`),
-    '\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
-}
 
 // 指名了验证者的变异，不许改**验证者自己要用的东西** —— 那是自己验自己，跑出来的
 // 绿或红都不算数（ADR-70「两处接缝」第二条）。**整条判据都在 `verifier-rule.ts`**，
 // 连遍历也在：递归到多深是判定，不是 I/O（评审指出）—— 留在入口的话，「少走一层」
 // 这种坏法没有任何断言够得着，而闭包缩小的那一头是放行。入口只出一个读法。
-const infra = infraClosure(f => existsSync(f) ? readFileSync(f, 'utf8') : undefined)
-const selfVerified = muts.filter(m => selfVerifying(m, infra))
-if (selfVerified.length) {
-  exitWith(1, `✗ 变异集：${selfVerified.length} 条在自己验自己 —— 它们的绿或红都不算数\n`,
-    ...selfVerified.map(m => `  ${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`),
-    `\n  验证基础设施闭包共 ${infra.length} 个文件。要么把变异挪到被测对象上，要么让缺省那个验证者来验它。`)
-}
+// 闭包用到才建、只建一次：报错那句的文件数也从它来，不靠哪一道先跑过
+let infraBuilt: string[] | undefined
+const infraOf = (): string[] => infraBuilt ??= infraClosure(f => existsSync(f) ? readFileSync(f, 'utf8') : undefined)
+const selfVerified = (): string[] => muts.filter(m => selfVerifying(m, infraOf()))
+  .map(m => `${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`)
 
 // 点的那些夹具真的在，而且各自只有一条叫那个名字 —— 判据在 `mutate-rule.ts` 的
 // `labelsOf` / `labelFault`。**扫源码也是判定**（`mutate-restore.ts` 判字面形状那条的同一路数）：
 // 扫得出什么决定了清册有多大，而清册小了是拦住、大了是放行。入口只出一个读法，
 // 外加「同一个验证者只读一次」—— 上面两道体检已经放行，`by` 到这里必定认得。
-// **排在隔离之后**：由粗到细 —— 自己验自己是「这份证据整份不算数」，
-// 点不着夹具是「证据算数，但功劳记错了人」。反过来排，一条自己验自己的变异
-// 会先因为名字问题被打回，人改完名字再撞第二堵墙。
+// 排在隔离之后，先后由 `mutate-rule.ts` 的 `firstPrecheckFault` 定（见下面那一处调用）。
 const inventories = new Map<string, ReadonlyMap<string, number>>()
 const inventoryOf = (by: string): ReadonlyMap<string, number> => {
   const had = inventories.get(by)
@@ -311,13 +302,26 @@ const SAY_LABEL: Record<LabelFault, (m: Mut, label: string) => string> = {
   'ambiguous-label': (m, k) => `${m.by} 里不止一条夹具叫「${k}」—— 红的是哪一条分不出`,
 }
 // 「名单里每一项各查一次」是语义，判定在 mutate-rule.ts，这儿只渲染（CONVENTIONS 第 10 条）
-const misnamed = muts.flatMap(m => {
+const misnamed = (): string[] => muts.flatMap(m => {
   if (m.by === undefined || m.kills === undefined) return []
   return labelFaults(m.kills, inventoryOf(m.by)).map(f => `${m.id}  ${SAY_LABEL[f.fault](m, f.label)}`)
 })
-if (misnamed.length) {
-  exitWith(1, `✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`,
-    ...misnamed.map(w => `  ${w}`),
+// 三道的先后（接线 → 自己验自己 → 点的夹具）与「见了第一道毛病就不再往下问」都在判定里，
+// 这里只把每一道的毛病翻成人话、设退出码（ADR-238）。
+const precheck = firstPrecheckFault({ wiring: miswired, 'self-verify': selfVerified, labels: misnamed })
+if (precheck?.step === 'wiring') {
+  exitWith(1, `✗ 变异集：${precheck.faults.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`,
+    ...precheck.faults.map(w => `  ${w}`),
+    '\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
+}
+if (precheck?.step === 'self-verify') {
+  exitWith(1, `✗ 变异集：${precheck.faults.length} 条在自己验自己 —— 它们的绿或红都不算数\n`,
+    ...precheck.faults.map(w => `  ${w}`),
+    `\n  验证基础设施闭包共 ${infraOf().length} 个文件。要么把变异挪到被测对象上，要么让缺省那个验证者来验它。`)
+}
+if (precheck?.step === 'labels') {
+  exitWith(1, `✗ 变异集：${precheck.faults.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`,
+    ...precheck.faults.map(w => `  ${w}`),
     '\n  kills 要逐字抄验证者里那条夹具的名字。清册静态扫源码得出，只认字面量 ——'
       + '拼出来的名字点不着，把那条夹具的名字写成字面量。')
 }

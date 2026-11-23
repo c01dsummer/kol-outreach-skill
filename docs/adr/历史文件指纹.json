@@ -12,8 +12,8 @@
     "sha256": "2c9fbc46e52960005d28f76335d324e983237bff00bc3dc11ff8cc6e1147ebce"
   },
   "ADR-154-十句通用句还没进-process：逐句记来源、起因与欠条.md": {
-    "bytes": 178377,
-    "sha256": "2ce3be99736ae5db4b20e1be8c2ec08621a44e9cb24b5ccca7358e5ce612a7d8"
+    "bytes": 179324,
+    "sha256": "10d13ee760dc73898e415dd3b639776527c1fc1149b118b5c9b1299abf279056"
   },
   "ADR-158-检查链改用裸-node-跑预编的-JS，缺一份就照旧-tsx.md": {
     "bytes": 166803,
@@ -36,8 +36,8 @@
     "sha256": "2bdca06f16fcd6b1acebe4cfbcbb578e73079016fd434e4f87b84f1b6f021abc"
   },
   "ADR-70-变异可以指定验证者：入口的接线从测不了变成有负片.md": {
-    "bytes": 682808,
-    "sha256": "3b599bdac2fcd27a53ae282cada4d21557e310a9c37d2745032e1a1f8f2d7819"
+    "bytes": 685301,
+    "sha256": "19faec6f37838b648361f13b970ad74f1b8bf3a483bb936bb715278242f4377b"
   },
   "ADR-94-第一页保证排在达标判断之前：那句每个维度都有产出换了形状又回来.md": {
     "bytes": 117724,
