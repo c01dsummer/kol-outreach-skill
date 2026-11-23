@@ -33995,6 +33995,30 @@
       ]
     },
     {
+      "id": "M-H237-an",
+      "req": "harness",
+      "why": "交回的新加行里混进一份没改过的文件",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return { added, skipped }",
+      "replace": "return { skipped, added: new Map<string, Set<number>>([['z.md', new Set([1])]]) }",
+      "by": "test",
+      "kills": [
+        "扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因"
+      ]
+    },
+    {
+      "id": "M-H237-ao",
+      "req": "harness",
+      "why": "交回的跳过清单多一条 —— 读的人以为有一份没扫",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return { added, skipped }",
+      "replace": "return { added, skipped: ['z.md（假的）'] }",
+      "by": "test",
+      "kills": [
+        "扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因"
+      ]
+    },
+    {
       "id": "M-H236-r",
       "req": "harness",
       "why": "引用块、列表里套的表和行不报 —— 套一层就逃过核对",
