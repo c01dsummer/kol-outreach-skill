@@ -46,7 +46,7 @@ import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, r
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, testOnlyMentions, useLines } from './check/child-process-use-rule.js'
 import { execFileSync as startExecFileSync, spawn as startSpawn, spawnSync as startSpawnSync } from './check/start-process.js'
 import { QUESTIONS as gitQuestions, askGit, gitOrThrow, gitText, questionOf, runGit, runGitAsync } from './check/git-entry.js'
-import { fixtureCheck, fixtureEnv, fixtureGit, fixtureGitOrThrow } from './check/git-fixture.js'
+import { fixtureCheck, fixtureEnv, fixtureGit, fixtureGitOrThrow, toyRepoAt, withToyRepo } from './check/git-fixture.js'
 import { NOTED_APIS, noteSpawns } from './check/selfcheck-spawn-notes.js'
 import { withRestore, withSpies, withStandIns } from './check/child-process-stand-in.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
@@ -75,7 +75,7 @@ import {
   billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardKey, shardOf, shardPlan, shardWanted,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
-import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports, pinnedWorkflow, workflowWiringFaults } from './check/shard-load-rule.js'
+import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports, pinnedLinesFaults, pinnedWorkflow, workflowWiringFaults } from './check/shard-load-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -96,7 +96,7 @@ import {
   BUDGET, GIT_CONFIG, NUMSTAT, NUMSTAT_IGNORING_SPACE, TRUNK_CANDIDATES, type Baseline, type GitAsk,
   type Waiver,
   categorize, discount, discountable, judge, judgeExemption, merge, parseNumstat,
-  resolveBaseline, scanMessage, tally,
+  prBaseFrom, resolveBaseline, scanMessage, tally,
 } from './check/size-rule.js'
 import {
   FILE_RE, PINS_FILE, adrSync, checkAll, encodeTarget, escapeCell, fileNameOf, historyFaults, markerFault, parsePins, pinFaults, pinOf,
@@ -17251,6 +17251,250 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     eq('起点第 6 步：按行拆开，夹在中间的空行去掉',
       typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.commits : r.got, [SHA_C2, SHA_C1])
   }
+
+  // ── 第 7 步：调用方给了这条 PR 的 base（ADR-235）──────────────────────
+  // 期望出自 resolveBaseline 说明第 7 步与卡上的关单标准：只数 base 里没有的提交（只减不加）；给了却找不到、
+  // 或与 HEAD 没有共同祖先就拒答，不退回按主干量；base 就是主干那一头、或在主干上更旧时结果一点不变；起点只往后挪
+  {
+    const PR_BASE = 'base-ref', SHA_PR = 'sha-pr-base', SHA_OWN = 'sha-own-fork'
+    const Q_PR = `rev-parse --verify ${PR_BASE}^{commit}`
+    const Q_OWN = `merge-base ${SHA_PR} HEAD`
+    const Q_MEET = `merge-base ${SHA_OWN} ${SHA_FORK}`
+    const Q_REACH = `rev-list ${SHA_PR}..${SHA_HEAD}`
+    const runWith = (table: Record<string, string | null>, prBase: string) => {
+      const asked: string[] = []
+      const ask: GitAsk = (...args) => { asked.push(args.join(' ')); return Object.hasOwn(table, args.join(' ')) ? table[args.join(' ')] : null }
+      let got: Baseline | string
+      try { got = resolveBaseline(ask, prBase) } catch (e) { got = `抛了：${e instanceof Error ? e.message : String(e)}` }
+      return { got, asked }
+    }
+    // 叠在下面那条没合的分支上：按主干算有 c2、c1、下面那条的 a1；与主干的共同祖先是与 base 的共同祖先的祖先；base 里已有 a1
+    const stacked = onBranch({
+      [Q_LIST_FORK]: `${SHA_C2}\n${SHA_C1}\nsha-a1`, [Q_PR]: SHA_PR, [Q_OWN]: SHA_OWN, [Q_MEET]: SHA_FORK, [Q_REACH]: `${SHA_C2}\n${SHA_C1}`,
+    })
+    {
+      const r = runWith(stacked, PR_BASE)
+      exact('起点第 7 步：叠在没合的分支上 → 起点改成与 base 的共同祖先，只留这条自己的提交，下面那条的记在 inherited', r.got,
+        { ...measure('origin/main', SHA_OWN, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: ['sha-a1'], moved: true } })
+      eq('起点第 7 步：叠在没合的分支上，起点挪到与 base 的共同祖先',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.base : r.got, SHA_OWN)
+      eq('起点第 7 步：叠在没合的分支上，豁免只从这条自己的提交里找',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.commits : r.got, [SHA_C2, SHA_C1])
+      eq('起点第 7 步：叠在没合的分支上仍算不在主干上（照样判定）',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.onTrunk : r.got, false)
+      eq('起点第 7 步：prBase.given 原样是调用方给的那串',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.given : r.got, PR_BASE)
+      eq('起点第 7 步：prBase.sha 是解析出来的 base 提交，不是与它的共同祖先',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.sha : r.got, SHA_PR)
+      eq('起点第 7 步：base 里已有的那个提交记在 inherited',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.inherited : r.got, ['sha-a1'])
+      eq('起点第 7 步：起点挪到与 base 的共同祖先时 moved 为真（报告据此说下面那条的新增行不数）',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.moved : r.got, true)
+      eq('起点第 7 步：主干那几问照旧，之后解析 base、取共同祖先、比两个起点、列 base 里没有的提交', r.asked,
+        [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_BASE_ORIGIN, Q_LIST_FORK, Q_PR, Q_OWN, Q_MEET, Q_REACH])
+    }
+    {
+      // base 就是主干那一头：与 base 的共同祖先就是与主干的共同祖先
+      const r = runWith(onBranch({ [Q_PR]: SHA_PR, [`merge-base ${SHA_PR} HEAD`]: SHA_FORK, [`merge-base ${SHA_FORK} ${SHA_FORK}`]: SHA_FORK, [Q_REACH]: `${SHA_C2}\n${SHA_C1}` }), PR_BASE)
+      exact('起点第 7 步：base 就是主干那一头 → 起点与提交跟没给 base 时一样，inherited 为空数组', r.got,
+        { ...measure('origin/main', SHA_FORK, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: [], moved: false } })
+    }
+    {
+      // base 比主干那一头旧（开 PR 时的主干头，主干后来又合了别的、这条也合了进来）：与 base 的共同祖先更靠前，
+      // 两个起点比出来的是它自己 → 起点不往回拉；按 base 列出的多了主干上别人的提交，但只减不加，它们本就不在第 6 步的列表里
+      const r = runWith(onBranch({ [Q_PR]: SHA_PR, [Q_OWN]: SHA_OWN, [Q_MEET]: SHA_OWN,
+        [Q_REACH]: `${SHA_C2}\n${SHA_C1}\nsha-others-after-base` }), PR_BASE)
+      exact('起点第 7 步：base 比主干那一头旧 → 起点不往回拉，量出来的与没给 base 一样', r.got,
+        { ...measure('origin/main', SHA_FORK, false, [SHA_C2, SHA_C1]), prBase: { given: PR_BASE, sha: SHA_PR, inherited: [], moved: false } })
+      eq('起点第 7 步：起点没挪时 moved 为假（报告不能说下面那条的新增行不数）',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.prBase?.moved : r.got, false)
+      eq('起点第 7 步：base 比主干那一头旧，起点仍是与主干的共同祖先',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.base : r.got, SHA_FORK)
+      eq('起点第 7 步：base 比主干那一头旧，主干上别人的提交不会被算成这条的',
+        typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.commits : r.got, [SHA_C2, SHA_C1])
+    }
+    {
+      const r = runWith(stacked, '--all')
+      eq('起点第 7 步：base 以 - 开头（是开关不是提交名）→ 无从判断', refusal(r.got), 'cannot-answer')
+      eq('起点第 7 步：base 以 - 开头时不拿它去问 git', r.asked.some(q => q.includes('--all')), false)
+    }
+    {
+      const r = runWith({ ...stacked, [Q_PR]: null }, PR_BASE)
+      eq('起点第 7 步：给了 base 却找不到 → 无从判断，不退回按主干量', refusal(r.got), 'cannot-answer')
+      eq('起点第 7 步：找不到 base 就停，不再取共同祖先', r.asked.at(-1), Q_PR)
+    }
+    {
+      const r = runWith({ ...stacked, [Q_OWN]: null }, PR_BASE)
+      eq('起点第 7 步：base 与 HEAD 没有共同祖先 → 无从判断，不退回按主干量', refusal(r.got), 'cannot-answer')
+      eq('起点第 7 步：没有共同祖先就停，不再列提交', r.asked.at(-1), Q_OWN)
+    }
+    {
+      const r = runWith({ ...stacked, [Q_MEET]: null }, PR_BASE)
+      eq('起点第 7 步：比两个起点答不上来 → 无从判断', refusal(r.got), 'cannot-answer')
+    }
+    {
+      const r = runWith({ ...stacked, [Q_REACH]: null }, PR_BASE)
+      eq('起点第 7 步：按 base 列提交答不上来 → 无从判断，不当成「没有提交」', refusal(r.got), 'cannot-answer')
+    }
+    {
+      // 主干上只报数、不判定：给了 base 也不问第 7 步
+      const r = runWith(onBranch({ [Q_BASE_ORIGIN]: SHA_HEAD, [Q_PR]: SHA_PR }), PR_BASE)
+      exact('起点第 7 步：HEAD 在主干上 → 不用 base，结果与没给时一样（没有 prBase 这个键）', r.got,
+        measure('origin/main', SHA_PARENT, true, [SHA_HEAD]))
+      eq('起点第 7 步：HEAD 在主干上时不去解析 base', r.asked.includes(Q_PR), false)
+    }
+    eq('起点第 7 步：环境变量没设、空串、全是空白都算没给 base', [prBaseFrom(undefined), prBaseFrom(''), prBaseFrom('  ')], [undefined, undefined, undefined])
+    eq('起点第 7 步：环境变量带首尾空白时去掉再用', prBaseFrom(' origin/a \n'), 'origin/a')
+    // 改 PR 的 base 不换 head、不触发 check.yml：另一份工作流在改 PR 信息时也重量，而且不按「base 变没变」跳过 ——
+    // 跳过的任务在 PR 上算通过，会把同一个 head 上更早的红灯盖掉（ADR-235 第一节）
+    // 整份钉死、逐行比（与 check.yml 同一个比法，pinnedLinesFaults）：找几个关键的字会被注释里的字、`echo 'npm run size'` 骗过，
+    // 不从文字猜 YAML 的结构。改了这份工作流就在同一条 PR 里改这里钉死的样子，评审看得见
+    const SIZE_BASE_PIN = [
+      'name: size-base',
+      'on:',
+      '  pull_request:',
+      '    types: [opened, synchronize, reopened, edited]',
+      'concurrency:',
+      '  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}',
+      '  cancel-in-progress: true',
+      'permissions:',
+      '  contents: read',
+      'jobs:',
+      '  size-base:',
+      '    name: 体量闸门（按此刻的 base）',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '        with:',
+      '          ref: ${{ github.event.pull_request.head.sha }}',
+      '          fetch-depth: 0',
+      '      - uses: actions/setup-node@v4',
+      '        with:',
+      "          node-version: '22'",
+      '          cache: npm',
+      '      - run: npm ci --prefer-offline --no-audit',
+      '      - run: npm run size',
+      '        env:',
+      '          SIZE_PR_BASE: origin/${{ github.event.pull_request.base.ref }}',
+    ]
+    const sizeWf = rf('.github/workflows/size-base.yml', 'utf8').replace(/\r\n/g, '\n') // 下面造对照时按 \n 找行
+    const sizePin = (text: string) => pinnedLinesFaults(text, SIZE_BASE_PIN, ' —— 改了 size-base.yml 就在同一条 PR 里改测试里钉死的那份')
+    eq('改 base 也重量：工作流与钉死的样子逐行相同（改 PR 信息时也跑、传 base 分支名、检出 PR 的头、不跳过、只读）', sizePin(sizeWf), [])
+    ok('改 base 也重量：量的那一步换成只 echo 那句命令 → 对不上',
+      sizePin(sizeWf.replace('      - run: npm run size\n', "      - run: echo 'npm run size'\n")).length === 1)
+    ok('改 base 也重量：触发里去掉改 PR 信息、只在注释里留着 → 对不上',
+      sizePin(sizeWf.replace('    types: [opened, synchronize, reopened, edited]\n', '    types: [opened, synchronize, reopened]  # edited\n')).length === 1)
+    ok('改 base 也重量：加一句按条件跳过 → 对不上',
+      sizePin(sizeWf.replace('    runs-on: ubuntu-latest\n', '    runs-on: ubuntu-latest\n    if: false\n')).length === 1)
+  }
+
+  // ── 第 7 步在真 git 仓库上：B 叠在没合的 A 上、A 带 size-ok ────────────────
+  // 卡上第 4 条关单标准要的形状。主干一个提交；A 从主干开出，加 400 行源码，提交信息最后一段写 `size-ok: 源码 …`；
+  // B 从 A 的头开出，加 10 行源码，没有豁免。给 base = A 的头时，B 只量自己的 10 行、提交里找不到 A 的豁免；
+  // 不给 base 时照旧按主干量（410 行、捡到 A 的豁免）—— 两边都钉住，后者是没给 base 时明写的旧行为
+  {
+    // 建仓、隔开本机设置、读不到就报错、用完删掉都交给 withToyRepo（ADR-235「同一处连着两轮：改设计」）
+    withToyRepo(toy => { // 下面这一段不重新缩进，免得整段都算改动
+    const repo = toy.dir, g = toy.git, ask: GitAsk = toy.ask
+    const lines = (n: number, tag: string) => Array.from({ length: n }, (_, i) => `export const ${tag}${i} = ${i}`).join('\n') + '\n'
+    g('init', '-q', '-b', 'main')
+    writeFileSync(join(repo, 'README.md'), '底\n', 'utf8')
+    g('add', '-A'); g('commit', '-qm', '底')
+    g('update-ref', 'refs/remotes/origin/main', 'HEAD')
+    g('checkout', '-q', '-b', 'a')
+    mkdirSync(join(repo, 'scripts'), { recursive: true })
+    writeFileSync(join(repo, 'scripts/a.ts'), lines(400, 'a'), 'utf8')
+    g('add', '-A'); g('commit', '-qm', 'A\n\nsize-ok: 源码 A 首次落地，拆不开')
+    const aHead = g('rev-parse', 'HEAD').trim()
+    g('checkout', '-q', '-b', 'b')
+    writeFileSync(join(repo, 'scripts/b.ts'), lines(10, 'b'), 'utf8')
+    g('add', '-A'); g('commit', '-qm', 'B')
+    /** 照 size.ts 的量法：起点到 HEAD 的新增行按类数，豁免只从这条分支自己的提交信息里找 */
+    const report = (prBase?: string) => {
+      const b = resolveBaseline(ask, prBase)
+      if (b.kind !== 'measure') return b
+      // 量的这几问照 size.ts 用会抛错的问法（toy.read）：问不出来就报出原因，不当成「没有新增行」「没有豁免」
+      const strict = toy.read
+      const files = parseNumstat(strict(...NUMSTAT, b.base, b.head))
+      const counts = tally(merge(files, parseNumstat(strict(...NUMSTAT_IGNORING_SPACE, b.base, b.head))))
+      const waivers = b.commits.flatMap(c => scanMessage(strict('log', '-1', '--format=%B', c)))
+        .flatMap(v => v.kind === 'exempt' ? [{ category: v.category, reason: v.reason }] : [])
+      return { counts, waivers, judged: judge(counts, waivers, []), inherited: b.prBase?.inherited.length, moved: b.prBase?.moved }
+    }
+    const stackedB = report(aHead)
+    eq('叠在没合的 A 上、给了 base：B 只算自己的 10 行源码',
+      'counts' in stackedB ? stackedB.counts.源码 : stackedB, 10)
+    eq('叠在没合的 A 上、给了 base：A 那句 size-ok 不算 B 的',
+      'waivers' in stackedB ? stackedB.waivers : stackedB, [])
+    eq('叠在没合的 A 上、给了 base：base 里已有的 A 那一个提交记在 inherited',
+      'inherited' in stackedB ? stackedB.inherited : stackedB, 1)
+    const legacy = report()
+    eq('没给 base：照旧按主干量，A 的 400 行算进来（明写的旧行为）',
+      'counts' in legacy ? legacy.counts.源码 : legacy, 410)
+    eq('没给 base：照旧捡到 A 的豁免、放行（明写的旧行为，只有给了 base 才挡得住）',
+      'judged' in legacy ? legacy.judged.ok : legacy, true)
+    eq('给 base = 主干那一头：与没给时量出同一组数（按主干开的 PR 结果一点不变）',
+      (() => { const t = report('origin/main'); return 'counts' in t && 'counts' in legacy ? isDeepStrictEqual(t.counts, legacy.counts) && t.waivers.length === legacy.waivers.length : t })(), true)
+
+    // 下面那条又长了一个带豁免的提交、上面那条把它合进来（GitHub 的 Update branch 按钮做的就是这个，ADR-63 的教训里的形状）。
+    // CI 给的是 base 分支此刻的头（这里用分支名 a）：B 仍只算自己的 10 行，A 新长的那句豁免也不算 B 的
+    g('checkout', '-q', 'a')
+    writeFileSync(join(repo, 'scripts/a2.ts'), lines(100, 'a2_'), 'utf8')
+    g('add', '-A'); g('commit', '-qm', 'A2\n\nsize-ok: 源码 A 又长了一块')
+    g('checkout', '-q', 'b')
+    g('merge', '-q', '--no-edit', 'a')
+    const grown = report('a')
+    eq('下面那条又长了带豁免的一块、上面那条合了进来，base 给分支此刻的头：B 只算自己的 10 行',
+      'counts' in grown ? grown.counts.源码 : grown, 10)
+    eq('下面那条又长了带豁免的一块、上面那条合了进来，base 给分支此刻的头：A 新长的那句豁免不算 B 的',
+      'waivers' in grown ? grown.waivers : grown, [])
+    // 给的是开 PR 时记下的旧头（事件里的 base.sha 是快照）：起点只往后挪到旧头，A 新长的那一块与它的豁免照样算进来。
+    // 这是明写的缺口（ADR-235 第三节），所以 CI 传分支名、不传 base.sha；钉住它，免得哪天有人改回 base.sha 而以为没事
+    const stale = report(aHead)
+    eq('给的是下面那条的旧头（明写的缺口）：A 新长的那一块算进 B',
+      'counts' in stale ? stale.counts.源码 : stale, 110)
+
+    // B 叠在 A 上、又直接合了更新的主干（第二轮独立复核举的形状）：与 base 的分叉点不在与主干的分叉点之后，起点挪不了，
+    // A 那 500 行照样数、A 的豁免不认 —— 多拦、不漏拦（ADR-235 第三节明写）；moved 为假，报告不说「新增行不数」
+    g('checkout', '-q', 'main')
+    writeFileSync(join(repo, 'README.md'), '底\n主干又长了一行\n', 'utf8')
+    g('add', '-A'); g('commit', '-qm', '主干前进')
+    g('update-ref', 'refs/remotes/origin/main', 'HEAD')
+    g('checkout', '-q', 'b')
+    g('merge', '-q', '--no-edit', 'main')
+    const mergedMain = report('a')
+    eq('叠着的这条直接合了更新的主干：起点挪不了，A 的 500 行照样数（多拦不漏拦）',
+      'counts' in mergedMain ? mergedMain.counts.源码 : mergedMain, 510)
+    eq('叠着的这条直接合了更新的主干：A 的豁免照样不认',
+      'waivers' in mergedMain ? mergedMain.waivers : mergedMain, [])
+    eq('叠着的这条直接合了更新的主干：moved 为假',
+      'moved' in mergedMain ? mergedMain.moved : mergedMain, false)
+
+    // 普通 PR 开出之后主干又合了一条带豁免的大改动、这条把主干合了进来；给的 base 是开 PR 时的旧主干头（独立复核举的形状）。
+    // 起点不能往回拉：量出来的必须与不给 base 一样 —— 只算这条自己的 360 行，主干上那句豁免不算它的，超线照样拦下
+    g('checkout', '-q', 'main')
+    const oldMain = g('rev-parse', 'HEAD').trim()
+    g('checkout', '-q', '-b', 'p')
+    mkdirSync(join(repo, 'scripts'), { recursive: true })
+    writeFileSync(join(repo, 'scripts/p.ts'), lines(360, 'p'), 'utf8')
+    g('add', '-A'); g('commit', '-qm', 'P')
+    g('checkout', '-q', 'main')
+    mkdirSync(join(repo, 'scripts'), { recursive: true })
+    writeFileSync(join(repo, 'scripts/m.ts'), lines(400, 'm'), 'utf8')
+    g('add', '-A'); g('commit', '-qm', 'M\n\nsize-ok: 源码 主干上别人的大改动')
+    g('update-ref', 'refs/remotes/origin/main', 'HEAD')
+    g('checkout', '-q', 'p')
+    g('merge', '-q', '--no-edit', 'main')
+    const staleMain = report(oldMain)
+    const plainP = report()
+    eq('base 是开 PR 时的旧主干头：只算这条自己的 360 行，不把主干上后来合的算进来',
+      'counts' in staleMain ? staleMain.counts.源码 : staleMain, 360)
+    eq('base 是开 PR 时的旧主干头：主干上那句豁免不算这条的，超线照样拦下',
+      'judged' in staleMain ? staleMain.judged.ok : staleMain, false)
+    eq('base 是开 PR 时的旧主干头：与不给 base 量出同一组数',
+      'counts' in staleMain && 'counts' in plainP ? isDeepStrictEqual(staleMain.counts, plainP.counts) : [staleMain, plainP], true)
+    })
+  }
 }
 
 harness('引文遮罩：引用块里的围栏也要盖住')
@@ -26422,6 +26666,48 @@ await group('h-git-fixture', () => {
       [env.GIT_DIR, env.GIT_INDEX_FILE, env.GIT_AUTHOR_NAME, env.GIT_CONFIG_NOSYSTEM, env.GIT_CONFIG_SYSTEM, env.GIT_CONFIG_GLOBAL, env.GIT_CEILING_DIRECTORIES, env.PATH === process.env.PATH],
       [undefined, undefined, 'A', '1', '/dev/null', '/dev/null', `/given:${tmpRoot}`, true])
     eq('环境：本进程里不是仓库指向的 GIT_* 也一律不带（往配置里注入键值的、随便起名的）', [env.GIT_CONFIG_PARAMETERS, env.GIT_ZZ_ANY], [undefined, undefined])
+    // 用户级的忽略文件不走配置文件，从 XDG_CONFIG_HOME（没设时 HOME/.config）底下读：本机那份写了 b，夹具里照样 add 得进 sub/b（写进子目录也顺带钉住 toy.write 会建上级目录）。
+    // 假的用户目录与两个玩具仓库都由 withToyRepo 开、跟着一起删
+    withToyRepo((_, more) => {
+      const user = more('user'), kept = [process.env.XDG_CONFIG_HOME, process.env.HOME] as const
+      for (const f of ['xdg/git/ignore', 'home/.config/git/ignore']) { mkdirSync(dirname(join(user, f)), { recursive: true }); writeFileSync(join(user, f), 'b\n', 'utf8') }
+      const added = (viaXdg: boolean): boolean => {
+        const toy = toyRepoAt(more('repo'))
+        if (viaXdg) process.env.XDG_CONFIG_HOME = join(user, 'xdg'); else delete process.env.XDG_CONFIG_HOME
+        process.env.HOME = join(user, 'home')
+        try {
+          toy.git('init', '-q', '-b', 'main'); toy.write('sub/b', 'b\n'); toy.git('add', '-A'); toy.git('commit', '-qm', 'x', '--allow-empty')
+          return toy.ask('rev-parse', '--verify', 'HEAD:sub/b') !== null
+        } catch {
+          return false // 夹具自己抛错（别的变异弄坏了它）时这一条只算没过，不让整组死在半路
+        } finally {
+          if (kept[0] === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = kept[0]
+          if (kept[1] === undefined) delete process.env.HOME; else process.env.HOME = kept[1]
+        }
+      }
+      eq('环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件', [added(true), added(false)], [true, true])
+    })
+    // 玩具仓库（withToyRepo）：跑完或抛错都删掉整个临时根；读有两种，答不上来时一种交回 null、一种抛错不当成空
+    {
+      let root = '', thrown: unknown
+      try {
+        withToyRepo((toy, more) => { root = dirname(toy.dir); more('x'); toy.git('init', '-q', '-b', 'main'); throw new Error('故意') })
+      } catch (e) { thrown = (e as Error).message }
+      eq('玩具仓库：fn 抛错时原样往外抛，临时根也删掉了', [thrown, root !== '' && !existsSync(root)], ['故意', true])
+      let got: { root: string, ask: string | null, read: unknown }
+      try {
+        got = withToyRepo(toy => {
+          toy.git('init', '-q', '-b', 'main')
+          let read: unknown
+          try { read = toy.read('rev-parse', 'HEAD') } catch (e) { read = (e as Error).message.includes('没答上来') }
+          return { root: dirname(toy.dir), ask: toy.ask('rev-parse', 'HEAD'), read }
+        })
+      } catch (e) {
+        got = { root: '', ask: null, read: (e as Error).message } // 夹具自己抛错（别的变异弄坏了它）时这一条只算没过，不让整组死在半路
+      }
+      eq('玩具仓库：空仓库问最新提交，ask 交回 null、read 抛错（不当成空串），跑完临时根删掉',
+        [got.ask, got.read, existsSync(got.root)], [null, true, false])
+    }
     // 起 git 的函数调用时才从模块上取：模块上的 spawnSync 换成替身，夹具用的是替身；不合规矩的一次也不交给它
     const seen: unknown[][] = []
     withStandIns({ spawnSync: (...a: unknown[]) => { seen.push(a); return { status: 0, stdout: ' abc\n', stderr: '' } } }, () => {
