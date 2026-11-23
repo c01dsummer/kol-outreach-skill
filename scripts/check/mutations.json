@@ -10553,8 +10553,8 @@
       "req": "harness",
       "file": "scripts/check/size-rule.ts",
       "why": "提交列表不去空行 —— 没有提交时列出一个空串「提交」，拿它去读提交信息",
-      "find": "commits: listed.split('\\n').filter(Boolean) }",
-      "replace": "commits: listed.split('\\n') }",
+      "find": "const commits = listed.split('\\n').filter(Boolean)",
+      "replace": "const commits = listed.split('\\n')",
       "by": "test",
       "kills": [
         "没有分支提交时列表为空数组"
@@ -19437,8 +19437,8 @@
       "req": "harness",
       "why": "不一样时不说改哪里 —— 改工作流的人不知道要同时改钉死的那份",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "      + ' —— 改了工作流就在同一条 PR 里改 shard-load-rule.ts 的 WORKFLOW_PIN']",
-      "replace": "      + '']",
+      "find": "  return pinnedLinesFaults(workflow, want, ' —— 改了工作流就在同一条 PR 里改 shard-load-rule.ts 的 WORKFLOW_PIN')",
+      "replace": "  return pinnedLinesFaults(workflow, want, '')",
       "by": "test",
       "kills": [
         "接线：报的那一行说改钉死的那份"
@@ -33138,6 +33138,295 @@
       "by": "test",
       "kills": [
         "钱不够付下一次请求、同时读不出记忆文件：collect 退 7 不退 3，stdout 不出汇总"
+      ]
+    },
+    {
+      "id": "M-H235-a",
+      "req": "harness",
+      "why": "给了 PR 的 base 却找不到这个提交时，退回按主干量 —— 叠在没合的分支上的 PR 又把下面那条的行数和豁免算成自己的",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  if (resolved === null) {\n    return cannot(`给了这条 PR 的 base",
+      "replace": "  if (resolved === null) return { kind: 'measure', trunk, head, base, onTrunk, commits }\n  if (resolved === '') {\n    return cannot(`给了这条 PR 的 base",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：给了 base 却找不到 → 无从判断，不退回按主干量"
+      ]
+    },
+    {
+      "id": "M-H235-b",
+      "req": "harness",
+      "why": "给的 PR base 与 HEAD 没有共同祖先时，退回按主干量",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  if (own === null) {\n    return cannot(",
+      "replace": "  if (own === null) return { kind: 'measure', trunk, head, base, onTrunk, commits }\n  if (own === '') {\n    return cannot(",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：base 与 HEAD 没有共同祖先 → 无从判断，不退回按主干量"
+      ]
+    },
+    {
+      "id": "M-H235-c",
+      "req": "harness",
+      "why": "给了 base 时豁免照旧从按主干列出的提交里找 —— 下面那条分支的 size-ok 被这条捡到",
+      "file": "scripts/check/size-rule.ts",
+      "find": "commits: commits.filter(c => notInBase.has(c)),\n",
+      "replace": "commits,\n",
+      "by": "test",
+      "kills": [
+        "叠在没合的 A 上、给了 base：A 那句 size-ok 不算 B 的"
+      ]
+    },
+    {
+      "id": "M-H235-d",
+      "req": "harness",
+      "why": "给了 base 时行数照旧从与主干的共同祖先量起 —— 下面那条分支的新增行算进这条",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  const start = meet === base ? own : base\n",
+      "replace": "  const start = base\n",
+      "by": "test",
+      "kills": [
+        "叠在没合的 A 上、给了 base：B 只算自己的 10 行源码"
+      ]
+    },
+    {
+      "id": "M-H235-e",
+      "req": "harness",
+      "why": "「base 里已有几个提交不算」一律报 0 —— 报告说收窄了、却说不出收掉了什么",
+      "file": "scripts/check/size-rule.ts",
+      "find": "inherited: commits.filter(c => !notInBase.has(c)), moved",
+      "replace": "inherited: [], moved",
+      "by": "test",
+      "kills": [
+        "叠在没合的 A 上、给了 base：base 里已有的 A 那一个提交记在 inherited"
+      ]
+    },
+    {
+      "id": "M-H235-f",
+      "req": "harness",
+      "why": "HEAD 在主干上时也去用 PR 的 base —— 主干上那一跑的起点不再是上一版",
+      "file": "scripts/check/size-rule.ts",
+      "find": "if (prBase === undefined || onTrunk) return",
+      "replace": "if (prBase === undefined) return",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：HEAD 在主干上时不去解析 base"
+      ]
+    },
+    {
+      "id": "M-H235-g",
+      "req": "harness",
+      "why": "报告里「base 是哪个提交」写成与它的共同祖先 —— 说出来的 base 与给的不是同一个",
+      "file": "scripts/check/size-rule.ts",
+      "find": "sha: resolved, inherited",
+      "replace": "sha: own, inherited",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：prBase.sha 是解析出来的 base 提交，不是与它的共同祖先"
+      ]
+    },
+    {
+      "id": "M-H235-h",
+      "req": "harness",
+      "why": "叠在没合的分支上时被当成在主干上 —— 入口只报数、不判定，超线的叠分支照样绿",
+      "file": "scripts/check/size-rule.ts",
+      "find": "base: start, onTrunk: false, commits",
+      "replace": "base: start, onTrunk: true, commits",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：叠在没合的分支上仍算不在主干上（照样判定）"
+      ]
+    },
+    {
+      "id": "M-H235-i",
+      "req": "harness",
+      "why": "报告里「给的是哪个 base」写成解析出来的提交 —— 人对不上自己给的那一串",
+      "file": "scripts/check/size-rule.ts",
+      "find": "given: prBase, sha",
+      "replace": "given: resolved, sha",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：prBase.given 原样是调用方给的那串"
+      ]
+    },
+    {
+      "id": "M-H235-j",
+      "req": "harness",
+      "why": "起点直接改成与 base 的共同祖先、不看它在不在与主干的共同祖先之后 —— base 是开 PR 时的旧主干头时，起点往回拉，主干上别人后来合的行数算进这条",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  const start = meet === base ? own : base\n",
+      "replace": "  const start = own\n",
+      "by": "test",
+      "kills": [
+        "base 是开 PR 时的旧主干头：只算这条自己的 360 行，不把主干上后来合的算进来"
+      ]
+    },
+    {
+      "id": "M-H235-k",
+      "req": "harness",
+      "why": "这条自己的提交改成按 base 列出的那些、不再只减不加 —— base 是旧主干头时，主干上别人那句 size-ok 被这条捡到",
+      "file": "scripts/check/size-rule.ts",
+      "find": "commits: commits.filter(c => notInBase.has(c)),\n",
+      "replace": "commits: [...notInBase],\n",
+      "by": "test",
+      "kills": [
+        "base 是开 PR 时的旧主干头：主干上那句豁免不算这条的，超线照样拦下"
+      ]
+    },
+    {
+      "id": "M-H235-l",
+      "req": "harness",
+      "why": "以 - 开头的 base 也交给 git 去问 —— `--all` 这类开关被当成提交名",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  if (prBase.startsWith('-')) {",
+      "replace": "  if (prBase.startsWith('\\u0000')) {",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：base 以 - 开头时不拿它去问 git"
+      ]
+    },
+    {
+      "id": "M-H235-m",
+      "req": "harness",
+      "why": "git 答不出「这条与 base 的分叉点在不在与主干的分叉点之后」时照旧往下量 —— 没问出来就当成不用挪",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  if (meet === null) {\n    return cannot(",
+      "replace": "  if (meet === null && own === '') {\n    return cannot(",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：比两个起点答不上来 → 无从判断"
+      ]
+    },
+    {
+      "id": "M-H235-n",
+      "req": "harness",
+      "why": "git 列不出哪些提交不在 base 里时当成「没有提交」 —— 这条自己的提交一个都不剩，豁免找不到也不报",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  if (reach === null) {\n    return cannot(",
+      "replace": "  if (reach === null && own === '') {\n    return cannot(",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：按 base 列提交答不上来 → 无从判断，不当成「没有提交」"
+      ]
+    },
+    {
+      "id": "M-H235-o",
+      "req": "harness",
+      "why": "环境变量是空串时也当成给了 base —— 推主干那一跑表达式落成空串，被当成「给了却找不到」而变红",
+      "file": "scripts/check/size-rule.ts",
+      "find": "given === undefined || given === '' ? undefined",
+      "replace": "given === undefined ? undefined",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：环境变量没设、空串、全是空白都算没给 base"
+      ]
+    },
+    {
+      "id": "M-H235-p",
+      "req": "harness",
+      "why": "环境变量不去首尾空白 —— 带换行的 base 名拿去问 git 找不到",
+      "file": "scripts/check/size-rule.ts",
+      "find": "  const given = value?.trim()",
+      "replace": "  const given = value",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：环境变量带首尾空白时去掉再用"
+      ]
+    },
+    {
+      "id": "M-H235-q",
+      "req": "harness",
+      "why": "起点没挪时也报「下面那条的新增行不数」—— 报告说收窄了，实际那些行照样算在这条头上",
+      "file": "scripts/check/size-rule.ts",
+      "find": "moved: start !== base }",
+      "replace": "moved: true }",
+      "by": "test",
+      "kills": [
+        "起点第 7 步：起点没挪时 moved 为假（报告不能说下面那条的新增行不数）"
+      ]
+    },
+    {
+      "id": "M-H235-r",
+      "req": "harness",
+      "why": "夹具不挡用户级的忽略文件 —— 本机那份忽略文件写了 scripts/ 时，玩具仓库的提交是空的，体量断言跟着失真",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "  env.XDG_CONFIG_HOME = NO_USER_CONFIG\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件"
+      ]
+    },
+    {
+      "id": "M-H235-s",
+      "req": "harness",
+      "why": "玩具仓库用完不删 —— 临时目录越跑越多，抛错那一路也留下",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "    rmSync(root, { recursive: true, force: true })\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "玩具仓库：fn 抛错时原样往外抛，临时根也删掉了",
+        "玩具仓库：空仓库问最新提交，ask 交回 null、read 抛错（不当成空串），跑完临时根删掉"
+      ]
+    },
+    {
+      "id": "M-H235-t",
+      "req": "harness",
+      "why": "读不到时当成空串 —— 量行数、读提交信息问不出来，就成了「没有新增行」「没有豁免」",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "    read: (...args) => gitOrThrow(args, { cwd: dir, env }),",
+      "replace": "    read: (...args) => gitText(args, { cwd: dir, env }) ?? '',",
+      "by": "test",
+      "kills": [
+        "玩具仓库：空仓库问最新提交，ask 交回 null、read 抛错（不当成空串），跑完临时根删掉"
+      ]
+    },
+    {
+      "id": "M-H235-u",
+      "req": "harness",
+      "why": "交出去的目录不是玩具仓库本身 —— 测试在别处读写，删的也不是它",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "    dir: dir,\n",
+      "replace": "    dir: tmpdir(),\n",
+      "by": "test",
+      "kills": [
+        "玩具仓库：fn 抛错时原样往外抛，临时根也删掉了"
+      ]
+    },
+    {
+      "id": "M-H235-v",
+      "req": "harness",
+      "why": "不带提交身份 —— 本机用户配置挡掉以后提交不了",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "[...TOY_IDENTITY, ...args]",
+      "replace": "[...args]",
+      "by": "test",
+      "kills": [
+        "环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件"
+      ]
+    },
+    {
+      "id": "M-H235-w",
+      "req": "harness",
+      "why": "答不上来时交回空串 —— 找起点的那一步会把「答不上来」当成「没有提交」",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "gitText(args, { cwd: dir, env })?.trim() ?? null",
+      "replace": "gitText(args, { cwd: dir, env })?.trim() ?? ''",
+      "by": "test",
+      "kills": [
+        "玩具仓库：空仓库问最新提交，ask 交回 null、read 抛错（不当成空串），跑完临时根删掉"
+      ]
+    },
+    {
+      "id": "M-H235-x",
+      "req": "harness",
+      "why": "写文件不建上级目录 —— 写进子目录就失败",
+      "file": "scripts/check/git-fixture.ts",
+      "find": "mkdirSync(dirname(join(dir, path)), { recursive: true }); ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "环境：本机用户级忽略文件（XDG_CONFIG_HOME 底下、HOME/.config 底下）挡不住夹具里的文件"
       ]
     }
   ],
