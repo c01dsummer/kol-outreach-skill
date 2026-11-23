@@ -94,6 +94,16 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         run: npm run -s debt-touch
+      # 只提醒：这一跑在 Markdown 里新加的行，冒出了哪几处要配白话的写法 —— 加粗或书名号里、术语表与标题都没有的短词，
+      # 「ADR-数字:行号」这种行号引用，后面没跟括号、书名号或全角冒号说明的需求编号（需求所有者 2026-11-22 选的认法；ADR-237）。
+      # 起点与检查链里的体量闸门相同（叠在别的 PR 上时从 base 分支量起），出法与上面那步相同：汇总进 notice，全文进 Summary，脚本每条路都以 0 退出，不拦合入。本地是 `npm run jargon`
+      - name: 生词提示（只提醒）
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: npm run -s jargon
+        env:
+          SIZE_PR_BASE: ${{ github.event.pull_request.base.ref && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
       # 自检按族写的启动计数：check 那个 job 里的启动数闸门要读它
       - uses: actions/upload-artifact@v4
         with:

@@ -42,6 +42,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
 import { addDays, beijingDate, bornReport, cliGit, conditionLineOf, currentOf, dueItems, dueList, dueReport, dueRow, iouNameAt, listedItems, listings, movesUnread, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
+import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, testOnlyMentions, useLines } from './check/child-process-use-rule.js'
@@ -388,6 +389,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-child-process-stand-in-spies', needs: [] },
   { id: 'h-adr-fact-table', needs: [] },
   { id: 'h-adr-plain-index', needs: [] },
+  { id: 'h-jargon', needs: [] },
+  { id: 'h-jargon-entry', needs: [] },
   { id: 'h-same-spot', needs: [] },
   { id: 'h-never-red', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
@@ -27161,6 +27164,96 @@ await group('h-adr-plain-index', () => {
     const fixed = adrSync(root, true)
     eq('白话目录：补上那一行就绿，目录文件不当成一份记录进索引', [fixed.ok, rf(join(root, 'docs', 'adr', 'README.md'), 'utf8').includes(PLAIN_INDEX_FILE)], [true, false])
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-jargon', () => {
+  harness('生词提示的判定：加粗、书名号里术语表与标题都没有的短词，行号引用，没配白话的需求编号（ADR-237）')
+  const known = { terms: glossaryTerms('| 词 | 白话 |\n|---|---|\n| 红线 | 五条需求 |\n| `ADR-145`、「决策记录」 / 档 | 记录 |\n| 状态行（还有「已重挂」） | 欠条的状态 |\n'),
+    headings: headingTexts('# 总览\n\n## 一、欠条怎么登记\n\n```\n# 围栏里的标题\n```\n'), reqIds: requirementIds('{"requirements":[{"id":"P2","accept":[{"id":"P2.c"}]}]}') }
+  eq('术语表：每行第一格算词条，「、」「/」分开的、反引号与书名号里的各算一个，括号里的说明不连着前面的词；表头分隔行不算',
+    ['红线', 'ADR-145', '决策记录', '档', '状态行', '已重挂', '---'].map(w => known.terms.has(w)), [true, true, true, true, true, true, false])
+  eq('标题：# 开头的行算标题，围栏里的不算', known.headings, ['总览', '一、欠条怎么登记'])
+  eq('需求清单：需求编号与判据编号都收', ['P2', 'P2.c', 'P3'].map(w => known.reqIds.has(w)), [true, true, false])
+  eq('短词：2 到 8 个字、不含空白与断句标点', ['词', '新词', '八个字八个字八个', '九个字九个字九个字', '有 空格', '有，逗号'].map(isShortWord), [false, true, true, false, false, false])
+  eq('行内代码去掉、位置不挪', stripCodeSpans('甲 `「乙」` 丙'), '甲' + ' '.repeat(7) + '丙')
+  eq('生词：加粗与书名号里的新短词都报，同一行同一个词只报一次', lineHits('这是**新词甲**，又是「新词乙」，再一次「新词乙」', known),
+    [{ kind: '生词', word: '新词甲' }, { kind: '生词', word: '新词乙' }])
+  eq('生词：术语表里的、标题里出现过的、太长的、行内代码里的都不报',
+    lineHits('「红线」**决策记录**「欠条怎么登记」「欠条」「这是一整句话不是一个词了」`「代码里」`', known), [])
+  eq('行号引用：ADR-数字:行号 报，只写编号不报', lineHits('见 ADR-72:600 与 ADR-72', known), [{ kind: '行号引用', word: 'ADR-72:600' }])
+  eq('需求编号：清单里有的、后面没跟括号或书名号的报；跟了的、清单里没有的、长在别的词里的不报',
+    lineHits('P2 与 P2.c（不许编造）与 P2「红线」与 P3 与 MP2 与 P2-x 与 P2.c', known),
+    [{ kind: '没配白话的需求编号', word: 'P2' }, { kind: '没配白话的需求编号', word: 'P2.c' }])
+  eq('生词：加粗套书名号的按里面那个词认，术语表里有就不报，没有就报一次', [lineHits('**「红线」**与「**红线**」', known), lineHits('**「新词丙」**', known)],
+    [[], [{ kind: '生词', word: '新词丙' }]])
+  const more = glossaryTerms('| 词 | 白话 |\n|---|---|\n| 已查询但未取得有效值（怪值） | 查过没拿到 |\n| 更正块 `⚠️` | 改错的那一块 |\n')
+  eq('术语表：括号里的别名单算一个，空白也断开', ['已查询但未取得有效值', '怪值', '更正块', '⚠️'].map(w => more.has(w)), [true, true, true, true])
+  eq('标题：这次新加的标题行不算已有的标题', headingTexts('# 旧标题\n\n## 新词丁\n', new Set([3])), ['旧标题'])
+  eq('需求编号：后面跟全角冒号的算配了白话', lineHits('P2：不许编造', known), [])
+  eq('行内代码按等长的反引号串认：里面套着短的反引号串、没配对的反引号都不错认',
+    [lineHits('`` **新词戊** ` x ``', known), lineHits('`` 没配对的 **新词己**', known), stripCodeSpans('甲 **`乙`** 丙')],
+    [[], [{ kind: '生词', word: '新词己' }], '甲 **' + ' '.repeat(3) + '** 丙'])
+  eq('需求编号：外面套着加粗的，越过收尾记号再看配没配白话',
+    [lineHits('**P2**（用户筛选条件）', known), lineHits('**P2** 要守', known)], [[], [{ kind: '没配白话的需求编号', word: 'P2' }]])
+  eq('需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认',
+    [lineHits('_P2_（用户筛选条件）', known), lineHits('_P2_ 要守', known), lineHits('__P2__ 要守', known), lineHits('foo_P2 与 P2_x 与 a_P2_b', known)],
+    [[], [{ kind: '没配白话的需求编号', word: 'P2' }], [{ kind: '没配白话的需求编号', word: 'P2' }], []])
+  const diffOf = (f: string) => { if (f === 'bad.md') throw new Error('当成二进制\n第二行'); return `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -0,0 +1,2 @@\n+甲\n+乙\n` }
+  const scan = addedMarkdown(['a.md', 'x.ts', 'bad.md'], diffOf)
+  eq('扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因', [[...scan.added.keys()], [...(scan.added.get('a.md') ?? [])], scan.skipped], [['a.md'], [1, 2], ['bad.md（当成二进制）']])
+  const text = '# 标题\n\n新加**新词甲**\n\n```\n「围栏里」\n```\n<!-- 「注释里」 -->\n旧行**新词乙**\n'
+  const { hits } = jargonHits(new Map([['a.md', new Set([3, 6, 8])], ['b.ts', new Set([1])]]), f => f === 'a.md' ? text : '「代码文件」', known)
+  eq('整次改动：只看 .md 新加的行，围栏与注释里的不算', hits, [{ file: 'a.md', line: 3, kind: '生词', word: '新词甲' }])
+  const spanning = '示例 `开始\n**新词庚** P2 ADR-1:2\n结束`，后面**新词辛**\n\n    缩进的**新词壬**\n\n<!-- 跨行\n**新词癸** -->\n> 引用里 `**新词子**`\n> 与 **新词丑**\n'
+  eq('整次改动：整份交给解析器认 —— 跨行的行内代码、缩进代码块、跨行注释里的不算，同一行代码外的照报，引用块里不跨行的行内代码也认',
+    jargonHits(new Map([['s.md', new Set([2, 3, 5, 8, 9, 10])]]), () => spanning, known).hits,
+    [{ file: 's.md', line: 3, kind: '生词', word: '新词辛' }, { file: 's.md', line: 10, kind: '生词', word: '新词丑' }])
+  const table = '| 示例 |\n| --- |\n| <!-- ADR-1:2 --> |\n| 正文 ADR-1:2 |\n'
+  eq('整次改动：表格格子里注释中的不算，同一格子正文里的照报', jargonHits(new Map([['t.md', new Set([3, 4])]]), () => table, known).hits,
+    [{ file: 't.md', line: 4, kind: '行号引用', word: 'ADR-1:2' }])
+  const unread = jargonHits(new Map([['gone.md', new Set<number>()], ['locked.md', new Set([1])]]), f => new Error(`${f} 没权限\n细节`), known)
+  eq('整次改动：有新加的行却读不到的那一份记下来，不当成没东西可报；没有新加行的（删掉的）不读', [unread.hits, unread.unread], [[], ['locked.md（读不到：locked.md 没权限）']])
+  eq('全文：每处一行带位置与种类，最后是汇总；没有时只有汇总', [jargonLines(hits)[0], jargonLines(hits).at(-1)?.includes('1 处生词、0 处行号引用、0 处没配白话的需求编号'), jargonLines([]).length, jargonSummary([]).includes('没有要配白话的写法')],
+    ['a.md:3  [生词]  新词甲', true, 1, true])
+})
+
+await group('h-jargon-entry', () => {
+  harness('生词提示的入口：在玩具仓库里真起，列得出三种、CI 输出、无从比较各情形都以 0 退出')
+  const entry = join(process.cwd(), 'scripts/check/jargon.ts')
+  withToyRepo(toy => {
+    const run = (extra: Record<string, string> = {}) => cxSpawnSync(...tsxCommand([entry]), { cwd: toy.dir, encoding: 'utf8', timeout: 60_000, env: { ...fixtureEnv({}), GITHUB_ACTIONS: '', SIZE_PR_BASE: '', ...extra } })
+    toy.git('init', '-q', '-b', 'main')
+    toy.write('docs/GLOSSARY.md', '| 词 | 白话 |\n|---|---|\n| 红线 | 五条需求 |\n')
+    toy.write('docs/requirements.json', '{"requirements":[{"id":"P2","accept":[]}]}\n')
+    toy.write('docs/a.md', '# 欠条\n\n旧行**旧词**\n')
+    toy.write('scripts/x.ts', '// 「代码里」\n')
+    toy.git('add', '-A'); toy.git('commit', '-qm', 'base')
+    const lone = run()
+    eq('入口：主干上只有根提交时说无从比较，仍以 0 退出', [lone.status, lone.stdout.startsWith('生词提示：无从比较（HEAD 就是 main 且没有父提交')], [0, true])
+    toy.git('checkout', '-q', '-b', 'work')
+    toy.write('docs/a.md', '# 欠条\n\n旧行**旧词**\n新加**新词**与「红线」与「欠条」，见 ADR-3:4，按 P2 做\n## 新词\n')
+    toy.write('scripts/x.ts', '// 「代码里」\n// 「又一个」\n')
+    toy.git('commit', '-qam', 'w')
+    const got = run()
+    eq('入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出', [got.status, got.stdout.split('\n').filter(l => l.startsWith('docs/') || l.startsWith('scripts/'))],
+      [0, ['docs/a.md:4  [生词]  新词', 'docs/a.md:4  [行号引用]  ADR-3:4', 'docs/a.md:4  [没配白话的需求编号]  P2']])
+    const summary = join(toy.dir, '..', 'summary.md')
+    const inCi = run({ GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: summary })
+    const summaryText = (() => { try { return rf(summary, 'utf8') } catch { return '' } })()
+    eq('入口：在 CI 里汇总一句打成 notice，全文写进 Summary，仍以 0 退出', [inCi.status,
+      inCi.stdout.includes('::notice title=生词提示::生词提示：新加的行里有 1 处生词、1 处行号引用、1 处没配白话的需求编号'),
+      summaryText.startsWith('### 生词提示\n'), summaryText.includes('docs/a.md:4  [生词]  新词')], [0, true, true, true])
+    // 叠在 work 上的一条：给了 base（CI 上的 SIZE_PR_BASE）就从 work 量起，work 自己新加的那几行不算这条的
+    toy.git('checkout', '-q', '-b', 'stacked')
+    toy.write('docs/b.md', '上层**上层词**\n')
+    toy.git('add', '-A'); toy.git('commit', '-qm', 's')
+    const listed = (r: { stdout: string }) => r.stdout.split('\n').filter(l => l.startsWith('docs/'))
+    eq('入口：叠在别的分支上、给了 base 时只列这条自己新加的行；没给 base 时从主干量起，下面那条的也列',
+      [listed(run({ SIZE_PR_BASE: 'work' })), listed(run({ SIZE_PR_BASE: '' })).length], [['docs/b.md:1  [生词]  上层词'], 4])
+    rmSync(join(toy.dir, '.git'), { recursive: true, force: true })
+    const bare = run()
+    eq('入口：不是 git 仓库时说无从比较，仍以 0 退出', [bare.status, bare.stdout.startsWith('生词提示：无从比较（')], [0, true])
+  })
 })
 
 await group('h-same-spot', () => {
