@@ -8,8 +8,8 @@
     "sha256": "c92d0c70b7581988baf531ec6bcdb60271dcfd028c52c90d6a3c83da44b501f1"
   },
   "ADR-151-过程层问题回路：七条实践按层拆开落位，先合记录、再逐片合.md": {
-    "bytes": 273887,
-    "sha256": "2c9fbc46e52960005d28f76335d324e983237bff00bc3dc11ff8cc6e1147ebce"
+    "bytes": 275389,
+    "sha256": "5640acb5a17a56090dfb51359d5c0d8ff67c549e851b2d291d35af8bc5a36127"
   },
   "ADR-154-十句通用句还没进-process：逐句记来源、起因与欠条.md": {
     "bytes": 179324,
@@ -20,8 +20,8 @@
     "sha256": "e0b8b61ccc1132bf8b32f12c890a7484d8c30a05dc9b13de3a2331ad7b0836fd"
   },
   "ADR-167-欠条台账机制：四句入口规矩还没进-process，台账、回访与闸.md": {
-    "bytes": 62542,
-    "sha256": "e981c1fa901bfcfddcda920050319e3c4bbb73566aefc648950cdced3092c512"
+    "bytes": 74257,
+    "sha256": "d691445f1b45d26d88145e87d5d7bb837a21a292ee42f49d8ae6f0cf7863fd08"
   },
   "ADR-198-检查链判定新增的返回字段没有变异守着就红.md": {
     "bytes": 61359,
@@ -36,8 +36,8 @@
     "sha256": "2bdca06f16fcd6b1acebe4cfbcbb578e73079016fd434e4f87b84f1b6f021abc"
   },
   "ADR-70-变异可以指定验证者：入口的接线从测不了变成有负片.md": {
-    "bytes": 685301,
-    "sha256": "19faec6f37838b648361f13b970ad74f1b8bf3a483bb936bb715278242f4377b"
+    "bytes": 686620,
+    "sha256": "fda1c87e385bec5e76accc247d441c892ceb1eb1baf9dfcc694dac7fdb49de02"
   },
   "ADR-94-第一页保证排在达标判断之前：那句每个维度都有产出换了形状又回来.md": {
     "bytes": 117724,
