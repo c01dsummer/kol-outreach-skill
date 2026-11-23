@@ -33754,6 +33754,631 @@
       ]
     },
     {
+      "id": "M-H237-a",
+      "req": "harness",
+      "why": "一个字也算短词 —— 单字的强调（**不**、「是」）全报成生词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return n >= 2 && n <= SHORT_MAX",
+      "replace": "return n >= 1 && n <= SHORT_MAX",
+      "by": "test",
+      "kills": [
+        "短词：2 到 8 个字、不含空白与断句标点"
+      ]
+    },
+    {
+      "id": "M-H237-b",
+      "req": "harness",
+      "why": "再长也算短词 —— 书名号里引的一整句话报成生词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "n <= SHORT_MAX && !BREAKS",
+      "replace": "!BREAKS",
+      "by": "test",
+      "kills": [
+        "短词：2 到 8 个字、不含空白与断句标点"
+      ]
+    },
+    {
+      "id": "M-H237-c",
+      "req": "harness",
+      "why": "带空格、逗号的也算短词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "&& !BREAKS.test(t)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "短词：2 到 8 个字、不含空白与断句标点"
+      ]
+    },
+    {
+      "id": "M-H237-d",
+      "req": "harness",
+      "why": "行内代码里演示的写法也当成在用",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "blankRanges(line, codeRanges(line, Lexer.lexInline(line)).filter(([a, b]) => line.slice(a, b).startsWith('`')))",
+      "replace": "line",
+      "by": "test",
+      "kills": [
+        "行内代码去掉、位置不挪"
+      ]
+    },
+    {
+      "id": "M-H237-e",
+      "req": "harness",
+      "why": "术语表的表头分隔行也当词条",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "|| /^\\|\\s*:?-+/.test(line)) return",
+      "replace": ") return",
+      "by": "test",
+      "kills": [
+        "术语表：每行第一格算词条，「、」「/」分开的、反引号与书名号里的各算一个，括号里的说明不连着前面的词；表头分隔行不算"
+      ]
+    },
+    {
+      "id": "M-H237-f",
+      "req": "harness",
+      "why": "术语表第一格里紧挨着别的字写在书名号、反引号里的别名不单收 —— 那个别名照样被报成生词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "const parts = [first, ...[...first.matchAll(",
+      "replace": "const parts = [first, ...[...''.matchAll(",
+      "by": "test",
+      "kills": [
+        "术语表：每行第一格算词条，「、」「/」分开的、反引号与书名号里的各算一个，括号里的说明不连着前面的词；表头分隔行不算"
+      ]
+    },
+    {
+      "id": "M-H237-g",
+      "req": "harness",
+      "why": "术语表第一格里括号说明连着前面的词收成一个 —— 前面那个词本身认不出",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "split(/[、\\/\\s]|[（()）]/)",
+      "replace": "split(/[、\\/\\s]/)",
+      "by": "test",
+      "kills": [
+        "术语表：每行第一格算词条，「、」「/」分开的、反引号与书名号里的各算一个，括号里的说明不连着前面的词；表头分隔行不算"
+      ]
+    },
+    {
+      "id": "M-H237-h",
+      "req": "harness",
+      "why": "围栏代码块里举例写的标题也算标题 —— 例子里出现过的词就不报了",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "const m = mask[i] || skip.has(i + 1) ? null : /^ {0,3}#{1,6}",
+      "replace": "const m = /^ {0,3}#{1,6}",
+      "by": "test",
+      "kills": [
+        "标题：# 开头的行算标题，围栏里的不算"
+      ]
+    },
+    {
+      "id": "M-H237-i",
+      "req": "harness",
+      "why": "只收需求编号、不收判据编号 —— P2.c 这种没配白话也不报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "for (const a of r.accept ?? []) out.add(a.id)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "需求清单：需求编号与判据编号都收"
+      ]
+    },
+    {
+      "id": "M-H237-j",
+      "req": "harness",
+      "why": "术语表里的词也报成生词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "|| known.terms.has(w) ||",
+      "replace": "||",
+      "by": "test",
+      "kills": [
+        "生词：术语表里的、标题里出现过的、太长的、行内代码里的都不报"
+      ]
+    },
+    {
+      "id": "M-H237-k",
+      "req": "harness",
+      "why": "已有标题里出现过的词也报成生词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "|| known.headings.some(h => h.includes(w))) continue",
+      "replace": ") continue",
+      "by": "test",
+      "kills": [
+        "生词：术语表里的、标题里出现过的、太长的、行内代码里的都不报"
+      ]
+    },
+    {
+      "id": "M-H237-l",
+      "req": "harness",
+      "why": "同一行同一个词报好几次",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "if (!isShortWord(w) || seen.has(w) ||",
+      "replace": "if (!isShortWord(w) ||",
+      "by": "test",
+      "kills": [
+        "生词：加粗与书名号里的新短词都报，同一行同一个词只报一次"
+      ]
+    },
+    {
+      "id": "M-H237-m",
+      "req": "harness",
+      "why": "行号引用不报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "for (const m of line.matchAll(/ADR-\\d+:\\d+/g)) out.push",
+      "replace": "for (const m of line.matchAll(/(?!)/g)) out.push",
+      "by": "test",
+      "kills": [
+        "行号引用：ADR-数字:行号 报，只写编号不报"
+      ]
+    },
+    {
+      "id": "M-H237-n",
+      "req": "harness",
+      "why": "需求清单里没有的编号也报 —— 长得像就算",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "if (!known.reqIds.has(m[1]) || GLOSSED",
+      "replace": "if (GLOSSED",
+      "by": "test",
+      "kills": [
+        "需求编号：清单里有的、后面没跟括号或书名号的报；跟了的、清单里没有的、长在别的词里的不报"
+      ]
+    },
+    {
+      "id": "M-H237-o",
+      "req": "harness",
+      "why": "后面跟了括号说明的需求编号也报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "|| GLOSSED.test(line.slice(m.index! + m[0].length).replace(/^[*_~]+/, ''))) continue",
+      "replace": ") continue",
+      "by": "test",
+      "kills": [
+        "需求编号：清单里有的、后面没跟括号或书名号的报；跟了的、清单里没有的、长在别的词里的不报"
+      ]
+    },
+    {
+      "id": "M-H237-p",
+      "req": "harness",
+      "why": "长在别的词里的也当需求编号（MP2 里的 P2）",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "const ID_RE = /(?<![A-Za-z0-9.\\-]|[A-Za-z0-9]_)",
+      "replace": "const ID_RE = /",
+      "by": "test",
+      "kills": [
+        "需求编号：清单里有的、后面没跟括号或书名号的报；跟了的、清单里没有的、长在别的词里的不报"
+      ]
+    },
+    {
+      "id": "M-H237-q",
+      "req": "harness",
+      "why": "不是 Markdown 的文件也看 —— 代码里的书名号全报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "[...added.keys()].filter(f => f.endsWith('.md')).sort()",
+      "replace": "[...added.keys()].sort()",
+      "by": "test",
+      "kills": [
+        "整次改动：只看 .md 新加的行，围栏与注释里的不算"
+      ]
+    },
+    {
+      "id": "M-H237-r",
+      "req": "harness",
+      "why": "代码块与注释里的新加行也看 —— 整份不交给解析器认",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "const lines = blankRanges(text, codeRanges(text, marked.lexer(text, { gfm: true }))).split('\\n')",
+      "replace": "const lines = text.split('\\n')",
+      "by": "test",
+      "kills": [
+        "整次改动：只看 .md 新加的行，围栏与注释里的不算"
+      ]
+    },
+    {
+      "id": "M-H237-s",
+      "req": "harness",
+      "why": "汇总里各种的数对不上 —— 行号引用那一项数成了全部",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "${count('行号引用')} 处行号引用",
+      "replace": "${hits.length} 处行号引用",
+      "by": "test",
+      "kills": [
+        "入口：在 CI 里汇总一句打成 notice，全文写进 Summary，仍以 0 退出",
+        "全文：每处一行带位置与种类，最后是汇总；没有时只有汇总"
+      ]
+    },
+    {
+      "id": "M-H237-t",
+      "req": "harness",
+      "why": "不读术语表 —— 收进术语表的词照样报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "terms: has('docs/GLOSSARY.md') ? glossaryTerms(read('docs/GLOSSARY.md')) : new Set<string>(),",
+      "replace": "terms: new Set<string>(),",
+      "by": "test",
+      "kills": [
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H237-u",
+      "req": "harness",
+      "why": "不读各份文档的标题 —— 标题里有的词照样报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "headings: tracked.filter(f => f.endsWith('.md')).flatMap(",
+      "replace": "headings: [].flatMap(",
+      "by": "test",
+      "kills": [
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H237-v",
+      "req": "harness",
+      "why": "不读需求清单 —— 没配白话的需求编号一个也不报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "reqIds: has('docs/requirements.json') ? requirementIds(read('docs/requirements.json')) : new Set<string>(),",
+      "replace": "reqIds: new Set<string>(),",
+      "by": "test",
+      "kills": [
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H237-w",
+      "req": "harness",
+      "why": "在 CI 里不写通知与 Summary",
+      "file": "scripts/check/jargon.ts",
+      "find": "if (process.env.GITHUB_ACTIONS !== 'true') return",
+      "replace": "return",
+      "by": "test",
+      "kills": [
+        "入口：在 CI 里汇总一句打成 notice，全文写进 Summary，仍以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H237-x",
+      "req": "harness",
+      "why": "报出来的位置写错了文件",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "hits.push({ file: file, line: n,",
+      "replace": "hits.push({ file: '', line: n,",
+      "by": "test",
+      "kills": [
+        "整次改动：只看 .md 新加的行，围栏与注释里的不算"
+      ]
+    },
+    {
+      "id": "M-H237-y",
+      "req": "harness",
+      "why": "报出来的行号不对 —— 照着去找对不上",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "line: n, kind: h.kind",
+      "replace": "line: 0, kind: h.kind",
+      "by": "test",
+      "kills": [
+        "整次改动：只看 .md 新加的行，围栏与注释里的不算"
+      ]
+    },
+    {
+      "id": "M-H237-z",
+      "req": "harness",
+      "why": "三种提示都报成生词 —— 行号引用、需求编号分不出来",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "kind: h.kind, word: h.word",
+      "replace": "kind: '生词', word: h.word",
+      "by": "test",
+      "kills": [
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H237-aa",
+      "req": "harness",
+      "why": "报出来不带原文 —— 读的人不知道是哪个词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "word: h.word })",
+      "replace": "word: '' })",
+      "by": "test",
+      "kills": [
+        "整次改动：只看 .md 新加的行，围栏与注释里的不算"
+      ]
+    },
+    {
+      "id": "M-H237-ab",
+      "req": "harness",
+      "why": "生词报成了行号引用",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "seen.add(w); out.push({ kind: '生词', word: w })",
+      "replace": "seen.add(w); out.push({ kind: '行号引用', word: w })",
+      "by": "test",
+      "kills": [
+        "生词：加粗与书名号里的新短词都报，同一行同一个词只报一次"
+      ]
+    },
+    {
+      "id": "M-H237-ac",
+      "req": "harness",
+      "why": "生词报出来的原文不对",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "out.push({ kind: '生词', word: w })",
+      "replace": "out.push({ kind: '生词', word: '' })",
+      "by": "test",
+      "kills": [
+        "生词：加粗与书名号里的新短词都报，同一行同一个词只报一次"
+      ]
+    },
+    {
+      "id": "M-H237-ad",
+      "req": "harness",
+      "why": "加粗套书名号的连着记号去认 —— 术语表里有的词套了两层记号就报成生词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": ".replace(/[*「」]/g, '').trim() //",
+      "replace": ".trim() //",
+      "by": "test",
+      "kills": [
+        "生词：加粗套书名号的按里面那个词认，术语表里有就不报，没有就报一次"
+      ]
+    },
+    {
+      "id": "M-H237-ae",
+      "req": "harness",
+      "why": "术语表第一格不按空白断开 —— 词后面跟着符号的那个词认不出",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "split(/[、\\/\\s]|[（()）]/)",
+      "replace": "split(/[、\\/]|[（()）]/)",
+      "by": "test",
+      "kills": [
+        "术语表：括号里的别名单算一个，空白也断开"
+      ]
+    },
+    {
+      "id": "M-H237-af",
+      "req": "harness",
+      "why": "这次新加的标题也算已有的标题 —— 新造的词顺手起个标题就不报了",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "|| skip.has(i + 1) ? null",
+      "replace": "? null",
+      "by": "test",
+      "kills": [
+        "标题：这次新加的标题行不算已有的标题"
+      ]
+    },
+    {
+      "id": "M-H237-ag",
+      "req": "harness",
+      "why": "后面跟全角冒号解释的需求编号也报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "const GLOSSED = /^\\s*[（(「：]/",
+      "replace": "const GLOSSED = /^\\s*[（(「]/",
+      "by": "test",
+      "kills": [
+        "需求编号：后面跟全角冒号的算配了白话"
+      ]
+    },
+    {
+      "id": "M-H237-ah",
+      "req": "harness",
+      "why": "入口读标题时不跳过这次新加的行 —— 新词顺手起的标题把它自己藏起来",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return headingTexts(read(f), added.get(f))",
+      "replace": "return headingTexts(read(f))",
+      "by": "test",
+      "kills": [
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H237-ai",
+      "req": "harness",
+      "why": "行内代码退回手写正则认 —— 起止反引号串不等长时把正文里的加粗当成在用、报成生词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "walk(tokens, 0, text.length)",
+      "replace": "for (const m of text.matchAll(/(`+)[^`]*?\\1/g)) out.push([m.index!, m.index! + m[0].length])",
+      "by": "test",
+      "kills": [
+        "行内代码按等长的反引号串认：里面套着短的反引号串、没配对的反引号都不错认"
+      ]
+    },
+    {
+      "id": "M-H237-aj",
+      "req": "harness",
+      "why": "编号外面套着加粗时不越过收尾记号 —— 配了白话的 **P2**（…）也报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": ".replace(/^[*_~]+/, ''))) continue",
+      "replace": ")) continue",
+      "by": "test",
+      "kills": [
+        "需求编号：外面套着加粗的，越过收尾记号再看配没配白话"
+      ]
+    },
+    {
+      "id": "M-H237-ak",
+      "req": "harness",
+      "why": "扫的文件不限 .md —— 改过的代码文件里新加的行也被拿来找生词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "for (const file of changed.filter(f => f.endsWith('.md'))) {",
+      "replace": "for (const file of changed) {",
+      "by": "test",
+      "kills": [
+        "扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因"
+      ]
+    },
+    {
+      "id": "M-H237-al",
+      "req": "harness",
+      "why": "哪一份比不了就悄悄跳过、不记原因 —— 读的人不知道那一份没扫",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "    } catch (error) { skipped.push(`${file}（${(error as Error).message.split('\\n')[0]}）`) }",
+      "replace": "    } catch (error) { void error }",
+      "by": "test",
+      "kills": [
+        "扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因"
+      ]
+    },
+    {
+      "id": "M-H237-am",
+      "req": "harness",
+      "why": "需求清单里的编号加粗了也当生词报 —— 同一处既报生词又报编号",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "|| known.reqIds.has(w) ||",
+      "replace": "||",
+      "by": "test",
+      "kills": [
+        "需求编号：外面套着加粗的，越过收尾记号再看配没配白话"
+      ]
+    },
+    {
+      "id": "M-H237-an",
+      "req": "harness",
+      "why": "交回的新加行里混进一份没改过的文件",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return { added, skipped }",
+      "replace": "return { skipped, added: new Map<string, Set<number>>([['z.md', new Set([1])]]) }",
+      "by": "test",
+      "kills": [
+        "扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因"
+      ]
+    },
+    {
+      "id": "M-H237-ao",
+      "req": "harness",
+      "why": "交回的跳过清单多一条 —— 读的人以为有一份没扫",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return { added, skipped }",
+      "replace": "return { added, skipped: ['z.md（假的）'] }",
+      "by": "test",
+      "kills": [
+        "扫哪些行：只看 .md，哪一份比不了只跳过那一份、记下原因"
+      ]
+    },
+    {
+      "id": "M-H237-ap",
+      "req": "harness",
+      "why": "编号前头的下划线一律当成词的一部分 —— 斜体的 _P2_ 没配白话也不报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "(?<![A-Za-z0-9.\\-]|[A-Za-z0-9]_)",
+      "replace": "(?<![A-Za-z0-9_.\\-])",
+      "by": "test",
+      "kills": [
+        "需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认"
+      ]
+    },
+    {
+      "id": "M-H237-aq",
+      "req": "harness",
+      "why": "编号前头的下划线一律不算词的一部分 —— foo_P2 这种长在词里的也报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "(?<![A-Za-z0-9.\\-]|[A-Za-z0-9]_)",
+      "replace": "(?<![A-Za-z0-9.\\-])",
+      "by": "test",
+      "kills": [
+        "需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认"
+      ]
+    },
+    {
+      "id": "M-H237-ar",
+      "req": "harness",
+      "why": "编号后头的下划线一律不算词的一部分 —— P2_x 这种长在词里的也报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "(?![A-Za-z0-9\\-]|_[A-Za-z0-9])",
+      "replace": "(?![A-Za-z0-9\\-])",
+      "by": "test",
+      "kills": [
+        "需求编号：斜体的下划线记号照样认，长在带下划线的词里的不认"
+      ]
+    },
+    {
+      "id": "M-H237-as",
+      "req": "harness",
+      "why": "入口不读 CI 给的 base —— 叠在别的 PR 上时，下面那条新加的行也列",
+      "file": "scripts/check/jargon.ts",
+      "find": "resolveBaseline(askGit, prBaseFrom(process.env.SIZE_PR_BASE))",
+      "replace": "resolveBaseline(askGit)",
+      "by": "test",
+      "kills": [
+        "入口：叠在别的分支上、给了 base 时只列这条自己新加的行；没给 base 时从主干量起，下面那条的也列"
+      ]
+    },
+    {
+      "id": "M-H237-at",
+      "req": "harness",
+      "why": "代码块（缩进四格的）里的字也当正文看",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "t.type === 'codespan' || t.type === 'code' || t.type === 'html'",
+      "replace": "t.type === 'codespan' || t.type === 'html'",
+      "by": "test",
+      "kills": [
+        "整次改动：整份交给解析器认 —— 跨行的行内代码、缩进代码块、跨行注释里的不算，同一行代码外的照报，引用块里不跨行的行内代码也认"
+      ]
+    },
+    {
+      "id": "M-H237-au",
+      "req": "harness",
+      "why": "HTML 与注释里的字也当正文看",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "t.type === 'codespan' || t.type === 'code' || t.type === 'html'",
+      "replace": "t.type === 'codespan' || t.type === 'code'",
+      "by": "test",
+      "kills": [
+        "整次改动：整份交给解析器认 —— 跨行的行内代码、缩进代码块、跨行注释里的不算，同一行代码外的照报，引用块里不跨行的行内代码也认"
+      ]
+    },
+    {
+      "id": "M-H237-av",
+      "req": "harness",
+      "why": "退回一行一行单看 —— 跨行的行内代码、注释认不出来",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "const lines = blankRanges(text, codeRanges(text, marked.lexer(text, { gfm: true }))).split('\\n')",
+      "replace": "const lines = text.split('\\n').map(stripCodeSpans)",
+      "by": "test",
+      "kills": [
+        "整次改动：整份交给解析器认 —— 跨行的行内代码、缩进代码块、跨行注释里的不算，同一行代码外的照报，引用块里不跨行的行内代码也认"
+      ]
+    },
+    {
+      "id": "M-H237-ax",
+      "req": "harness",
+      "why": "读不到的那一份不记 —— 读的人以为它没东西可报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return { hits, unread }",
+      "replace": "return { hits, unread: [] }",
+      "by": "test",
+      "kills": [
+        "整次改动：有新加的行却读不到的那一份记下来，不当成没东西可报；没有新加行的（删掉的）不读"
+      ]
+    },
+    {
+      "id": "M-H237-ay",
+      "req": "harness",
+      "why": "交回的提示丢光 —— 整次改动什么都不报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "return { hits, unread }",
+      "replace": "return { unread, hits: [] }",
+      "by": "test",
+      "kills": [
+        "整次改动：只看 .md 新加的行，围栏与注释里的不算"
+      ]
+    },
+    {
+      "id": "M-H237-az",
+      "req": "harness",
+      "why": "没有新加行的（删掉的）那一份也去读 —— 读不到就被当成没法比",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "    if (ns.length === 0) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "整次改动：有新加的行却读不到的那一份记下来，不当成没东西可报；没有新加行的（删掉的）不读"
+      ]
+    },
+    {
+      "id": "M-H237-ba",
+      "req": "harness",
+      "why": "表格格子里的记号不往下走 —— 格子里注释中的写法被当成正文报出来",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": ", ...cells] as Token[]",
+      "replace": "] as Token[]",
+      "by": "test",
+      "kills": [
+        "整次改动：表格格子里注释中的不算，同一格子正文里的照报"
+      ]
+    },
+    {
       "id": "M-H236-r",
       "req": "harness",
       "why": "引用块、列表里套的表和行不报 —— 套一层就逃过核对",
