@@ -30,6 +30,7 @@
     "adr-ledger": "tsx scripts/check/adr-ledger.ts",
     "same-spot": "tsx scripts/check/same-spot.ts",
     "debt-touch": "tsx scripts/check/debt-touch.ts",
+    "jargon": "tsx scripts/check/jargon.ts",
     "admission": "tsx scripts/check/admission.ts",
     "launches": "tsx scripts/check/launches.ts",
     "enrichment-schema": "tsx scripts/check/enrichment-schema.ts",

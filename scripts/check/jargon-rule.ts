@@ -1,0 +1,124 @@
+/**
+ * 生词提示的**判定**（ADR-237）—— 一条改动在 Markdown 里新加的行，冒出了哪几处读的人可能看不懂的写法。
+ *
+ * **只提醒，不判该不该写。** 列出来的是三种「多半要配一句白话」的形状，读的人（写的人自己、评审）再判：
+ *
+ * - **生词**：加粗（`**词**`）或书名号（`「词」`）里的短词，既不在术语表（`docs/GLOSSARY.md`）的词条里，
+ *   也没在仓库任何一份 Markdown 的标题里出现过。为什么只认这两种写法：需求所有者 2026-11-22 在选择卡上选的
+ *   「只认加粗和书名号里的短词」—— 自造的词几乎都是加粗或打书名号引进来的；不靠分词去猜哪段话是新词。
+ * - **行号引用**：`ADR-数字:行号`。术语表「编号怎么读」那一节说这是旧写法、不再新写。
+ * - **没配白话的需求编号**：`P2`、`D31.x` 这种，只认需求清单（`docs/requirements.json`）里真有的需求与判据编号，
+ *   后面紧跟着全角或半角括号、或书名号的算配了白话，别的都列。
+ *
+ * 认得的词只有两个来源，都由入口从仓库里现读，这里不维护任何手写表：术语表每一行的第一格（`glossaryTerms`），
+ * 和各份 Markdown 的标题（`headingTexts`）。围栏代码块与 HTML 注释里的行不算（`quotedMask`），
+ * 行内代码（反引号里的）也先去掉 —— 那是在演示写法，不是在用它。
+ */
+import { quotedMask } from './quoted.js'
+
+/** 一处提示：哪个文件第几行、哪一种、原文 */
+export interface JargonHit { readonly file: string; readonly line: number; readonly kind: JargonKind; readonly word: string }
+/** 一行里的一处提示：哪一种、原文 */
+export interface LineHit { readonly kind: JargonKind; readonly word: string }
+export type JargonKind = '生词' | '行号引用' | '没配白话的需求编号'
+
+/** 「短」：去掉首尾空白后 2 到 8 个字，中间不含空白与断句的标点 —— 再长就是一句话，不是一个词 */
+const SHORT_MAX = 8
+const BREAKS = /[\s，。；：！？、,;:!?|（）()]/u
+export const isShortWord = (w: string): boolean => {
+  const t = w.trim(), n = Array.from(t).length
+  return n >= 2 && n <= SHORT_MAX && !BREAKS.test(t)
+}
+
+/** 去掉行内代码：成对的反引号连同里面的字换成空格（位置不挪，只为后面不把演示的写法当成在用） */
+export const stripCodeSpans = (line: string): string => line.replace(/(`+)[^`]*?\1/g, m => ' '.repeat(m.length))
+
+/** 术语表：每张表每一行的第一格算词条；格子里用「、」「/」分开的几种写法各算一个，反引号、书名号里的也各算一个 */
+export function glossaryTerms(text: string): Set<string> {
+  const out = new Set<string>()
+  const lines = text.split('\n'), mask = quotedMask(text)
+  lines.forEach((line, i) => {
+    if (mask[i] || !line.startsWith('|') || /^\|\s*:?-+/.test(line)) return
+    const first = line.split('|')[1] ?? ''
+    const parts = [first, ...[...first.matchAll(/`([^`]+)`|「([^」]+)」|\*\*([^*]+)\*\*/g)].map(m => m[1] ?? m[2] ?? m[3])]
+    for (const p of parts) for (const w of p.replace(/[`*「」]/g, '').split(/[、\/]|（.*?）|\(.*?\)/)) if (w.trim() !== '') out.add(w.trim())
+  })
+  return out
+}
+
+/** 一份 Markdown 的标题文字（`#` 到 `######` 开头的行，围栏与注释里的不算） */
+export function headingTexts(text: string): string[] {
+  const lines = text.split('\n'), mask = quotedMask(text)
+  return lines.flatMap((line, i) => {
+    const m = mask[i] ? null : /^ {0,3}#{1,6}\s+(.+)$/.exec(line)
+    return m ? [m[1]] : []
+  })
+}
+
+/** 需求清单里的编号：每条需求的 id 与它底下每条判据的 id */
+export function requirementIds(json: string): Set<string> {
+  const doc = JSON.parse(json) as { requirements?: { id: string; accept?: { id: string }[] }[] }
+  const out = new Set<string>()
+  for (const r of doc.requirements ?? []) {
+    out.add(r.id)
+    for (const a of r.accept ?? []) out.add(a.id)
+  }
+  return out
+}
+
+/** 判定要用的、从仓库里现读的东西 */
+export interface JargonKnown {
+  /** 术语表词条 */
+  readonly terms: ReadonlySet<string>
+  /** 各份 Markdown 的标题 */
+  readonly headings: readonly string[]
+  /** 需求与判据编号 */
+  readonly reqIds: ReadonlySet<string>
+}
+
+const ID_RE = /(?<![A-Za-z0-9_.\-])([PSDFU]\d+(?:\.[a-z]+\d*)?)(?![A-Za-z0-9_\-])/g
+const GLOSSED = /^\s*[（(「]/
+
+/** 一行里的提示（已去掉行内代码）。生词按出现先后、同一行同一个词只报一次。 */
+export function lineHits(raw: string, known: JargonKnown): LineHit[] {
+  const line = stripCodeSpans(raw), out: LineHit[] = [], seen = new Set<string>()
+  for (const m of line.matchAll(/\*\*([^*\n]+?)\*\*|「([^」\n]+)」/g)) {
+    const w = (m[1] ?? m[2]).trim()
+    if (!isShortWord(w) || seen.has(w) || known.terms.has(w) || known.headings.some(h => h.includes(w))) continue
+    seen.add(w); out.push({ kind: '生词', word: w })
+  }
+  for (const m of line.matchAll(/ADR-\d+:\d+/g)) out.push({ kind: '行号引用', word: m[0] })
+  for (const m of line.matchAll(ID_RE)) {
+    if (!known.reqIds.has(m[1]) || GLOSSED.test(line.slice(m.index! + m[0].length))) continue
+    out.push({ kind: '没配白话的需求编号', word: m[1] })
+  }
+  return out
+}
+
+/**
+ * 整次改动：`added` 是「文件 → 新加的行号」（`field-use-rule.ts` 的 `addedLines` 读出来的），
+ * `read` 按路径交回文件现在的全文。只看 `.md`；围栏与注释里的行不算。
+ */
+export function jargonHits(added: ReadonlyMap<string, ReadonlySet<number>>, read: (file: string) => string, known: JargonKnown): JargonHit[] {
+  const out: JargonHit[] = []
+  for (const file of [...added.keys()].filter(f => f.endsWith('.md')).sort()) {
+    const text = read(file), lines = text.split('\n'), mask = quotedMask(text)
+    for (const n of [...added.get(file)!].sort((a, b) => a - b)) {
+      if (mask[n - 1] || lines[n - 1] === undefined) continue
+      for (const h of lineHits(lines[n - 1], known)) out.push({ file: file, line: n, kind: h.kind, word: h.word })
+    }
+  }
+  return out
+}
+
+/** 汇总一句（进 CI 的通知，只有固定文案与数字） */
+export function jargonSummary(hits: readonly JargonHit[]): string {
+  if (hits.length === 0) return '生词提示：新加的行里没有要配白话的写法 —— 只认加粗、书名号里的短词，行号引用，需求编号'
+  const count = (k: JargonKind) => hits.filter(h => h.kind === k).length
+  return `生词提示：新加的行里有 ${count('生词')} 处生词、${count('行号引用')} 处行号引用、${count('没配白话的需求编号')} 处没配白话的需求编号 —— 只提醒，不拦合入；该配白话的配上，或把词收进术语表`
+}
+
+/** 全文：每处一行（位置、种类、原文），空一行，汇总 */
+export function jargonLines(hits: readonly JargonHit[]): string[] {
+  return [...hits.map(h => `${h.file}:${h.line}  [${h.kind}]  ${h.word}`), ...(hits.length ? [''] : []), `  ${jargonSummary(hits)}`]
+}
