@@ -41,7 +41,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, isGitProgram, launchDrift, 
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
-import { beijingDate, bornReport, cliGit, conditionLineOf, dueReport, dueRow, iouNameAt, listedItems, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
+import { addDays, beijingDate, bornReport, cliGit, conditionLineOf, currentOf, dueItems, dueList, dueReport, dueRow, iouNameAt, listedItems, listings, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
 import { type Registry as LaunchRegistry, baselineFromFacts, goneFromWorktree, isScanned as launchScanned, judgeUse, launchSites, parseRegistry, testOnlyMentions, useLines } from './check/child-process-use-rule.js'
@@ -18149,6 +18149,79 @@ harness('周回访定期清点：欠条哪天登记、按什么名字认、列�
     [{ file: 'docs/adr/A.md', line: 3 }])
 }
 
+harness('到期清单：开着、到期或列过没判的，最老先列，最多 10 张；整张改挂过来的接着算原来那张的登记日')
+{
+  eq('到期日：登记日加天数，跨月跨年照算', [addDays('2026-01-31', 28), addDays('2026-12-20', 28)], ['2026-02-28', '2027-01-17'])
+  eq('「现行的是」两种写法都换成台账的键；没写给 null',
+    [currentOf('⚠️ 已重挂：ADR-1「旧」 · 现行的是 ADR-03「新 」'), currentOf('⚠️ 已重挂：ADR-1 第 4 行 · 现行的是 ADR-7 第 12 行'), currentOf('⚠️ 已还：ADR-1「旧」 · 还在 #1')],
+    ['ADR-3「新」', 'ADR-7:12', null])
+  const listed = listings([
+    '| id | 欠条 | 候选 | 值 | 人判 |', '|---|---|---|---|---|',
+    '| 2026-01-20#1 | 乙、ADR-8「名、字」 | 句 | 值 |  |',
+    '| 2026-01-10#1 | 丙 | 句 | 值 | 留 |',
+    '| 2026-02-01#2 | 丙 | 句 | 值 | 还 |',
+    '| 2026-01-25#1 | 丁 | 句 | 值 | 接受 |',
+    '- 读过、没进候选：甲',
+    '| 不是 id | 戊 | 句 | 值 | 还 |',
+  ].join('\n'))
+  eq('列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样；读过、没进候选的不算列过',
+    [...listed].sort(([a], [b]) => a < b ? -1 : 1), [['ADR-8「名、字」', { day: '2026-01-20', verdict: '' }], ['丁', { day: '2026-01-25', verdict: '接受' }],
+      ['丙', { day: '2026-02-01', verdict: '还' }], ['乙', { day: '2026-01-20', verdict: '' }]])
+  const items = [
+    { key: '甲', aliases: [], date: '2026-01-01', carried: false },
+    { key: '新乙', aliases: ['乙'], date: '2026-01-02', carried: false },
+    { key: '丙', aliases: [], date: '2026-01-03', carried: false },
+    { key: '庚', aliases: [], date: '2026-01-04', until: '2026-03-10', carried: false },
+    { key: '戊', aliases: [], date: '2026-02-20', carried: false },
+    { key: '己', aliases: [], carried: false },
+    { key: '辛', aliases: [], date: '2026-01-05', carried: true },
+    { key: '丁', aliases: [], date: '2026-01-06', carried: false },
+  ]
+  eq('到期清单：列过没判的在前（别名列过也算；旧的接受也算没判），其余按登记日；判了还的四周后还开着照列；续挂没到那天不列；没满 28 天不列；取不到登记日只数',
+    dueList(items, '2026-03-05', listed).lines, [
+      '到期 3 张、列过没判 2 张、取不到登记日 1 张；这次列 5 张（最多 10 张）',
+      '2026-01-02 新乙 · 列过没判', '2026-01-06 丁 · 列过没判',
+      '2026-01-01 甲', '2026-01-03 丙', '2026-01-05 辛 · 续挂过，只能还或收尾'])
+  eq('到期清单：判了还的，判的那天加 28 天之前不再列', dueList(items, '2026-02-28', listed).lines.slice(1), ['2026-01-02 新乙 · 列过没判', '2026-01-06 丁 · 列过没判', '2026-01-01 甲', '2026-01-05 辛 · 续挂过，只能还或收尾'])
+  eq('到期清单：续挂写的那天到了才列，标续挂过', dueList(items, '2026-03-10', listed).lines.filter(l => l.includes('庚')), ['2026-01-04 庚 · 续挂过，只能还或收尾'])
+  eq('到期清单：正好满 28 天那天算到期', dueList([{ key: '甲', aliases: [], date: '2026-01-01', carried: false }], '2026-01-29', new Map()).lines,
+    ['到期 1 张、列过没判 0 张、取不到登记日 0 张；这次列 1 张（最多 10 张）', '2026-01-01 甲'])
+  eq('到期清单：差一天不算', dueList([{ key: '甲', aliases: [], date: '2026-01-01', carried: false }], '2026-01-28', new Map()).due, 0)
+  eq('到期清单：最多列给的张数，先列列过没判的', dueList(items, '2026-03-05', listed, 28, 3).lines.slice(1), ['2026-01-02 新乙 · 列过没判', '2026-01-06 丁 · 列过没判', '2026-01-01 甲'])
+  eq('到期清单：判了留的，四周后再列时标续挂过', dueList([{ key: '丙', aliases: [], date: '2026-01-03', carried: false }],
+    '2026-03-01', new Map([['丙', { day: '2026-01-10', verdict: ' 留 ' }]])).lines.slice(1), ['2026-01-03 丙 · 续挂过，只能还或收尾'])
+
+  withToyRepo(toy => {
+    const day = (d: string) => ({ GIT_AUTHOR_DATE: `${d}T04:00:00+00:00`, GIT_COMMITTER_DATE: `${d}T04:00:00+00:00` })
+    const commit = (d: string) => {
+      fixtureGitOrThrow(['add', '-A'], { cwd: toy.dir })
+      fixtureGitOrThrow(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', d], { cwd: toy.dir, env: day(d) })
+    }
+    const iou = (name: string, cond = '某一步合入时') => `> ⚠️ 欠条「${name}」：说明\n>\n> 重启条件：${cond}\n`
+    const f1 = 'docs/adr/ADR-1-一.md', f2 = 'docs/adr/ADR-2-二.md', f3 = 'docs/adr/ADR-3-三.md', f4 = 'docs/adr/ADR-4-四.md', f5 = 'docs/adr/ADR-5-五.md'
+    toy.git('init', '-q', '-b', 'main')
+    toy.write(f1, `# ADR-1\n\n${iou('最早')}`)
+    commit('2026-01-01')
+    toy.write(f1, `# ADR-1\n\n${iou('最早')}\n> ⚠️ 已重挂：ADR-1「最早」 · 现行的是 ADR-1「旧」\n\n${iou('旧')}`)
+    toy.write(f2, `# ADR-2\n\n${iou('续')}`)
+    commit('2026-01-05')
+    toy.write(f1, `# ADR-1\n\n${iou('最早')}\n> ⚠️ 已重挂：ADR-1「最早」 · 现行的是 ADR-1「旧」\n\n${iou('旧')}\n> ⚠️ 续挂：ADR-1「旧」 · 在 #1 · 到 2026-02-20 · 因为没空\n\n> ⚠️ 已重挂：ADR-1「旧」 · 整张接走，现行的是 ADR-3「新」\n`)
+    toy.write(f2, `# ADR-2\n\n${iou('续')}\n> ⚠️ 续挂：ADR-2「续」 · 在 #2 · 到 2026-03-01 · 因为\n\n> ⚠️ 续挂：ADR-2「续」 · 在 #3 · 到 2026-02-01 · 早写的\n`)
+    toy.write(f3, `# ADR-3\n\n${iou('新')}`)
+    toy.write(f4, `# ADR-4\n\n${iou('关了')}\n> ⚠️ 已还：ADR-4「关了」 · 还在 #4\n`)
+    toy.write(f5, `# ADR-5\n\n${iou('近')}`)
+    commit('2026-02-10')
+    const docs = new Map([f1, f2, f3, f4, f5].map(f => [f, rf(join(toy.dir, f), 'utf8')]))
+    const got = dueItems(cliGit(toy.dir, fixtureEnv({})), 'HEAD', docs).sort((a, b) => a.key < b.key ? -1 : 1)
+    eq('到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天',
+      got, [
+        { key: 'ADR-2「续」', aliases: [], date: '2026-01-05', until: '2026-03-01', carried: false },
+        { key: 'ADR-3「新」', aliases: ['ADR-1「旧」', 'ADR-1 第 11 行', 'ADR-1「最早」', 'ADR-1 第 5 行'], date: '2026-01-01', until: undefined, carried: true },
+        { key: 'ADR-5「近」', aliases: [], date: '2026-02-10', until: undefined, carried: false },
+      ])
+  })
+}
+
 })
 await group('p1-provider', async () => {
 suite('P1', '适配器的缺失、查过为空与真实值保持可区分')
@@ -25897,7 +25970,7 @@ await group('h-iou-file-reminder', () => {
 
 // 入口单列一组：它每跑起 6 次入口，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
 await group('h-revisit-entry', () => {
-  harness('周回访定期清点的入口：在玩具仓库里真起 --due 与 --born')
+  harness('周回访定期清点与到期清单的入口：在玩具仓库里真起 --due、--born 与 --list')
   // 真起单独成组：判定在 h-check-rules 里直接调；入口每起一次，都会乘上那一组的全部变异（启动数闸门，ADR-145）
   const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-entry-'))
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
@@ -25908,7 +25981,7 @@ await group('h-revisit-entry', () => {
   g(null, 'init', '-q', '-b', 'main')
   const a8 = 'docs/adr/ADR-8-甲.md', a9 = 'docs/adr/ADR-9-乙.md'
   put(a8, '# ADR-8\n\n> ⚠️ 欠条「丙(丁).*」：说明\n>\n> 重启条件：定期清点\n')
-  put('docs/adr/ADR-152-候选.md', '- 读过、没进候选：ADR-9 第 3 行\n')
+  put('docs/adr/ADR-152-候选.md', '- 读过、没进候选：ADR-9 第 3 行\n\n| 2026-01-20#1 | ADR-9 第 3 行 | 句 | 值 | 还 |\n')
   g(null, 'add', '-A'); g('2026-01-05', 'commit', '-q', '-m', 'a')
   put(a9, '# ADR-9\n\n> ⚠️ 欠条：乙 重启条件：定期清点\n')
   g(null, 'add', '-A'); g('2026-01-02', 'commit', '-q', '-m', 'b')
@@ -25921,6 +25994,20 @@ await group('h-revisit-entry', () => {
     [due.status, due.stdout], [0, '1\n2\n1\n2026-01-05 ADR-8「丙(丁).*」\n'])
   const born = entry(['--born', '--run', 'HEAD'], `${a8}|5|N|S|过|\n${a9}|3|N|S|过|\n`)
   eq('入口 --born：按「|」切出文件与行号，按登记日排', [born.status, born.stdout], [0, '2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8 第 5 行\n'])
+  // 到期清单读工作区里的整份决策记录与 ADR-152，问 git 取登记日；「读过、没进候选」不算列给需求所有者过
+  const files = () => { const out: string[] = []; const walk = (d: string) => { for (const f of readdirSync(join(repo, d), { withFileTypes: true })) {
+    const rel = d ? `${d}/${f.name}` : f.name
+    if (rel === '.git') continue
+    if (f.isDirectory()) walk(rel); else out.push(`${rel}\n${rf(join(repo, rel), 'utf8')}`)
+  } }; walk(''); return out.sort() }
+  const before = files()
+  // 2026-02-01：ADR-9 那张满 28 天了，可 1 月 20 日判过「还」，四周内不再列；ADR-8 那张差一天满 28 天
+  const early = entry(['--list', '--today', '2026-02-01', '--run', 'HEAD'], '')
+  const list = entry(['--list', '--today', '2026-03-31', '--run', 'HEAD'], '')
+  eq('入口 --list：读整份决策记录与 ADR-152 的人判，按给的那天判到期，最老先列，第一行是几个数；只读，工作区一个字没动',
+    [early.status, early.stdout, list.status, list.stdout, files()],
+    [0, '到期 0 张、列过没判 0 张、取不到登记日 0 张；这次列 0 张（最多 10 张）\n',
+      0, '到期 2 张、列过没判 0 张、取不到登记日 0 张；这次列 2 张（最多 10 张）\n2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8「丙(丁).*」\n', before])
   rmSync(repo, { recursive: true, force: true })
 })
 await group('h-iou-file-reminder-entry', () => {
