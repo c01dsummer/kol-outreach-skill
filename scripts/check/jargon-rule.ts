@@ -8,7 +8,7 @@
  *   「只认加粗和书名号里的短词」—— 自造的词几乎都是加粗或打书名号引进来的；不靠分词去猜哪段话是新词。
  * - **行号引用**：`ADR-数字:行号`。术语表「编号怎么读」那一节说这是旧写法、不再新写。
  * - **没配白话的需求编号**：`P2`、`D31.x` 这种，只认需求清单（`docs/requirements.json`）里真有的需求与判据编号，
- *   后面紧跟着全角或半角括号、或书名号的算配了白话，别的都列。
+ *   后面紧跟着全角或半角括号、书名号或全角冒号的算配了白话，别的都列。
  *
  * 认得的词只有两个来源，都由入口从仓库里现读，这里不维护任何手写表：术语表每一行的第一格（`glossaryTerms`），
  * 和各份 Markdown 的标题（`headingTexts`）。围栏代码块与 HTML 注释里的行不算（`quotedMask`），
@@ -41,16 +41,20 @@ export function glossaryTerms(text: string): Set<string> {
     if (mask[i] || !line.startsWith('|') || /^\|\s*:?-+/.test(line)) return
     const first = line.split('|')[1] ?? ''
     const parts = [first, ...[...first.matchAll(/`([^`]+)`|「([^」]+)」|\*\*([^*]+)\*\*/g)].map(m => m[1] ?? m[2] ?? m[3])]
-    for (const p of parts) for (const w of p.replace(/[`*「」]/g, '').split(/[、\/]|（.*?）|\(.*?\)/)) if (w.trim() !== '') out.add(w.trim())
+    // 括号里的说明与括号外的词各算一个（「已查询但未取得有效值（怪值）」认「怪值」）；空白也断开（「更正块 `⚠️`」认「更正块」）
+    for (const p of parts) for (const w of p.replace(/[`*「」]/g, '').split(/[、\/\s]|[（()）]/)) if (w.trim() !== '') out.add(w.trim())
   })
   return out
 }
 
-/** 一份 Markdown 的标题文字（`#` 到 `######` 开头的行，围栏与注释里的不算） */
-export function headingTexts(text: string): string[] {
+/**
+ * 一份 Markdown 的标题文字（`#` 到 `######` 开头的行，围栏与注释里的不算）。`skip` 是这次新加的行号（从 1 起）：
+ * 这条分支自己新加的标题不算「已有的标题」—— 新造一个词、顺手拿它起个标题，不该就此不报。
+ */
+export function headingTexts(text: string, skip: ReadonlySet<number> = new Set()): string[] {
   const lines = text.split('\n'), mask = quotedMask(text)
   return lines.flatMap((line, i) => {
-    const m = mask[i] ? null : /^ {0,3}#{1,6}\s+(.+)$/.exec(line)
+    const m = mask[i] || skip.has(i + 1) ? null : /^ {0,3}#{1,6}\s+(.+)$/.exec(line)
     return m ? [m[1]] : []
   })
 }
@@ -77,13 +81,13 @@ export interface JargonKnown {
 }
 
 const ID_RE = /(?<![A-Za-z0-9_.\-])([PSDFU]\d+(?:\.[a-z]+\d*)?)(?![A-Za-z0-9_\-])/g
-const GLOSSED = /^\s*[（(「]/
+const GLOSSED = /^\s*[（(「：]/
 
 /** 一行里的提示（已去掉行内代码）。生词按出现先后、同一行同一个词只报一次。 */
 export function lineHits(raw: string, known: JargonKnown): LineHit[] {
   const line = stripCodeSpans(raw), out: LineHit[] = [], seen = new Set<string>()
   for (const m of line.matchAll(/\*\*([^*\n]+?)\*\*|「([^」\n]+)」/g)) {
-    const w = (m[1] ?? m[2]).trim()
+    const w = (m[1] ?? m[2]).replace(/[*「」]/g, '').trim() // 加粗套书名号（**「词」**、「**词**」）的，按里面那个词认
     if (!isShortWord(w) || seen.has(w) || known.terms.has(w) || known.headings.some(h => h.includes(w))) continue
     seen.add(w); out.push({ kind: '生词', word: w })
   }

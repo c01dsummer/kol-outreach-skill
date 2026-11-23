@@ -43,18 +43,25 @@ function main(): void {
   // 路径都是相对仓库根的（`--no-relative`、`ls-files` 在根上跑）；npm 在根上起这个脚本
   const read = (file: string) => readFileSync(join(process.cwd(), file), 'utf8')
   const changed = zList(git('diff', '--name-only', '--no-renames', '--no-relative', '-z', baseline.base)).filter(f => f.endsWith('.md'))
-  const added = addedLines(changed.map(file => [file, git('diff', '--no-renames', '--no-relative', '--no-color', '--no-ext-diff', '--no-textconv',
-    '--text', '--diff-algorithm=myers', '--indent-heuristic', '-U0', '--inter-hunk-context=0', baseline.base, '--', `:(top,literal)${file}`)] as const))
+  // 一份一份读：哪一份 git 答不上来（被当成二进制之类），只跳过那一份并说一声，不让整份提示落空
+  const skipped: string[] = []
+  const added = new Map<string, Set<number>>()
+  for (const file of changed) {
+    try {
+      for (const [f, ns] of addedLines([[file, git('diff', '--no-renames', '--no-relative', '--no-color', '--no-ext-diff', '--no-textconv',
+    '--text', '--diff-algorithm=myers', '--indent-heuristic', '-U0', '--inter-hunk-context=0', baseline.base, '--', `:(top,literal)${file}`)]])) added.set(f, ns)
+    } catch (error) { skipped.push(`${file}（${(error as Error).message.split('\n')[0]}）`) }
+  }
   const tracked = zList(git('ls-files', '-z'))
   const has = (f: string) => tracked.includes(f)
   const known = {
     terms: has('docs/GLOSSARY.md') ? glossaryTerms(read('docs/GLOSSARY.md')) : new Set<string>(),
-    headings: tracked.filter(f => f.endsWith('.md')).flatMap(f => { try { return headingTexts(read(f)) } catch { return [] } }),
+    headings: tracked.filter(f => f.endsWith('.md')).flatMap(f => { try { return headingTexts(read(f), added.get(f)) } catch { return [] } }),
     reqIds: has('docs/requirements.json') ? requirementIds(read('docs/requirements.json')) : new Set<string>(),
   }
   // 改过、却已经删掉的文件没有新加的行（只删的块），读不到也不要紧
   const hits = jargonHits(added, f => { try { return read(f) } catch { return '' } }, known)
-  const lines = jargonLines(hits)
+  const lines = [...jargonLines(hits), ...skipped.map(s => `  （这一份没法比、跳过了：${s}）`)]
   for (const line of lines) console.log(line)
   toGithub(jargonSummary(hits), lines)
 }

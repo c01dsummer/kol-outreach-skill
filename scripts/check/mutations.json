@@ -33598,7 +33598,7 @@
     {
       "id": "M-H237-f",
       "req": "harness",
-      "why": "术语表第一格里书名号、反引号里写的别名不收 —— 那些词照样被报成生词",
+      "why": "术语表第一格里紧挨着别的字写在书名号、反引号里的别名不单收 —— 那个别名照样被报成生词",
       "file": "scripts/check/jargon-rule.ts",
       "find": "const parts = [first, ...[...first.matchAll(",
       "replace": "const parts = [first, ...[...''.matchAll(",
@@ -33612,8 +33612,8 @@
       "req": "harness",
       "why": "术语表第一格里括号说明连着前面的词收成一个 —— 前面那个词本身认不出",
       "file": "scripts/check/jargon-rule.ts",
-      "find": "split(/[、\\/]|（.*?）|\\(.*?\\)/)",
-      "replace": "split(/[、\\/]/)",
+      "find": "split(/[、\\/\\s]|[（()）]/)",
+      "replace": "split(/[、\\/\\s]/)",
       "by": "test",
       "kills": [
         "术语表：每行第一格算词条，「、」「/」分开的、反引号与书名号里的各算一个，括号里的说明不连着前面的词；表头分隔行不算"
@@ -33624,7 +33624,7 @@
       "req": "harness",
       "why": "围栏代码块里举例写的标题也算标题 —— 例子里出现过的词就不报了",
       "file": "scripts/check/jargon-rule.ts",
-      "find": "const m = mask[i] ? null : /^ {0,3}#{1,6}",
+      "find": "const m = mask[i] || skip.has(i + 1) ? null : /^ {0,3}#{1,6}",
       "replace": "const m = /^ {0,3}#{1,6}",
       "by": "test",
       "kills": [
@@ -33760,7 +33760,8 @@
       "replace": "${hits.length} 处行号引用",
       "by": "test",
       "kills": [
-        "入口：在 CI 里汇总一句打成 notice，全文写进 Summary，仍以 0 退出"
+        "入口：在 CI 里汇总一句打成 notice，全文写进 Summary，仍以 0 退出",
+        "全文：每处一行带位置与种类，最后是汇总；没有时只有汇总"
       ]
     },
     {
@@ -33772,7 +33773,7 @@
       "replace": "terms: new Set<string>(),",
       "by": "test",
       "kills": [
-        "入口：只列 .md 里新加的行，三种各一处，术语表与标题里的词不列，以 0 退出"
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
       ]
     },
     {
@@ -33784,7 +33785,7 @@
       "replace": "headings: [].flatMap(",
       "by": "test",
       "kills": [
-        "入口：只列 .md 里新加的行，三种各一处，术语表与标题里的词不列，以 0 退出"
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
       ]
     },
     {
@@ -33796,7 +33797,7 @@
       "replace": "reqIds: new Set<string>(),",
       "by": "test",
       "kills": [
-        "入口：只列 .md 里新加的行，三种各一处，术语表与标题里的词不列，以 0 退出"
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
       ]
     },
     {
@@ -33844,7 +33845,7 @@
       "replace": "kind: '生词', word: h.word",
       "by": "test",
       "kills": [
-        "入口：只列 .md 里新加的行，三种各一处，术语表与标题里的词不列，以 0 退出"
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
       ]
     },
     {
@@ -33881,6 +33882,66 @@
       "by": "test",
       "kills": [
         "生词：加粗与书名号里的新短词都报，同一行同一个词只报一次"
+      ]
+    },
+    {
+      "id": "M-H237-ad",
+      "req": "harness",
+      "why": "加粗套书名号的连着记号去认 —— 术语表里有的词套了两层记号就报成生词",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": ".replace(/[*「」]/g, '').trim() //",
+      "replace": ".trim() //",
+      "by": "test",
+      "kills": [
+        "生词：加粗套书名号的按里面那个词认，术语表里有就不报，没有就报一次"
+      ]
+    },
+    {
+      "id": "M-H237-ae",
+      "req": "harness",
+      "why": "术语表第一格不按空白断开 —— 词后面跟着符号的那个词认不出",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "split(/[、\\/\\s]|[（()）]/)",
+      "replace": "split(/[、\\/]|[（()）]/)",
+      "by": "test",
+      "kills": [
+        "术语表：括号里的别名单算一个，空白也断开"
+      ]
+    },
+    {
+      "id": "M-H237-af",
+      "req": "harness",
+      "why": "这次新加的标题也算已有的标题 —— 新造的词顺手起个标题就不报了",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "|| skip.has(i + 1) ? null",
+      "replace": "? null",
+      "by": "test",
+      "kills": [
+        "标题：这次新加的标题行不算已有的标题"
+      ]
+    },
+    {
+      "id": "M-H237-ag",
+      "req": "harness",
+      "why": "后面跟全角冒号解释的需求编号也报",
+      "file": "scripts/check/jargon-rule.ts",
+      "find": "const GLOSSED = /^\\s*[（(「：]/",
+      "replace": "const GLOSSED = /^\\s*[（(「]/",
+      "by": "test",
+      "kills": [
+        "需求编号：后面跟全角冒号的算配了白话"
+      ]
+    },
+    {
+      "id": "M-H237-ah",
+      "req": "harness",
+      "why": "入口读标题时不跳过这次新加的行 —— 新词顺手起的标题把它自己藏起来",
+      "file": "scripts/check/jargon.ts",
+      "find": "return headingTexts(read(f), added.get(f))",
+      "replace": "return headingTexts(read(f))",
+      "by": "test",
+      "kills": [
+        "入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出"
       ]
     },
     {

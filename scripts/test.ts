@@ -26978,6 +26978,12 @@ await group('h-jargon', () => {
   eq('需求编号：清单里有的、后面没跟括号或书名号的报；跟了的、清单里没有的、长在别的词里的不报',
     lineHits('P2 与 P2.c（不许编造）与 P2「红线」与 P3 与 MP2 与 P2-x 与 P2.c', known),
     [{ kind: '没配白话的需求编号', word: 'P2' }, { kind: '没配白话的需求编号', word: 'P2.c' }])
+  eq('生词：加粗套书名号的按里面那个词认，术语表里有就不报，没有就报一次', [lineHits('**「红线」**与「**红线**」', known), lineHits('**「新词丙」**', known)],
+    [[], [{ kind: '生词', word: '新词丙' }]])
+  const more = glossaryTerms('| 词 | 白话 |\n|---|---|\n| 已查询但未取得有效值（怪值） | 查过没拿到 |\n| 更正块 `⚠️` | 改错的那一块 |\n')
+  eq('术语表：括号里的别名单算一个，空白也断开', ['已查询但未取得有效值', '怪值', '更正块', '⚠️'].map(w => more.has(w)), [true, true, true, true])
+  eq('标题：这次新加的标题行不算已有的标题', headingTexts('# 旧标题\n\n## 新词丁\n', new Set([3])), ['旧标题'])
+  eq('需求编号：后面跟全角冒号的算配了白话', lineHits('P2：不许编造', known), [])
   const text = '# 标题\n\n新加**新词甲**\n\n```\n「围栏里」\n```\n<!-- 「注释里」 -->\n旧行**新词乙**\n'
   const hits = jargonHits(new Map([['a.md', new Set([3, 6, 8])], ['b.ts', new Set([1])]]), f => f === 'a.md' ? text : '「代码文件」', known)
   eq('整次改动：只看 .md 新加的行，围栏与注释里的不算', hits, [{ file: 'a.md', line: 3, kind: '生词', word: '新词甲' }])
@@ -26999,11 +27005,11 @@ await group('h-jargon-entry', () => {
     const lone = run()
     eq('入口：主干上只有根提交时说无从比较，仍以 0 退出', [lone.status, lone.stdout.startsWith('生词提示：无从比较（HEAD 就是 main 且没有父提交')], [0, true])
     toy.git('checkout', '-q', '-b', 'work')
-    toy.write('docs/a.md', '# 欠条\n\n旧行**旧词**\n新加**新词**与「红线」与「欠条」，见 ADR-3:4，按 P2 做\n')
+    toy.write('docs/a.md', '# 欠条\n\n旧行**旧词**\n新加**新词**与「红线」与「欠条」，见 ADR-3:4，按 P2 做\n## 新词\n')
     toy.write('scripts/x.ts', '// 「代码里」\n// 「又一个」\n')
     toy.git('commit', '-qam', 'w')
     const got = run()
-    eq('入口：只列 .md 里新加的行，三种各一处，术语表与标题里的词不列，以 0 退出', [got.status, got.stdout.split('\n').filter(l => l.startsWith('docs/') || l.startsWith('scripts/'))],
+    eq('入口：只列 .md 里新加的行，三种各一处，术语表与已有标题里的词不列（这次新加的标题不算），以 0 退出', [got.status, got.stdout.split('\n').filter(l => l.startsWith('docs/') || l.startsWith('scripts/'))],
       [0, ['docs/a.md:4  [生词]  新词', 'docs/a.md:4  [行号引用]  ADR-3:4', 'docs/a.md:4  [没配白话的需求编号]  P2']])
     const summary = join(toy.dir, '..', 'summary.md')
     const inCi = run({ GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: summary })
