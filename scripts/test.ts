@@ -16167,14 +16167,16 @@ const keys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTOR
 // 独占临时根与诱饵仓库都由 git 夹具的 withToyRepo 开：建仓不读本机配置、带提交身份，跑完或抛错整个删掉（ADR-239）。
 // 下面这一段不重新缩进，免得整段都算改动
 let owner = ''
-withToyRepo((first, more) => {
-owner = dirname(first.dir)
-// 起入口的环境也从夹具拿：去掉继承来的全部 GIT_*、不读本机的系统与用户配置，不自己列要挡哪些（ADR-233 第七节）
+withToyRepo((_, more) => {
+owner = more('owner')
+// 起入口的环境也从夹具拿：去掉继承来的全部 GIT_*、不读本机的系统与用户配置，不自己列要挡哪些（ADR-233 第七节）。
+// 六项再删一遍：fixtureEnv 正是 M-H64 改的地方，跑测试的进程身上若本来带着其中一项，不能靠被测的那一行替测试挡
 const clean: NodeJS.ProcessEnv = fixtureEnv({})
+for (const key of keys) delete clean[key]
 delete clean.NODE_OPTIONS
 delete clean.MUTATING // 两轮都跑普通真实子集，不借施变运行跳过夹具准备或认领约束。
 const repo = (name: string) => {
-  const toy = toyRepoAt(more(name))
+  const toy = toyRepoAt(join(owner, name)); mkdirSync(toy.dir)
   toy.git('init', '-q')
   // 提交可启动后台维护；快照前让自有仓库静止，保留所有 Git 文件的字节审计。
   toy.git('config', 'gc.auto', '0'); toy.git('config', 'maintenance.auto', 'false')
@@ -16200,7 +16202,7 @@ const changes = (before: Map<string, string>, after: Map<string, string>) =>
 const done = '✓ 脚本自检（只跑 1 组）：点名的那几组都跑完了，一条断言都没红'
 const step = '✓ mutate 遇到重复编号即以退出码 1 结束'
 const entry = (name: string, extra: NodeJS.ProcessEnv) => {
-  const root = more(name)
+  const root = join(owner, name); mkdirSync(root)
   const env = { ...clean, ...extra, TMPDIR: root, TMP: root, TEMP: root }
   const r = spawnSync(...prebuiltCommand(['scripts/check/selfcheck.ts', '--only=mutation-duplicate-ids'], process.cwd(), env),
     { env, encoding: 'utf8', timeout: 45_000, maxBuffer: 4 * 1024 * 1024 })
