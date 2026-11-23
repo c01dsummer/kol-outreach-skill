@@ -33445,8 +33445,8 @@
       "req": "harness",
       "why": "前一道已有毛病还接着问后面几道 —— 名字不认得的验证者被拿去建清册，入口抛出一个栈而不是说清哪条写错了",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  for (const step of order) {\n    const faults = checks[step]()",
-      "replace": "  const answers = order.map(s => checks[s]())\n  for (const step of order) {\n    const faults = answers[order.indexOf(step)]",
+      "find": "  for (const s of order) {\n    const found = checks[s]()",
+      "replace": "  const answers = order.map(x => checks[x]())\n  for (const s of order) {\n    const found = answers[order.indexOf(s)]",
       "by": "test",
       "kills": [
         "三道体检先后：接线有毛病就不再问后两道"
@@ -33457,11 +33457,23 @@
       "req": "harness",
       "why": "交回的那一道带的毛病不是它自己的 —— 报出来的那几条变异对不上",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "    if (faults.length) return { step, faults }",
-      "replace": "    if (faults.length) return { step, faults: faults.slice(1) }",
+      "find": "    if (found.length) return { step: s, faults: found }",
+      "replace": "    if (found.length) return { step: s, faults: [] }",
       "by": "test",
       "kills": [
         "三道体检先后：交回的是接线那一道自己的毛病"
+      ]
+    },
+    {
+      "id": "M-H238-e",
+      "req": "harness",
+      "why": "交回的总说是第一道 —— 自己验自己的变异被报成验证者接线不成立",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { step: s, faults: found }",
+      "replace": "return { step: order[0], faults: found }",
+      "by": "test",
+      "kills": [
+        "三道体检先后：接线没毛病、后两道都有时交回自己验自己"
       ]
     }
   ],

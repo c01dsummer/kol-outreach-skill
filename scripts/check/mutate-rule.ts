@@ -501,9 +501,9 @@ export type PrecheckStep = 'wiring' | 'self-verify' | 'labels'
 export function firstPrecheckFault<T>(checks: { readonly [K in PrecheckStep]: () => readonly T[] }):
   { step: PrecheckStep; faults: readonly T[] } | undefined {
   const order: readonly PrecheckStep[] = ['wiring', 'self-verify', 'labels']
-  for (const step of order) {
-    const faults = checks[step]()
-    if (faults.length) return { step, faults }
+  for (const s of order) {
+    const found = checks[s]()
+    if (found.length) return { step: s, faults: found }
   }
   return undefined
 }
