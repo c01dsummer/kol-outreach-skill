@@ -29910,17 +29910,17 @@
       "find": "exec(cells[0] ?? '')?.[1]\n",
       "replace": "exec(cells[0] ?? '')?.[1] ?? '2000-01-01'\n",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
     },
     {
       "id": "M-H167-t",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "同一项列过几次只认第一次 —— 后来判了「还」，清单还当它是早先那次「留」",
-      "find": "out.set(key, !old || old.day <= day ? { day, verdict, kept } : { ...old, kept })",
-      "replace": "out.set(key, !old ? { day, verdict, kept } : { ...old, kept })",
+      "find": "out.set(key, !old || old.day <= day ? { day, verdict, kept, at } : { ...old, kept })",
+      "replace": "out.set(key, !old ? { day, verdict, kept, at } : { ...old, kept })",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
     },
     {
       "id": "M-H167-u",
@@ -30107,20 +30107,20 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "人判栏的字丢了 —— 判过的全当没判",
-      "find": "? { day, verdict, kept } :",
-      "replace": "? { day, ...{ verdict: '' }, kept } :",
+      "find": "? { day, verdict, kept, at } :",
+      "replace": "? { day, ...{ verdict: '' }, kept, at } :",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
     },
     {
       "id": "M-H167-an",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "列出那天记错 —— 判过的哪天满四周算不对",
-      "find": "? { day, verdict, kept } :",
-      "replace": "? { ...{ day: '2026-01-01' }, verdict, kept } :",
+      "find": "? { day, verdict, kept, at } :",
+      "replace": "? { ...{ day: '2026-01-01' }, verdict, kept, at } :",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
     },
     {
       "id": "M-H167-ao",
@@ -30250,17 +30250,17 @@
       "find": "const kept = (old?.kept ?? false) || verdict.trim() === '留'",
       "replace": "const kept = verdict.trim() === '留'",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
     },
     {
       "id": "M-H167-bb",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "最新那次列出不记判过留",
-      "find": "? { day, verdict, kept } :",
-      "replace": "? { day, verdict, ...{ kept: false } } :",
+      "find": "? { day, verdict, kept, at } :",
+      "replace": "? { day, verdict, ...{ kept: false }, at } :",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
     },
     {
       "id": "M-H167-bc",
@@ -30270,7 +30270,7 @@
       "find": "{ ...old, kept })",
       "replace": "{ ...old, ...{ kept: false } })",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
     },
     {
       "id": "M-H167-bd",
@@ -30287,10 +30287,40 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "日子不成立的 id 也当列过 —— 算到期时整份清单打不出来",
-      "find": "    if (Number.isNaN(Date.parse(`${day}T00:00:00Z`))) continue",
+      "find": "    if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== day) continue",
       "replace": "",
       "by": "test",
-      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的不算列过"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
+    },
+    {
+      "id": "M-H167-bf",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "日子只看算不算得出 —— 2 月 30 日被当成 3 月 2 日算列过",
+      "find": "Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== day",
+      "replace": "Number.isNaN(ms)",
+      "by": "test",
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
+    },
+    {
+      "id": "M-H167-bg",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "名字与别名同一天列过时不看先后 —— 先写的那次没判就把后来判的盖掉",
+      "find": "a.day < b.day || (a.day === b.day && a.at <= b.at)",
+      "replace": "a.day <= b.day",
+      "by": "test",
+      "kills": ["到期清单：名字与别名同一天各列过一次，后写的那一行为准（先列别名没判、后列名字判了还的，四周内不列；反过来算列过没判）"]
+    },
+    {
+      "id": "M-H167-bh",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "不记是第几行",
+      "find": "? { day, verdict, kept, at } :",
+      "replace": "? { day, verdict, kept, ...{ at: 0 } } :",
+      "by": "test",
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
     },
     {
       "id": "M-H205-a",

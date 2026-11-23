@@ -18171,10 +18171,11 @@ harness('到期清单：开着、到期或列过没判的，最老先列，最�
     '- 读过、没进候选：甲',
     '| 不是 id | 戊 | 句 | 值 | 还 |',
     '| 2026-13-01#1 | 癸 | 句 | 值 | 还 |',
+    '| 2026-02-30#1 | 癸 | 句 | 值 | 还 |',
   ].join('\n'))
-  eq('列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的不算列过',
-    [...listed].sort(([a], [b]) => a < b ? -1 : 1), [['ADR-8「名、字」', { day: '2026-01-20', verdict: '', kept: false }], ['丁', { day: '2026-01-25', verdict: '接受', kept: false }],
-      ['丙', { day: '2026-02-01', verdict: '还', kept: true }], ['乙', { day: '2026-01-20', verdict: '', kept: false }], ['壬', { day: '2026-01-25', verdict: '还', kept: true }]])
+  eq('列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过',
+    [...listed].sort(([a], [b]) => a < b ? -1 : 1), [['ADR-8「名、字」', { day: '2026-01-20', verdict: '', kept: false, at: 2 }], ['丁', { day: '2026-01-25', verdict: '接受', kept: false, at: 5 }],
+      ['丙', { day: '2026-02-01', verdict: '还', kept: true, at: 4 }], ['乙', { day: '2026-01-20', verdict: '', kept: false, at: 2 }], ['壬', { day: '2026-01-25', verdict: '还', kept: true, at: 6 }]])
   const items = [
     { key: '甲', aliases: [], date: '2026-01-01', carried: false },
     { key: '新乙', aliases: ['乙'], date: '2026-01-02', carried: false },
@@ -18197,9 +18198,13 @@ harness('到期清单：开着、到期或列过没判的，最老先列，最�
   eq('到期清单：差一天不算', dueList([{ key: '甲', aliases: [], date: '2026-01-01', carried: false }], '2026-01-28', new Map()).due, 0)
   eq('到期清单：最多列给的张数，先列列过没判的', dueList(items, '2026-03-05', listed, 28, 3).lines.slice(1), ['2026-01-02 新乙 · 列过没判', '2026-01-06 丁 · 列过没判', '2026-01-01 甲'])
   eq('到期清单：判了留的，四周后再列时标续挂过', dueList([{ key: '丙', aliases: [], date: '2026-01-03', carried: false }],
-    '2026-03-01', new Map([['丙', { day: '2026-01-10', verdict: ' 留 ', kept: true }]])).lines.slice(1), ['2026-01-03 丙 · 续挂过，只能还或收尾'])
+    '2026-03-01', new Map([['丙', { day: '2026-01-10', verdict: ' 留 ', kept: true, at: 0 }]])).lines.slice(1), ['2026-01-03 丙 · 续挂过，只能还或收尾'])
   eq('到期清单：判过留、续挂行没落下，四周后再列又没判的，仍标续挂过（不让他第二次判留）', dueList([{ key: '丙', aliases: [], date: '2026-01-03', carried: false }],
-    '2026-02-10', new Map([['丙', { day: '2026-02-09', verdict: '', kept: true }]])).lines.slice(1), ['2026-01-03 丙 · 列过没判 · 续挂过，只能还或收尾'])
+    '2026-02-10', new Map([['丙', { day: '2026-02-09', verdict: '', kept: true, at: 0 }]])).lines.slice(1), ['2026-01-03 丙 · 列过没判 · 续挂过，只能还或收尾'])
+  const tie = (aliasAt: number, keyAt: number) => dueList([{ key: '丙', aliases: ['旧丙'], date: '2026-01-03', carried: false }], '2026-02-10',
+    new Map([['旧丙', { day: '2026-02-01', verdict: '', kept: false, at: aliasAt }], ['丙', { day: '2026-02-01', verdict: '还', kept: false, at: keyAt }]])).lines.slice(1)
+  eq('到期清单：名字与别名同一天各列过一次，后写的那一行为准（先列别名没判、后列名字判了还的，四周内不列；反过来算列过没判）',
+    [tie(1, 2), tie(2, 1)], [[], ['2026-01-03 丙 · 列过没判']])
 
   withToyRepo(toy => {
     const day = (d: string) => ({ GIT_AUTHOR_DATE: `${d}T04:00:00+00:00`, GIT_COMMITTER_DATE: `${d}T04:00:00+00:00` })

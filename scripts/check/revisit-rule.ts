@@ -225,6 +225,8 @@ export const VERDICTS: ReadonlySet<string> = new Set(['还', '收尾', '留'])
 export interface Listing {
   day: string
   verdict: string
+  /** 取的那一次在 ADR-152 里是第几行（从 0 数）：名字与别名同一天各列过一次时，后写的那一行为准 */
+  at: number
   /** 这一项哪一次列出判过「留」（不只看最近一次：判过留、续挂行没落下、四周后再列没判的，仍要标续挂过） */
   kept: boolean
 }
@@ -232,22 +234,24 @@ export interface Listing {
 /**
  * ADR-152 候选表里每一项最近一次列出。候选行认第一格是 `YYYY-MM-DD#N` 的表行（回访每块的 id 写法），
  * 第二格按书名号外的「、」切开（与 `listedItems` 同一种切法），最后一格是人判栏。同一项列过几次取日期最晚的那一次，
- * 同一天的取后写的那一行。哪一次判过「留」都记下（`kept`）。
+ * 同一天的取后写的那一行（名字与别名之间也是，见 `at`）。日子不成立的 id 不算。哪一次判过「留」都记下（`kept`）。
  */
 export function listings(adr152: string): Map<string, Listing> {
   const out = new Map<string, Listing>()
-  for (const l of adr152.split('\n')) {
+  for (const [at, l] of adr152.split('\n').entries()) {
     if (!l.startsWith('|')) continue
     const cells = cellsOf(l)
     const day = /^(\d{4}-\d{2}-\d{2})#\d+$/.exec(cells[0] ?? '')?.[1]
     if (day === undefined || cells.length < 3) continue
-    if (Number.isNaN(Date.parse(`${day}T00:00:00Z`))) continue // 2026-13-01 这种日子算不出到期，整份清单不能因它打不出来
+    // 日子不成立的不算：2026-13-01 算不出到期，整份清单会打不出来；2026-02-30 会被当成 3 月 2 日，往返对不上也跳过
+    const ms = Date.parse(`${day}T00:00:00Z`)
+    if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== day) continue
     const verdict = cells.at(-1)!
     for (const item of splitItems(cells[1])) {
       const key = item.replace(/^ +| +$/g, '')
       const old = out.get(key)
       const kept = (old?.kept ?? false) || verdict.trim() === '留'
-      out.set(key, !old || old.day <= day ? { day, verdict, kept } : { ...old, kept })
+      out.set(key, !old || old.day <= day ? { day, verdict, kept, at } : { ...old, kept })
     }
   }
   return out
@@ -301,7 +305,7 @@ export function dueList(items: DueItem[], today: string, listed: Map<string, Lis
   let undated = 0
   for (const it of items) {
     const ls = [it.key, ...it.aliases].map(k => listed.get(k)).filter((l): l is Listing => l !== undefined)
-    const last = ls.reduce<Listing | undefined>((a, b) => a === undefined || a.day <= b.day ? b : a, undefined)
+    const last = ls.reduce<Listing | undefined>((a, b) => a === undefined || a.day < b.day || (a.day === b.day && a.at <= b.at) ? b : a, undefined)
     const judged = last !== undefined && VERDICTS.has(last.verdict.trim())
     const second = it.until !== undefined || it.carried || ls.some(l => l.kept)
     const tag = second ? ' · 续挂过，只能还或收尾' : ''
