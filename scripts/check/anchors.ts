@@ -29,7 +29,7 @@
 import { readFileSync } from 'node:fs'
 import { type AnchorFault, type StagedFault, anchorCatalog, anchorVerdict, batchBlobs, notARepo, stagedResidue } from './mutate-rule.js'
 import { runGit } from './git-entry.js'
-import { MUTATION_CATALOG, readCatalog } from './catalog-rule.js'
+import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
 
 const CATALOG = MUTATION_CATALOG
 
@@ -79,7 +79,8 @@ const SAY: Record<AnchorFault['kind'], string> = {
 if (duplicated !== undefined) {
   reportDuplicate(duplicated)
 } else if (catalog === undefined) {
-  console.error(`✗ 变异锚点：${CATALOG} 读不到，或读不出一组变异 —— 没得核不是核过了`)
+  const why = loaded.ok ? '' : `（${catalogFaultText(loaded.fault)}）`
+  console.error(`✗ 变异锚点：${CATALOG} 读不到，或读不出一组变异${why} —— 没得核不是核过了`)
   process.exitCode = 1
 } else {
   const verdict = anchorVerdict(catalog, read)

@@ -8040,6 +8040,17 @@ group('shard-load-entry', [], () => {
       }
     }
   }
+  // 当前树的变异目录编号重复：读取函数拒，算不出每一份的秒数，以 1 退出（ADR-242）
+  const dupTmp = join(tmp, 'shard-load-dup')
+  if (repo(dupTmp, true)) {
+    const one = muts([1, 0, 0]).mutations[0]
+    writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [one, one] }), 'utf8')
+    if (commit(dupTmp, 'dup')) {
+      const dup = runToolBoth('shard-load 变异目录编号重复即以退出码 1 结束', 'shard-load', [], dupTmp, { status: 1 })
+      if (dup.ok) named('shard-load 变异目录编号重复时说算不出、点名那个编号',
+        dup.stdout.includes('当前树算不出每一份的秒数（变异目录里编号重复：M-T-1-0）'), dup.stdout)
+    }
+  }
   // PR 上三组各加 1 条：涨 9.1%，红，点名那一道
   const growTmp = join(tmp, 'shard-load-grow')
   if (repo(growTmp, true)) {
@@ -8413,6 +8424,12 @@ group('mutation-reds-entry', [], () => {
   const stale = runToolBoth('never-red 记录对不上变异目录即以 1 结束', 'never-red', [], rTmp, { status: 1 })
   if (stale.ok) named('never-red：记录对不上变异目录时说出缺了哪条、不出清单',
     stale.stderr.includes('M-X-s') && !stale.stdout.includes('｜ 乙'), stale.stderr)
+  // 变异目录里编号重复：读取函数拒，入口照着说、不出清单（ADR-242）
+  const once = { id: 'M-X-r', req: 'X1', why: '把那个字面量换掉', file: 'a.ts', find: "'P'", replace: "'Q'", by: 'selfcheck', kills: ['甲'] }
+  writeFileSync(join(rTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [once, once] }), 'utf8')
+  const twice = runToolBoth('never-red 变异目录编号重复即以 1 结束', 'never-red', [], rTmp, { status: 1 })
+  if (twice.ok) named('never-red：变异目录编号重复时点名那个编号、不出清单',
+    twice.stderr.includes('变异目录里编号重复：M-X-r') && !twice.stdout.includes('｜ 乙'), twice.stderr)
 })
 
 // ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
@@ -8738,6 +8755,7 @@ group('audit-entry', [], () => {
   let observedA: string | undefined;
   let observedB: string | undefined;
   let dupNamesRun: { status: number | null; stdout: string; stderr: string } | undefined;
+  let dupIdsRun: { status: number | null; stdout: string; stderr: string } | undefined;
   // 夹具没造对只报一次、只计一次失败。`raw` 是要交给人读的那份原始报告（报告认不出那一支给）：
   // 逐行加前缀再打，免得报告里自己的 `✗ …` 行顶格打出来，被 `killsMatched` 与汇总正则当成自检的话
   const fixtureFailure = (why: string, raw?: { stdout: string; stderr: string }): void => {
@@ -8949,6 +8967,15 @@ group('audit-entry', [], () => {
       return;
     }
     dupNamesRun = { status: dup.status, stdout: dup.stdout, stderr: dup.stderr };
+    // 第三跑：变异目录里编号重复 —— 读取函数拒，审计不往下审，以 1 退出（ADR-242）
+    writeFileSync(join(ownedToyRoot, 'scripts', 'check', 'mutations.json'),
+      encode({ ...mutationData, mutations: [...mutationData.mutations, mutationData.mutations[0]] }));
+    const dupIds = runToolBoth('audit-entry 起普通审计：变异目录编号重复', 'audit', [], ownedToyRoot, { status: 1, soft: [0] });
+    if (!dupIds.ok) {
+      runnerReportedFailure = true;
+      return;
+    }
+    dupIdsRun = { status: dupIds.status, stdout: dupIds.stdout, stderr: dupIds.stderr };
   } catch (error) {
     fixtureFailure(error instanceof Error ? error.message : String(error));
     return;
@@ -8966,6 +8993,9 @@ group('audit-entry', [], () => {
   named('审计入口：一条记录里两张欠条同名时把短名字有错计成硬失败，以 1 退出',
     dupNamesRun?.status === 1 && dupNamesRun.stdout.includes('docs/adr/ADR-1-玩具.md:5 欠条的短名字有错'),
     `退出码 ${dupNamesRun?.status}；输出：\n${dupNamesRun?.stdout}stderr 末几行：${stderrTail(dupNamesRun?.stderr ?? '')}`);
+  named('审计入口：变异目录编号重复时不往下审、点名那个编号，以 1 退出',
+    dupIdsRun?.status === 1 && dupIdsRun.stderr.includes('变异目录里编号重复：toy-negative-alpha') && dupIdsRun.stdout === '',
+    `退出码 ${dupIdsRun?.status}；输出：\n${dupIdsRun?.stdout}stderr 末几行：${stderrTail(dupIdsRun?.stderr ?? '')}`);
 });
 
 // ---- 子集基线：先验正常代码，同一配置只验一次，未通过就不能施加变异 ----

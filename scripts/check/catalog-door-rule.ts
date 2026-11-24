@@ -4,13 +4,14 @@
  * **怎么认**（只看语法树，确切回答，不猜实参）：
  * 1. 变异目录的文件名 `mutations.json` 出现在字符串字面量或模板串的任何一段里 —— 只许写在 `catalog-rule.ts`。
  *    注释不算（语法树上没有注释节点）。
- * 2. 导入了 `MUTATION_CATALOG`（目录的位置）的文件，同一个文件里也要导入 `readCatalog`：
- *    拿了位置去读，就得经读取函数判。
+ * 2. 引用了读取函数所在模块（`catalog-rule`）的文件 —— 按名字导入、整个模块导入、`import()`、`require`、转出都算，
+ *    只带类型的导入不算 —— 同一个文件里要真调用 `readCatalog`（按名字、改了名、经模块对象调都认）：拿了位置去读，就得经读取函数判。
  * 两条都由 `NOT_READERS` 逐个放行：那几处碰到这个名字，但不读目录里的变异。
  *
  * **不扫的**：测试文件（`isTestFile`）—— 它们写夹具目录、或拿真目录做测试的输入，不是检查链读目录拿去判。
  * **认不出的**：拆开拼的文件名（`'mutations' + '.json'`）、从环境变量或参数传进来的路径、读目录的 shell
- * （工作流里那一行 `jq` 只数条数，不读编号）。这几种仍靠评审。
+ * （工作流里那一行 `jq` 只数条数，不读编号）；一个文件里调了 `readCatalog`、另一处又拿位置自己读（要看数据怎么流，
+ * 语法树答不了）；拆开拼的模块名。这几种仍靠评审。
  */
 import { createRequire } from 'node:module'
 import type * as Ts from 'typescript'
@@ -36,28 +37,46 @@ export function isTestFile(path: string): boolean {
   return path === 'scripts/test.ts' || path === 'scripts/check/selfcheck.ts' || path.endsWith('-test.ts')
 }
 
-/** 一个文件里提到文件名的那几行、有没有导入位置与读取函数（行号从 1 起） */
-function scan(path: string, text: string): { mentions: number[]; importsPath: boolean; importsReader: boolean } {
+/** 读取函数所在模块的说明符：`./catalog-rule.js`、`../check/catalog-rule.ts`、不带扩展名的都认 */
+const DOOR_SPECIFIER = /(^|\/)catalog-rule(\.[cm]?[jt]s)?$/
+
+/** 一个文件里提到文件名的那几行（行号从 1 起）、有没有引用读取函数所在模块、有没有调用读取函数 */
+function scan(path: string, text: string): { mentions: number[]; refsDoor: boolean; callsReader: boolean } {
   const ts = typescript()
   const tree = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const mentions: number[] = []
-  let importsPath = false
-  let importsReader = false
+  let refsDoor = false
+  // 指向读取函数的本地名字：按名字导入（含改名）、动态导入解构出来的
+  const readerNames = new Set<string>(['readCatalog'])
+  const calls: Ts.CallExpression[] = []
+  const isDoor = (node: Ts.Node | undefined): boolean =>
+    node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && DOOR_SPECIFIER.test(node.text)
   const visit = (node: Ts.Node): void => {
     const piece = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
       || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) ? node.text : undefined
     if (piece !== undefined && piece.includes(CATALOG_NAME)) {
       mentions.push(tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1)
     }
-    if (ts.isImportSpecifier(node)) {
-      const imported = (node.propertyName ?? node.name).text
-      if (imported === 'MUTATION_CATALOG') importsPath = true
-      if (imported === 'readCatalog') importsReader = true
+    if (ts.isImportDeclaration(node) && isDoor(node.moduleSpecifier) && node.importClause?.isTypeOnly !== true) refsDoor = true
+    if (ts.isExportDeclaration(node) && isDoor(node.moduleSpecifier) && !node.isTypeOnly) refsDoor = true
+    if (ts.isCallExpression(node)) {
+      if ((node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+        && isDoor(node.arguments[0])) refsDoor = true
+      calls.push(node)
     }
+    if (ts.isImportSpecifier(node) && (node.propertyName ?? node.name).text === 'readCatalog') readerNames.add(node.name.text)
+    if (ts.isBindingElement(node) && node.propertyName !== undefined && ts.isIdentifier(node.propertyName)
+      && node.propertyName.text === 'readCatalog' && ts.isIdentifier(node.name)) readerNames.add(node.name.text)
     ts.forEachChild(node, visit)
   }
   visit(tree)
-  return { mentions, importsPath, importsReader }
+  const callsReader = calls.some(c => {
+    const callee = c.expression
+    if (ts.isIdentifier(callee)) return readerNames.has(callee.text)
+    if (ts.isPropertyAccessExpression(callee)) return callee.name.text === 'readCatalog'
+    return ts.isElementAccessExpression(callee) && ts.isStringLiteral(callee.argumentExpression) && callee.argumentExpression.text === 'readCatalog'
+  })
+  return { mentions, refsDoor, callsReader }
 }
 
 /**
@@ -74,8 +93,8 @@ export function catalogDoorFaults(files: readonly { path: string; text: string }
     for (const line of found.mentions) {
       faults.push(`${path} 第 ${line} 行：直接写了变异目录的文件名，要读就从 catalog-rule.ts 导入位置并经 readCatalog 读`)
     }
-    if (found.importsPath && !found.importsReader) {
-      faults.push(`${path}：导入了变异目录的位置，却没导入 readCatalog —— 读目录要经读取函数判`)
+    if (found.refsDoor && !found.callsReader) {
+      faults.push(`${path}：引用了读取函数所在的模块，却没调用 readCatalog —— 读目录要经读取函数判`)
     }
   }
   for (const path of Object.keys(NOT_READERS)) {

@@ -25,7 +25,10 @@ const fail = (why: string): void => {
 
 const main = (): void => {
   // 读变异目录只经读取函数（ADR-242）：编号重复也在这一道拒 —— 目录里同号两条，拼记录时按编号对就分不出是哪一条
-  const catalog = readCatalog(existsSync(MUTATION_CATALOG) ? readFileSync(MUTATION_CATALOG, 'utf8') : undefined)
+  // 读不成（不在、是个目录、没权限）一律交 undefined，由读取函数说读不到 —— 不抛出去
+  let text: string | undefined
+  try { text = readFileSync(MUTATION_CATALOG, 'utf8') } catch { text = undefined }
+  const catalog = readCatalog(text)
   if (!catalog.ok) { fail(catalogFaultText(catalog.fault)); return }
   const catalogIds = catalog.mutations.map(m => m.id)
   const names = existsSync(REDS_DIR) ? readdirSync(REDS_DIR).filter(n => REDS_PART_NAME.test(n)).sort() : []
