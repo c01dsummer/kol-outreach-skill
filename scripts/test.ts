@@ -30,6 +30,8 @@ import { prepareTaskReviews } from './lib/task-reviews.js'
 
 import { configurationKey, costObservation, configurationCost, configurationCostLines, type CostInput, type CostIdentity, type CostRoute, type CostBaseline, type CostMutation, type CostSummary } from './check/jobs-rule.js'
 import { REDS_PART_NAME, type RedsPart, creditedReds, earlyStopWanted, mergeParts, neverRed, ranAssertions, readRedsPart, redsPartName } from './check/never-red-rule.js'
+import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './check/catalog-rule.js'
+import { DOOR, NOT_READERS, catalogDoorFaults, isTestFile } from './check/catalog-door-rule.js'
 import type { RunVerdict } from './check/mutate-rule.js'
 import { stopsEarly } from './check/mutate-rule.js'
 import {
@@ -396,6 +398,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-jargon-entry', needs: [] },
   { id: 'h-same-spot', needs: [] },
   { id: 'h-never-red', needs: [] },
+  { id: 'h-catalog-read', needs: [] },
+  { id: 'h-catalog-door', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -26096,12 +26100,14 @@ await group('h-revisit-raw', () => {
       ['取不到一周前那棵树（2026-11-16 北京时间 00:00 之前主干上没有提交）', '读不出本跑那棵树（nope）的 docs/adr/'])
     const half: RawGit = { ...git, lastBefore: () => 'abcdef0123', adrTree: rev => rev === 'abcdef0123' ? undefined : git.adrTree(rev) }
     eq('取原料：一周前那棵树取到了却读不出，也不齐、说是哪一个提交', gatherRaw(half, 'HEAD', '2026-11-23').faults, ['读不出一周前那棵树（abcdef0）的 docs/adr/', '工作区的 docs/adr/ 与本跑那棵树不同：docs/adr/ADR-1-甲.md'])
-    eq('条数：提交上 mutations 是数组就数，不是数组、文件不在都算取不到', (() => {
-      toy.write('scripts/check/mutations.json', '{"mutations":[{},{},{}]}\n'); toy.git('add', '-A'); commit('2026-11-21T04:00:00+00:00', '四')
+    eq('条数：提交上的变异目录经读口判过才数，形状不对、编号重复、文件不在都算取不到', (() => {
+      toy.write('scripts/check/mutations.json', '{"mutations":[{"id":"a"},{"id":"b"},{"id":"c"}]}\n'); toy.git('add', '-A'); commit('2026-11-21T04:00:00+00:00', '四')
       const three = catalogCount(git, 'HEAD')
       toy.write('scripts/check/mutations.json', '{"mutations":"abcd"}\n'); toy.git('add', '-A'); commit('2026-11-21T05:00:00+00:00', '五')
-      return [three, catalogCount(git, 'HEAD'), catalogCount(git, first)]
-    })(), [3, undefined, undefined])
+      const notArray = catalogCount(git, 'HEAD')
+      toy.write('scripts/check/mutations.json', '{"mutations":[{"id":"a"},{"id":"a"}]}\n'); toy.git('add', '-A'); commit('2026-11-21T05:30:00+00:00', '六')
+      return [three, notArray, catalogCount(git, 'HEAD'), catalogCount(git, first)]
+    })(), [3, undefined, undefined, undefined])
   })
 
   // (d) 被引表前十
@@ -26201,7 +26207,7 @@ await group('h-revisit-raw-entry', () => {
       { cwd: toy.dir, env: { GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso } })
     toy.git('init', '-q', '-b', 'main')
     toy.write('docs/adr/ADR-1-甲.md', '# ADR-1\n\n> ⚠️ 欠条：甲 · 重启条件：定期清点\n')
-    toy.write('scripts/check/mutations.json', '{"mutations":[{},{}]}\n')
+    toy.write('scripts/check/mutations.json', '{"mutations":[{"id":"a"},{"id":"b"}]}\n')
     toy.git('add', '-A'); commit('2026-11-10T04:00:00+00:00')
     const sha = toy.read('rev-parse', 'HEAD').trim()
     toy.write('docs/adr/ADR-2-乙.md', '# ADR-2\n\n见 ADR-1。\n\n> ⚠️ 欠条：乙 · 重启条件：定期清点\n')
@@ -26568,6 +26574,9 @@ await group('h-field-use-entry-inputs', () => {
     g('checkout', '-q', '--', 'tsconfig.json')
     put('scripts/check/mutations.json', '{ "mutations": [] }')
     eq('字段断言入口：变异登记表读不出一组变异时说无从判断，以 1 退出', cannot(run(root), '变异登记表'), [1, true])
+    const twice = { id: 'M-D', file: 'scripts/check/a.ts', find: 'x', replace: 'y' }
+    put('scripts/check/mutations.json', JSON.stringify({ mutations: [twice, twice] }))
+    eq('字段断言入口：变异登记表编号重复时说无从判断、点名那个编号，以 1 退出', cannot(run(root), '变异目录里编号重复：M-D'), [1, true])
     g('checkout', '-q', '--', 'scripts/check/mutations.json')
     put('scripts/check/a.ts', 'export const nothing = 1\n')
     eq('字段断言入口：一个字段都没取到时说无从判断，以 1 退出', cannot(run(root), '一个字段都没取到'), [1, true])
@@ -27716,6 +27725,102 @@ harness('从没被负片弄红过的断言：每一条负片红过哪些、记�
     (() => { const back = parseReport(reportLine('M-X-r', { ...ranRed, red: undefined })); return back !== undefined && !Object.hasOwn(back, 'red') })())
 }
 })
+
+await group('h-catalog-read', () => {
+harness('变异目录只有一个读法：读不出、形状不对、编号重复都在读的时候拒（ADR-242）')
+{
+  // 预期都是手写的，不拿被测判定给自己打分
+  const good = readCatalog(JSON.stringify({ mutations: [{ id: 'M-a', file: 'x.ts' }, { id: 'M-b' }], exemptions: [{ req: 'P1' }] }))
+  eq('读目录：好的目录交出全部变异，别的字段原样带着', good.ok ? good.mutations : undefined, [{ id: 'M-a', file: 'x.ts' }, { id: 'M-b' }])
+  eq('读目录：好的目录交出豁免', good.ok ? good.exemptions : undefined, [{ req: 'P1' }])
+  const noEx = readCatalog('{"mutations":[]}')
+  eq('读目录：没写豁免的当空', noEx.ok ? noEx.exemptions : undefined, [])
+  eq('读目录：一条变异都没有也交得出（空不空由用的地方判）', noEx.ok ? noEx.mutations : undefined, [])
+  const fault = (text: string | undefined) => { const r = readCatalog(text); return r.ok ? undefined : r.fault }
+  eq('读目录：读不到文件时拒', fault(undefined), { kind: 'unreadable', why: '读不到这个文件' })
+  eq('读目录：不是 JSON 时拒，说是读不出', fault('{ 坏了')?.kind, 'unreadable')
+  eq('读目录：最外层是数组时拒', fault('[]'), { kind: 'shape', why: '最外层不是一个对象' })
+  eq('读目录：最外层是 null 时拒', fault('null'), { kind: 'shape', why: '最外层不是一个对象' })
+  eq('读目录：没有 mutations 时拒', fault('{}'), { kind: 'shape', why: 'mutations 不是数组' })
+  eq('读目录：mutations 不是数组时拒', fault('{"mutations":{}}'), { kind: 'shape', why: 'mutations 不是数组' })
+  eq('读目录：有一条是 null 时拒，点出第几项', fault('{"mutations":[{"id":"M-a"},null]}'), { kind: 'shape', why: 'mutations 第 2 项不是带字符串 id 的对象' })
+  eq('读目录：有一条是数组时拒', fault('{"mutations":[[]]}'), { kind: 'shape', why: 'mutations 第 1 项不是带字符串 id 的对象' })
+  eq('读目录：有一条的 id 不是字符串时拒', fault('{"mutations":[{"id":7}]}'), { kind: 'shape', why: 'mutations 第 1 项不是带字符串 id 的对象' })
+  eq('读目录：有一条缺 id 时拒', fault('{"mutations":[{"file":"x.ts"}]}'), { kind: 'shape', why: 'mutations 第 1 项不是带字符串 id 的对象' })
+  eq('读目录：豁免不是数组时拒', fault('{"mutations":[],"exemptions":{}}'), { kind: 'shape', why: 'exemptions 不是数组' })
+  eq('读目录：豁免写成 null 时拒（缺着才当空）', fault('{"mutations":[],"exemptions":null}'), { kind: 'shape', why: 'exemptions 不是数组' })
+  eq('读目录：编号重复时拒，点出每个重了的编号', fault('{"mutations":[{"id":"M-a"},{"id":"M-b"},{"id":"M-a"},{"id":"M-b"},{"id":"M-c"}]}'),
+    { kind: 'duplicate', ids: ['M-a', 'M-b'] })
+  eq('读目录：形状不对排在编号重复前面', fault('{"mutations":[{"id":"M-a"},{"id":"M-a"},null]}')?.kind, 'shape')
+  eq('读目录：说法 —— 编号重复', catalogFaultText({ kind: 'duplicate', ids: ['M-a', 'M-b'] }), '变异目录里编号重复：M-a、M-b')
+  eq('读目录：说法 —— 读不出', catalogFaultText({ kind: 'unreadable', why: '读不到这个文件' }), '变异目录读不出：读不到这个文件')
+  eq('读目录：说法 —— 形状不对', catalogFaultText({ kind: 'shape', why: 'mutations 不是数组' }), '变异目录形状不对：mutations 不是数组')
+  eq('读目录：目录的位置', MUTATION_CATALOG, 'scripts/check/mutations.json')
+}
+})
+
+await group('h-catalog-door', async () => {
+harness('读变异目录不许绕开读取函数：文件名只许写在读取函数那里，引用了读取函数所在模块就得真调用读取函数（ADR-242）')
+{
+  const name = 'mutations' + '.json'
+  const f = (path: string, text: string) => ({ path, text })
+  // 读取函数所在的文件给一份最小的替身：只要有那个声明，编译器才认得出调的是它
+  const door = f(DOOR, 'export const MUTATION_CATALOG = "x"\nexport function readCatalog(text: string | undefined): unknown { return text }\nexport function catalogFaultText(x: unknown): string { return String(x) }\n')
+  const allowed = [door, ...Object.keys(NOT_READERS).map(path => f(path, ''))]
+  const faults = (...files: { path: string; text: string }[]) => catalogDoorFaults([...allowed, ...files])
+  eq('绕开读取函数：字符串里直接写文件名，报那一行',
+    faults(f('scripts/check/a.ts', `const x = 1\nconst p = 'scripts/check/${name}'\n`)),
+    ['scripts/check/a.ts 第 2 行：直接写了变异目录的文件名，要读就从 catalog-rule.ts 导入位置并经 readCatalog 读'])
+  eq('绕开读取函数：模板串的结尾一段里写也算', faults(f('scripts/a.ts', 'const p = `${root}/' + name + '`\n')).length, 1)
+  eq('绕开读取函数：模板串的头一段里写也算', faults(f('scripts/a.ts', 'const p = `' + name + '${x}`\n')).length, 1)
+  eq('绕开读取函数：模板串的中间一段里写也算', faults(f('scripts/a.ts', 'const p = `${a}/' + name + '${b}`\n')).length, 1)
+  eq('绕开读取函数：不带替换的模板串里写也算', faults(f('scripts/a.ts', 'const p = `' + name + '`\n')).length, 1)
+  eq('绕开读取函数：一个文件里写了两处，各报一行', faults(f('scripts/a.ts', `'${name}'\n'${name}'\n`)).length, 2)
+  eq('绕开读取函数：注释里提到不算', faults(f('scripts/a.ts', `// 读 ${name}\n/* ${name} */\nconst x = 1\n`)), [])
+  eq('绕开读取函数：读取函数那个文件里可以写', faults(f(DOOR, `export const MUTATION_CATALOG = 'scripts/check/${name}'\n`)), [])
+  eq('绕开读取函数：测试文件不扫', faults(f('scripts/test.ts', `'${name}'\n`), f('scripts/check/selfcheck.ts', `'${name}'\n`), f('scripts/x-test.ts', `'${name}'\n`)), [])
+  eq('绕开读取函数：放行名单里的文件不扫', faults(f('scripts/check/claims.ts', `'${name}'\n`)), [])
+  const imp = "import { MUTATION_CATALOG } from './check/catalog-rule.js'\n"
+  eq('绕开读取函数：按名字导入了位置、没调用读取函数，报', faults(f('scripts/a.ts', imp)),
+    ['scripts/a.ts：引用了读取函数所在的模块，却没调用 readCatalog —— 读目录要经读取函数判'])
+  eq('绕开读取函数：导入了读取函数却没调用，报', faults(f('scripts/a.ts', "import { MUTATION_CATALOG, readCatalog } from './check/catalog-rule.js'\nconst p = MUTATION_CATALOG\n")).length, 1)
+  eq('绕开读取函数：整个模块导入、只取位置，报', faults(f('scripts/a.ts', "import * as c from './catalog-rule.js'\nconst p = c.MUTATION_CATALOG\n")).length, 1)
+  eq('绕开读取函数：动态导入、只取位置，报', faults(f('scripts/a.ts', "const { MUTATION_CATALOG: p } = await import('../check/catalog-rule.js')\n")).length, 1)
+  eq('绕开读取函数：require 进来、只取位置，报', faults(f('scripts/a.cts', "const c = require('./catalog-rule')\nc.MUTATION_CATALOG\n")).length, 1)
+  eq('绕开读取函数：改名转出位置，报', faults(f('scripts/a.ts', "export { MUTATION_CATALOG as W } from './catalog-rule.js'\n")).length, 1)
+  eq('绕开读取函数：只带类型的导入不算引用，放行', faults(f('scripts/a.ts', "import type { CatalogRead } from './catalog-rule.js'\n"), f('scripts/b.ts', "export type { CatalogRead } from './catalog-rule.js'\n")), [])
+  eq('绕开读取函数：导入了位置也调用了读取函数，放行',
+    faults(f('scripts/a.ts', imp.replace('MUTATION_CATALOG }', 'MUTATION_CATALOG, readCatalog }') + 'readCatalog(read(MUTATION_CATALOG))\n')), [])
+  eq('绕开读取函数：改了名调用读取函数，放行', faults(f('scripts/a.ts', "import { readCatalog as rc } from './catalog-rule.js'\nrc(t)\n")), [])
+  eq('绕开读取函数：经模块对象调用读取函数，放行', faults(f('scripts/a.ts', "import * as c from './catalog-rule.js'\nc.readCatalog(t)\n"), f('scripts/b.ts', "import * as c from './catalog-rule.js'\nc['readCatalog'](t)\n")), [])
+  eq('绕开读取函数：动态导入解构出读取函数并调用，放行', faults(f('scripts/a.ts', "const { readCatalog: rc } = await import('./catalog-rule.js')\nrc(t)\n")), [])
+  eq('绕开读取函数：只有带类型标记的名字的导入与转出不算引用，放行', faults(f('scripts/a.ts', "import { type CatalogRead } from './catalog-rule.js'\n"), f('scripts/b.ts', "export { type CatalogRead } from './catalog-rule.js'\n")), [])
+  eq('绕开读取函数：带类型标记的名字旁边还有值的名字，照样算引用', faults(f('scripts/a.ts', "import { type CatalogRead, MUTATION_CATALOG } from './catalog-rule.js'\n"), f('scripts/b.ts', "export { type CatalogRead, MUTATION_CATALOG } from './catalog-rule.js'\n")).length, 2)
+  eq('绕开读取函数：只为副作用导入那个模块也算引用', faults(f('scripts/a.ts', "import './catalog-rule.js'\n")).length, 1)
+  eq('绕开读取函数：自己定义一个同名的 readCatalog 来调，报', faults(f('scripts/a.ts', imp + 'function readCatalog(p: string): unknown { return JSON.parse(read(p)) }\nreadCatalog(MUTATION_CATALOG)\n')).length, 1)
+  eq('绕开读取函数：别的对象上的同名方法不算调用读取函数，报', faults(f('scripts/a.ts', imp + 'other.readCatalog(MUTATION_CATALOG)\n'), f('scripts/b.ts', imp + "other['readCatalog'](MUTATION_CATALOG)\n")).length, 2)
+  eq('绕开读取函数：从别的模块按名字导入的 readCatalog 不算，报', faults(f('scripts/a.ts', imp + "import { readCatalog } from './elsewhere.js'\nreadCatalog(t)\n")).length, 1)
+  eq('绕开读取函数：动态导入解构出不改名的读取函数并调用，放行', faults(f('scripts/a.ts', "const { readCatalog } = await import('./catalog-rule.js')\nreadCatalog(t)\n")), [])
+  eq('绕开读取函数：动态导入的模块对象上调读取函数，放行', faults(f('scripts/a.ts', "const c = await import('./catalog-rule.js')\nc.readCatalog(t)\n"), f('scripts/b.ts', "(await import('./catalog-rule.js')).readCatalog(t)\n"), f('scripts/c.ts', "(await import('./catalog-rule.js'))['readCatalog'](t)\n")), [])
+  eq('绕开读取函数：参数和导入进来的读取函数同名、调的是参数，报', faults(f('scripts/a.ts', "import { MUTATION_CATALOG, readCatalog as shared } from './catalog-rule.js'\nfunction bypass(shared: (p: string) => unknown) { return shared(MUTATION_CATALOG) }\nvoid shared\n")).length, 1)
+  eq('绕开读取函数：调了那个模块里别的函数、没调读取函数，报', faults(f('scripts/a.ts', "import { MUTATION_CATALOG, catalogFaultText } from './catalog-rule.js'\ncatalogFaultText(MUTATION_CATALOG)\n")).length, 1)
+  eq('绕开读取函数：从模块对象解构出读取函数再调，放行', faults(f('scripts/a.ts', "import * as door from './catalog-rule.js'\nconst { readCatalog } = door\nreadCatalog(t)\n")), [])
+  eq('绕开读取函数：读取函数所在的文件不在这组文件里时，谁都算没调用', catalogDoorFaults([...Object.keys(NOT_READERS).map(path => f(path, '')), f('scripts/a.ts', "import { readCatalog } from './catalog-rule.js'\nreadCatalog(t)\n")]).length, 1)
+  eq('绕开读取函数：别的模块名字里带着 catalog-rule 的不算', faults(f('scripts/a.ts', "import { x } from './my-catalog-rules.js'\n")), [])
+  eq('绕开读取函数：文件名后面还跟着字也算提到了', faults(f('scripts/a.ts', `console.log('${name} 读不出')\n`)).length, 1)
+  eq('绕开读取函数：放行名单里列了却不在要扫的文件里，报',
+    catalogDoorFaults([]).filter(x => x.endsWith('在放行名单里，却不在要扫的文件里')).length, Object.keys(NOT_READERS).length)
+  eq('绕开读取函数：哪些算测试文件', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/a-test.ts', 'scripts/check/test-rule.ts', 'scripts/a.ts'].map(isTestFile),
+    [true, true, true, false, false])
+  // 真树：scripts/ 下所有 TypeScript 与 JavaScript 源码，一处都不许绕开
+  const fs = await import('node:fs'), px = await import('node:path')
+  const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+    e.isDirectory() ? walk(px.join(dir, e.name)) : /\.[cm]?[jt]sx?$/.test(e.name) ? [px.join(dir, e.name)] : [])
+  const tree = walk('scripts').map(path => f(path.split(px.sep).join('/'), fs.readFileSync(path, 'utf8')))
+  eq('真树上读变异目录的地方都经读取函数', catalogDoorFaults(tree), [])
+}
+})
+
 
 await group('d19-config-known-gap', () => {
 // 用 harness 不用 suite：它钉的是 D19 不要求的行为（一个接受了的缺口），不该把 D19 记成被这一组覆盖

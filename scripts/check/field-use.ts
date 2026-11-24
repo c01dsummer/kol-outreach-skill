@@ -16,6 +16,7 @@ import type * as Ts from 'typescript'
 import { askGit, runGit } from './git-entry.js'
 import { addedLines, fieldsOf, fieldVerdict, isJudgedFile, markSite, outOfSight, wholeFile, type Field, type Site } from './field-use-rule.js'
 import { anchorCatalog } from './mutate-rule.js'
+import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
 import { resolveBaseline } from './size-rule.js'
 
 const NAME = '字段断言'
@@ -91,7 +92,12 @@ function main(): number {
       const why = isJudgedFile(rel) ? outOfSight(rel, visible.has(rel), () => lstatSync(join(top, rel)).isSymbolicLink()) : undefined
       if (why !== undefined) cannot(why)
     }
-    const catalog = anchorCatalog(JSON.parse(readFileSync(join(top, 'scripts/check/mutations.json'), 'utf8')))
+    // 读变异目录只经读取函数（ADR-242）
+    let text: string | undefined
+    try { text = readFileSync(join(top, MUTATION_CATALOG), 'utf8') } catch { text = undefined }
+    const loaded = readCatalog(text)
+    if (!loaded.ok) cannot(catalogFaultText(loaded.fault))
+    const catalog = loaded.ok ? anchorCatalog({ mutations: loaded.mutations }) : undefined
     if (catalog === undefined) cannot('变异登记表读不出一组变异')
     const marks: Site[] = []
     for (const m of catalog!) {
@@ -110,7 +116,7 @@ function main(): number {
     for (const f of v.unmarked) console.error(`✗ ${NAME}：${where(f)} 是新加的字段，没有一条变异改到给它赋值的地方，也没写「字段不入断言：<理由>」`)
     for (const f of v.unjustified) console.error(`✗ ${NAME}：${where(f)} 写了豁免标记却没写理由`)
     if (v.red) {
-      console.error(`  补一条改坏它的值、会被测试打红的变异（scripts/check/mutations.json），或在声明前写豁免；见 ADR-198`)
+      console.error(`  补一条改坏它的值、会被测试打红的变异（${MUTATION_CATALOG}），或在声明前写豁免；见 ADR-198`)
       return 1
     }
     console.log(`✓ ${NAME}：比 ${scope} 新加 ${v.fresh.length} 个字段，都有变异守着或写了豁免`)

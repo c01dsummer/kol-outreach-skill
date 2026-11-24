@@ -12,17 +12,23 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { shardKey, shardPlan } from './jobs-rule.js'
 import { executionRoutes } from './mutate-rule.js'
+import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
 import { SHARD_COUNT, SHARD_WEIGHTS_FILE, growthWaivers, pileWeigher, readWeights, shardLoadGate, workflowWiringFaults, type ShardLoadInput, type ShardWeights } from './shard-load-rule.js'
 import { askGit } from './git-entry.js'
 import { resolveBaseline } from './size-rule.js'
 import { trailerLines } from './trailer.js'
 
-const MUTATIONS = 'scripts/check/mutations.json'
+const MUTATIONS = MUTATION_CATALOG
 const WORKFLOW = '.github/workflows/check.yml'
 
 const tryGit = askGit
 type Mut = { id: string; by?: string }
-const listOf = (text: string): Mut[] => (JSON.parse(text) as { mutations: Mut[] }).mutations
+/** 读变异目录只经读取函数（ADR-242）：读不出、形状不对、编号重复都抛，由调用处打成红或记成算不出 */
+const listOf = (text: string | undefined): Mut[] => {
+  const read = readCatalog(text)
+  if (!read.ok) throw new Error(catalogFaultText(read.fault))
+  return read.mutations as Mut[]
+}
 
 /** 一份清单每一份的秒数：与变异一步同一个路由、同一个键、同一份秒数文件。算不出来就抛 —— 由调用处打成红 */
 const loadsOf = (muts: Mut[], readSource: (file: string) => string | undefined, w: ShardWeights): { loads: number[]; defaulted: Mut[] } => {
@@ -41,7 +47,7 @@ const main = (): number => {
     const read = readWeights(JSON.parse(readFileSync(SHARD_WEIGHTS_FILE, 'utf8')))
     if ('fault' in read) throw new Error(`${SHARD_WEIGHTS_FILE}：${read.fault}`)
     weights = read.weights
-    const now = loadsOf(listOf(readFileSync(MUTATIONS, 'utf8')), file => existsSync(file) ? readFileSync(file, 'utf8') : undefined, weights)
+    const now = loadsOf(listOf(existsSync(MUTATIONS) ? readFileSync(MUTATIONS, 'utf8') : undefined), file => existsSync(file) ? readFileSync(file, 'utf8') : undefined, weights)
     loads = now.loads
     defaulted = now.defaulted.length
   } catch (e) {

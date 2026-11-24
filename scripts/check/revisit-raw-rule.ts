@@ -10,6 +10,7 @@
  *
  * 只读 git，不写任何文件（写文件是入口的事）。
  */
+import { MUTATION_CATALOG, readCatalog } from './catalog-rule.js'
 import { citeReport, citeTable } from './cite-rule.js'
 import { iouNameFaults, ledgerReport, ledgerStatus, orphanIous } from './debt-rule.js'
 import { gitText, runGit } from './git-entry.js'
@@ -248,14 +249,10 @@ export const runSeconds = (r: ApiRun): number => Math.round((Date.parse(r.update
 export const mmss = (s: number): string => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 const round2 = (x: number): number => Math.round(x * 100) / 100
 
-/** 变异条数：那个提交上 `mutations` 是数组就数它，不是数组、读不出都算取不到 */
+/** 变异条数：那个提交上的变异目录经读口（ADR-242）判过就数它，读不出、形状不对都算取不到 */
 export function catalogCount(git: RawGit, sha: string): number | undefined {
-  const text = git.show(sha, 'scripts/check/mutations.json')
-  if (text === undefined) return undefined
-  try {
-    const data: unknown = JSON.parse(text)
-    return isObject(data) && Array.isArray(data.mutations) ? data.mutations.length : undefined
-  } catch { return undefined }
+  const r = readCatalog(git.show(sha, MUTATION_CATALOG))
+  return r.ok ? r.mutations.length : undefined
 }
 
 /** 比值线：四舍五入到两位以后跟它比 */
