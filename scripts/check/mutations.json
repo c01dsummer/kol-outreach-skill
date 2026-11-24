@@ -30197,8 +30197,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "认不出的行数不给记录 —— 「本条第 M 行」都算认不出",
-      "find": "s.kind === '已重挂' && currentOf(s.text, recordNum(s.file)) === null",
-      "replace": "s.kind === '已重挂' && currentOf(s.text) === null",
+      "find": "return moves.filter(s => currentOf(s.text, recordNum(s.file)) === null",
+      "replace": "return moves.filter(s => currentOf(s.text) === null",
       "by": "test",
       "kills": ["已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出"]
     },
@@ -30207,8 +30207,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "认不出的行数不只数已重挂 —— 已还、续挂行也算进去",
-      "find": "s.kind === '已重挂' && currentOf(s.text, recordNum(s.file)) === null",
-      "replace": "currentOf(s.text, recordNum(s.file)) === null",
+      "find": "const moves = statusLines(docs).filter(s => s.kind === '已重挂')",
+      "replace": "const moves = statusLines(docs)",
       "by": "test",
       "kills": ["已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出"]
     },
@@ -30441,6 +30441,36 @@
       "replace": "lines.slice(e.line - 1, e.line)",
       "by": "test",
       "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整条相同（只差空白）的历史那份不列、第一行相同续行不同的照列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
+    },
+    {
+      "id": "M-H167-bw",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "补记不必点名原来那行 —— 同一张旧欠条另挂给别处的，把这一行悄悄藏起来",
+      "find": "o.key === s.key && placesOf(",
+      "replace": "o.key === s.key || placesOf(",
+      "by": "test",
+      "kills": ["没点名原来那行的、点名别的行的、指着别的旧欠条的补记都不算：原来那行照数"]
+    },
+    {
+      "id": "M-H167-bx",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "补记里点名的是哪一行不看 —— 同一张旧欠条有两行认不出的，补了一行就把另一行也藏起来",
+      "find": "placesOf(s.file, s.line, split).some(p => o.text.includes(`补记接手者：照 ${p}那一行原文认定`))",
+      "replace": "o.text.includes('补记接手者：照 ')",
+      "by": "test",
+      "kills": ["没点名原来那行的、点名别的行的、指着别的旧欠条的补记都不算：原来那行照数"]
+    },
+    {
+      "id": "M-H167-by",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "历史文件里的那行只认带「历史文件」的写法 —— 拆之前写下的补记在拆了以后就接不上，那行又被数回来",
+      "find": "[`ADR-${n} 历史文件第 ${line} 行`, `ADR-${n} 第 ${line} 行`]",
+      "replace": "[`ADR-${n} 历史文件第 ${line} 行`]",
+      "by": "test",
+      "kills": ["拆过以后原来那行进了历史文件：拆之前写的、不带「历史文件」的补记照样认；主文件里的那行不认不带「主文件」的写法"]
     },
     {
       "id": "M-H205-a",
@@ -36541,6 +36571,79 @@
       "by": "test",
       "kills": [
         "偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）"
+      ]
+    },
+    {
+      "id": "M-H243-a",
+      "req": "harness",
+      "why": "验证者建的临时文件不落在专属临时目录里，被叫停时留在系统临时目录没人收",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return { ...env, TMP: dir, TEMP: dir }",
+      "by": "test",
+      "kills": [
+        "专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样"
+      ]
+    },
+    {
+      "id": "M-H243-b",
+      "req": "harness",
+      "why": "只认 TMP 的程序建的临时文件不落在专属临时目录里",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return { ...env, TMPDIR: dir, TEMP: dir }",
+      "by": "test",
+      "kills": [
+        "专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样"
+      ]
+    },
+    {
+      "id": "M-H243-c",
+      "req": "harness",
+      "why": "只认 TEMP 的程序建的临时文件不落在专属临时目录里",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return { ...env, TMPDIR: dir, TMP: dir }",
+      "by": "test",
+      "kills": [
+        "专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样"
+      ]
+    },
+    {
+      "id": "M-H243-d",
+      "req": "harness",
+      "why": "给验证者的环境把别的变量丢了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return { TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "by": "test",
+      "kills": [
+        "专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样"
+      ]
+    },
+    {
+      "id": "M-H243-e",
+      "req": "harness",
+      "why": "专属临时目录里放的编译缓存链接名字和 tsx 找的对不上，换了目录缓存就冷了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return `tsx-${user}`",
+      "replace": "return `tsx${user}`",
+      "by": "test",
+      "kills": [
+        "专属临时目录：tsx 编译缓存的名字是 tsx- 接用户号",
+        "专属临时目录：没有用户号时接用户名"
+      ]
+    },
+    {
+      "id": "M-H243-f",
+      "req": "harness",
+      "why": "给验证者换临时目录时把变异一步自己的环境也改了，之后起的验证者与自己建的临时文件都落进上一份专属目录",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return Object.assign(env, { TMPDIR: dir, TMP: dir, TEMP: dir })",
+      "by": "test",
+      "kills": [
+        "专属临时目录：不改交进来的那份环境"
       ]
     },
     {
