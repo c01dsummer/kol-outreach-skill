@@ -300,10 +300,15 @@ export function currentOf(text: string, self?: number | null): string | null {
   return m[2] !== undefined ? `ADR-${Number(m[1])}「${m[2].trim()}」` : `ADR-${Number(m[1])}:${Number(m[3])}`
 }
 
-/** 状态行在哪：`ADR-N 第 M 行`；拆过的记录分主文件、历史文件（补记那一行就照这个写法点名原来那行） */
-const placeOf = (file: string, line: number, split: ReadonlySet<number>): string => {
+/**
+ * 状态行在哪，补记那一行照这个写法点名原来那行：`ADR-N 第 M 行`；拆过的记录分 `主文件`、`历史文件`。
+ * 历史文件里的那行，拆之前写下的补记只写了 `ADR-N 第 M 行`（拆的时候原文逐行原样进历史文件，行号不变），也认；
+ * 主文件里的不认不带「主文件」的写法：主文件是重写过的，同一个行号指的不是原来那行。
+ */
+const placesOf = (file: string, line: number, split: ReadonlySet<number>): string[] => {
   const n = recordNum(file)
-  return `ADR-${n}${isHistory(file) ? ' 历史文件' : n !== null && split.has(n) ? ' 主文件' : ' '}第 ${line} 行`
+  if (isHistory(file)) return [`ADR-${n} 历史文件第 ${line} 行`, `ADR-${n} 第 ${line} 行`]
+  return [`ADR-${n}${n !== null && split.has(n) ? ' 主文件' : ' '}第 ${line} 行`]
 }
 
 /**
@@ -316,7 +321,7 @@ export function movesUnread(docs: Map<string, string>): number {
   const moves = statusLines(docs).filter(s => s.kind === '已重挂')
   const read = moves.filter(s => currentOf(s.text, recordNum(s.file)) !== null)
   return moves.filter(s => currentOf(s.text, recordNum(s.file)) === null
-    && !read.some(o => o.key === s.key && o.text.includes(`补记接手者：照 ${placeOf(s.file, s.line, split)}那一行原文认定`))).length
+    && !read.some(o => o.key === s.key && placesOf(s.file, s.line, split).some(p => o.text.includes(`补记接手者：照 ${p}那一行原文认定`)))).length
 }
 
 /** 台账键换成回访里的记法：`ADR-9:5` → `ADR-9 第 5 行`，按名字的原样 */

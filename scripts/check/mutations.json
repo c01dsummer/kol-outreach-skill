@@ -30447,8 +30447,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "补记不必点名原来那行 —— 同一张旧欠条另挂给别处的，把这一行悄悄藏起来",
-      "find": "o.key === s.key && o.text.includes(",
-      "replace": "o.key === s.key || o.text.includes(",
+      "find": "o.key === s.key && placesOf(",
+      "replace": "o.key === s.key || placesOf(",
       "by": "test",
       "kills": ["没点名原来那行的、点名别的行的、指着别的旧欠条的补记都不算：原来那行照数"]
     },
@@ -30457,10 +30457,20 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "补记里点名的是哪一行不看 —— 同一张旧欠条有两行认不出的，补了一行就把另一行也藏起来",
-      "find": "补记接手者：照 ${placeOf(s.file, s.line, split)}那一行原文认定",
-      "replace": "补记接手者：照 ",
+      "find": "placesOf(s.file, s.line, split).some(p => o.text.includes(`补记接手者：照 ${p}那一行原文认定`))",
+      "replace": "o.text.includes('补记接手者：照 ')",
       "by": "test",
       "kills": ["没点名原来那行的、点名别的行的、指着别的旧欠条的补记都不算：原来那行照数"]
+    },
+    {
+      "id": "M-H167-by",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "历史文件里的那行只认带「历史文件」的写法 —— 拆之前写下的补记在拆了以后就接不上，那行又被数回来",
+      "find": "[`ADR-${n} 历史文件第 ${line} 行`, `ADR-${n} 第 ${line} 行`]",
+      "replace": "[`ADR-${n} 历史文件第 ${line} 行`]",
+      "by": "test",
+      "kills": ["拆过以后原来那行进了历史文件：拆之前写的、不带「历史文件」的补记照样认；主文件里的那行不认不带「主文件」的写法"]
     },
     {
       "id": "M-H205-a",
