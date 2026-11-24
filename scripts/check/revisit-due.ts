@@ -23,7 +23,7 @@ const realGit = cliGit()
 
 // 台账里列着、工作区里却没有的文件（台账与检出不是同一份）当空文件读：名字取不到、登记日照样去问 git，不让一行把整份打断
 const text = (file: string) => existsSync(file) ? readFileSync(file, 'utf8') : ''
-// 回访台账过线时旧块挪进历史文件（ADR-152 末尾「过线时把旧块挪进历史文件」那块）：先读历史文件、再读主文件，后写的在后
+// 回访台账过线时旧块挪进历史文件（ADR-152「过线时把旧块挪进历史文件」那一节）：先读历史文件、再读主文件，后写的在后
 const adr152 = () => ['docs/adr/历史', 'docs/adr'].filter(d => d === 'docs/adr' || existsSync(d))
   .flatMap(d => readdirSync(d).filter(f => /^ADR-152-.*\.md$/.test(f)).map(f => readFileSync(`${d}/${f}`, 'utf8'))).join('\n')
 const today = opt('--today') ?? beijingDate(Date.now() / 1000)
