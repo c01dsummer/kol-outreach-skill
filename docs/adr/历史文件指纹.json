@@ -4,8 +4,8 @@
     "sha256": "e5e81ec85dfb0d8caba0af4adc86a92a593fffc1956bef40a268634c7e6b8383"
   },
   "ADR-145-变异的入口启动数设上限：每条自检变异-50-次，每种需求测试配置.md": {
-    "bytes": 372512,
-    "sha256": "054b6d1507e1cf1f6eeb40abb500afa473b218705a531fcab5f4bd94879fe062"
+    "bytes": 374135,
+    "sha256": "ffcaadd4319c7b042d3b87b5e88d2af16962858bf8ccf69caf74ef0acf0339d3"
   },
   "ADR-151-过程层问题回路：七条实践按层拆开落位，先合记录、再逐片合.md": {
     "bytes": 276874,

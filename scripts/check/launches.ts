@@ -36,9 +36,9 @@ const result = launchEntry({
   listDir: dir => readdirSync(dir),
   source: mutationSourceIdentity,
   routes: () => {
-    // 读变异目录只经读取函数（ADR-242）；读不成交 undefined
+    // 读变异目录只经读取函数（ADR-242）；读不成就抛，由 launchEntry 照「算不出」吞掉
     const catalog = readCatalog(existsSync(MUTATION_CATALOG) ? readFileSync(MUTATION_CATALOG, 'utf8') : undefined)
-    if (!catalog.ok) return undefined
+    if (!catalog.ok) throw new Error('变异目录读不成')
     return executionRoutes(catalog.mutations as unknown as Parameters<typeof executionRoutes>[0],
       file => existsSync(file) ? readFileSync(file, 'utf8') : undefined).routes
   },

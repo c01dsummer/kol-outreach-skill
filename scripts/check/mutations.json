@@ -36524,7 +36524,7 @@
     {
       "id": "M-H145-a",
       "req": "harness",
-      "why": "没有父提交的主干当成不在主干上 —— 主干上第一次跑闸门，树内摘要过期就红",
+      "why": "主干只有一个提交（没有父提交）时当成不在主干上 —— 树内摘要过期就红",
       "file": "scripts/check/launch-rule.ts",
       "find": "{ onTrunk: baseline.kind === 'not-applicable' || baseline.onTrunk }",
       "replace": "{ onTrunk: baseline.kind !== 'not-applicable' && baseline.onTrunk }",
@@ -36610,7 +36610,7 @@
     {
       "id": "M-H145-h",
       "req": "harness",
-      "why": "算路由抛错不吞 —— 变异目录坏了时连闸门那几行也打不出",
+      "why": "算路由时出错不吞 —— 连闸门那几行也打不出",
       "file": "scripts/check/launch-rule.ts",
       "find": "attempt(io.routes)",
       "replace": "io.routes()",
@@ -36713,6 +36713,42 @@
       "by": "test",
       "kills": [
         "启动数入口：整份与分份都有时认整份，分份拼不起来也不打那一行"
+      ]
+    },
+    {
+      "id": "M-H145-q",
+      "req": "harness",
+      "why": "交给闸门的总当成不在主干上 —— 主干上有超线的发现本该只报数，主干一直红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "const gate = launchGate(record, tree, trunk)",
+      "replace": "const gate = launchGate(record, tree, { onTrunk: false })",
+      "by": "test",
+      "kills": [
+        "启动数入口：在主干上有发现、树内摘要相同时闸门只报数、不红；答不出在不在主干上时按 PR 判、红"
+      ]
+    },
+    {
+      "id": "M-H145-r",
+      "req": "harness",
+      "why": "带 write 派生不出来时把分份拼不起来那一行丢了 —— 只说没写，不说为什么没有启动数文件",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "return { lines: [...lines, `✗ 启动数摘要没写：${summary.fault}`]",
+      "replace": "return { lines: [`✗ 启动数摘要没写：${summary.fault}`]",
+      "by": "test",
+      "kills": [
+        "启动数入口：带 write 时分份拼不起来那一行照打在最前，再打没写的那一行"
+      ]
+    },
+    {
+      "id": "M-H145-s",
+      "req": "harness",
+      "why": "分份文件名照目录给的先后列 —— 同一组文件换台机器那一行就不一样",
+      "file": "scripts/check/launch-rule.ts",
+      "find": ".filter(n => LAUNCH_PART_NAME.test(n)).sort()",
+      "replace": ".filter(n => LAUNCH_PART_NAME.test(n))",
+      "by": "test",
+      "kills": [
+        "启动数入口：分份拼不起来那一行里的文件名按名排、全列，用顿号连"
       ]
     }
   ],

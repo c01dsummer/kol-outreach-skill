@@ -12358,6 +12358,14 @@ await group('h-launch-entry', () => {
     run({ files: { [SELFCHECK_LAUNCHES_FILE]: JSON.stringify(FAMILIES) }, routes: new Error('目录坏了') }), want({ tree: SRC, families: FAMILIES }))
   eq('启动数入口：树内摘要读的时候抛错当没有，不抛', run({ files: { [WHOLE]: JSON.stringify(CALM), [LAUNCH_SUMMARY_FILE]: new Error('EISDIR') } }),
     want({ record: CALM, tree: SRC }))
+  eq('启动数入口：在主干上有发现、树内摘要相同时闸门只报数、不红；答不出在不在主干上时按 PR 判、红',
+    [run({ files: { [WHOLE]: JSON.stringify(FOUND), [LAUNCH_SUMMARY_FILE]: text(FOUND) }, baseline: ON }),
+      run({ files: { [WHOLE]: JSON.stringify(FOUND), [LAUNCH_SUMMARY_FILE]: text(FOUND) }, baseline: { kind: 'cannot-answer', why: '浅克隆', how: '拉全历史' } })],
+    [want({ record: FOUND, tree: SRC, inTree: text(FOUND), trunk: { onTrunk: true } }), want({ record: FOUND, tree: SRC, inTree: text(FOUND), trunk: { unknown: '浅克隆' } })])
+  eq('启动数入口：分份拼不起来那一行里的文件名按名排、全列，用顿号连',
+    (run({ files: { [`${LAUNCH_DIR}/launches-2-of-2.json`]: part(2, []), [`${LAUNCH_DIR}/launches-1-of-2.json`]: part(2, []) },
+      dir: ['launches-2-of-2.json', 'launches-1-of-2.json'] }) as { lines?: unknown[] }).lines?.[0],
+    '✗ 分份的启动数文件：launches-1-of-2.json、launches-2-of-2.json 拼不起来：要第 1 到第 2 份各一份，拿到的是第 2、2 份')
   const red = (o: Parameters<typeof run>[0]) => (run(o) as { red?: unknown }).red
   eq('启动数入口：摘要那一行红、闸门不红时也以 1 退出（不在主干上、树内没有摘要）', [red({ files: { [WHOLE]: JSON.stringify(CALM) } }),
     launchGate(CALM, SRC, { onTrunk: false }).red], [true, false])
@@ -12371,6 +12379,10 @@ await group('h-launch-entry', () => {
     { lines: [`启动数摘要已写回 ${LAUNCH_SUMMARY_FILE}：1 种配置`], red: false, written: [[LAUNCH_SUMMARY_FILE, text(CALM)]] })
   eq('启动数入口：带 write 派生不出来时只打一行 ✗、红、不写',
     run({ write: true }), { lines: [`✗ 启动数摘要没写：${(launchSummary(undefined, SRC) as { fault: string }).fault}`], red: true, written: [] })
+  eq('启动数入口：带 write 时分份拼不起来那一行照打在最前，再打没写的那一行',
+    run({ files: { [`${LAUNCH_DIR}/launches-2-of-2.json`]: part(2, []) }, dir: ['launches-2-of-2.json'], write: true }),
+    { lines: ['✗ 分份的启动数文件：launches-2-of-2.json 拼不起来：要第 1 到第 2 份各一份，拿到的是第 2 份',
+      `✗ 启动数摘要没写：${(launchSummary(undefined, SRC) as { fault: string }).fault}`], red: true, written: [] })
   eq('启动数入口：带 write 写不进时打一行 ✗ 带错误码、红；错误码没有或不是字符串打未知',
     [run({ files: { [WHOLE]: JSON.stringify(CALM) }, write: true, writeFails: Object.assign(new Error('x'), { code: 'EACCES' }) }),
       writeErrorCode(new Error('x')), writeErrorCode({ code: 13 }), writeErrorCode(null), writeErrorCode('EACCES')],
