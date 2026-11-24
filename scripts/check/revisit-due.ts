@@ -25,6 +25,12 @@ const realGit = cliGit()
 const text = (file: string) => existsSync(file) ? readFileSync(file, 'utf8') : ''
 const adr152 = () => readdirSync('docs/adr').filter(f => /^ADR-152-.*\.md$/.test(f)).map(f => readFileSync(`docs/adr/${f}`, 'utf8')).join('\n')
 const today = opt('--today') ?? beijingDate(Date.now() / 1000)
+// 日子写错（格式不对、2 月 30 日那种会被挪到下个月的）就停：不然轮到哪一组、到没到期都算错，却照常打出来
+const ms = Date.parse(`${today}T00:00:00Z`)
+if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== today) {
+  console.error(`--today 要写成成立的日子 YYYY-MM-DD，收到的是 ${today}`)
+  process.exit(2)
+}
 if (args.includes('--deaths')) {
   for (const l of deathRota(adrDocs(), today)) console.log(l)
 } else if (args.includes('--list')) {

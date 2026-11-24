@@ -30423,6 +30423,16 @@
       "kills": ["入口 --deaths：按给的那天定轮到哪一组，第一行是几个数，后面是记法与条件原文"]
     },
     {
+      "id": "M-H167-bu",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "2 月 30 日那种日子不拦 —— 被当成 3 月 2 日，轮到的组与到期都算错",
+      "find": " || new Date(ms).toISOString().slice(0, 10) !== today) {",
+      "replace": ") {",
+      "by": "test",
+      "kills": ["入口 --today 写的不是成立的日子：以 2 退出、不打清单（月份 13、2 月 30 日、缺年份三种）"]
+    },
+    {
       "id": "M-H205-a",
       "req": "harness",
       "file": "scripts/check/ticket-refs-rule.ts",
