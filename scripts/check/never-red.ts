@@ -13,7 +13,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { duplicateIds } from './attribution-rule.js'
+import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
 import { askGit } from './git-entry.js'
 import { VERIFIERS, groupOfLabel, labelsOf } from './mutate-rule.js'
 import { REDS_DIR, REDS_PART_NAME, type RedsPart, mergeParts, neverRed, readRedsPart } from './never-red-rule.js'
@@ -24,17 +24,10 @@ const fail = (why: string): void => {
 }
 
 const main = (): void => {
-  let catalogIds: string[]
-  try {
-    const muts = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8')).mutations as { id: string }[]
-    catalogIds = muts.map(m => m.id)
-  } catch (e) {
-    fail(`读不出变异目录（${e instanceof Error ? e.message : String(e)}）`)
-    return
-  }
-  // 读变异编号的地方都先过 duplicateIds（ADR-34 第 90 行那一类）：目录里同号两条，拼记录时按编号对就分不出是哪一条
-  const dup = duplicateIds(catalogIds.map(id => ({ id })))
-  if (dup.length > 0) { fail(`变异目录里编号重复：${dup.join('、')}`); return }
+  // 读变异目录只经读取函数（ADR-242）：编号重复也在这一道拒 —— 目录里同号两条，拼记录时按编号对就分不出是哪一条
+  const catalog = readCatalog(existsSync(MUTATION_CATALOG) ? readFileSync(MUTATION_CATALOG, 'utf8') : undefined)
+  if (!catalog.ok) { fail(catalogFaultText(catalog.fault)); return }
+  const catalogIds = catalog.mutations.map(m => m.id)
   const names = existsSync(REDS_DIR) ? readdirSync(REDS_DIR).filter(n => REDS_PART_NAME.test(n)).sort() : []
   const parts: { name: string; part: RedsPart }[] = []
   for (const name of names) {

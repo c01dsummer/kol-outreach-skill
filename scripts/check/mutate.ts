@@ -40,6 +40,7 @@ import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { attributionFault } from './attribution-rule.js'
+import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
 import { orderBindingFaults, type OrderFault } from './order-rule.js'
 import { briefLeaks } from './why-rule.js'
 import {
@@ -179,9 +180,16 @@ interface Mut {
   full_run?: unknown
 }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
-const cfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
-const muts: Mut[] = cfg.mutations
-const exemptions: Exemption[] = cfg.exemptions ?? []
+// 读变异目录只经读取函数（ADR-242）：读不出、形状不对、编号重复都在这一道拒，后面每一步拿到的编号都是唯一的
+const catalog = readCatalog(existsSync(MUTATION_CATALOG) ? readFileSync(MUTATION_CATALOG, 'utf8') : undefined)
+if (!catalog.ok && catalog.fault.kind === 'duplicate') {
+  exitWith(1, `✗ 变异集：${catalog.fault.ids.length} 个编号重复 —— 多条顶着同一个名字，报告指不回表里哪一行\n`,
+    ...catalog.fault.ids.map(d => `  ${d}  出现不止一次`),
+    '\n  编号是报告里唯一能把一条变异指回表里那一行的东西。复制一条就改掉它的字母。')
+}
+if (!catalog.ok) exitWith(1, `✗ 变异集：${catalogFaultText(catalog.fault)}`)
+const muts = catalog.mutations as unknown as Mut[]
+const exemptions = catalog.exemptions as Exemption[]
 
 // 记在谁名下。审计拿 req 回答「这条需求有没有变异守着」—— 写成一个不存在的
 // 编号时，变异照样跑、照样被抓到，全绿，而它对任何一条需求都不算数（ADR-34）。
@@ -191,16 +199,12 @@ const registry: { id: string; accept: string | { id: string }[] }[] =
   JSON.parse(readFileSync('docs/requirements.json', 'utf8')).requirements
 const known = new Set<string>(registry.flatMap(r =>
   [r.id, ...(Array.isArray(r.accept) ? r.accept.map(c => c.id) : [])]))
-// 两种毛病同时在时先报哪一种，由 attributionFault 定 —— 那个先后有语义（`attribution-rule.ts`）
+// 编号重复已在上面读目录那一道拒过（ADR-242），这里交回的只会是记错名下那一种；
+// 两种的先后仍由 attributionFault 定（`attribution-rule.ts`）
 const fault = attributionFault(muts, [
   ...muts,
   ...exemptions.map(e => ({ id: `豁免 ${e.req}`, req: e.req })),
 ], known)
-if (fault?.kind === 'duplicate') {
-  exitWith(1, `✗ 变异集：${fault.ids.length} 个编号重复 —— 多条顶着同一个名字，报告指不回表里哪一行\n`,
-    ...fault.ids.map(d => `  ${d}  出现不止一次`),
-    '\n  编号是报告里唯一能把一条变异指回表里那一行的东西。复制一条就改掉它的字母。')
-}
 if (fault?.kind === 'orphan') {
   exitWith(1, `✗ 变异集：${fault.entries.length} 条记在不存在的需求名下 —— 它们对任何一条需求都不算数\n`,
     ...fault.entries.map(o => `  ${o.id}  记在 ${o.req} 名下，而登记表里没有这条`),
@@ -1070,9 +1074,9 @@ if (comparison.kind === 'cannot-answer') {
   exitWith(1, `✗ 维护基线：${comparison.why}；未施加任何变异`)
 }
 try {
-  const catalog = await askGitLater('show', `${comparison.base}:scripts/check/mutations.json`)
-  if (catalog === null) throw new Error('读不到基线的变异目录')
-  const previous = await withGit(ask => executionRoutes(JSON.parse(catalog).mutations,
+  const base = readCatalog(await askGitLater('show', `${comparison.base}:${MUTATION_CATALOG}`) ?? undefined)
+  if (!base.ok) throw new Error(`基线的${catalogFaultText(base.fault)}`)
+  const previous = await withGit(ask => executionRoutes(base.mutations as unknown as Parameters<typeof executionRoutes>[0],
     file => ask('show', `${comparison.base}:${file}`) ?? undefined))
   const current = currentSnapshot()
   const delta = routeDelta(previous, current)

@@ -29,14 +29,22 @@
 import { readFileSync } from 'node:fs'
 import { type AnchorFault, type StagedFault, anchorCatalog, anchorVerdict, batchBlobs, notARepo, stagedResidue } from './mutate-rule.js'
 import { runGit } from './git-entry.js'
+import { MUTATION_CATALOG, readCatalog } from './catalog-rule.js'
 
-const CATALOG = 'scripts/check/mutations.json'
-type Mut = { id: string; file: string; find: string; replace: string }
+const CATALOG = MUTATION_CATALOG
 
 const read = (file: string): string | undefined => { try { return readFileSync(file, 'utf8') } catch { return undefined } }
-const catalog = ((): Mut[] | undefined => {
-  try { return anchorCatalog(JSON.parse(readFileSync(CATALOG, 'utf8'))) } catch { return undefined }
-})()
+// 读变异目录只经读取函数（ADR-242）：编号重复在这一道就拒，下面照原样点名；读不出、形状不对的与「读不出一组变异」同一句
+const loaded = readCatalog(read(CATALOG))
+const duplicated = !loaded.ok && loaded.fault.kind === 'duplicate' ? loaded.fault.ids : undefined
+const catalog = loaded.ok ? anchorCatalog({ mutations: loaded.mutations }) : undefined
+const reportDuplicate = (ids: readonly string[]): void => {
+  const out = [`✗ 变异锚点：${ids.length} 个编号重复 —— 报告按编号指回目录里那一行，重名时指不回，锚点没往下查\n`]
+  for (const id of ids) out.push(`  ${id}  出现不止一次`)
+  out.push('\n  复制一条就改掉它的字母。')
+  console.error(out.join('\n'))
+  process.exitCode = 1
+}
 
 /**
  * 一次 `git cat-file --batch` 读一组对象（`<修订>:./<文件>`）。交回每一个读出来的正文（不是 blob 的交 `undefined`），
@@ -68,17 +76,15 @@ const SAY: Record<AnchorFault['kind'], string> = {
   stale: '锚点失效 —— find 一处都没有',
 }
 
-if (catalog === undefined) {
+if (duplicated !== undefined) {
+  reportDuplicate(duplicated)
+} else if (catalog === undefined) {
   console.error(`✗ 变异锚点：${CATALOG} 读不到，或读不出一组变异 —— 没得核不是核过了`)
   process.exitCode = 1
 } else {
   const verdict = anchorVerdict(catalog, read)
   if (verdict.kind === 'duplicate') {
-    const out = [`✗ 变异锚点：${verdict.ids.length} 个编号重复 —— 报告按编号指回目录里那一行，重名时指不回，锚点没往下查\n`]
-    for (const id of verdict.ids) out.push(`  ${id}  出现不止一次`)
-    out.push('\n  复制一条就改掉它的字母。')
-    console.error(out.join('\n'))
-    process.exitCode = 1
+    reportDuplicate(verdict.ids)
   } else {
     const files = [...new Set(catalog.map(m => m.file))]
     const batch = catBatch([...files.map(f => `:./${f}`), ...files.map(f => `HEAD:./${f}`)])
