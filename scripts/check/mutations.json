@@ -35879,7 +35879,7 @@
       "why": "编号重复时漏点了重了的编号",
       "file": "scripts/check/catalog-rule.ts",
       "find": "fault: { kind: 'duplicate', ids } }",
-      "replace": "fault: { kind: 'duplicate', ids: ids.slice(1) } }",
+      "replace": "fault: { ids: ids.slice(1), kind: 'duplicate' } }",
       "by": "test",
       "kills": [
         "读目录：编号重复时拒，点出每个重了的编号"
@@ -35891,7 +35891,7 @@
       "why": "好的目录交出去时少了一条变异",
       "file": "scripts/check/catalog-rule.ts",
       "find": "return { ok: true, mutations: entries,",
-      "replace": "return { ok: true, mutations: entries.slice(1),",
+      "replace": "return { ok: true, mutations: [entries[0]],",
       "by": "test",
       "kills": [
         "读目录：好的目录交出全部变异，别的字段原样带着"
