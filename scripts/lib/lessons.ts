@@ -215,6 +215,9 @@ export type LessonsRecord =
   | { category: string; file: string; status: 'absent'; rule_version: string; lessons: [] }
   | { category: string; file: string; status: 'unreadable'; detail: string; rule_version: string; lessons: [] }
 
+/** 任务目录里那份读取记录写盘时的形状：记录本身加上读的时刻（形状快照按它生成，见 `scripts/check/data-shapes.ts`） */
+export type LessonsReadFile = LessonsRecord & { read_at: string }
+
 /** 由一次读的结果与现行规则版本，得出要记进任务目录的那份记录 */
 export function lessonsRecord(category: string, read: LessonsRead, current: string): LessonsRecord {
   const file = lessonsFile(category)

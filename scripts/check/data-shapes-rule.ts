@@ -26,7 +26,8 @@ export const STORED_SHAPES: readonly StoredShape[] = [
   { name: '评审正本', stored: '任务目录里的 agent-review.json', source: 'scripts/lib/review.ts', type: 'AgentReviewDocument' },
   { name: '跨任务记忆', stored: 'memory/creators.json', source: 'scripts/lib/memory.ts', type: 'MemoryFile' },
   { name: '经验库', stored: 'memory/lessons/<品类>.json', source: 'scripts/lib/lessons.ts', type: 'LessonsFile' },
-  { name: '经验读取记录', stored: '任务目录里的 lessons-read.json', source: 'scripts/lib/lessons.ts', type: 'LessonsRecord' },
+  { name: '经验读取记录', stored: '任务目录里的 lessons-read.json', source: 'scripts/lib/lessons.ts', type: 'LessonsReadFile' },
+  { name: '人工反馈表的一行', stored: '任务目录里的 manual-feedback.csv（人填好后程序读回来）', source: 'scripts/lib/manual-feedback.ts', type: 'ManualFeedbackRow' },
 ]
 
 /** 快照在仓库里的位置 */
@@ -34,20 +35,20 @@ export const SHAPES_SNAPSHOT_PATH = 'scripts/check/data-shapes.json'
 
 /** 按仓库根 `root` 下的类型现生成快照全文：每一类一项，键是登记的名字，按登记的先后排 */
 export function generateShapes(root: string, shapes: readonly StoredShape[] = STORED_SHAPES): string {
+  // 几类共用一个 TypeScript 程序：各建一次要慢上好几倍
+  const sources = [...new Set(shapes.map(s => s.source))]
+  const generator = createGenerator({
+    path: join(root, sources.length === 1 ? sources[0] : `{${sources.join(',')}}`),
+    tsconfig: join(root, 'tsconfig.json'),
+    // 与增强结果那份同样的开关：类型里没写的键一律不认、可辨识联合按 if/then 写出、定义名不做 URL 编码
+    additionalProperties: false,
+    discriminatorType: 'json-schema',
+    // 注释不进快照：只改一句说明不是改形状，不该报「形状变了」（增强结果那份要给人读说明，才写进去）
+    jsDoc: 'basic',
+    encodeRefs: false,
+  })
   const out: Record<string, unknown> = {}
-  for (const s of shapes) {
-    const schema = createGenerator({
-      path: join(root, s.source),
-      tsconfig: join(root, 'tsconfig.json'),
-      type: s.type,
-      // 与增强结果那份同样的开关：类型里没写的键一律不认、可辨识联合按 if/then 写出、定义名不做 URL 编码
-      additionalProperties: false,
-      discriminatorType: 'json-schema',
-      jsDoc: 'extended',
-      encodeRefs: false,
-    }).createSchema(s.type)
-    out[s.name] = { stored: s.stored, type: `${s.source} 里的 ${s.type}`, shape: schema }
-  }
+  for (const s of shapes) out[s.name] = { stored: s.stored, type: `${s.source} 里的 ${s.type}`, shape: generator.createSchema(s.type) }
   return `${JSON.stringify({
     $comment: '存下来的数据的形状快照（ADR-246），由类型生成，勿手改。哪一类变了，先照 process/3-BUILD.md 第 9 条写明缺着怎么读、该不该升版本，再跑 npm run data-shapes -- --write 回写。',
     shapes: out,

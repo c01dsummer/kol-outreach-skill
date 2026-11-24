@@ -26054,11 +26054,13 @@ await group('h-data-shapes', () => {
     shapeChanges((() => { try { return rf(SHAPES_SNAPSHOT_PATH, 'utf8') } catch { return undefined } })(), generateShapes(process.cwd())), [])
   // 比：一类一句，变了、新登记的、登记里没了各说各的；快照读不出说为什么
   const snap = (shapes: Record<string, unknown>) => JSON.stringify({ $comment: 'x', shapes })
+  // 比的时候抛出来也落在断言里，不让整组半途停下
+  const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
   eq('形状快照：变了的、新登记的、登记里已经没有的各一句，没变的不提',
-    shapeChanges(snap({ 甲: { a: 1 }, 乙: { b: 1 }, 丁: {} }), snap({ 甲: { a: 1 }, 乙: { b: 2 }, 丙: {} })),
+    changes(snap({ 甲: { a: 1 }, 乙: { b: 1 }, 丁: {} }), snap({ 甲: { a: 1 }, 乙: { b: 2 }, 丙: {} })),
     ['乙：形状变了', '丙：新登记的，快照里还没有', '丁：登记里已经没有了，快照里还在'])
   eq('形状快照：快照不在、不是 JSON、没有 shapes 都说为什么',
-    [shapeChanges(undefined, snap({})), shapeChanges('{', snap({}))[0].replace(/：.*/s, ''), shapeChanges('{"x":1}', snap({}))],
+    [changes(undefined, snap({})), String(changes('{', snap({}))).replace(/：.*/s, ''), changes('{"x":1}', snap({}))],
     [[`快照 ${SHAPES_SNAPSHOT_PATH} 不在`], '快照不是 JSON', ['快照里没有 shapes']])
   // 真生成：玩具目录里一个类型，加一个可选字段、改一个字段的类型，快照都认得出来
   const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
@@ -26068,8 +26070,9 @@ await group('h-data-shapes', () => {
     const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
     const base = gen('  version: 1\n  name: string')
     eq('形状快照：类型加了一个可选字段、改了一个字段的类型都算形状变了，原样不算',
-      [shapeChanges(base, gen('  version: 1\n  name: string\n  note?: string')), shapeChanges(base, gen('  version: 1\n  name: number')), shapeChanges(base, gen('  version: 1\n  name: string'))],
+      [changes(base, gen('  version: 1\n  name: string\n  note?: string')), changes(base, gen('  version: 1\n  name: number')), changes(base, gen('  version: 1\n  name: string'))],
       [['玩具：形状变了'], ['玩具：形状变了'], []])
+    eq('形状快照：只改一句注释不算形状变了', changes(base, gen('  version: 1\n  /** 名字，写盘时原样 */\n  name: string')), [])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 await group('h-iou-file-reminder-entry', () => {

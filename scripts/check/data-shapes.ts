@@ -19,7 +19,11 @@ if (process.argv.includes('--write')) {
   console.log(`✓ 已回写 ${SHAPES_SNAPSHOT_PATH}`)
 } else {
   let onDisk: string | undefined
-  try { onDisk = readFileSync(file, 'utf8') } catch { onDisk = undefined }
+  try { onDisk = readFileSync(file, 'utf8') } catch (e) {
+    // 只有「不在」才算不在；别的读不出（没权限、是目录）照实说
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') { console.error(`✗ 读不出 ${SHAPES_SNAPSHOT_PATH}：${(e as Error).message}`); process.exit(1) }
+    onDisk = undefined
+  }
   const changes = shapeChanges(onDisk, fresh)
   if (changes.length > 0) {
     for (const c of changes) console.error(`✗ ${c}`)

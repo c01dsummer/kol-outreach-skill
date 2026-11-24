@@ -35924,8 +35924,8 @@
       "req": "harness",
       "why": "生成时类型里没写的键也认，形状与入库那份对不上",
       "file": "scripts/check/data-shapes-rule.ts",
-      "find": "      additionalProperties: false,\n",
-      "replace": "      additionalProperties: true,\n",
+      "find": "    additionalProperties: false,\n",
+      "replace": "    additionalProperties: true,\n",
       "by": "test",
       "kills": [
         "形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写"
@@ -35965,6 +35965,30 @@
       "by": "test",
       "kills": [
         "形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写"
+      ]
+    },
+    {
+      "id": "M-H246-i",
+      "req": "harness",
+      "why": "快照里没有 shapes 也照比",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "if (before === undefined) return ['快照里没有 shapes']",
+      "replace": "if (false) return ['快照里没有 shapes']",
+      "by": "test",
+      "kills": [
+        "形状快照：快照不在、不是 JSON、没有 shapes 都说为什么"
+      ]
+    },
+    {
+      "id": "M-H246-j",
+      "req": "harness",
+      "why": "注释也写进快照，只改一句说明就报形状变了",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "    jsDoc: 'basic',\n",
+      "replace": "    jsDoc: 'extended',\n",
+      "by": "test",
+      "kills": [
+        "形状快照：只改一句注释不算形状变了"
       ]
     }
   ],

@@ -22,7 +22,7 @@ import { join, resolve } from 'node:path'
 import { writeFileAtomic } from './lib/atomic.js'
 import { EXIT } from './lib/exit-codes.js'
 import {
-  LESSONS_READ_FILE, LessonRejected, addLesson, categoryProblem, currentRuleVersion, lessonsFile, lessonsRecord, listCategories, readLessons,
+  LESSONS_READ_FILE, type LessonsReadFile, LessonRejected, addLesson, categoryProblem, currentRuleVersion, lessonsFile, lessonsRecord, listCategories, readLessons,
 } from './lib/lessons.js'
 import { taskFile } from './lib/task.js'
 
@@ -97,7 +97,8 @@ function run(): number {
   const file = lessonsFile(category as string)
   const record = lessonsRecord(category as string, read, current)
   const recordFile = join(dir, LESSONS_READ_FILE)
-  try { writeFileAtomic(recordFile, `${JSON.stringify({ ...record, read_at: new Date().toISOString() }, null, 2)}\n`) }
+  const saved: LessonsReadFile = { ...record, read_at: new Date().toISOString() }
+  try { writeFileAtomic(recordFile, `${JSON.stringify(saved, null, 2)}\n`) }
   catch (e) {
     // 上一次留下的读取记录不能留着：render 会把它当成这一次读的（别的品类、别的几条）
     let stale = ''
