@@ -30443,6 +30443,16 @@
       "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整条相同（只差空白）的历史那份不列、第一行相同续行不同的照列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
     },
     {
+      "id": "M-H152-a",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "回访台账挪进历史文件的旧块不读 —— 那里判过的欠条又被当成没判、提前再列",
+      "find": "['docs/adr/历史', 'docs/adr']",
+      "replace": "['docs/adr']",
+      "by": "test",
+      "kills": ["入口 --list：回访台账历史文件里的人判也读"]
+    },
+    {
       "id": "M-H167-bw",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
