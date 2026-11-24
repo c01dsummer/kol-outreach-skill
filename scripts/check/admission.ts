@@ -25,7 +25,7 @@ import { createRequire } from 'node:module'
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { briefSheet, declarationFindings, entryScripts, entrySheet, insideRoot, requirementSheet } from './admission-rule.js'
-import { duplicateIds } from './attribution-rule.js'
+import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
 import { askGit } from './git-entry.js'
 import { adrIdsIn, rootProblems, validateRegistry } from './spec-rule.js'
 
@@ -34,7 +34,7 @@ const SOURCES = ['scripts/lib', 'scripts/providers']
 /** 照搬的对外文档：`skill/` 下全部 `.md`（第 3 份） */
 const DOCS = 'skill'
 const REGISTRY = 'docs/requirements.json'
-const CATALOG = 'scripts/check/mutations.json'
+const CATALOG = MUTATION_CATALOG
 const ADR_DIR = 'docs/adr'
 
 /** 一个目录下（含子目录）的文件，路径用 `/` 接 */
@@ -118,12 +118,15 @@ function main(): number {
   const sheet = requirementSheet(registry.requirements, id)
   if (!sheet.ok) return refuse(sheet.reason)
 
-  const corpus = readJson(CATALOG)
+  // 读变异目录只经读取函数（ADR-242）：读不出、形状不对、编号重复（同号两条在变异说明里分不出是哪一条）都在这一道拒；
+  // 本入口还要的 req、why 与豁免的字段，再由 catalogProblem 核
+  let catalogText: string | undefined
+  try { catalogText = readFileSync(CATALOG, 'utf8') } catch { catalogText = undefined }
+  const loaded = readCatalog(catalogText)
+  if (!loaded.ok) return refuse(`${CATALOG}：${catalogFaultText(loaded.fault)}`)
+  const corpus: any = loaded
   const catalogBad = catalogProblem(corpus)
   if (catalogBad !== undefined) return refuse(`${CATALOG}：${catalogBad}`)
-  // 读变异编号的地方都先过 duplicateIds（ADR-34 第 90 行那一类）：同号两条在变异说明里分不出是哪一条
-  const dup = duplicateIds(corpus.mutations)
-  if (dup.length > 0) return refuse(`变异目录里编号重复：${dup.join('、')}`)
   const brief = briefSheet(id, corpus.mutations, corpus.exemptions ?? [])
 
   // 两个源目录与 skill/ 少一个就不出包：当成空集合出包的话，交出去的包缺一整份读物而照样以 0 退出（#484 上 CodeRabbit 第一轮）

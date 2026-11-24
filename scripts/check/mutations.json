@@ -35870,6 +35870,543 @@
         "清单：选了那一组却跑不起来的负片不算跑到过它",
         "清单：整跑却跑不起来的负片也不算跑到过谁"
       ]
+    },
+    {
+      "id": "M-H242-a",
+      "req": "harness",
+      "why": "读不到目录文件时没有说是读不到，当成内容读",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "  if (text === undefined) return { ok: false, fault: { kind: 'unreadable', why: '读不到这个文件' } }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读目录：读不到文件时拒"
+      ]
+    },
+    {
+      "id": "M-H242-b",
+      "req": "harness",
+      "why": "读不到目录文件时照样交出一份目录",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "if (text === undefined) return { ok: false,",
+      "replace": "if (text === undefined) return { ok: true,",
+      "by": "test",
+      "kills": [
+        "读目录：读不到文件时拒"
+      ]
+    },
+    {
+      "id": "M-H242-c",
+      "req": "harness",
+      "why": "不是 JSON 的目录被说成形状不对，看不出是文件坏了",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "return { ok: false, fault: { kind: 'unreadable', why: `不是 JSON",
+      "replace": "return { ok: false, fault: { kind: 'shape', why: `不是 JSON",
+      "by": "test",
+      "kills": [
+        "读目录：不是 JSON 时拒，说是读不出"
+      ]
+    },
+    {
+      "id": "M-H242-d",
+      "req": "harness",
+      "why": "最外层是数组的目录被当成对象往下读",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "typeof v === 'object' && v !== null && !Array.isArray(v)",
+      "replace": "typeof v === 'object' && v !== null",
+      "by": "test",
+      "kills": [
+        "读目录：最外层是数组时拒"
+      ]
+    },
+    {
+      "id": "M-H242-e",
+      "req": "harness",
+      "why": "mutations 不是数组时说错了原因",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "fault: { kind: 'shape', why: 'mutations 不是数组' } }",
+      "replace": "fault: { kind: 'shape', why: 'mutations 读不出' } }",
+      "by": "test",
+      "kills": [
+        "读目录：没有 mutations 时拒",
+        "读目录：mutations 不是数组时拒"
+      ]
+    },
+    {
+      "id": "M-H242-f",
+      "req": "harness",
+      "why": "id 不是字符串、或缺 id 的变异照样放进目录",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "!isRecord(m) || typeof m.id !== 'string'",
+      "replace": "!isRecord(m)",
+      "by": "test",
+      "kills": [
+        "读目录：有一条的 id 不是字符串时拒",
+        "读目录：有一条缺 id 时拒"
+      ]
+    },
+    {
+      "id": "M-H242-g",
+      "req": "harness",
+      "why": "拒收时点错了是第几项变异",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "`mutations 第 ${bad + 1} 项",
+      "replace": "`mutations 第 ${bad} 项",
+      "by": "test",
+      "kills": [
+        "读目录：有一条是 null 时拒，点出第几项"
+      ]
+    },
+    {
+      "id": "M-H242-h",
+      "req": "harness",
+      "why": "豁免不是数组的目录照样交出去",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "if (exemptions !== undefined && !Array.isArray(exemptions))",
+      "replace": "if (exemptions === null)",
+      "by": "test",
+      "kills": [
+        "读目录：豁免不是数组时拒"
+      ]
+    },
+    {
+      "id": "M-H242-i",
+      "req": "harness",
+      "why": "没写豁免的目录交出的豁免不是空的一组",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "exemptions: exemptions ?? [] }",
+      "replace": "exemptions: exemptions as unknown[] }",
+      "by": "test",
+      "kills": [
+        "读目录：没写豁免的当空"
+      ]
+    },
+    {
+      "id": "M-H242-j",
+      "req": "harness",
+      "why": "编号重复的目录照样交出去，同号两条的结果会互相覆盖",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "if (ids.length > 0) return",
+      "replace": "if (ids.length < 0) return",
+      "by": "test",
+      "kills": [
+        "读目录：编号重复时拒，点出每个重了的编号"
+      ]
+    },
+    {
+      "id": "M-H242-k",
+      "req": "harness",
+      "why": "编号重复时漏点了重了的编号",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "fault: { kind: 'duplicate', ids } }",
+      "replace": "fault: { ids: ids.slice(1), kind: 'duplicate' } }",
+      "by": "test",
+      "kills": [
+        "读目录：编号重复时拒，点出每个重了的编号"
+      ]
+    },
+    {
+      "id": "M-H242-l",
+      "req": "harness",
+      "why": "好的目录交出去时少了一条变异",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "return { ok: true, mutations: entries,",
+      "replace": "return { ok: true, mutations: [entries[0]],",
+      "by": "test",
+      "kills": [
+        "读目录：好的目录交出全部变异，别的字段原样带着"
+      ]
+    },
+    {
+      "id": "M-H242-m",
+      "req": "harness",
+      "why": "好的目录被说成拒收",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "return { ok: true, mutations: entries,",
+      "replace": "return { ok: false as true, mutations: entries,",
+      "by": "test",
+      "kills": [
+        "读目录：好的目录交出全部变异，别的字段原样带着",
+        "读目录：好的目录交出豁免"
+      ]
+    },
+    {
+      "id": "M-H242-n",
+      "req": "harness",
+      "why": "编号重复的说法里重了的编号挤在一起分不开",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "fault.ids.join('、')",
+      "replace": "fault.ids.join('')",
+      "by": "test",
+      "kills": [
+        "读目录：说法 —— 编号重复"
+      ]
+    },
+    {
+      "id": "M-H242-o",
+      "req": "harness",
+      "why": "读不出与形状不对两种说法对调了",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "fault.kind === 'unreadable' ? '读不出' : '形状不对'",
+      "replace": "fault.kind === 'shape' ? '读不出' : '形状不对'",
+      "by": "test",
+      "kills": [
+        "读目录：说法 —— 读不出",
+        "读目录：说法 —— 形状不对"
+      ]
+    },
+    {
+      "id": "M-H242-p",
+      "req": "harness",
+      "why": "普通字符串里直接写了变异目录的文件名，没认出来",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)\n",
+      "replace": "ts.isNoSubstitutionTemplateLiteral(node)\n",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：字符串里直接写文件名，报那一行"
+      ]
+    },
+    {
+      "id": "M-H242-q",
+      "req": "harness",
+      "why": "不带替换的模板串里写了文件名，没认出来",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)\n",
+      "replace": "ts.isStringLiteral(node)\n",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：不带替换的模板串里写也算"
+      ]
+    },
+    {
+      "id": "M-H242-r",
+      "req": "harness",
+      "why": "模板串头一段里写了文件名，没认出来",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "|| ts.isTemplateHead(node) || ts.isTemplateMiddle(node)",
+      "replace": "|| ts.isTemplateMiddle(node)",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：模板串的头一段里写也算"
+      ]
+    },
+    {
+      "id": "M-H242-s",
+      "req": "harness",
+      "why": "模板串中间一段里写了文件名，没认出来",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "|| ts.isTemplateHead(node) || ts.isTemplateMiddle(node)",
+      "replace": "|| ts.isTemplateHead(node)",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：模板串的中间一段里写也算"
+      ]
+    },
+    {
+      "id": "M-H242-t",
+      "req": "harness",
+      "why": "模板串结尾一段里写了文件名，没认出来",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "|| ts.isTemplateTail(node) ? node.text",
+      "replace": "? node.text",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：模板串的结尾一段里写也算"
+      ]
+    },
+    {
+      "id": "M-H242-u",
+      "req": "harness",
+      "why": "报出的行号差了一行",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "getStart(tree)).line + 1)",
+      "replace": "getStart(tree)).line)",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：字符串里直接写文件名，报那一行"
+      ]
+    },
+    {
+      "id": "M-H242-v",
+      "req": "harness",
+      "why": "只看最外一层，里面嵌着写的文件名一处都认不出",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "    ts.forEachChild(node, visit)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：字符串里直接写文件名，报那一行",
+        "绕开读取函数：一个文件里写了两处，各报一行"
+      ]
+    },
+    {
+      "id": "M-H242-w",
+      "req": "harness",
+      "why": "调了那个模块里别的函数也当成调了读取函数",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "&& decl.name?.text === 'readCatalog' && decl.getSourceFile()",
+      "replace": "&& decl.getSourceFile()",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：调了那个模块里别的函数、没调读取函数，报"
+      ]
+    },
+    {
+      "id": "M-H242-x",
+      "req": "harness",
+      "why": "引用了读取函数所在模块却没调用读取函数的，没报",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "if (!callers.has(path)) faults.push",
+      "replace": "if (false) faults.push",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：按名字导入了位置、没调用读取函数，报"
+      ]
+    },
+    {
+      "id": "M-H242-y",
+      "req": "harness",
+      "why": "只为副作用导入读取函数所在模块没算成引用",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "if (clause === undefined || (!clause.isTypeOnly && clause.name !== undefined)) refsDoor = true",
+      "replace": "if (clause !== undefined && !clause.isTypeOnly && clause.name !== undefined) refsDoor = true",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：只为副作用导入那个模块也算引用"
+      ]
+    },
+    {
+      "id": "M-H242-z",
+      "req": "harness",
+      "why": "读取函数那个文件自己写的文件名也报",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "if (path === DOOR || isTestFile(path)",
+      "replace": "if (isTestFile(path)",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：读取函数那个文件里可以写"
+      ]
+    },
+    {
+      "id": "M-H242-aa",
+      "req": "harness",
+      "why": "测试文件里写夹具目录也报成绕开",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "if (path === DOOR || isTestFile(path) ||",
+      "replace": "if (path === DOOR ||",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：测试文件不扫"
+      ]
+    },
+    {
+      "id": "M-H242-ab",
+      "req": "harness",
+      "why": "放行名单里的文件也报成绕开",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "|| Object.hasOwn(NOT_READERS, path)) continue",
+      "replace": ") continue",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：放行名单里的文件不扫",
+        "真树上读变异目录的地方都经读取函数"
+      ]
+    },
+    {
+      "id": "M-H242-ac",
+      "req": "harness",
+      "why": "放行名单里列了却不在要扫的文件里，没有报",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "    if (!seen.has(path)) faults.push",
+      "replace": "    if (seen.has(path)) faults.push",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：放行名单里列了却不在要扫的文件里，报",
+        "真树上读变异目录的地方都经读取函数"
+      ]
+    },
+    {
+      "id": "M-H242-ad",
+      "req": "harness",
+      "why": "脚本自检那个文件不算测试文件",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "path === 'scripts/test.ts' || path === 'scripts/check/selfcheck.ts' ||",
+      "replace": "path === 'scripts/test.ts' ||",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：哪些算测试文件"
+      ]
+    },
+    {
+      "id": "M-H242-ae",
+      "req": "harness",
+      "why": "没引用读取函数所在模块的文件也被要求调用读取函数",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "if (found.refsDoor) referring.push({ path, text })",
+      "replace": "referring.push({ path, text })",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：注释里提到不算"
+      ]
+    },
+    {
+      "id": "M-H242-af",
+      "req": "harness",
+      "why": "豁免不是数组的目录被说成读不出，看不出是哪里写错了",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "fault: { kind: 'shape', why: 'exemptions 不是数组' } }",
+      "replace": "fault: { kind: 'unreadable', why: 'exemptions 不是数组' } }",
+      "by": "test",
+      "kills": [
+        "读目录：豁免不是数组时拒"
+      ]
+    },
+    {
+      "id": "M-H242-ag",
+      "req": "harness",
+      "why": "只转出带类型标记的名字也算成引用了读取函数所在模块",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "node.exportClause.elements.some(el => !el.isTypeOnly))) refsDoor = true",
+      "replace": "node.exportClause.elements.length > 0)) refsDoor = true",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：只有带类型标记的名字的导入与转出不算引用，放行"
+      ]
+    },
+    {
+      "id": "M-H242-ah",
+      "req": "harness",
+      "why": "动态导入读取函数所在模块没算成引用",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "&& (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier",
+      "replace": "&& (false || (ts.isIdentifier",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：动态导入、只取位置，报"
+      ]
+    },
+    {
+      "id": "M-H242-ai",
+      "req": "harness",
+      "why": "require 读取函数所在模块没算成引用",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "(ts.isIdentifier(node.expression) && node.expression.text === 'require'))",
+      "replace": "(ts.isIdentifier(node.expression) && node.expression.text === 'requires'))",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：require 进来、只取位置，报"
+      ]
+    },
+    {
+      "id": "M-H242-aj",
+      "req": "harness",
+      "why": "自己定义一个同名函数来调，也当成调了读取函数",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "decl.getSourceFile().fileName === DOOR",
+      "replace": "true",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：自己定义一个同名的 readCatalog 来调，报"
+      ]
+    },
+    {
+      "id": "M-H242-ak",
+      "req": "harness",
+      "why": "别的模块也被当成读取函数所在的模块，从那里导入的同名函数也算",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "door !== undefined && DOOR_SPECIFIER.test(l.text) ?",
+      "replace": "door !== undefined ?",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：从别的模块按名字导入的 readCatalog 不算，报"
+      ]
+    },
+    {
+      "id": "M-H242-al",
+      "req": "harness",
+      "why": "读取函数所在的文件没编进程序，谁调它都认不出",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "  if (door !== undefined) sources.set(DOOR, door)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：导入了位置也调用了读取函数，放行",
+        "真树上读变异目录的地方都经读取函数"
+      ]
+    },
+    {
+      "id": "M-H242-am",
+      "req": "harness",
+      "why": "名字里带着 catalog-rule 的别的模块也当成读取函数所在模块",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "const DOOR_SPECIFIER = /(^|\\/)catalog-rule(\\.[cm]?[jt]s)?$/",
+      "replace": "const DOOR_SPECIFIER = /catalog-rule/",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：别的模块名字里带着 catalog-rule 的不算"
+      ]
+    },
+    {
+      "id": "M-H242-an",
+      "req": "harness",
+      "why": "整个模块导入时没算成引用",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "if (ts.isImportDeclaration(node) && isDoor(node.moduleSpecifier)",
+      "replace": "if (ts.isImportDeclaration(node) && node.importClause?.namedBindings !== undefined && ts.isNamedImports(node.importClause.namedBindings) && isDoor(node.moduleSpecifier)",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：整个模块导入、只取位置，报"
+      ]
+    },
+    {
+      "id": "M-H242-ao",
+      "req": "harness",
+      "why": "只导入带类型标记的名字也算成引用了读取函数所在模块",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "named.elements.some(el => !el.isTypeOnly))) refsDoor = true",
+      "replace": "named.elements.length > 0)) refsDoor = true",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：只有带类型标记的名字的导入与转出不算引用，放行"
+      ]
+    },
+    {
+      "id": "M-H242-ap",
+      "req": "harness",
+      "why": "没把读取函数所在的那份交给编译器，谁调它都认不出",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "files.find(f => f.path === DOOR)?.text",
+      "replace": "undefined",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：导入了位置也调用了读取函数，放行",
+        "真树上读变异目录的地方都经读取函数"
+      ]
+    },
+    {
+      "id": "M-H242-aq",
+      "req": "harness",
+      "why": "没给编译器标准库，动态导入后 await 出来的模块对象认不出",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "lib: ['lib.es2022.d.ts']",
+      "replace": "lib: []",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：动态导入的模块对象上调读取函数，放行"
+      ]
+    },
+    {
+      "id": "M-H242-ar",
+      "req": "harness",
+      "why": "整个模块导入时没算成引用",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "(ts.isNamespaceImport(named) || named.elements.some(el => !el.isTypeOnly))",
+      "replace": "(ts.isNamedImports(named) && named.elements.some(el => !el.isTypeOnly))",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：整个模块导入、只取位置，报"
+      ]
     }
   ],
   "exemptions": [
