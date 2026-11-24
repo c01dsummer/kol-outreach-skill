@@ -300,14 +300,23 @@ export function currentOf(text: string, self?: number | null): string | null {
   return m[2] !== undefined ? `ADR-${Number(m[1])}「${m[2].trim()}」` : `ADR-${Number(m[1])}:${Number(m[3])}`
 }
 
+/** 状态行在哪：`ADR-N 第 M 行`；拆过的记录分主文件、历史文件（补记那一行就照这个写法点名原来那行） */
+const placeOf = (file: string, line: number, split: ReadonlySet<number>): string => {
+  const n = recordNum(file)
+  return `ADR-${n}${isHistory(file) ? ' 历史文件' : n !== null && split.has(n) ? ' 主文件' : ' '}第 ${line} 行`
+}
+
 /**
- * 已重挂行里有几行认不出现行的是哪一张（`currentOf` 给 null 的），而且指着同一张旧欠条的已重挂行里没有一行认得出：
- * 这几张的接手者到期清单接不回原来的登记日，按自己的算。旧行不许改，补的办法是别处追加一行固定写法的已重挂（ADR-167）。
+ * 已重挂行里有几行认不出现行的是哪一张（`currentOf` 给 null 的）：这几张的接手者到期清单接不回原来的登记日，按自己的算。
+ * 旧行不许改，补的办法是别处追加一行指同一张旧欠条、认得出的已重挂，写明「补记接手者：照 <原来那行在哪>那一行原文认定」（ADR-167）；
+ * 补过的那行不数。只认点名了原来那行的补记：同一张旧欠条另挂给别的接手者的那种，不算补了这一行。
  */
 export function movesUnread(docs: Map<string, string>): number {
+  const split = splitRecords(docs)
   const moves = statusLines(docs).filter(s => s.kind === '已重挂')
-  const read = new Set(moves.filter(s => currentOf(s.text, recordNum(s.file)) !== null).map(s => s.key))
-  return moves.filter(s => !read.has(s.key)).length
+  const read = moves.filter(s => currentOf(s.text, recordNum(s.file)) !== null)
+  return moves.filter(s => currentOf(s.text, recordNum(s.file)) === null
+    && !read.some(o => o.key === s.key && o.text.includes(`补记接手者：照 ${placeOf(s.file, s.line, split)}那一行原文认定`))).length
 }
 
 /** 台账键换成回访里的记法：`ADR-9:5` → `ADR-9 第 5 行`，按名字的原样 */
