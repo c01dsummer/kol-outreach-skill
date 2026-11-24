@@ -1,0 +1,2361 @@
+{
+  "$comment": "存下来的数据的形状快照（ADR-246），由类型生成，勿手改。哪一类变了，先照 process/3-BUILD.md 第 9 条写明缺着怎么读、该不该升版本，再跑 npm run data-shapes -- --write 回写。",
+  "shapes": {
+    "任务状态": {
+      "stored": "任务目录里的 task.json",
+      "type": "scripts/lib/types.ts 里的 TaskState",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/TaskState",
+        "definitions": {
+          "TaskState": {
+            "type": "object",
+            "properties": {
+              "product": {
+                "type": "string"
+              },
+              "market": {
+                "type": "string"
+              },
+              "target_count": {
+                "type": "number"
+              },
+              "brand_calibration": {
+                "$ref": "#/definitions/BrandCalibration"
+              },
+              "sender_name": {
+                "type": "string",
+                "description": "D30：可选的发件人姓名，给 Agent 写开发信署名用；collect 原样存、原样留，缺席不补，脚本不拿它填任何输出。"
+              },
+              "budget_usd": {
+                "description": "D13：旧输入可能缺失或不可解释；须经费用边界核验，不能直接计算。"
+              },
+              "cost_ledger": {},
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/SearchTask"
+                }
+              },
+              "done": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "已完成（耗尽或已达标收尾）的 task 索引"
+              },
+              "offsets": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "description": "D6：每个 task 下一页的 offset。 只记 done 不够 —— 预算在某个关键词跑到一半时用尽，续跑必须从那一页接上， 否则会把已经付过费的几页重新抓一遍。\n\n**它同时是「这个任务抓过第一页没有」的记录（F9）**，所以三态都有意义： 整张表缺失 = 无从确认（F9 落地之前的旧任务目录）； 有表但没有这个键 = 这个任务一页都没抓过； 有值（含 0）= 抓过，0 是「抓了但一条没返回」。\n**可选不是手滑** —— 旧目录里真的没有这张表，而把「没有表」读成「都没查过」 会把已经付过费的词重抓一遍。\n\n⚠️ **它只回答「下一页从哪儿接」**。一度拿它兼职回答「查过没有」与「查到几条」， 独立复核推翻了那个设计（ADR-94 第十五节甲，含两处实测反例）。那两件事各有自己的表 （`answered` 与 `found`）。"
+              },
+              "answered": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "description": "D6.s：这个任务的搜索净次数（HTTP 200 与未取得状态的尝试）。 「从未发出过搜索请求」只能由它回答 —— `offsets` 答不了，那个键只在 `search()` 正常返回之后才写，而钱在那之前就扣了。\n\n⚠️ **非 200 不计入**：费用账撤销本次预留，续跑会重试它 —— 读作「还没问过」既如实也可行动。这是取舍，不是 bug。\n\n⚠️ **整张表缺失＝无从确认**，而且它**只在任务目录新建时建**（D6.j）。缺表的是 上一版留下的目录 —— 那种目录此后也不长出这两张表，一直说「无从确认」。 凭空建一张空表就是把「无从确认」抹成「一个都没问过」，不可逆。"
+              },
+              "found": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "description": "D6.l：这个任务累计拿回来多少**条**（供应商返回的条目，不是人数）。\n\n**值可以是 `null` ＝「这个数注定不全」**：付了钱、却在记下条数之前抛了（供应商换了 响应结构、兜底撞上预算），那一次的条数永远补不回来。不记 `null` 的话，下一页成功时 它会从 0 重新数起，凑出一个偏小、却和真测量值印在同一列的数 —— 读的人拿它当分母。\n**所以一旦不全就永远是 `null`。**\n\n三态与建表时机同 `answered`。"
+              },
+              "pages": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "description": "D6.h：这个任务**累计真的拿回了几页** —— 跨运行累加，页数上限据它判。\n\n与旁边那两张表都答不了同一个问题：`answered` 记的是**发出过几次付费请求**， Instagram 兜底一页要发两次（D6.k），拿它当页数会把 IG 的配额腰斩；`found` 记的是\n**条数**，而每页多少条本来就不固定。所以这个数只能单独记。\n\n**只在真的拿回了一页时 +1**（与 `offsets` 同一处落笔、同一份证据：请求正常返回）。 付了钱却没拿回页的那几次由 `answered` 记、不占页数配额 —— 记进去的话，一个供应商 换了响应结构的词会被「重试次数」耗光配额，而它一个人都没采到。\n\n⚠️ 值**不需要** `null` 那一态（`found` 需要，因为它要被印进关键词表当测量值给人看）。 这个数一个字都不进交付物，它只喂一道闸，少记一页的后果是**多给一页** —— 方向已知、有界，不会伪装成测量值。\n\n⚠️ **整张表缺失＝无从确认**，建表时机与缺表读法在 D6.m，判定只此一份： `pagesFetched`（`lib/pipeline.ts`）。"
+              },
+              "requests": {
+                "description": "D13：费用账终态净次数；旧输入未知，不把缺席补成零。"
+              },
+              "memory_status": {
+                "$ref": "#/definitions/MemoryStatus",
+                "description": "这一批名单有没有做过「已联系 / 已推荐」去重（ADR-15）。\n\n`collect` 写，`render` 读了在交付物上声明。**字段缺失读作 `unknown`， 不读作 `ok`** —— 缺失只可能来自 ADR-15 之前的 collect，而那一版遇到读不出来 的记忆会静默当成空记忆，所以「过滤这一步跑过」并不等于「过滤真的生效了」。 最初写成按 `ok` 处理，是把一个查不到的事实当成了肯定答案（ADR-18）。"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "product",
+              "market",
+              "target_count",
+              "tasks",
+              "done",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": false
+          },
+          "BrandCalibration": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "target_creator_types": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tone_aesthetic": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "natural_scenarios": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "negative_signals": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "brand_preference",
+                        "verified_product_fact"
+                      ]
+                    },
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "kind",
+                    "detail"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "version",
+              "target_creator_types",
+              "tone_aesthetic",
+              "natural_scenarios",
+              "negative_signals",
+              "sources"
+            ],
+            "additionalProperties": false,
+            "description": "D20：任务原样保存的项目校准输入；来源性质不等同于产品事实验证。"
+          },
+          "SearchTask": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string"
+              },
+              "dimension": {
+                "$ref": "#/definitions/Dimension"
+              },
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "as_hashtag": {
+                "type": "boolean",
+                "description": "配置元数据；当前 TikHub 不据此切换端点，不证明实际发现路径。"
+              },
+              "ig_route": {
+                "type": "string",
+                "const": "hashtag",
+                "description": "IG 发现路线（D15.j、D15.k，ADR-112）：只由运营在任务配置里显式写 `\"hashtag\"` 开启话题搜索； 缺席时走 Reels。只认这一个取值、只能写在 Instagram 任务上 —— 校验见 `igRouteProblems`。"
+              }
+            },
+            "required": [
+              "keyword",
+              "dimension",
+              "platform"
+            ],
+            "additionalProperties": false,
+            "description": "一个待执行的搜索任务：关键词 × 平台"
+          },
+          "Dimension": {
+            "type": "string",
+            "enum": [
+              "category",
+              "scene",
+              "competitor",
+              "audience"
+            ]
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "tiktok",
+              "instagram"
+            ]
+          },
+          "MemoryStatus": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "absent",
+              "unreadable_ignored",
+              "unknown"
+            ]
+          }
+        }
+      }
+    },
+    "名单里的一位创作者": {
+      "stored": "任务目录里的 creators.json 与 creators.raw.json（每一项）",
+      "type": "scripts/lib/types.ts 里的 Creator",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/Creator",
+        "definitions": {
+          "Creator": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "user_id": {
+                "type": "string"
+              },
+              "nickname": {
+                "type": "string"
+              },
+              "followers": {
+                "type": "number",
+                "description": "P1：这些字段可能是 undefined —— 那表示**没查到**，不是「值为 0/空」。 不许用 ?? 0 / ?? '' 兜底：记成 0 会让人被粉丝下限过滤掉， 记成 '' 会让「没取到 bio」被当成「bio 里没有邮箱」。"
+              },
+              "following": {
+                "type": "number"
+              },
+              "post_count": {
+                "type": "number"
+              },
+              "invalid_from_provider": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "followers",
+                    "post_count"
+                  ]
+                },
+                "description": "P1.m：供应商给了、却不是有限非负整数的那几项（「已查询但未取得有效值」）。列在这里的项本身缺席， 打分与粉丝数闸门照未查询处理，交付物显示 `未知` 而不是 `未查询`。没有这种项时整个字段缺席。"
+              },
+              "bio": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "**三态，和 `email` 同一个模型**（P1.a）：`undefined` 是没查过，`null` 是 查过、对方没写简介，字符串是查过且写了。\n\n搜索结果那一侧只给得出「没查过」那一态（`signature` 常常压根不在返回里）， 所以那边写 `undefined` 是对的；**profile 补全那一侧不一样** —— 请求已经 发出去、人也查回来了，`signature`／`biography` 是空只说明对方没写。 记成 `undefined` 有两笔账：这个人每次续跑都会被当成「还没查过」再查一遍 （`needsProfile`），而 `email` 会跟着记成「未查询」，下游读成「我们没看过 他的简介」—— 而我们看过了。"
+              },
+              "bio_links": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "verified": {
+                "type": "boolean"
+              },
+              "is_private": {
+                "type": "boolean",
+                "description": "IG 私密账号 —— 建联方式受限，值得在名单里标出来"
+              },
+              "avatar": {
+                "type": "string"
+              },
+              "profile_url": {
+                "type": "string"
+              },
+              "source_keyword": {
+                "type": "string"
+              },
+              "source_dimension": {
+                "$ref": "#/definitions/Dimension"
+              },
+              "source_tasks": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "U3.b：这个人是被**哪几个任务**搜到的（`task.json` 里的下标）。creator 与 task 多对多，而 `source_keyword` 只记第一个搜到他的词（去重先到先得）—— 拿它归人时， 后面那些词会被报成「找到 N 条、一个都没入围」（ADR-94 第十六节甲）。\n\n⚠️ `source_keyword` 保留不动（CSV 的一列、记忆里的字段），这里只补一份归因用的。 可选：本条之前采的人没有它，那种目录的关键词表本来就判无从确认。"
+              },
+              "discovery_sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/DiscoverySource"
+                },
+                "description": "D15：只含已观察来源；缺席或空数组均为来源未知，不由配置倒推。"
+              },
+              "recent_posts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/RecentPost"
+                },
+                "description": "**搜索命中的**那几条作品（不是主页样本 —— 那在 `account_assessment.sample`，D8）。\n\n`undefined` 是**没问过**：IG 按账号名搜人的那条兜底路径，响应里根本没有作品。 有值时恒非空 —— 两条搜索路径都是先见到一条作品才建人记录。\n\n⚠️ **空数组在今天的代码里没有生产者。** 盘上的旧 `creators.raw.json`／`creators.json` 里还躺着一批，全是上面那条兜底路径以前凭空写的，**意思是没问过，不是没作品**。 所以读它的地方一律把空数组和 `undefined` 当成同一态（P1.e、ADR-102）。\n\n「他确实没作品」今天说不出来：主页端点只交回有限窗口，没返回作品也不能证明 账号没有作品；旧 IG 缓存还可能只保存筛过的视频（ADR-102）。"
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "bio 里的全部邮箱，按出现先后用 ', ' 连成一个值（D7.d）；三态见 P1.a"
+              },
+              "email_verified": {
+                "type": "boolean",
+                "description": "**邮箱有效性验证的结果**（ADR-149）：`undefined` 是没验证过（含没有地址可验）， `true` 是验证过、通过，`false` 是验证过、没通过。 「查过，没有邮箱」不是这个字段 —— bio 里没有是 `email: null`（P1.a）。\n\n⚠️ **照这个意思写，布尔这个形状装不下。** 一个 `email` 里可以有几个地址（D7.d）， 一个布尔说不清验的是哪一个：第一条要给它写值的改动开工之前，先按 ADR-149 换成三态 `Measurement`（`kind='third_party'`）。`capabilities.email_verification` 的分母今天是全部人数，没有地址的人记作 `unqueried` —— 那是这个形状的限制， 不是判断（ADR-149 第三节第 2 小节第 5 条），换形状时一并改。\n\n今天的代码不给它产值；盘上名单带着的原样带过去，交付表那一列照印。名单带着它 不等于这次交付配了验证层：`enriched` 不看它，邮箱验证的 measured 也不数它（ADR-150）。"
+              },
+              "audience_geo": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "fake_follower_score": {
+                "type": "number",
+                "deprecated": "没有可信供应商，保留只为兼容旧任务；分层逻辑明确忽略它。"
+              },
+              "cross_platform": {
+                "type": "boolean"
+              },
+              "linked_handle": {
+                "type": "string"
+              },
+              "merged_into": {
+                "type": "string",
+                "description": "被合并进另一条记录时填其 key，该条不进名单"
+              },
+              "score": {
+                "type": "number"
+              },
+              "fit": {
+                "$ref": "#/definitions/Fit"
+              },
+              "fit_reason": {
+                "type": "string"
+              },
+              "tier": {
+                "$ref": "#/definitions/Tier"
+              },
+              "outreach_draft": {
+                "type": "string"
+              },
+              "draft_sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "draft": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "type": "string",
+                      "enum": [
+                        "bio",
+                        "post",
+                        "nickname",
+                        "product",
+                        "self"
+                      ]
+                    },
+                    "quote": {
+                      "type": "string"
+                    },
+                    "purpose": {
+                      "type": "string",
+                      "enum": [
+                        "schedule",
+                        "contact"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "draft",
+                    "from"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "P2：由正本投影；草稿里每一句依据的出处：博主资料、已证实的产品事实或发件人自己的话（ADR-210、ADR-215）。"
+              },
+              "eligibility": {
+                "$ref": "#/definitions/Eligibility",
+                "description": "D21：由任务级 Agent 正本投影；不是采集原件字段。"
+              },
+              "adoption_priority": {
+                "$ref": "#/definitions/AdoptionPriority"
+              },
+              "observed_content": {
+                "type": "string"
+              },
+              "work_evidence": {
+                "type": "string"
+              },
+              "natural_integration": {
+                "type": "string"
+              },
+              "mismatch_risk": {
+                "type": "string"
+              },
+              "brand_calibration_version": {
+                "type": "string"
+              },
+              "review_status": {
+                "$ref": "#/definitions/ReviewStatus"
+              },
+              "linked_agent_review": {
+                "type": "object",
+                "properties": {
+                  "account_key": {
+                    "type": "string"
+                  },
+                  "eligibility": {
+                    "$ref": "#/definitions/Eligibility"
+                  },
+                  "adoption_priority": {
+                    "$ref": "#/definitions/AdoptionPriority"
+                  },
+                  "review_status": {
+                    "$ref": "#/definitions/ReviewStatus"
+                  },
+                  "observed_content": {
+                    "type": "string"
+                  },
+                  "work_evidence": {
+                    "type": "string"
+                  },
+                  "natural_integration": {
+                    "type": "string"
+                  },
+                  "mismatch_risk": {
+                    "type": "string"
+                  },
+                  "fit": {
+                    "$ref": "#/definitions/Fit"
+                  },
+                  "fit_reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "account_key",
+                  "review_status"
+                ],
+                "additionalProperties": false
+              },
+              "manual_eligible": {
+                "$ref": "#/definitions/ManualVerdict",
+                "description": "D25：人工与有效展示由人工投影拥有，不能写回 Agent 正本或采集原件。"
+              },
+              "manual_adopted": {
+                "$ref": "#/definitions/ManualVerdict"
+              },
+              "manual_content_fit": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_engagement": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_comment_authenticity": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_reject_reason": {
+                "type": "string"
+              },
+              "manual_note": {
+                "type": "string"
+              },
+              "manual_reviewed": {
+                "type": "boolean"
+              },
+              "manual_round_id": {
+                "type": "string"
+              },
+              "manual_feedback_accounts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ManualFeedbackRow"
+                }
+              },
+              "effective_priority": {
+                "$ref": "#/definitions/AdoptionPriority"
+              },
+              "effective_priority_account_key": {
+                "type": "string"
+              },
+              "account_assessment": {
+                "$ref": "#/definitions/AccountAssessmentSummary"
+              },
+              "linked_account_assessment": {
+                "$ref": "#/definitions/AccountAssessmentSummary"
+              },
+              "tier_adjustments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/TierAdjustment"
+                }
+              },
+              "previously_recommended": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "platform",
+              "handle",
+              "nickname",
+              "bio_links",
+              "verified",
+              "profile_url",
+              "source_keyword",
+              "source_dimension"
+            ],
+            "additionalProperties": false
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "tiktok",
+              "instagram"
+            ]
+          },
+          "Dimension": {
+            "type": "string",
+            "enum": [
+              "category",
+              "scene",
+              "competitor",
+              "audience"
+            ]
+          },
+          "DiscoverySource": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "keyword": {
+                "type": "string"
+              },
+              "dimension": {
+                "$ref": "#/definitions/Dimension"
+              },
+              "endpoint": {
+                "$ref": "#/definitions/DiscoveryEndpoint"
+              }
+            },
+            "required": [
+              "platform",
+              "handle",
+              "keyword",
+              "dimension",
+              "endpoint"
+            ],
+            "additionalProperties": false,
+            "description": "D15：实际返回该账号的搜索快照，不是完整历史或作品来源。"
+          },
+          "DiscoveryEndpoint": {
+            "type": "string",
+            "enum": [
+              "/api/v1/tiktok/app/v3/fetch_video_search_result",
+              "/api/v1/instagram/v2/search_reels",
+              "/api/v1/instagram/v2/search_users",
+              "/api/v1/instagram/v2/fetch_hashtag_posts"
+            ]
+          },
+          "RecentPost": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "D11：平台:原始作品 id；来源未给可用标识时缺失，不用用户或文案 id 代替。"
+              },
+              "desc": {
+                "type": "string",
+                "description": "空串目前也可能来自来源字段未取到，不能证明作者没写文案（ADR-102 第七节）。"
+              },
+              "plays": {
+                "type": "number"
+              },
+              "likes": {
+                "type": "number"
+              },
+              "comments": {
+                "type": "number"
+              },
+              "shares": {
+                "type": "number"
+              },
+              "published_at": {
+                "type": "string"
+              },
+              "is_pinned": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "desc"
+            ],
+            "additionalProperties": false
+          },
+          "Fit": {
+            "type": "string",
+            "enum": [
+              "✅",
+              "⚠️",
+              "❌"
+            ]
+          },
+          "Tier": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          "Eligibility": {
+            "type": "string",
+            "enum": [
+              "合格",
+              "不合格",
+              "待核实"
+            ]
+          },
+          "AdoptionPriority": {
+            "type": "string",
+            "enum": [
+              "优先联系",
+              "备选",
+              "待核实",
+              "暂不采用"
+            ]
+          },
+          "ReviewStatus": {
+            "type": "string",
+            "enum": [
+              "未评",
+              "已评",
+              "待重评"
+            ]
+          },
+          "ManualVerdict": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no",
+              "unknown"
+            ]
+          },
+          "ManualLevel": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "unknown"
+            ]
+          },
+          "ManualFeedbackRow": {
+            "type": "object",
+            "properties": {
+              "round_id": {
+                "type": "string"
+              },
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "account_key": {
+                "type": "string"
+              },
+              "line_number": {
+                "type": "number"
+              },
+              "manual_eligible": {
+                "$ref": "#/definitions/ManualVerdict"
+              },
+              "manual_adopted": {
+                "$ref": "#/definitions/ManualVerdict"
+              },
+              "manual_content_fit": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_engagement": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_comment_authenticity": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_reject_reason": {
+                "type": "string"
+              },
+              "manual_note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "round_id",
+              "platform",
+              "handle",
+              "account_key",
+              "line_number",
+              "manual_note"
+            ],
+            "additionalProperties": false
+          },
+          "AccountAssessmentSummary": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "followers": {
+                "type": "number"
+              },
+              "following": {
+                "type": "number"
+              },
+              "sample": {
+                "$ref": "#/definitions/PublicPostMeasurement<number>"
+              },
+              "metrics": {
+                "$ref": "#/definitions/PublicMetrics"
+              },
+              "collaboration_quote": {
+                "$ref": "#/definitions/QuoteMeasurement"
+              },
+              "quote_efficiency": {
+                "$ref": "#/definitions/QuoteEfficiency"
+              }
+            },
+            "required": [
+              "platform",
+              "handle"
+            ],
+            "additionalProperties": false
+          },
+          "PublicPostMeasurement<number>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "media_scope": {
+                      "$ref": "#/definitions/ProfileSampleScope"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "basis",
+                    "observed_at",
+                    "sample_size",
+                    "source",
+                    "status",
+                    "value"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "media_scope": {
+                      "$ref": "#/definitions/ProfileSampleScope"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "observed_at",
+                    "reason",
+                    "source",
+                    "status"
+                  ]
+                }
+              }
+            ]
+          },
+          "ProfileSampleScope": {
+            "type": "string",
+            "enum": [
+              "provider_returned_first12",
+              "legacy_video_filtered_first12",
+              "unknown"
+            ],
+            "description": "主页样本实际保存的媒体范围；unknown 不代表确认图文或确认视频。"
+          },
+          "MetricSource": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "public_api",
+                  "manual",
+                  "third_party"
+                ]
+              },
+              "provider": {
+                "type": "string"
+              },
+              "endpoint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "provider"
+            ],
+            "additionalProperties": false,
+            "description": "D8：所有会进入决策的派生指标都保留来源与测量状态。"
+          },
+          "MetricUnavailableReason": {
+            "type": "string",
+            "enum": [
+              "private_account",
+              "insufficient_posts",
+              "missing_post_dates",
+              "invalid_post_date",
+              "missing_followers",
+              "missing_following",
+              "zero_denominator",
+              "insufficient_peer_group",
+              "insufficient_comparable_metrics",
+              "unsupported_content",
+              "account_unavailable",
+              "unknown_sample_scope",
+              "legacy_video_only_sample"
+            ]
+          },
+          "PublicMetrics": {
+            "type": "object",
+            "properties": {
+              "median_views": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "median_engagements": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "engagement_rate_followers": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "engagement_rate_views": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "view_rate": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "following_ratio": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "reach_consistency": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "median_post_gap_days": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "latest_post_at": {
+                "$ref": "#/definitions/Measurement<string>"
+              },
+              "days_since_last_post": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "activity_status": {
+                "$ref": "#/definitions/Measurement<ActivityStatus>"
+              },
+              "audience_quality_risk": {
+                "$ref": "#/definitions/Measurement<AudienceRiskAssessment>"
+              }
+            },
+            "required": [
+              "median_views",
+              "median_engagements",
+              "engagement_rate_followers",
+              "engagement_rate_views",
+              "view_rate",
+              "following_ratio",
+              "reach_consistency",
+              "median_post_gap_days",
+              "audience_quality_risk"
+            ],
+            "additionalProperties": false
+          },
+          "Measurement<number>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
+          },
+          "Measurement<string>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
+          },
+          "Measurement<ActivityStatus>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "$ref": "#/definitions/ActivityStatus"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
+          },
+          "ActivityStatus": {
+            "type": "string",
+            "enum": [
+              "active",
+              "cooling",
+              "dormant"
+            ]
+          },
+          "Measurement<AudienceRiskAssessment>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "$ref": "#/definitions/AudienceRiskAssessment"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "description": "三态里的两态：已测或不可用（未查询是整格缺席）。`@discriminator status` 让生成的格式说明按 status 分支， 报错只说那一支缺了什么（生成的格式说明在 `scripts/lib/enrichment-schema.ts`，ADR-232）。"
+          },
+          "AudienceRiskAssessment": {
+            "type": "object",
+            "properties": {
+              "level": {
+                "$ref": "#/definitions/AudienceRiskLevel"
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/AudienceRiskFlag"
+                }
+              },
+              "peer_size": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "level",
+              "flags",
+              "peer_size"
+            ],
+            "additionalProperties": false
+          },
+          "AudienceRiskLevel": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "AudienceRiskFlag": {
+            "type": "object",
+            "properties": {
+              "metric": {
+                "$ref": "#/definitions/AudienceRiskMetric"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "high"
+                ]
+              },
+              "value": {
+                "type": "number"
+              },
+              "threshold": {
+                "type": "number"
+              },
+              "peer_size": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "metric",
+              "direction",
+              "value",
+              "threshold",
+              "peer_size"
+            ],
+            "additionalProperties": false
+          },
+          "AudienceRiskMetric": {
+            "type": "string",
+            "enum": [
+              "engagement_rate_followers",
+              "view_rate",
+              "following_ratio"
+            ]
+          },
+          "QuoteMeasurement": {
+            "$ref": "#/definitions/ManualMeasurement<CollaborationQuote>",
+            "description": "增强结果里存的合作报价"
+          },
+          "ManualMeasurement<CollaborationQuote>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "$ref": "#/definitions/CollaborationQuote"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "description": "手写那几格的三态包装：合作报价（D9），以及 render 从报价算出的隐含效率（不可用时沿用报价的原因）。 与指标那份只差在不可用时的原因：报价是用户或 Agent 手写的，文档教的是「报价查不到就写成不可用并写明原因」， 原因是一句话（例如「创作者未回复报价」），不限于指标那几个词；但不能是空的（ADR-232）。"
+          },
+          "CollaborationQuote": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "number"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "format": {
+                "type": "string",
+                "enum": [
+                  "tiktok_video",
+                  "instagram_reel",
+                  "instagram_post",
+                  "mixed_bundle"
+                ]
+              },
+              "quantity": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "creator_quote",
+                  "public_rate_card"
+                ]
+              },
+              "observed_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "amount",
+              "currency",
+              "platform",
+              "format",
+              "quantity",
+              "source",
+              "observed_at"
+            ],
+            "additionalProperties": false,
+            "description": "D9：报价必须带交付口径；混合套餐不得硬算成单条效率。"
+          },
+          "QuoteEfficiency": {
+            "type": "object",
+            "properties": {
+              "implied_ecpm": {
+                "$ref": "#/definitions/ManualMeasurement<number>"
+              },
+              "implied_ecpe": {
+                "$ref": "#/definitions/ManualMeasurement<number>"
+              }
+            },
+            "additionalProperties": false
+          },
+          "ManualMeasurement<number>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "description": "手写那几格的三态包装：合作报价（D9），以及 render 从报价算出的隐含效率（不可用时沿用报价的原因）。 与指标那份只差在不可用时的原因：报价是用户或 Agent 手写的，文档教的是「报价查不到就写成不可用并写明原因」， 原因是一句话（例如「创作者未回复报价」），不限于指标那几个词；但不能是空的（ADR-232）。"
+          },
+          "TierAdjustment": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "audience_geo",
+                  "audience_quality_risk"
+                ]
+              },
+              "from": {
+                "$ref": "#/definitions/Tier"
+              },
+              "to": {
+                "$ref": "#/definitions/Tier"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "from",
+              "to",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "评审正本": {
+      "stored": "任务目录里的 agent-review.json",
+      "type": "scripts/lib/review.ts 里的 AgentReviewDocument",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/AgentReviewDocument",
+        "definitions": {
+          "AgentReviewDocument": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "updated_at": {
+                "type": "string"
+              },
+              "reviews": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/AgentReview"
+                }
+              },
+              "rounds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ReviewRound"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "updated_at",
+              "reviews",
+              "rounds"
+            ],
+            "additionalProperties": false
+          },
+          "AgentReview": {
+            "type": "object",
+            "properties": {
+              "account_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "eligibility": {
+                "$ref": "#/definitions/Eligibility"
+              },
+              "adoption_priority": {
+                "$ref": "#/definitions/AdoptionPriority"
+              },
+              "observed_content": {
+                "type": "string"
+              },
+              "work_evidence": {
+                "type": "string"
+              },
+              "natural_integration": {
+                "type": "string"
+              },
+              "mismatch_risk": {
+                "type": "string"
+              },
+              "fit": {
+                "$ref": "#/definitions/Fit"
+              },
+              "fit_reason": {
+                "type": "string"
+              },
+              "outreach_draft": {
+                "type": "string"
+              },
+              "draft_sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/DraftSource"
+                },
+                "description": "P2：草稿里每一句依据的出处：博主资料、已证实的产品事实或发件人自己的话（ADR-210、ADR-215）；只给评审 HTML 对账用。"
+              },
+              "brand_calibration_version": {
+                "type": "string"
+              },
+              "reviewed_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_keys"
+            ],
+            "additionalProperties": false,
+            "description": "D21：任务级 Agent 评审正本；采集原件与人工反馈由其他文件拥有。"
+          },
+          "Eligibility": {
+            "type": "string",
+            "enum": [
+              "合格",
+              "不合格",
+              "待核实"
+            ]
+          },
+          "AdoptionPriority": {
+            "type": "string",
+            "enum": [
+              "优先联系",
+              "备选",
+              "待核实",
+              "暂不采用"
+            ]
+          },
+          "Fit": {
+            "type": "string",
+            "enum": [
+              "✅",
+              "⚠️",
+              "❌"
+            ]
+          },
+          "DraftSource": {
+            "type": "object",
+            "properties": {
+              "draft": {
+                "type": "string",
+                "description": "信里那一句或那一段，照抄草稿原文"
+              },
+              "from": {
+                "$ref": "#/definitions/DraftSourceKind"
+              },
+              "quote": {
+                "type": "string",
+                "description": "资料里的原文片段；`from` 为 `self` 时不写"
+              },
+              "purpose": {
+                "$ref": "#/definitions/DraftSourcePurpose",
+                "description": "只有 `from` 为 `self` 时可写：这一段是约时间（`schedule`）还是联系方式（`contact`）。"
+              }
+            },
+            "required": [
+              "draft",
+              "from"
+            ],
+            "additionalProperties": false
+          },
+          "DraftSourceKind": {
+            "type": "string",
+            "enum": [
+              "bio",
+              "post",
+              "nickname",
+              "product",
+              "self"
+            ]
+          },
+          "DraftSourcePurpose": {
+            "type": "string",
+            "enum": [
+              "schedule",
+              "contact"
+            ]
+          },
+          "ReviewRound": {
+            "type": "object",
+            "properties": {
+              "round_id": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "const": "task.json"
+              },
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ReviewRoundCandidate"
+                }
+              }
+            },
+            "required": [
+              "round_id",
+              "created_at",
+              "source",
+              "candidates"
+            ],
+            "additionalProperties": false
+          },
+          "ReviewRoundCandidate": {
+            "type": "object",
+            "properties": {
+              "account_key": {
+                "type": "string"
+              },
+              "source_tasks": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/ReviewSourceTask"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "account_key",
+              "source_tasks"
+            ],
+            "additionalProperties": false
+          },
+          "ReviewSourceTask": {
+            "type": "object",
+            "properties": {
+              "task_index": {
+                "type": "number"
+              },
+              "keyword": {
+                "type": "string"
+              },
+              "dimension": {
+                "$ref": "#/definitions/Dimension"
+              },
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              }
+            },
+            "required": [
+              "task_index",
+              "keyword",
+              "dimension",
+              "platform"
+            ],
+            "additionalProperties": false
+          },
+          "Dimension": {
+            "type": "string",
+            "enum": [
+              "category",
+              "scene",
+              "competitor",
+              "audience"
+            ]
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "tiktok",
+              "instagram"
+            ]
+          }
+        }
+      }
+    },
+    "跨任务记忆": {
+      "stored": "memory/creators.json",
+      "type": "scripts/lib/memory.ts 里的 MemoryFile",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/MemoryFile",
+        "definitions": {
+          "MemoryFile": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number"
+              },
+              "updated_at": {
+                "type": "string"
+              },
+              "creators": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/MemoryEntry"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "updated_at",
+              "creators"
+            ],
+            "additionalProperties": false,
+            "description": "跨任务记忆整份文件的形状（形状快照按它生成，见 `scripts/check/data-shapes.ts`）"
+          },
+          "MemoryEntry": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "type": "string"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "nickname": {
+                "type": "string"
+              },
+              "followers": {
+                "type": "number"
+              },
+              "first_seen": {
+                "type": "string"
+              },
+              "linked_to": {
+                "type": "string"
+              },
+              "recommendations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string"
+                    },
+                    "product": {
+                      "type": "string"
+                    },
+                    "keyword": {
+                      "type": "string"
+                    },
+                    "task": {
+                      "type": "string",
+                      "description": "产出目录名 —— 用来区分「同一任务的续跑」与「另一次任务」，见 filterByMemory"
+                    },
+                    "tier": {
+                      "type": "string"
+                    },
+                    "fit_reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "product",
+                    "keyword"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "contacted": {
+                "type": "boolean"
+              },
+              "replied": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "platform",
+              "handle",
+              "nickname",
+              "followers",
+              "first_seen",
+              "recommendations",
+              "contacted",
+              "replied",
+              "blocked",
+              "note"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "经验库": {
+      "stored": "memory/lessons/<品类>.json",
+      "type": "scripts/lib/lessons.ts 里的 LessonsFile",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/LessonsFile",
+        "definitions": {
+          "LessonsFile": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "lessons": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/Lesson"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "lessons"
+            ],
+            "additionalProperties": false,
+            "description": "一个品类的经验库整份文件的形状（形状快照按它生成，见 `scripts/check/data-shapes.ts`）"
+          },
+          "Lesson": {
+            "type": "object",
+            "properties": {
+              "situation": {
+                "type": "string",
+                "description": "局面：写成以后还认得出的情境形状，不写某一次的具体事实"
+              },
+              "lesson": {
+                "type": "string",
+                "description": "教训：语义筛选时该怎么判"
+              },
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "handle": {
+                    "type": "string"
+                  },
+                  "round_id": {
+                    "type": "string"
+                  },
+                  "manual": {
+                    "type": "string"
+                  },
+                  "agent": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "task",
+                  "platform",
+                  "handle",
+                  "round_id",
+                  "manual",
+                  "agent"
+                ],
+                "additionalProperties": false,
+                "description": "证据：哪个任务、哪个平台账号、哪一轮冻结候选池，用户怎么答、Agent 当时怎么判"
+              },
+              "attribution": {
+                "type": "string",
+                "enum": [
+                  "能归到这一条",
+                  "混杂"
+                ]
+              },
+              "rule_version": {
+                "type": "string",
+                "description": "写入时 Skill 规则文字的版本标识：64 位十六进制，或「未知」"
+              },
+              "added_at": {
+                "type": "string",
+                "description": "写入时刻（ISO 8601）"
+              }
+            },
+            "required": [
+              "situation",
+              "lesson",
+              "evidence",
+              "attribution",
+              "rule_version",
+              "added_at"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "经验读取记录": {
+      "stored": "任务目录里的 lessons-read.json",
+      "type": "scripts/lib/lessons.ts 里的 LessonsRecord",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/LessonsRecord",
+        "definitions": {
+          "LessonsRecord": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "ok"
+                  },
+                  "rule_version": {
+                    "type": "string"
+                  },
+                  "lessons": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/LessonSeen"
+                    }
+                  }
+                },
+                "required": [
+                  "category",
+                  "file",
+                  "status",
+                  "rule_version",
+                  "lessons"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "absent"
+                  },
+                  "rule_version": {
+                    "type": "string"
+                  },
+                  "lessons": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 0
+                  }
+                },
+                "required": [
+                  "category",
+                  "file",
+                  "status",
+                  "rule_version",
+                  "lessons"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "unreadable"
+                  },
+                  "detail": {
+                    "type": "string"
+                  },
+                  "rule_version": {
+                    "type": "string"
+                  },
+                  "lessons": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 0
+                  }
+                },
+                "required": [
+                  "category",
+                  "file",
+                  "status",
+                  "detail",
+                  "rule_version",
+                  "lessons"
+                ],
+                "additionalProperties": false
+              }
+            ],
+            "description": "`lessons read` 记下的这次读了什么"
+          },
+          "LessonSeen": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "number"
+              },
+              "state": {
+                "$ref": "#/definitions/VersionState"
+              },
+              "situation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "state",
+              "situation"
+            ],
+            "additionalProperties": false,
+            "description": "读取记录里一条经验：第几条、相对现行规则的状态、局面（报告里用它让人认出是哪条）"
+          },
+          "VersionState": {
+            "type": "string",
+            "enum": [
+              "同一版本",
+              "写于规则改动之前",
+              "版本未知"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

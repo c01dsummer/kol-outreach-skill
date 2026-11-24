@@ -201,6 +201,7 @@ import type {
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
 import { enrichmentSchemaProblems } from './lib/enrichment-check.js'
+import { generateShapes, SHAPES_SNAPSHOT_PATH, shapeChanges } from './check/data-shapes-rule.js'
 import { loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
@@ -366,6 +367,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-blackbox-many-task-files', needs: [] },
   { id: 'h-iou-file-reminder', needs: [] },
   { id: 'h-revisit-entry', needs: [] },
+  { id: 'h-data-shapes', needs: [] },
   { id: 'h-iou-file-reminder-entry', needs: [] },
   { id: 'h-ticket-refs', needs: [] },
   { id: 'h-ticket-refs-entry', needs: [] },
@@ -26045,6 +26047,30 @@ await group('h-revisit-entry', () => {
     [0, '到期 0 张、列过没判 0 张、取不到登记日 0 张；这次列 0 张（最多 10 张）\n已重挂行里认不出现行那张的 0 行：它们的接手者按自己的登记日算\n',
       0, '到期 2 张、列过没判 0 张、取不到登记日 0 张；这次列 2 张（最多 10 张）\n2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8「丙(丁).*」\n已重挂行里认不出现行那张的 0 行：它们的接手者按自己的登记日算\n', before])
   rmSync(repo, { recursive: true, force: true })
+})
+await group('h-data-shapes', () => {
+  harness('存下来的数据的形状快照：按类型现生成的与入库那份比，哪一类变了点名（ADR-246）')
+  eq('形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写',
+    shapeChanges((() => { try { return rf(SHAPES_SNAPSHOT_PATH, 'utf8') } catch { return undefined } })(), generateShapes(process.cwd())), [])
+  // 比：一类一句，变了、新登记的、登记里没了各说各的；快照读不出说为什么
+  const snap = (shapes: Record<string, unknown>) => JSON.stringify({ $comment: 'x', shapes })
+  eq('形状快照：变了的、新登记的、登记里已经没有的各一句，没变的不提',
+    shapeChanges(snap({ 甲: { a: 1 }, 乙: { b: 1 }, 丁: {} }), snap({ 甲: { a: 1 }, 乙: { b: 2 }, 丙: {} })),
+    ['乙：形状变了', '丙：新登记的，快照里还没有', '丁：登记里已经没有了，快照里还在'])
+  eq('形状快照：快照不在、不是 JSON、没有 shapes 都说为什么',
+    [shapeChanges(undefined, snap({})), shapeChanges('{', snap({}))[0].replace(/：.*/s, ''), shapeChanges('{"x":1}', snap({}))],
+    [[`快照 ${SHAPES_SNAPSHOT_PATH} 不在`], '快照不是 JSON', ['快照里没有 shapes']])
+  // 真生成：玩具目录里一个类型，加一个可选字段、改一个字段的类型，快照都认得出来
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
+  try {
+    cxWriteFileSync(cxJoin(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
+    const shapes = [{ name: '玩具', stored: 'toy.json', source: 'toy.ts', type: 'Toy' }]
+    const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
+    const base = gen('  version: 1\n  name: string')
+    eq('形状快照：类型加了一个可选字段、改了一个字段的类型都算形状变了，原样不算',
+      [shapeChanges(base, gen('  version: 1\n  name: string\n  note?: string')), shapeChanges(base, gen('  version: 1\n  name: number')), shapeChanges(base, gen('  version: 1\n  name: string'))],
+      [['玩具：形状变了'], ['玩具：形状变了'], []])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 await group('h-iou-file-reminder-entry', () => {
   harness('欠条点名提醒的入口：在玩具仓库里真起，改名、CI 输出、无从比较各情形都以 0 退出')

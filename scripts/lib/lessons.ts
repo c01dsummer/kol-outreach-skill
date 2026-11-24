@@ -193,8 +193,15 @@ export function addLesson(category: string, draft: unknown, now: string): { file
   if (read.status === 'unreadable') throw new LessonRejected(`${file} 读不出来，没有写入（不新建一份去盖它）：${read.detail}`)
   const lessons = read.status === 'ok' ? [...read.lessons, entry as Lesson] : [entry as Lesson]
   mkdirDurable(DIR)
-  writeFileAtomic(file, `${JSON.stringify({ version: 1, lessons }, null, 2)}\n`)
+  const doc: LessonsFile = { version: 1, lessons }
+  writeFileAtomic(file, `${JSON.stringify(doc, null, 2)}\n`)
   return { file, count: lessons.length }
+}
+
+/** 一个品类的经验库整份文件的形状（形状快照按它生成，见 `scripts/check/data-shapes.ts`） */
+export interface LessonsFile {
+  version: 1
+  lessons: Lesson[]
 }
 
 /** 任务目录里那份读取记录的文件名：`lessons read` 写，render 读 */
