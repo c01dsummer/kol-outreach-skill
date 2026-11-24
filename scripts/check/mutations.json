@@ -36520,6 +36520,188 @@
       "kills": [
         "绕开读取函数：整个模块导入、只取位置，报"
       ]
+    },
+    {
+      "id": "M-H145-a",
+      "req": "harness",
+      "why": "没有父提交的主干当成不在主干上 —— 主干上第一次跑闸门，树内摘要过期就红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "{ onTrunk: baseline.kind === 'not-applicable' || baseline.onTrunk }",
+      "replace": "{ onTrunk: baseline.kind !== 'not-applicable' && baseline.onTrunk }",
+      "by": "test",
+      "kills": [
+        "启动数入口：在不在主干上 —— 答不出来交原因，没有父提交的主干算在主干上，量得出来的照它说的",
+        "启动数入口：在不在主干上那一翻交给了摘要那一行与闸门 —— 主干上树内摘要过期只报数、不红"
+      ]
+    },
+    {
+      "id": "M-H145-b",
+      "req": "harness",
+      "why": "答不出在不在主干上时当成在主干上 —— 浅克隆里的 PR 有发现也只报数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "baseline.kind === 'cannot-answer' ? { unknown: baseline.why } :",
+      "replace": "baseline.kind === 'cannot-answer' ? { onTrunk: true } :",
+      "by": "test",
+      "kills": [
+        "启动数入口：在不在主干上 —— 答不出来交原因，没有父提交的主干算在主干上，量得出来的照它说的"
+      ]
+    },
+    {
+      "id": "M-H145-c",
+      "req": "harness",
+      "why": "整份启动数文件读到了也去拼分份 —— 手放进来的分份文件会盖过整份，拼不起来还多打一行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  if (record === undefined) {\n    const names",
+      "replace": "  {\n    const names",
+      "by": "test",
+      "kills": [
+        "启动数入口：整份与分份都有时认整份，分份拼不起来也不打那一行"
+      ]
+    },
+    {
+      "id": "M-H145-d",
+      "req": "harness",
+      "why": "分份拼得起来也不用 —— CI 上分份跑的闸门永远说没有启动数文件",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "      else record = joined.record\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "启动数入口：没有整份时拼回分份来判，目录里别的文件不算"
+      ]
+    },
+    {
+      "id": "M-H145-e",
+      "req": "harness",
+      "why": "列目录抛错不吞 —— 没有输出目录时入口以一段栈红掉",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "(attempt(() => io.listDir(LAUNCH_DIR)) ?? [])",
+      "replace": "io.listDir(LAUNCH_DIR)",
+      "by": "test",
+      "kills": [
+        "启动数入口：列目录抛错时当没有分份文件，不抛"
+      ]
+    },
+    {
+      "id": "M-H145-f",
+      "req": "harness",
+      "why": "读 JSON 文件抛错不吞 —— 没有启动数文件时入口以一段栈红掉，不打闸门那一行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "attempt(() => JSON.parse(io.readText(path)) as unknown)",
+      "replace": "JSON.parse(io.readText(path)) as unknown",
+      "by": "test",
+      "kills": [
+        "启动数入口：启动数文件读的时候抛错、读出来不是 JSON，都当没有，不抛",
+        "启动数入口：列目录抛错时当没有分份文件，不抛"
+      ]
+    },
+    {
+      "id": "M-H145-g",
+      "req": "harness",
+      "why": "取源码身份抛错不吞 —— 不在 git 仓库里时入口以一段栈红掉",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "const tree = attempt(io.source)",
+      "replace": "const tree = io.source()",
+      "by": "test",
+      "kills": [
+        "启动数入口：源码身份取不到时交「没有」，不抛"
+      ]
+    },
+    {
+      "id": "M-H145-h",
+      "req": "harness",
+      "why": "算路由抛错不吞 —— 变异目录坏了时连闸门那几行也打不出",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "attempt(io.routes)",
+      "replace": "io.routes()",
+      "by": "test",
+      "kills": [
+        "启动数入口：路由算不出时抛错也不抛，第七节末那一行打算不出那句"
+      ]
+    },
+    {
+      "id": "M-H145-i",
+      "req": "harness",
+      "why": "读树内摘要抛错不吞 —— 树内没有摘要时入口以一段栈红掉，PR 上该打的乙那一句打不出",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "summaryLine(attempt(() => io.readText(LAUNCH_SUMMARY_FILE)), summary, trunk)",
+      "replace": "summaryLine(io.readText(LAUNCH_SUMMARY_FILE), summary, trunk)",
+      "by": "test",
+      "kills": [
+        "启动数入口：树内摘要读的时候抛错当没有，不抛"
+      ]
+    },
+    {
+      "id": "M-H145-j",
+      "req": "harness",
+      "why": "摘要那一行红了不并进退出码 —— PR 上树内摘要过期，闸门绿着就放行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "red: gate.red || sum.red }",
+      "replace": "red: gate.red }",
+      "by": "test",
+      "kills": [
+        "启动数入口：摘要那一行红、闸门不红时也以 1 退出（不在主干上、树内没有摘要）"
+      ]
+    },
+    {
+      "id": "M-H145-k",
+      "req": "harness",
+      "why": "闸门红了不并进退出码 —— PR 上有超线的发现，摘要相同就放行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "red: gate.red || sum.red }",
+      "replace": "red: sum.red }",
+      "by": "test",
+      "kills": [
+        "启动数入口：闸门红、摘要那一行不红时以 1 退出（不在主干上有发现、树内摘要相同）"
+      ]
+    },
+    {
+      "id": "M-H145-l",
+      "req": "harness",
+      "why": "带 write 派生不出来时不红 —— 写回摘要那一步没写成也报绿",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "`✗ 启动数摘要没写：${summary.fault}`], red: true }",
+      "replace": "`✗ 启动数摘要没写：${summary.fault}`], red: false }",
+      "by": "test",
+      "kills": [
+        "启动数入口：带 write 派生不出来时只打一行 ✗、红、不写"
+      ]
+    },
+    {
+      "id": "M-H145-m",
+      "req": "harness",
+      "why": "带 write 写不进时不红 —— 摘要没写回也报绿",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "（${writeErrorCode(e)}）`], red: true }",
+      "replace": "（${writeErrorCode(e)}）`], red: false }",
+      "by": "test",
+      "kills": [
+        "启动数入口：带 write 写不进时打一行 ✗ 带错误码、红；错误码没有或不是字符串打未知"
+      ]
+    },
+    {
+      "id": "M-H145-n",
+      "req": "harness",
+      "why": "错误码不是字符串时照原样打 —— 括号里出现数字或 undefined",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "return typeof code === 'string' ? code : '未知'",
+      "replace": "return String(code)",
+      "by": "test",
+      "kills": [
+        "启动数入口：带 write 写不进时打一行 ✗ 带错误码、红；错误码没有或不是字符串打未知"
+      ]
+    },
+    {
+      "id": "M-H145-o",
+      "req": "harness",
+      "why": "带 write 写成了也接着判闸门 —— 写回摘要那一步多打几行、可能红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "    return { lines: [...lines, `启动数摘要已写回",
+      "replace": "    if (false) return { lines: [...lines, `启动数摘要已写回",
+      "by": "test",
+      "kills": [
+        "启动数入口：带 write 派生得出来就写树内摘要，只打写成那一行，不红"
+      ]
     }
   ],
   "exemptions": [
