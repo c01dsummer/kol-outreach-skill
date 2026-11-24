@@ -383,7 +383,7 @@ export function weekIndex(day: string): number {
 
 /**
  * 这一周轮到的死亡条件：记录编号除以 `weeks` 的余数，等于这一周的序号除以 `weeks` 的余数。
- * 主文件与历史文件里的都算（台账两处都抽），只是拆的时候原样抄进主文件的那几条（去掉空白后整句相同）只列主文件那一份，
+ * 主文件与历史文件里的都算（台账两处都抽），只是拆的时候原样抄进主文件的那几条（从条件那一行到空行为止、去掉空白后整条相同）只列主文件那一份，
  * 不让同一句列两遍。记法同回访：`<编号> 第 <行> 行`；拆过的记录，这个记法指历史文件那一行（ADR-211），
  * 主文件里的写 `<编号> 主文件第 <行> 行`。按编号、再按行号排；同一条记录先列主文件。
  * 第一行是几个数，后面每行是记法、两个空格、条件原文。
@@ -392,9 +392,15 @@ export function deathRota(docs: Map<string, string>, today: string, weeks = ROTA
   const split = splitRecords(docs)
   const turn = weekIndex(today) % weeks
   const flat = (t: string) => t.replace(/\s+/g, '')
+  // 整条：从条件那一行起，到空行（或只有 `>` 的行）为止 —— 第一行相同、续行不同的不算同一条
+  const whole = (e: { file: string; line: number }): string => {
+    const lines = (docs.get(e.file) ?? '').split('\n')
+    const end = lines.findIndex((l, i) => i >= e.line && /^\s*>?\s*$/.test(l))
+    return flat(lines.slice(e.line - 1, end < 0 ? undefined : end).join('\n'))
+  }
   const all = entries(docs).filter(e => e.notation === '死亡条件' && recordNum(e.file) !== null)
-  const inMain = new Set(all.filter(e => !isHistory(e.file)).map(e => `${recordNum(e.file)} ${flat(e.text)}`))
-  const kept = all.filter(e => !isHistory(e.file) || !inMain.has(`${recordNum(e.file)} ${flat(e.text)}`))
+  const inMain = new Set(all.filter(e => !isHistory(e.file)).map(e => `${recordNum(e.file)} ${whole(e)}`))
+  const kept = all.filter(e => !isHistory(e.file) || !inMain.has(`${recordNum(e.file)} ${whole(e)}`))
   const picked = kept.filter(e => recordNum(e.file)! % weeks === turn).map(e => {
     const num = recordNum(e.file)!, hist = isHistory(e.file)
     return { num, hist, line: e.line, text: `${adrId(e.file)} ${!hist && split.has(num) ? '主文件' : ''}第 ${e.line} 行  ${e.text}` }
