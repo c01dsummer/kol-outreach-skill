@@ -27539,7 +27539,9 @@ harness('读变异目录不许绕开读取函数：文件名只许写在读取�
 {
   const name = 'mutations' + '.json'
   const f = (path: string, text: string) => ({ path, text })
-  const allowed = Object.keys(NOT_READERS).map(path => f(path, ''))
+  // 读取函数所在的文件给一份最小的替身：只要有那个声明，编译器才认得出调的是它
+  const door = f(DOOR, 'export const MUTATION_CATALOG = "x"\nexport function readCatalog(text: string | undefined): unknown { return text }\nexport function catalogFaultText(x: unknown): string { return String(x) }\n')
+  const allowed = [door, ...Object.keys(NOT_READERS).map(path => f(path, ''))]
   const faults = (...files: { path: string; text: string }[]) => catalogDoorFaults([...allowed, ...files])
   eq('绕开读取函数：字符串里直接写文件名，报那一行',
     faults(f('scripts/check/a.ts', `const x = 1\nconst p = 'scripts/check/${name}'\n`)),
@@ -27570,11 +27572,15 @@ harness('读变异目录不许绕开读取函数：文件名只许写在读取�
   eq('绕开读取函数：只有带类型标记的名字的导入与转出不算引用，放行', faults(f('scripts/a.ts', "import { type CatalogRead } from './catalog-rule.js'\n"), f('scripts/b.ts', "export { type CatalogRead } from './catalog-rule.js'\n")), [])
   eq('绕开读取函数：带类型标记的名字旁边还有值的名字，照样算引用', faults(f('scripts/a.ts', "import { type CatalogRead, MUTATION_CATALOG } from './catalog-rule.js'\n"), f('scripts/b.ts', "export { type CatalogRead, MUTATION_CATALOG } from './catalog-rule.js'\n")).length, 2)
   eq('绕开读取函数：只为副作用导入那个模块也算引用', faults(f('scripts/a.ts', "import './catalog-rule.js'\n")).length, 1)
-  eq('绕开读取函数：自己定义一个同名的 readCatalog 来调，报', faults(f('scripts/a.ts', imp + 'const readCatalog = (p: string) => JSON.parse(read(p))\nreadCatalog(MUTATION_CATALOG)\n')).length, 1)
+  eq('绕开读取函数：自己定义一个同名的 readCatalog 来调，报', faults(f('scripts/a.ts', imp + 'function readCatalog(p: string): unknown { return JSON.parse(read(p)) }\nreadCatalog(MUTATION_CATALOG)\n')).length, 1)
   eq('绕开读取函数：别的对象上的同名方法不算调用读取函数，报', faults(f('scripts/a.ts', imp + 'other.readCatalog(MUTATION_CATALOG)\n'), f('scripts/b.ts', imp + "other['readCatalog'](MUTATION_CATALOG)\n")).length, 2)
   eq('绕开读取函数：从别的模块按名字导入的 readCatalog 不算，报', faults(f('scripts/a.ts', imp + "import { readCatalog } from './elsewhere.js'\nreadCatalog(t)\n")).length, 1)
   eq('绕开读取函数：动态导入解构出不改名的读取函数并调用，放行', faults(f('scripts/a.ts', "const { readCatalog } = await import('./catalog-rule.js')\nreadCatalog(t)\n")), [])
-  eq('绕开读取函数：动态导入的模块对象上调读取函数，放行', faults(f('scripts/a.ts', "const c = await import('./catalog-rule.js')\nc.readCatalog(t)\n"), f('scripts/b.ts', "(await import('./catalog-rule.js')).readCatalog(t)\n"), f('scripts/c.cts', "require('./catalog-rule')['readCatalog'](t)\n")), [])
+  eq('绕开读取函数：动态导入的模块对象上调读取函数，放行', faults(f('scripts/a.ts', "const c = await import('./catalog-rule.js')\nc.readCatalog(t)\n"), f('scripts/b.ts', "(await import('./catalog-rule.js')).readCatalog(t)\n"), f('scripts/c.ts', "(await import('./catalog-rule.js'))['readCatalog'](t)\n")), [])
+  eq('绕开读取函数：参数和导入进来的读取函数同名、调的是参数，报', faults(f('scripts/a.ts', "import { MUTATION_CATALOG, readCatalog as shared } from './catalog-rule.js'\nfunction bypass(shared: (p: string) => unknown) { return shared(MUTATION_CATALOG) }\nvoid shared\n")).length, 1)
+  eq('绕开读取函数：调了那个模块里别的函数、没调读取函数，报', faults(f('scripts/a.ts', "import { MUTATION_CATALOG, catalogFaultText } from './catalog-rule.js'\ncatalogFaultText(MUTATION_CATALOG)\n")).length, 1)
+  eq('绕开读取函数：从模块对象解构出读取函数再调，放行', faults(f('scripts/a.ts', "import * as door from './catalog-rule.js'\nconst { readCatalog } = door\nreadCatalog(t)\n")), [])
+  eq('绕开读取函数：读取函数所在的文件不在这组文件里时，谁都算没调用', catalogDoorFaults([...Object.keys(NOT_READERS).map(path => f(path, '')), f('scripts/a.ts', "import { readCatalog } from './catalog-rule.js'\nreadCatalog(t)\n")]).length, 1)
   eq('绕开读取函数：别的模块名字里带着 catalog-rule 的不算', faults(f('scripts/a.ts', "import { x } from './my-catalog-rules.js'\n")), [])
   eq('绕开读取函数：文件名后面还跟着字也算提到了', faults(f('scripts/a.ts', `console.log('${name} 读不出')\n`)).length, 1)
   eq('绕开读取函数：放行名单里列了却不在要扫的文件里，报',
