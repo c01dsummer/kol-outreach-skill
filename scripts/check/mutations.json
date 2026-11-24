@@ -29381,16 +29381,6 @@
       "kills": ["拆以后条件又改过：登记日取改的那天，旧行号照给"]
     },
     {
-      "id": "M-H211-al",
-      "req": "harness",
-      "file": "scripts/check/revisit-rule.ts",
-      "why": "只按名字认「列过」、不认旧行号 —— 拆以前列过的欠条换了名字又被列一次",
-      "find": "  const open = due.filter(r => ![r.key, ...r.aliases].some(k => listed.has(k))).sort(rowCompare).map(line)",
-      "replace": "  const open = due.filter(r => ![r.key].some(k => listed.has(k))).sort(rowCompare).map(line)",
-      "by": "test",
-      "kills": ["三个数与前几行：取不到登记日 1、满四周 4、没列过 1（名字列过、第二个旧行号列过、旧名字列过的都算列过）"]
-    },
-    {
       "id": "M-H211-am",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
@@ -29421,16 +29411,6 @@
       "kills": ["北京时间：UTC 16:00 已是第二天"]
     },
     {
-      "id": "M-H211-ap",
-      "req": "harness",
-      "file": "scripts/check/revisit-rule.ts",
-      "why": "「读过、没进候选」那一行不按「、」切 —— 一行里列了几张，一张也认不出列过",
-      "find": "    for (const item of splitItems(cell)) out.add(item.replace(/^ +| +$/g, ''))",
-      "replace": "    for (const item of [cell]) out.add(item.replace(/^ +| +$/g, ''))",
-      "by": "test",
-      "kills": ["列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样"]
-    },
-    {
       "id": "M-H211-aq",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
@@ -29458,7 +29438,7 @@
       "find": "    if (ch === '、' && depth === 0) { out.push(cur); cur = ''; continue }",
       "replace": "    if (ch === '、') { out.push(cur); cur = ''; continue }",
       "by": "test",
-      "kills": ["列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样"]
+      "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
     },
     {
       "id": "M-H211-au",
@@ -29636,11 +29616,11 @@
       "id": "M-H211-as",
       "req": "harness",
       "file": "scripts/check/revisit-due.ts",
-      "why": "台账里列着、工作区没有的文件让入口当场抛错 —— 三个数一个都打不出来",
+      "why": "两道门的行里列着、工作区没有的文件让入口当场抛错 —— 一行都排不出来",
       "find": "const text = (file: string) => existsSync(file) ? readFileSync(file, 'utf8') : ''",
       "replace": "const text = (file: string) => readFileSync(file, 'utf8')",
       "by": "test",
-      "kills": ["入口 --due：取不到 1（文件不在）、满四周 2、没列过 1（ADR-152 里读的那一行列过 ADR-9 第 3 行），打出那一行"]
+      "kills": ["入口 --born：按「|」切出文件与行号，按登记日排；文件不在的取不到登记日、排最后"]
     },
     {
       "id": "M-H211-n",
@@ -30087,8 +30067,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-due.ts",
       "why": "--today 不认，永远按今天判 —— 回访补跑前几天的就判错",
-      "find": "  const today = opt('--today') ?? beijingDate(Date.now() / 1000)",
-      "replace": "  const today = beijingDate(Date.now() / 1000)",
+      "find": "const today = opt('--today') ?? beijingDate(Date.now() / 1000)",
+      "replace": "const today = beijingDate(Date.now() / 1000)",
       "by": "test",
       "kills": ["入口 --list：读整份决策记录与 ADR-152 的人判，按给的那天判到期，最老先列，第一行是几个数；只读，工作区一个字没动"]
     },
@@ -30321,6 +30301,126 @@
       "replace": "? { day, verdict, kept, ...{ at: 0 } } :",
       "by": "test",
       "kills": ["列过的：只认第一格是回访 id 的候选行，同一项取日期最晚那一次，人判栏原样，哪一次判过留都记下（写在后面的更早一次也算）；读过、没进候选的、日子不成立的（含 2 月 30 日）不算列过"]
+    },
+    {
+      "id": "M-H167-bi",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "轮换的起点不是星期一 —— 一周从周四切，同一次回访前后几天轮到的组不一样",
+      "find": "Date.parse('1970-01-05T00:00:00Z')",
+      "replace": "Date.parse('1970-01-01T00:00:00Z')",
+      "by": "test",
+      "kills": ["第几周：1970-01-05 那个星期一起算，同一周七天同一个数"]
+    },
+    {
+      "id": "M-H167-bj",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "一周按六天算 —— 轮换的组跟日历周对不上",
+      "find": "/ (7 * 86400_000))",
+      "replace": "/ (6 * 86400_000))",
+      "by": "test",
+      "kills": ["第几周：1970-01-05 那个星期一起算，同一周七天同一个数"]
+    },
+    {
+      "id": "M-H167-bk",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "重开讨论也当死亡条件列 —— 候选表多出不该人判撤不撤的行",
+      "find": "e.notation === '死亡条件' &&",
+      "replace": "e.notation !== '重启条件' &&",
+      "by": "test",
+      "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整句相同（只差空白）的历史那份不列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
+    },
+    {
+      "id": "M-H167-bl",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "不是编号记录的文件也算 —— 索引里举例的那句被当成死亡条件列出来",
+      "find": "e.notation === '死亡条件' && recordNum(e.file) !== null)",
+      "replace": "e.notation === '死亡条件')",
+      "by": "test",
+      "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整句相同（只差空白）的历史那份不列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算", "余 0 那一周只列 8 号"]
+    },
+    {
+      "id": "M-H167-bm",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "历史文件里与主文件整句相同的那份也列 —— 同一句一周列两遍",
+      "find": "const kept = all.filter(e => !isHistory(e.file) || !inMain.has(",
+      "replace": "const kept = all.filter(e => true || !inMain.has(",
+      "by": "test",
+      "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整句相同（只差空白）的历史那份不列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
+    },
+    {
+      "id": "M-H167-bn",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "比整句时不去空白 —— 拆的时候换了个空格的那句列两遍",
+      "find": "const flat = (t: string) => t.replace(/\\s+/g, '')",
+      "replace": "const flat = (t: string) => t",
+      "by": "test",
+      "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整句相同（只差空白）的历史那份不列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
+    },
+    {
+      "id": "M-H167-bo",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "历史文件里的句子也当成主文件已有 —— 只在历史文件里的死亡条件一条也列不出来",
+      "find": "new Set(all.filter(e => !isHistory(e.file)).map(",
+      "replace": "new Set(all.map(",
+      "by": "test",
+      "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整句相同（只差空白）的历史那份不列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
+    },
+    {
+      "id": "M-H167-bp",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "拆过的记录主文件里的那条不标主文件 —— 与历史文件同一行号的记法撞上，指错地方",
+      "find": "${!hist && split.has(num) ? '主文件' : ''}",
+      "replace": "${''}",
+      "by": "test",
+      "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整句相同（只差空白）的历史那份不列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
+    },
+    {
+      "id": "M-H167-bq",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "同一条记录先列历史文件 —— 现行的主文件那几条排到原文后面",
+      "find": "|| Number(a.hist) - Number(b.hist) ||",
+      "replace": "|| Number(b.hist) - Number(a.hist) ||",
+      "by": "test",
+      "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整句相同（只差空白）的历史那份不列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
+    },
+    {
+      "id": "M-H167-br",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "编号从大到小排 —— 与到期清单的次序相反",
+      "find": "a.num - b.num ||",
+      "replace": "b.num - a.num ||",
+      "by": "test",
+      "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整句相同（只差空白）的历史那份不列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
+    },
+    {
+      "id": "M-H167-bs",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "轮到哪一组不看这一周 —— 每周都列同一组，另外四分之三永远列不到",
+      "find": "const turn = weekIndex(today) % weeks",
+      "replace": "const turn = 1 % weeks",
+      "by": "test",
+      "kills": ["余 0 那一周只列 8 号"]
+    },
+    {
+      "id": "M-H167-bt",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "入口不认给的日子 —— 补跑前几周的回访，轮到的组是错的",
+      "find": "deathRota(adrDocs(), today)",
+      "replace": "deathRota(adrDocs(), '2026-11-30')",
+      "by": "test",
+      "kills": ["入口 --deaths：按给的那天定轮到哪一组，第一行是几个数，后面是记法与条件原文"]
     },
     {
       "id": "M-H205-a",

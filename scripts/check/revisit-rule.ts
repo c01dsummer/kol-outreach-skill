@@ -1,5 +1,5 @@
 /**
- * 周回访「定期清点」那一步的判定：一张欠条哪天登记的、按什么名字认、在 ADR-152 里列过没有。
+ * 周回访 (b) 那几步的判定：一张欠条哪天登记的、按什么名字认，到期清单列哪几张，这一周轮到哪几条死亡条件。
  *
  * 这些原先是 `docs/REVISIT.md` 里手写的一段 shell，没有测试守着，评审一轮挑一个新问题
  * （块边界和孤儿闸门不是同一份、几张旧欠条重挂到同一个名字只认第一张、条件拆后改过旧行号丢了……）。
@@ -9,7 +9,7 @@
  */
 import { basename } from 'node:path'
 import { cellsOf } from './adr-fact-table.js'
-import { CONDITION, IOU_NAME, entryKey, iouBlocks, iouName, blockAt, ledgerStatus, nameKey, recordNum, splitRecords, statusLines, type Row } from './debt-rule.js'
+import { CONDITION, IOU_NAME, entries, entryKey, isHistory, iouBlocks, iouName, blockAt, ledgerStatus, nameKey, recordNum, splitRecords, statusLines, type Row } from './debt-rule.js'
 import { gitText } from './git-entry.js'
 import { quotedMask } from './quoted.js'
 
@@ -152,29 +152,6 @@ function splitItems(cell: string): string[] {
   return out
 }
 
-/** ADR-152 里「列过」的每一项：候选表第二栏，与「读过、没进候选」那一行，按书名号外的「、」切开、去首尾的半角空格 */
-export function listedItems(adr152: string): Set<string> {
-  const out = new Set<string>()
-  for (const l of adr152.split('\n')) {
-    const cell = l.startsWith('- 读过、没进候选：') ? l.slice('- 读过、没进候选：'.length)
-      : /^\| [^|]+ \| ([^|]+) \|/.exec(l)?.[1]
-    if (cell === undefined) continue
-    for (const item of splitItems(cell)) out.add(item.replace(/^ +| +$/g, ''))
-  }
-  return out
-}
-
-/** 台账里一行「重启条件」写着「定期清点」的欠条：文件与条件那一行的行号 */
-export function periodicEntries(ledger: string): Array<{ file: string; line: number }> {
-  const out: Array<{ file: string; line: number }> = []
-  for (const l of ledger.split('\n')) {
-    if (!l.startsWith('docs/adr/') || !l.includes('  [重启条件]  ') || !l.includes('定期清点')) continue
-    const m = /^([^:]+):(\d+)  /.exec(l)
-    if (m) out.push({ file: m[1], line: Number(m[2]) })
-  }
-  return out
-}
-
 export interface DueRow { date?: string; key: string; aliases: string[] }
 
 /** 一张欠条在回访里怎么记、哪天登记、拆前叫什么（旧行号、旧名字都算它的别名）：有短名字按 `<编号>「<名字>」`，没有按 `<编号> 第 <行> 行` */
@@ -186,18 +163,6 @@ export function dueRow(git: Git, run: string, file: string, line: number, text: 
     key: name ? `${id}「${name}」` : `${id} 第 ${line} 行`,
     aliases: [...oldLines.map(n => `${id} 第 ${n} 行`), ...oldNames.map(n => `${id}「${n}」`)],
   }
-}
-
-/**
- * 定期清点的三个数与前 5 行：取不到登记日的条数、满四周（登记日 ≤ `cut`）的条数、其中没列过的条数，
- * 再按登记日从早到晚、同一天按编号取没列过的前 5 张。名字与任一旧行号列过一个就算列过。
- */
-export function dueReport(rows: DueRow[], cut: string, listed: Set<string>): string[] {
-  const line = (r: DueRow) => `${r.date ?? ''} ${r.key}`
-  const known = rows.filter(r => r.date !== undefined)
-  const due = known.filter(r => r.date! <= cut)
-  const open = due.filter(r => ![r.key, ...r.aliases].some(k => listed.has(k))).sort(rowCompare).map(line)
-  return [String(rows.length - known.length), String(due.length), String(open.length), ...open.slice(0, 5)]
 }
 
 /** 两道门判「过」的那几张按登记日排：`<日期> <编号> 第 <行> 行`，次序同 `rowCompare`；取不到登记日的日期栏空着、排最后 */
@@ -401,4 +366,39 @@ export function dueItems(git: Git, run: string, docs: Map<string, string>): DueI
       carried,
     }
   })
+}
+
+/* ───────────── 死亡条件四周轮一遍（ADR-167「周回访按到期列」那一片） ─────────────
+ * 死亡条件说的是「什么时候撤掉一条规则」，没有登记日、也不会被还上，按到期清单的办法列不出来；
+ * 改成按记录编号分四组，每周列一组，四周正好轮完。需求所有者 2026-11-23 定了列进候选表、由他判。
+ */
+
+/** 几周轮完一遍 */
+export const ROTA_WEEKS = 4
+
+/** 1970-01-05（星期一）起第几周：同一周的七天给同一个数 */
+export function weekIndex(day: string): number {
+  return Math.floor((Date.parse(`${day}T00:00:00Z`) - Date.parse('1970-01-05T00:00:00Z')) / (7 * 86400_000))
+}
+
+/**
+ * 这一周轮到的死亡条件：记录编号除以 `weeks` 的余数，等于这一周的序号除以 `weeks` 的余数。
+ * 主文件与历史文件里的都算（台账两处都抽），只是拆的时候原样抄进主文件的那几条（去掉空白后整句相同）只列主文件那一份，
+ * 不让同一句列两遍。记法同回访：`<编号> 第 <行> 行`；拆过的记录，这个记法指历史文件那一行（ADR-211），
+ * 主文件里的写 `<编号> 主文件第 <行> 行`。按编号、再按行号排；同一条记录先列主文件。
+ * 第一行是几个数，后面每行是记法、两个空格、条件原文。
+ */
+export function deathRota(docs: Map<string, string>, today: string, weeks = ROTA_WEEKS): string[] {
+  const split = splitRecords(docs)
+  const turn = weekIndex(today) % weeks
+  const flat = (t: string) => t.replace(/\s+/g, '')
+  const all = entries(docs).filter(e => e.notation === '死亡条件' && recordNum(e.file) !== null)
+  const inMain = new Set(all.filter(e => !isHistory(e.file)).map(e => `${recordNum(e.file)} ${flat(e.text)}`))
+  const kept = all.filter(e => !isHistory(e.file) || !inMain.has(`${recordNum(e.file)} ${flat(e.text)}`))
+  const picked = kept.filter(e => recordNum(e.file)! % weeks === turn).map(e => {
+    const num = recordNum(e.file)!, hist = isHistory(e.file)
+    return { num, hist, line: e.line, text: `${adrId(e.file)} ${!hist && split.has(num) ? '主文件' : ''}第 ${e.line} 行  ${e.text}` }
+  }).sort((a, b) => a.num - b.num || Number(a.hist) - Number(b.hist) || a.line - b.line)
+  return [`死亡条件 ${kept.length} 条（历史文件里与主文件整句相同的 ${all.length - kept.length} 条不重复算）；这一周轮到编号除以 ${weeks} 余 ${turn} 的 ${picked.length} 条`,
+    ...picked.map(p => p.text)]
 }
