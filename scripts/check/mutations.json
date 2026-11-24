@@ -36129,6 +36129,18 @@
       "kills": [
         "绕开读取函数：一个文件里写了两处，各报一行"
       ]
+    },
+    {
+      "id": "M-H242-af",
+      "req": "harness",
+      "why": "豁免不是数组的目录被说成读不出，看不出是哪里写错了",
+      "file": "scripts/check/catalog-rule.ts",
+      "find": "fault: { kind: 'shape', why: 'exemptions 不是数组' } }",
+      "replace": "fault: { kind: 'unreadable', why: 'exemptions 不是数组' } }",
+      "by": "test",
+      "kills": [
+        "读目录：豁免不是数组时拒"
+      ]
     }
   ],
   "exemptions": [

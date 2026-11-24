@@ -17,7 +17,9 @@ import { duplicateIds } from './attribution-rule.js'
 export const MUTATION_CATALOG = 'scripts/check/mutations.json'
 
 /** 一条变异：读口只保证有字符串 `id`，其余字段原样交出 */
-export type CatalogEntry = { id: string } & Record<string, unknown>
+export type CatalogEntry = {
+  id: string // 字段不入断言：不是读口赋的值，原样来自读到的 JSON；有没有、是不是字符串由读口判，那两种拒收各有断言
+} & Record<string, unknown>
 
 export type CatalogFault =
   | { kind: 'unreadable'; why: string }
