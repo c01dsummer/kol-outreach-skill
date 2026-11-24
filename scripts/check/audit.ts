@@ -35,12 +35,10 @@ const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
  * 正好也遮住了 `deprecated` 这个字段的存在。改成用 spec-rule 那一份。
  */
 const { live: reqs, deprecated } = ledger(spec.requirements as Req[])
-// 读变异目录只经读取函数（ADR-242）：读不出、形状不对、编号重复都不往下审
+// 读变异目录只经读取函数（ADR-242）：读不出、形状不对、编号重复都不往下审。抛出去、不硬退出 ——
+// 这时还一行都没打，抛出的那句就是全部输出，以 1 退出（原先 JSON 坏了也是这样抛出去的）
 const catalogRead = readCatalog(existsSync(MUTATION_CATALOG) ? readFileSync(MUTATION_CATALOG, 'utf8') : undefined)
-if (!catalogRead.ok) {
-  console.error(`✗ 审计：${catalogFaultText(catalogRead.fault)}`)
-  process.exit(1)
-}
+if (!catalogRead.ok) throw new Error(`审计：${catalogFaultText(catalogRead.fault)}`)
 const mutCfg: { mutations: any[]; exemptions: any[] } = catalogRead
 
 function walk(dir: string, ext = '.ts'): string[] {
