@@ -18249,10 +18249,16 @@ harness('到期清单：开着、到期或列过没判的，最老先列，最�
         { key: 'ADR-6「接六」', aliases: ['ADR-6「早六」', 'ADR-6 第 5 行'], date: '2026-01-01', until: undefined, carried: false },
       ])
     eq('已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出', movesUnread(docs), 1)
-    // 旧行不许改：别处追加一行固定写法的已重挂指同一张，那张就接得上，原来那行不再数
-    const docs2 = new Map(docs).set(f5, `${docs.get(f5)}\n> ⚠️ 已重挂：ADR-4「别」 · 补记接手者，现行的是 ADR-5「近」\n`)
-    eq('同一张旧欠条另有一行认得出的已重挂，认不出的那行就不数', movesUnread(docs2), 0)
+    // 旧行不许改：别处追加一行补记，点名原来那行在哪，那张就接得上，原来那行不再数
+    const at = (docs.get(f4) ?? '').split('\n').findIndex(l => l.includes('本条下一张')) + 1
+    const docs2 = new Map(docs).set(f5, `${docs.get(f5)}\n> ⚠️ 已重挂：ADR-4「别」 · 补记接手者：照 ADR-4 第 ${at} 行那一行原文认定；现行的是 ADR-5「近」\n`)
+    eq('补记点名了原来那行、指同一张旧欠条、认得出：原来那行不再数', movesUnread(docs2), 0)
     eq('补的那行让接手那张接上旧的记法', dueItems(cliGit(toy.dir, fixtureEnv({})), 'HEAD', docs2).find(d => d.key === 'ADR-5「近」')?.aliases.includes('ADR-4「别」'), true)
+    // 同一张旧欠条另挂给别处、没点名原来那行的，不算补了；点名的是别的行的，不算；点名了那行、却指着另一张旧欠条的，也不算
+    const docs3 = new Map(docs).set(f5, `${docs.get(f5)}\n> ⚠️ 已重挂：ADR-4「别」 · 后来另挂，现行的是 ADR-5「近」\n`
+      + `\n> ⚠️ 已重挂：ADR-4「别」 · 补记接手者：照 ADR-4 第 ${at + 100} 行那一行原文认定；现行的是 ADR-5「近」\n`
+      + `\n> ⚠️ 已重挂：ADR-5「近」 · 补记接手者：照 ADR-4 第 ${at} 行那一行原文认定；现行的是 ADR-2「续」\n`)
+    eq('没点名原来那行的、点名别的行的、指着别的旧欠条的补记都不算：原来那行照数', movesUnread(docs3), 1)
   })
 }
 
