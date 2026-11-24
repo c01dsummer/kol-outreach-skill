@@ -36657,6 +36657,18 @@
       ]
     },
     {
+      "id": "M-H245-bk",
+      "req": "harness",
+      "why": "日志形状不对也照打报告",
+      "file": "scripts/check/revisit-raw.ts",
+      "find": "if (why !== undefined) stop(why)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "入口 --never-red：哪一份日志形状不对都以 2 退出、什么都不打；上一跑的日志里只是没有那一行，照样打，比上一跑写无从确认"
+      ]
+    },
+    {
       "id": "M-H243-a",
       "req": "harness",
       "why": "验证者建的临时文件不落在专属临时目录里，被叫停时留在系统临时目录没人收",
