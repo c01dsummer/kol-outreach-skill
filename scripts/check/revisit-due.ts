@@ -23,7 +23,9 @@ const realGit = cliGit()
 
 // 台账里列着、工作区里却没有的文件（台账与检出不是同一份）当空文件读：名字取不到、登记日照样去问 git，不让一行把整份打断
 const text = (file: string) => existsSync(file) ? readFileSync(file, 'utf8') : ''
-const adr152 = () => readdirSync('docs/adr').filter(f => /^ADR-152-.*\.md$/.test(f)).map(f => readFileSync(`docs/adr/${f}`, 'utf8')).join('\n')
+// 回访台账过线时旧块挪进历史文件（ADR-152「过线时把旧块挪进历史文件」那一节）：先读历史文件、再读主文件，后写的在后
+const adr152 = () => ['docs/adr/历史', 'docs/adr'].filter(d => d === 'docs/adr' || existsSync(d))
+  .flatMap(d => readdirSync(d).filter(f => /^ADR-152-.*\.md$/.test(f)).map(f => readFileSync(`${d}/${f}`, 'utf8'))).join('\n')
 const today = opt('--today') ?? beijingDate(Date.now() / 1000)
 // 日子写错（格式不对、2 月 30 日那种会被挪到下个月的）就停：不然轮到哪一组、到没到期都算错，却照常打出来
 const ms = Date.parse(`${today}T00:00:00Z`)
