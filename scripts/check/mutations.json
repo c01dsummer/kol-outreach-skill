@@ -36032,6 +36032,78 @@
       ]
     },
     {
+      "id": "M-H246-k",
+      "req": "harness",
+      "why": "两类登记了同一个类型名也照生成",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "if (first !== undefined) throw new Error(",
+      "replace": "if (false) throw new Error(",
+      "by": "test",
+      "kills": [
+        "形状快照：两类登记了同一个类型名就不生成，点名两类"
+      ]
+    },
+    {
+      "id": "M-H246-l",
+      "req": "harness",
+      "why": "程序又交回生成器按 glob 找文件",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "    tsProgram: program,\n",
+      "replace": "    path: join(root, new Set(shapes.map(s => s.source)).size === 1 ? shapes[0].source : `{${[...new Set(shapes.map(s => s.source))].join(',')}}`),\n    tsconfig: join(root, 'tsconfig.json'),\n",
+      "by": "test",
+      "kills": [
+        "形状快照：目录名里带 [ ] 也按字面路径读，不匹配到旁边名字相近的目录"
+      ]
+    },
+    {
+      "id": "M-H246-m",
+      "req": "harness",
+      "why": "弃用说明的文字也写进快照",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "k === 'deprecated' && typeof v === 'string' ? true : withoutNotes(v)",
+      "replace": "withoutNotes(v)",
+      "by": "test",
+      "kills": [
+        "形状快照：@deprecated 后面的说明改了不算形状变了，标成弃用算"
+      ]
+    },
+    {
+      "id": "M-H246-n",
+      "req": "harness",
+      "why": "盘上表格的表头不进快照",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "...(s.columns === undefined ? {} : { columns: s.columns })",
+      "replace": "...{}",
+      "by": "test",
+      "kills": [
+        "形状快照：盘上表格的表头改名、换顺序都算形状变了，读进来的类型没动也一样"
+      ]
+    },
+    {
+      "id": "M-H246-o",
+      "req": "harness",
+      "why": "类型检查不过也照生成",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "if (broken.length > 0) throw",
+      "replace": "if (false) throw",
+      "by": "test",
+      "kills": [
+        "形状快照：类型检查不过就不生成，说为什么"
+      ]
+    },
+    {
+      "id": "M-H246-p",
+      "req": "harness",
+      "why": "任务状态里按任务下标记条数那张表又写成会被生成成数组的写法",
+      "file": "scripts/lib/types.ts",
+      "find": "  found?: { [index: number]: number | null }\n",
+      "replace": "  found?: Record<number, number | null>\n",
+      "by": "test",
+      "kills": [
+        "形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写"
+      ]
+    },
+    {
       "id": "M-H243-a",
       "req": "harness",
       "why": "验证者建的临时文件不落在专属临时目录里，被叫停时留在系统临时目录没人收",

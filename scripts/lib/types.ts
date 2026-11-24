@@ -529,7 +529,8 @@ export interface TaskState {
    *
    * 三态与建表时机同 `answered`。
    */
-  found?: Record<number, number | null>
+  // 写成索引签名而不是 Record<number, number | null>：两者对 TypeScript 是同一个类型，但形状快照用的生成器把后者错写成数组（ADR-246）
+  found?: { [index: number]: number | null }
 
   /**
    * D6.h：这个任务**累计真的拿回了几页** —— 跨运行累加，页数上限据它判。

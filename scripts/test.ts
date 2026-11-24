@@ -26109,6 +26109,27 @@ await group('h-data-shapes', () => {
       [changes(base, gen('  version: 1\n  name: string\n  note?: string')), changes(base, gen('  version: 1\n  name: number')), changes(base, gen('  version: 1\n  name: string'))],
       [['玩具：形状变了'], ['玩具：形状变了'], []])
     eq('形状快照：只改一句注释不算形状变了', changes(base, gen('  version: 1\n  /** 名字，写盘时原样 */\n  name: string')), [])
+    eq('形状快照：@deprecated 后面的说明改了不算形状变了，标成弃用算',
+      [changes(base, gen('  version: 1\n  /** @deprecated 旧说法 */\n  name: string')), changes(gen('  version: 1\n  /** @deprecated 旧说法 */\n  name: string'), gen('  version: 1\n  /** @deprecated 换了一句说明 */\n  name: string'))],
+      [['玩具：形状变了'], []])
+    const withCols = (columns: string[]) => generateShapes(root, [{ ...shapes[0], columns }])
+    eq('形状快照：盘上表格的表头改名、换顺序都算形状变了，读进来的类型没动也一样',
+      [changes(withCols(['a', 'b']), withCols(['a', 'c'])), changes(withCols(['a', 'b']), withCols(['b', 'a'])), changes(withCols(['a', 'b']), withCols(['a', 'b']))],
+      [['玩具：形状变了'], ['玩具：形状变了'], []])
+    const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
+    eq('形状快照：两类登记了同一个类型名就不生成，点名两类',
+      thrown(() => generateShapes(root, [shapes[0], { name: '玩具二', stored: 'toy2.json', source: 'toy2.ts', type: 'Toy' }])),
+      '形状快照：「玩具」（toy.ts）与「玩具二」（toy2.ts）登记了同一个类型名 Toy')
+    cxWriteFileSync(cxJoin(root, 'toy.ts'), 'export interface Toy {\n  version: 1\n  name: string = 1\n}\n')
+    eq('形状快照：类型检查不过就不生成，说为什么', thrown(() => generateShapes(root, shapes)).startsWith('形状快照：类型检查不过：'), true)
+    // 仓库所在目录名里带 [1]，旁边又有一个 1：只认自己目录下那份，不被当成 glob 匹配到旁边的
+    for (const [dir, t] of [['w[1]', 'string'], ['w1', 'number']]) {
+      cxMkdirSync(cxJoin(root, dir))
+      cxWriteFileSync(cxJoin(root, dir, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
+      cxWriteFileSync(cxJoin(root, dir, 'toy.ts'), `export interface Toy {\n  name: ${t}\n}\n`)
+    }
+    const nameType = (dir: string) => (JSON.parse(generateShapes(cxJoin(root, dir), shapes)) as { shapes: Record<string, { shape: { definitions: Record<string, { properties: Record<string, { type: string }> }> } }> }).shapes.玩具.shape.definitions.Toy.properties.name.type
+    eq('形状快照：目录名里带 [ ] 也按字面路径读，不匹配到旁边名字相近的目录', [nameType('w[1]'), nameType('w1')], ['string', 'number'])
   } finally { cxRmSync(root, { recursive: true, force: true }) }
 })
 await group('h-iou-file-reminder-entry', () => {

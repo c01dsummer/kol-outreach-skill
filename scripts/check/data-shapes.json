@@ -53,8 +53,8 @@
                 }
               },
               "found": {
-                "type": "array",
-                "items": {
+                "type": "object",
+                "additionalProperties": {
                   "type": [
                     "number",
                     "null"
@@ -318,7 +318,7 @@
               },
               "fake_follower_score": {
                 "type": "number",
-                "deprecated": "没有可信供应商，保留只为兼容旧任务；分层逻辑明确忽略它。"
+                "deprecated": true
               },
               "cross_platform": {
                 "type": "boolean"
@@ -2316,6 +2316,18 @@
     "人工反馈表的一行": {
       "stored": "任务目录里的 manual-feedback.csv（人填好后程序读回来）",
       "type": "scripts/lib/manual-feedback.ts 里的 ManualFeedbackRow",
+      "columns": [
+        "round_id",
+        "platform",
+        "handle",
+        "manual_eligible",
+        "manual_adopted",
+        "manual_content_fit",
+        "manual_engagement",
+        "manual_comment_authenticity",
+        "manual_reject_reason",
+        "manual_note"
+      ],
       "shape": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "$ref": "#/definitions/ManualFeedbackRow",
