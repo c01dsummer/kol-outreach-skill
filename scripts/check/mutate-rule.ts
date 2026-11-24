@@ -1213,3 +1213,20 @@ export function routeReport(base: RouteSnapshot, head: RouteSnapshot, delta: Ret
   }
   return lines
 }
+
+/**
+ * 给一次验证者运行一份**专属的临时目录**（ADR-243）：常见的三个临时目录变量都指过去，验证者和它起的子进程
+ * 建的临时文件都落在里面，这一跑结束（含见齐就停被叫停）由入口整个删掉 —— 被叫停的验证者来不及删自己建的目录，
+ * 原先就留在系统临时目录里没人收（ADR-158「见齐就停的验证者留下的临时目录没人收」）。
+ */
+export function ownTmpEnv(env: NodeJS.ProcessEnv, dir: string): NodeJS.ProcessEnv {
+  return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }
+}
+
+/**
+ * tsx 把编译缓存放在「临时目录/tsx-<用户号>」（没有用户号的平台用用户名）。换了临时目录缓存就冷了，
+ * 所以入口在专属目录里放一个这个名字的链接，指回系统临时目录里共用的那一份。
+ */
+export function tsxCacheName(user: number | string): string {
+  return `tsx-${user}`
+}
