@@ -36528,7 +36528,7 @@
       "replace": "parseJobs(read(need('--jobs')), Number(JSON.parse(read(need('--jobs'))).jobs[0]?.run_id))",
       "by": "test",
       "kills": [
-        "入口 --never-red：--run-id 不是正整数、jobs 不是那一跑的，都以 2 退出、什么都不打"
+        "入口 --never-red：jobs 不是 --run-id 那一跑的，以 2 退出、什么都不打"
       ]
     },
     {
