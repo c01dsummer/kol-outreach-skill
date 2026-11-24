@@ -5,7 +5,8 @@
  * 1. 变异目录的文件名 `mutations.json` 出现在字符串字面量或模板串的任何一段里 —— 只许写在 `catalog-rule.ts`。
  *    注释不算（语法树上没有注释节点）。
  * 2. 引用了读取函数所在模块（`catalog-rule`）的文件 —— 按名字导入、整个模块导入、`import()`、`require`、转出都算，
- *    只带类型的导入不算 —— 同一个文件里要真调用 `readCatalog`（按名字、改了名、经模块对象调都认）：拿了位置去读，就得经读取函数判。
+ *    只带类型的导入与转出（整句只带类型、或每个名字都只带类型）不算 —— 同一个文件里要真调用那个模块里的 `readCatalog`
+ *    （按名字、改了名、经模块对象调、从动态导入解构出来的都认；同名的本地函数、别的对象上的同名方法不认）：拿了位置去读，就得经读取函数判。
  * 两条都由 `NOT_READERS` 逐个放行：那几处碰到这个名字，但不读目录里的变异。
  *
  * **不扫的**：测试文件（`isTestFile`）—— 它们写夹具目录、或拿真目录做测试的输入，不是检查链读目录拿去判。
@@ -46,35 +47,69 @@ function scan(path: string, text: string): { mentions: number[]; refsDoor: boole
   const tree = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const mentions: number[] = []
   let refsDoor = false
-  // 指向读取函数的本地名字：按名字导入（含改名）、动态导入解构出来的
-  const readerNames = new Set<string>(['readCatalog'])
+  // 指向读取函数的本地名字（从读取函数所在模块按名字导入、或从它的模块对象解构出来的），与指向那个模块对象的本地名字
+  const readerNames = new Set<string>()
+  const moduleNames = new Set<string>()
   const calls: Ts.CallExpression[] = []
   const isDoor = (node: Ts.Node | undefined): boolean =>
     node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && DOOR_SPECIFIER.test(node.text)
+  // 去掉外层的括号与 await：`(await import(…)).readCatalog` 里的接收者就是那次导入
+  const bare = (node: Ts.Expression): Ts.Expression =>
+    ts.isParenthesizedExpression(node) || ts.isAwaitExpression(node) ? bare(node.expression) : node
+  // `import(…)` 或 `require(…)` 读取函数所在的模块
+  const loadsDoor = (node: Ts.Expression): boolean => ts.isCallExpression(node)
+    && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    && isDoor(node.arguments[0])
+  const isDoorModule = (node: Ts.Expression): boolean => {
+    const e = bare(node)
+    return (ts.isIdentifier(e) && moduleNames.has(e.text)) || loadsDoor(e)
+  }
   const visit = (node: Ts.Node): void => {
     const piece = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
       || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) ? node.text : undefined
     if (piece !== undefined && piece.includes(CATALOG_NAME)) {
       mentions.push(tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1)
     }
-    if (ts.isImportDeclaration(node) && isDoor(node.moduleSpecifier) && node.importClause?.isTypeOnly !== true) refsDoor = true
-    if (ts.isExportDeclaration(node) && isDoor(node.moduleSpecifier) && !node.isTypeOnly) refsDoor = true
+    if (ts.isImportDeclaration(node) && isDoor(node.moduleSpecifier)) {
+      const clause = node.importClause
+      // 只为副作用导入（没有导入子句）也算引用；整句只带类型、或每个名字都只带类型的不算
+      if (clause === undefined || (!clause.isTypeOnly && clause.name !== undefined)) refsDoor = true
+      const named = clause === undefined || clause.isTypeOnly ? undefined : clause.namedBindings
+      if (named !== undefined && ts.isNamespaceImport(named)) { refsDoor = true; moduleNames.add(named.name.text) }
+      if (named !== undefined && ts.isNamedImports(named)) {
+        for (const el of named.elements) {
+          if (el.isTypeOnly) continue
+          refsDoor = true
+          if ((el.propertyName ?? el.name).text === 'readCatalog') readerNames.add(el.name.text)
+        }
+      }
+    }
+    if (ts.isExportDeclaration(node) && isDoor(node.moduleSpecifier) && !node.isTypeOnly
+      && (node.exportClause === undefined || !ts.isNamedExports(node.exportClause) || node.exportClause.elements.some(el => !el.isTypeOnly))) refsDoor = true
     if (ts.isCallExpression(node)) {
-      if ((node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
-        && isDoor(node.arguments[0])) refsDoor = true
+      if (loadsDoor(node)) refsDoor = true
       calls.push(node)
     }
-    if (ts.isImportSpecifier(node) && (node.propertyName ?? node.name).text === 'readCatalog') readerNames.add(node.name.text)
-    if (ts.isBindingElement(node) && node.propertyName !== undefined && ts.isIdentifier(node.propertyName)
-      && node.propertyName.text === 'readCatalog' && ts.isIdentifier(node.name)) readerNames.add(node.name.text)
+    // `const c = await import(…)` 记下模块对象；`const { readCatalog } = …`、`const { readCatalog: rc } = …` 记下读取函数
+    if (ts.isVariableDeclaration(node) && node.initializer !== undefined && loadsDoor(bare(node.initializer))) {
+      if (ts.isIdentifier(node.name)) moduleNames.add(node.name.text)
+      else if (ts.isObjectBindingPattern(node.name)) {
+        for (const el of node.name.elements) {
+          const key = el.propertyName ?? el.name
+          if (ts.isIdentifier(key) && key.text === 'readCatalog' && ts.isIdentifier(el.name)) readerNames.add(el.name.text)
+        }
+      }
+    }
     ts.forEachChild(node, visit)
   }
   visit(tree)
+  // 只认指向那个模块里读取函数的调用：同名的本地函数、别的对象上的同名方法都不算
   const callsReader = calls.some(c => {
-    const callee = c.expression
+    const callee = bare(c.expression)
     if (ts.isIdentifier(callee)) return readerNames.has(callee.text)
-    if (ts.isPropertyAccessExpression(callee)) return callee.name.text === 'readCatalog'
-    return ts.isElementAccessExpression(callee) && ts.isStringLiteral(callee.argumentExpression) && callee.argumentExpression.text === 'readCatalog'
+    if (ts.isPropertyAccessExpression(callee)) return callee.name.text === 'readCatalog' && isDoorModule(callee.expression)
+    return ts.isElementAccessExpression(callee) && ts.isStringLiteral(callee.argumentExpression)
+      && callee.argumentExpression.text === 'readCatalog' && isDoorModule(callee.expression)
   })
   return { mentions, refsDoor, callsReader }
 }

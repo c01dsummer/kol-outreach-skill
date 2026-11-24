@@ -36025,8 +36025,8 @@
       "req": "harness",
       "why": "改了名导入的读取函数认不出，调用了也当没调用",
       "file": "scripts/check/catalog-door-rule.ts",
-      "find": "if (ts.isImportSpecifier(node) && (node.propertyName ?? node.name).text === 'readCatalog') readerNames.add(node.name.text)",
-      "replace": "if (ts.isImportSpecifier(node) && node.name.text === 'readCatalog') readerNames.add(node.name.text)",
+      "find": "if ((el.propertyName ?? el.name).text === 'readCatalog') readerNames.add(el.name.text)",
+      "replace": "if (el.name.text === 'readCatalog') readerNames.add(el.name.text)",
       "by": "test",
       "kills": [
         "绕开读取函数：改了名调用读取函数，放行"
@@ -36047,13 +36047,13 @@
     {
       "id": "M-H242-y",
       "req": "harness",
-      "why": "只带类型的导入也算成引用了读取函数所在模块",
+      "why": "只为副作用导入读取函数所在模块没算成引用",
       "file": "scripts/check/catalog-door-rule.ts",
-      "find": "node.importClause?.isTypeOnly !== true) refsDoor = true",
-      "replace": "node.importClause !== undefined) refsDoor = true",
+      "find": "if (clause === undefined || (!clause.isTypeOnly && clause.name !== undefined)) refsDoor = true",
+      "replace": "if (clause !== undefined && !clause.isTypeOnly && clause.name !== undefined) refsDoor = true",
       "by": "test",
       "kills": [
-        "绕开读取函数：只带类型的导入不算引用，放行"
+        "绕开读取函数：只为副作用导入那个模块也算引用"
       ]
     },
     {
@@ -36145,13 +36145,13 @@
     {
       "id": "M-H242-ag",
       "req": "harness",
-      "why": "转出读取函数所在模块的位置没算成引用",
+      "why": "只转出带类型标记的名字也算成引用了读取函数所在模块",
       "file": "scripts/check/catalog-door-rule.ts",
-      "find": "if (ts.isExportDeclaration(node) && isDoor(node.moduleSpecifier) && !node.isTypeOnly) refsDoor = true",
-      "replace": "if (ts.isExportDeclaration(node) && isDoor(node.moduleSpecifier) && node.isTypeOnly) refsDoor = true",
+      "find": "node.exportClause.elements.some(el => !el.isTypeOnly))) refsDoor = true",
+      "replace": "node.exportClause.elements.length > 0)) refsDoor = true",
       "by": "test",
       "kills": [
-        "绕开读取函数：改名转出位置，报"
+        "绕开读取函数：只有带类型标记的名字的导入与转出不算引用，放行"
       ]
     },
     {
@@ -36159,8 +36159,8 @@
       "req": "harness",
       "why": "动态导入读取函数所在模块没算成引用",
       "file": "scripts/check/catalog-door-rule.ts",
-      "find": "if ((node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier",
-      "replace": "if ((false || (ts.isIdentifier",
+      "find": "&& (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier",
+      "replace": "&& (false || (ts.isIdentifier",
       "by": "test",
       "kills": [
         "绕开读取函数：动态导入、只取位置，报"
@@ -36181,13 +36181,14 @@
     {
       "id": "M-H242-aj",
       "req": "harness",
-      "why": "动态导入解构出来改了名的读取函数认不出",
+      "why": "动态导入解构出来的读取函数认不出",
       "file": "scripts/check/catalog-door-rule.ts",
-      "find": "&& node.propertyName.text === 'readCatalog' && ts.isIdentifier(node.name)) readerNames.add(node.name.text)",
-      "replace": "&& node.propertyName.text === 'readCatalogs' && ts.isIdentifier(node.name)) readerNames.add(node.name.text)",
+      "find": "if (ts.isIdentifier(key) && key.text === 'readCatalog' && ts.isIdentifier(el.name)) readerNames.add",
+      "replace": "if (ts.isIdentifier(key) && key.text === 'readCatalogs' && ts.isIdentifier(el.name)) readerNames.add",
       "by": "test",
       "kills": [
-        "绕开读取函数：动态导入解构出读取函数并调用，放行"
+        "绕开读取函数：动态导入解构出读取函数并调用，放行",
+        "绕开读取函数：动态导入解构出不改名的读取函数并调用，放行"
       ]
     },
     {
@@ -36236,6 +36237,93 @@
       "by": "test",
       "kills": [
         "绕开读取函数：整个模块导入、只取位置，报"
+      ]
+    },
+    {
+      "id": "M-H242-ao",
+      "req": "harness",
+      "why": "只导入带类型标记的名字也算成引用了读取函数所在模块",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "          if (el.isTypeOnly) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：只有带类型标记的名字的导入与转出不算引用，放行"
+      ]
+    },
+    {
+      "id": "M-H242-ap",
+      "req": "harness",
+      "why": "自己定义一个同名函数来调，也当成调了读取函数",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "const readerNames = new Set<string>()",
+      "replace": "const readerNames = new Set<string>(['readCatalog'])",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：自己定义一个同名的 readCatalog 来调，报",
+        "绕开读取函数：从别的模块按名字导入的 readCatalog 不算，报"
+      ]
+    },
+    {
+      "id": "M-H242-aq",
+      "req": "harness",
+      "why": "别的对象上的同名方法也当成调了读取函数",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "return callee.name.text === 'readCatalog' && isDoorModule(callee.expression)",
+      "replace": "return callee.name.text === 'readCatalog'",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：别的对象上的同名方法不算调用读取函数，报"
+      ]
+    },
+    {
+      "id": "M-H242-ar",
+      "req": "harness",
+      "why": "别的对象上按字符串取的同名方法也当成调了读取函数",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "&& callee.argumentExpression.text === 'readCatalog' && isDoorModule(callee.expression)",
+      "replace": "&& callee.argumentExpression.text === 'readCatalog'",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：别的对象上的同名方法不算调用读取函数，报"
+      ]
+    },
+    {
+      "id": "M-H242-as",
+      "req": "harness",
+      "why": "动态导入拿到的模块对象认不出，在它上面调读取函数也当没调用",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "      if (ts.isIdentifier(node.name)) moduleNames.add(node.name.text)\n      else if",
+      "replace": "      if",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：动态导入的模块对象上调读取函数，放行"
+      ]
+    },
+    {
+      "id": "M-H242-at",
+      "req": "harness",
+      "why": "await 外面那一层没剥掉，动态导入的结果认不出",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "ts.isParenthesizedExpression(node) || ts.isAwaitExpression(node) ? bare(node.expression) : node",
+      "replace": "ts.isParenthesizedExpression(node) ? bare(node.expression) : node",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：动态导入解构出读取函数并调用，放行",
+        "绕开读取函数：动态导入解构出不改名的读取函数并调用，放行",
+        "绕开读取函数：动态导入的模块对象上调读取函数，放行"
+      ]
+    },
+    {
+      "id": "M-H242-au",
+      "req": "harness",
+      "why": "整个模块导入时记不下模块对象，经它调读取函数也当没调用",
+      "file": "scripts/check/catalog-door-rule.ts",
+      "find": "{ refsDoor = true; moduleNames.add(named.name.text) }",
+      "replace": "{ refsDoor = true }",
+      "by": "test",
+      "kills": [
+        "绕开读取函数：经模块对象调用读取函数，放行"
       ]
     }
   ],
