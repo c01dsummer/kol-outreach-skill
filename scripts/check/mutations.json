@@ -35978,8 +35978,8 @@
       "req": "harness",
       "why": "工作区别处改了也算 docs/adr/ 不同",
       "file": "scripts/check/revisit-raw-rule.ts",
-      "find": "out.split('\\0').filter(p => p.startsWith('docs/adr/'))",
-      "replace": "out.split('\\0').filter(Boolean)",
+      "find": "...extra.split('\\0')].filter(p => p.startsWith('docs/adr/'))",
+      "replace": "...extra.split('\\0')].filter(Boolean)",
       "by": "test",
       "kills": [
         "取原料：工作区的 docs/adr/ 与本跑那棵树不同就不齐，点名是哪个文件；别处（已提交的 scripts/a.ts）改了不管"
@@ -36374,8 +36374,8 @@
       "req": "harness",
       "why": "上一跑的日志给了也不读",
       "file": "scripts/check/revisit-raw.ts",
-      "find": "prevLog === undefined ? { fault: '上一跑的日志没给' }",
-      "replace": "true ? { fault: '上一跑的日志没给' }",
+      "find": "prevLog === undefined ? { absent: '上一跑的日志没给' }",
+      "replace": "true ? { absent: '上一跑的日志没给' }",
       "by": "test",
       "kills": [
         "入口 --never-red：读两份日志与 jobs，打两个验证者各一行；上一跑的日志没给，比上一跑写无从确认"
@@ -36571,6 +36571,79 @@
       "by": "test",
       "kills": [
         "偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）"
+      ]
+    },
+    {
+      "id": "M-H245-be",
+      "req": "harness",
+      "why": "日志里没有那一行当成形状不对（入口会以 2 退出，不再报无从确认）",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "return { absent: '日志里没有 NEVER_RED_JSON 那一行' }",
+      "replace": "return { fault: '日志里没有 NEVER_RED_JSON 那一行' }",
+      "by": "test",
+      "kills": [
+        "从没红过：日志每行前面带时刻也认；没有、不止一行、不是 never-red/v1、缺几样、数不对都说为什么",
+        "从没红过：入口停不停 —— 本周那一跑或上一跑的日志形状不对就停、说是哪一份；没有那一行、上一跑没给都不停（照常报无从确认）"
+      ]
+    },
+    {
+      "id": "M-H245-bf",
+      "req": "harness",
+      "why": "工作区比对只看提交过的文件，docs/adr/ 下没提交的新文件漏掉",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "[...out.split('\\0'), ...extra.split('\\0')]",
+      "replace": "[...out.split('\\0')]",
+      "by": "test",
+      "kills": [
+        "取原料：docs/adr/ 下还没提交的新文件也算工作区不同（diff 看不见它），别处没提交的新文件不管"
+      ]
+    },
+    {
+      "id": "M-H245-bg",
+      "req": "harness",
+      "why": "选项后面紧跟另一个选项时，把那个选项名当成值",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "v === undefined || v.startsWith('--')",
+      "replace": "v === undefined",
+      "by": "test",
+      "kills": [
+        "入口读带值的选项：没给是 undefined（用缺省）；给了跟着值就是那个值；给了却在末尾或后面紧跟另一个选项，说没跟值"
+      ]
+    },
+    {
+      "id": "M-H245-bh",
+      "req": "harness",
+      "why": "没给选项也说没跟值（缺省用不上）",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (i < 0) return undefined",
+      "replace": "if (i < 0) return { fault: `${name} 后面没跟值` }",
+      "by": "test",
+      "kills": [
+        "入口读带值的选项：没给是 undefined（用缺省）；给了跟着值就是那个值；给了却在末尾或后面紧跟另一个选项，说没跟值"
+      ]
+    },
+    {
+      "id": "M-H245-bi",
+      "req": "harness",
+      "why": "上一跑的日志形状不对不停，照常往下算",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if ('fault' in prev) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "从没红过：入口停不停 —— 本周那一跑或上一跑的日志形状不对就停、说是哪一份；没有那一行、上一跑没给都不停（照常报无从确认）"
+      ]
+    },
+    {
+      "id": "M-H245-bj",
+      "req": "harness",
+      "why": "没跟值时不说是哪个选项",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "{ fault: `${name} 后面没跟值` } : v",
+      "replace": "{ fault: '' } : v",
+      "by": "test",
+      "kills": [
+        "入口读带值的选项：没给是 undefined（用缺省）；给了跟着值就是那个值；给了却在末尾或后面紧跟另一个选项，说没跟值"
       ]
     },
     {

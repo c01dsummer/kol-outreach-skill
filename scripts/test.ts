@@ -43,7 +43,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, isGitProgram, launchDrift, 
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
-import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, ledgerDiff as rawLedgerDiff, NEVER_RED_RUNS, neverRedLines, parseJobs, parseRuns, pickNeverRed, type RawGit, rawLine, readNeverRed, slowRuns, topTen } from './check/revisit-raw-rule.js'
+import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, ledgerDiff as rawLedgerDiff, NEVER_RED_RUNS, neverRedLines, neverRedStop, optValue, parseJobs, parseRuns, pickNeverRed, type RawGit, rawLine, readNeverRed, slowRuns, topTen } from './check/revisit-raw-rule.js'
 import { addDays, beijingDate, bornReport, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex } from './check/revisit-rule.js'
 import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
@@ -26088,8 +26088,10 @@ await group('h-revisit-raw', () => {
     rawLedgerDiff([L('docs/adr/ADR-1-a.md', 3, '甲'), L('docs/adr/ADR-1-a.md', 9, '乙'), '  欠条台账 2 条'].join('\n'),
       [L('docs/adr/ADR-1-a.md', 5, '甲'), L('docs/adr/ADR-1-a.md', 11, '乙'), L('docs/adr/ADR-1-a.md', 12, '乙'), 'x:1  甲', '  欠条台账 3 条'].join('\n')),
     [L('docs/adr/ADR-1-a.md', 12, '乙')])
-  eq('增减：反过来求差，得出消失的那几行（行号是旧的那一边）',
-    rawLedgerDiff([L('docs/adr/ADR-1-a.md', 5, '甲'), L('docs/adr/ADR-2-b.md', 4, '丙')].join('\n'), L('docs/adr/ADR-1-a.md', 3, '甲')), [])
+  eq('增减：反过来求差（新的在前、旧的在后），得出消失的那几行，行号是旧的那一边；顺着求只看新增，同样两份得出空的',
+    [rawLedgerDiff(L('docs/adr/ADR-1-a.md', 3, '甲'), [L('docs/adr/ADR-1-a.md', 5, '甲'), L('docs/adr/ADR-2-b.md', 4, '丙')].join('\n')),
+      rawLedgerDiff([L('docs/adr/ADR-1-a.md', 5, '甲'), L('docs/adr/ADR-2-b.md', 4, '丙')].join('\n'), L('docs/adr/ADR-1-a.md', 3, '甲'))],
+    [[L('docs/adr/ADR-2-b.md', 4, '丙')], []])
 
   // 取原料：一周前那棵树按北京时间 00:00 取；两棵树都从 git 对象里读（含子目录），工作区改过 docs/adr/ 就不齐
   withToyRepo(toy => {
@@ -26119,6 +26121,10 @@ await group('h-revisit-raw', () => {
     eq('取原料：一周前那天之前主干上没有提交，就不齐、说为什么，新增照算成全部（所以不能用）',
       [tooEarly.old, tooEarly.faults, rawLine(tooEarly).startsWith('原料不齐：取不到一周前那棵树（2026-11-13 北京时间 00:00 之前')],
       [undefined, ['取不到一周前那棵树（2026-11-13 北京时间 00:00 之前主干上没有提交）'], true])
+    toy.write('docs/adr/ADR-9-新.md', '# ADR-9\n'); toy.write('scripts/b.ts', 'b\n')
+    eq('取原料：docs/adr/ 下还没提交的新文件也算工作区不同（diff 看不见它），别处没提交的新文件不管',
+      gatherRaw(git, 'HEAD', '2026-11-23').faults, ['工作区的 docs/adr/ 与本跑那棵树不同：docs/adr/ADR-9-新.md'])
+    ul(join(toy.dir, 'docs/adr/ADR-9-新.md'))
     toy.write('docs/adr/ADR-1-甲.md', '# ADR-1 改了\n')
     toy.write('scripts/a.ts', 'x\n')
     eq('取原料：工作区的 docs/adr/ 与本跑那棵树不同就不齐，点名是哪个文件；别处（已提交的 scripts/a.ts）改了不管',
@@ -26203,11 +26209,11 @@ await group('h-revisit-raw', () => {
     [[2, 1, undefined], [undefined, undefined, '窗口里没有跑完的一跑'], [2, undefined, '交进来的跑里没有比本周那一跑更早的（接口还有下一页就再取）'], [4, 1, undefined]])
   const nrLine = (o: object) => `2026-11-24T04:10:00.1234567Z NEVER_RED_JSON ${JSON.stringify({ schema: 'never-red/v1', head: 'abcdef1234', earlyStop: false, stopped: 0,
     verifiers: { test: { catalog: 100, notReached: 3, neverRed: 7 }, selfcheck: { catalog: 50, notReached: 1, neverRed: 2 } }, ...o })}`
-  const readNR = (log: string) => { const r = readNeverRed(log); return 'fault' in r ? r.fault : r.data.head }
+  const readNR = (log: string) => { const r = readNeverRed(log); return 'data' in r ? r.data.head : 'absent' in r ? `没有：${r.absent}` : r.fault }
   eq('从没红过：日志每行前面带时刻也认；没有、不止一行、不是 never-red/v1、缺几样、数不对都说为什么',
     [readNR(`x\n${nrLine({})}\r\ny`), readNR('x\n'), readNR(`${nrLine({})}\n${nrLine({})}`), readNR(nrLine({ schema: 'v2' })), readNR(nrLine({ earlyStop: 'no' })),
       readNR(nrLine({ verifiers: { test: { catalog: 1, notReached: -1, neverRed: 0 } } })), readNR('NEVER_RED_JSON {')].map(x => x.replace(/：Unexpected.*|：Expected.*/s, '')),
-    ['abcdef1234', '日志里没有 NEVER_RED_JSON 那一行', '日志里 NEVER_RED_JSON 有 2 行', 'NEVER_RED_JSON 那一行不是 never-red/v1', 'NEVER_RED_JSON 那一行缺 head、earlyStop 或 verifiers',
+    ['abcdef1234', '没有：日志里没有 NEVER_RED_JSON 那一行', '日志里 NEVER_RED_JSON 有 2 行', 'NEVER_RED_JSON 那一行不是 never-red/v1', 'NEVER_RED_JSON 那一行缺 head、earlyStop 或 verifiers',
       'NEVER_RED_JSON 里 test 那一份的数不对', 'NEVER_RED_JSON 那一行不是 JSON'])
   const prevNR = readNeverRed(nrLine({ verifiers: { test: { catalog: 99, notReached: 3, neverRed: 9 }, selfcheck: { catalog: 50, notReached: 1, neverRed: 2 } } }))
   const jobs = [{ name: '不提前停的整跑（第 1/3 份）', conclusion: 'success' }, { name: '不提前停的整跑（第 2/3 份）', conclusion: 'failure' },
@@ -26216,11 +26222,18 @@ await group('h-revisit-raw', () => {
     neverRedLines(42, readNeverRed(nrLine({})), prevNR, jobs),
     ['run 42 · abcdef1', 'test：清册 100 条，从没红过 7 条（没有负片跑到 3 条），比上一跑 -2', 'selfcheck：清册 50 条，从没红过 2 条（没有负片跑到 1 条），比上一跑 ±0', '整跑有变异没被抓到：第 2、3 份'])
   eq('从没红过：没关提前停的整段无从确认；本周那一跑读不到整段无从确认；上一跑读不到只有比上一跑无从确认',
-    [neverRedLines(42, readNeverRed(nrLine({ earlyStop: true })), prevNR, []), neverRedLines(42, { fault: '日志读不到' }, prevNR, []),
-      neverRedLines(42, readNeverRed(nrLine({})), { fault: '上一跑的日志没给' }, [])[1],
+    [neverRedLines(42, readNeverRed(nrLine({ earlyStop: true })), prevNR, []), neverRedLines(42, { absent: '日志读不到' }, prevNR, []),
+      neverRedLines(42, readNeverRed(nrLine({})), { absent: '上一跑的日志没给' }, [])[1],
       neverRedLines(42, readNeverRed(nrLine({ verifiers: { test: { catalog: 100, notReached: 3, neverRed: 7 } } })), prevNR, [])[2]],
     [['run 42 · abcdef1 · 无从确认：那一跑没关提前停'], ['无从确认：日志读不到'], 'test：清册 100 条，从没红过 7 条（没有负片跑到 3 条），比上一跑：无从确认：上一跑的日志没给',
       'selfcheck：无从确认：那一行里没有这个验证者'])
+  eq('从没红过：入口停不停 —— 本周那一跑或上一跑的日志形状不对就停、说是哪一份；没有那一行、上一跑没给都不停（照常报无从确认）',
+    [neverRedStop(readNeverRed(nrLine({ schema: 'v2' })), prevNR), neverRedStop(prevNR, readNeverRed('NEVER_RED_JSON {'))?.replace(/：Unexpected.*|：Expected.*/s, ''),
+      neverRedStop(readNeverRed('x\n'), readNeverRed('y\n')), neverRedStop(prevNR, { absent: '上一跑的日志没给' })],
+    ['本周那一跑的日志：NEVER_RED_JSON 那一行不是 never-red/v1', '上一跑的日志：NEVER_RED_JSON 那一行不是 JSON', undefined, undefined])
+  eq('入口读带值的选项：没给是 undefined（用缺省）；给了跟着值就是那个值；给了却在末尾或后面紧跟另一个选项，说没跟值',
+    [optValue(['--run', 'HEAD', '--dir', 'd'], '--run'), optValue(['--dir', 'd'], '--run'), optValue(['--dir', 'd', '--run'], '--run'), optValue(['--run', '--dir', 'd'], '--run')],
+    ['HEAD', undefined, { fault: '--run 后面没跟值' }, { fault: '--run 后面没跟值' }])
   const jobsOf = (t: string) => { const r = parseJobs(t, 42); return 'fault' in r ? r.fault.replace(/：.*/s, '') : r.jobs.length }
   eq('jobs 接口返回：整份先核形状', [jobsOf(JSON.stringify({ jobs })), jobsOf('['), jobsOf('{"jobs":{}}'), jobsOf('{"jobs":[{"run_id":42,"name":"x"}]}'), jobsOf('{"jobs":[{"run_id":42,"conclusion":"success"}]}')],
     [4, '不是 JSON', '不是一页 jobs 接口返回（带 jobs）', '第 1 个 job 缺 name 或 conclusion', '第 1 个 job 缺 name 或 conclusion'])

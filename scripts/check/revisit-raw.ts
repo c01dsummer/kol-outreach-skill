@@ -13,16 +13,18 @@
  *   tsx scripts/check/revisit-raw.ts --never-red --run-id <id> --log <文件> --jobs <文件> [--prev-log <文件>]
  *     (e) 从没红过的断言：本周那一跑「清单」job 的日志、那一跑的 jobs 接口返回、上一跑「清单」job 的日志（读不到就不给）。
  *
- * 交进来的文件形状不对就以 2 退出、说哪里不对，不往下算（整份先核形状，`process/3-BUILD.md` 第 9 条）。
+ * 交进来的文件形状不对就以 2 退出、说哪里不对，不往下算（整份先核形状，`process/3-BUILD.md` 第 9 条）；日志里没有那一行不算形状不对，照常报无从确认。
+ * 给了带值的选项却没跟值，也以 2 退出。
  * `--run` 缺省 `origin/main`。只读 git；`--gather` 只写 `--dir` 那个目录。
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, NEVER_RED_RUNS, neverRedLines, parseJobs, parseRuns, pickNeverRed, rawLine, readNeverRed, type RunsWant, slowRuns, topTen } from './revisit-raw-rule.js'
+import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, NEVER_RED_RUNS, neverRedLines, neverRedStop, optValue, parseJobs, parseRuns, pickNeverRed, rawLine, readNeverRed, type RunsWant, slowRuns, topTen } from './revisit-raw-rule.js'
 
 const args = process.argv.slice(2)
-const opt = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1] }
 const stop = (why: string): never => { console.error(why); process.exit(2) }
+// 给了选项却没跟值就停，不当成没给（`--run` 漏写提交会悄悄用缺省）
+const opt = (name: string): string | undefined => { const v = optValue(args, name); return typeof v === 'object' ? stop(v.fault) : v }
 const need = (name: string): string => opt(name) ?? stop(`缺 ${name}`)
 const read = (file: string): string => { try { return readFileSync(file, 'utf8') } catch (e) { return stop(`读不出 ${file}：${(e as Error).message}`) } }
 const day = (): string => {
@@ -60,8 +62,11 @@ if (args.includes('--gather')) {
   const jobs = parseJobs(read(need('--jobs')), id)
   if ('fault' in jobs) stop(`${opt('--jobs')}：${jobs.fault}`)
   const prevLog = opt('--prev-log')
-  const prev = prevLog === undefined ? { fault: '上一跑的日志没给' } : readNeverRed(read(prevLog))
-  for (const l of neverRedLines(id, readNeverRed(read(need('--log'))), prev, 'fault' in jobs ? [] : jobs.jobs)) console.log(l)
+  const prev = prevLog === undefined ? { absent: '上一跑的日志没给' } : readNeverRed(read(prevLog))
+  const mine = readNeverRed(read(need('--log')))
+  const why = neverRedStop(mine, prev)
+  if (why !== undefined) stop(why)
+  for (const l of neverRedLines(id, mine, prev, 'fault' in jobs ? [] : jobs.jobs)) console.log(l)
 } else {
   stop('用法见 scripts/check/revisit-raw.ts 开头：--gather、--top、--slow、--never-red-pick、--never-red 之一')
 }

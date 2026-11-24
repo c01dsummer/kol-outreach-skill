@@ -56,8 +56,11 @@ export function cliRawGit(cwd = '.', env: NodeJS.ProcessEnv = process.env): RawG
       return out
     },
     adrDrift: rev => {
+      // 提交过的文件与本跑不同（diff），再加上 docs/adr/ 下还没提交的新文件（diff 看不见它们）
       const out = git(['diff', '--name-only', '--no-renames', '-z', rev])
-      return out === undefined ? undefined : out.split('\0').filter(p => p.startsWith('docs/adr/'))
+      const extra = git(['ls-files', '-z', '--full-name', '--others', '--exclude-standard', '--', 'docs/adr'])
+      if (out === undefined || extra === undefined) return undefined
+      return [...out.split('\0'), ...extra.split('\0')].filter(p => p.startsWith('docs/adr/'))
     },
     show: (rev, path) => git(['show', `${rev}:${path}`]),
   }
@@ -341,19 +344,22 @@ export interface NeverRedCounts {
   notReached: number // 字段不入断言：同上
   neverRed: number // 字段不入断言：同上；M-H245-ah 改的是相减以后的正负号
 }
-/** 读日志的结果：那一行，或不收的原因 */
+/** 读日志的结果：那一行；或日志里没有那一行（照常报「无从确认」）；或交进来的日志形状不对（入口以 2 退出） */
 export type NeverRedRead =
   | {
     data: NeverRed // 字段不入断言：读日志那一例按全文比
   }
   | {
-    fault: string // 字段不入断言：读日志那一例七种情形按全文比
+    absent: string // 字段不入断言：读日志那一例按全文比
+  }
+  | {
+    fault: string // 字段不入断言：读日志那一例六种情形按全文比
   }
 
-/** 从一份 job 日志里读出 `NEVER_RED_JSON` 那一行。没有、不止一行、形状不对都交回为什么 */
+/** 从一份 job 日志里读出 `NEVER_RED_JSON` 那一行。没有那一行交回 absent；不止一行、形状不对交回 fault，都说为什么 */
 export function readNeverRed(log: string): NeverRedRead {
   const hits = log.split('\n').map(l => l.replace(/\r$/, '').replace(/^\S*Z /, '')).filter(l => l.startsWith('NEVER_RED_JSON '))
-  if (hits.length === 0) return { fault: '日志里没有 NEVER_RED_JSON 那一行' }
+  if (hits.length === 0) return { absent: '日志里没有 NEVER_RED_JSON 那一行' }
   if (hits.length > 1) return { fault: `日志里 NEVER_RED_JSON 有 ${hits.length} 行` }
   let d: unknown
   try { d = JSON.parse(hits[0].slice('NEVER_RED_JSON '.length)) } catch (e) { return { fault: `NEVER_RED_JSON 那一行不是 JSON：${(e as Error).message}` } }
@@ -399,19 +405,37 @@ export function parseJobs(text: string, runId: number): JobsRead {
  * 每个验证者一行清册、从没红过、没有负片跑到，接「比上一跑」；整跑那几份 job 有红的（结论 failure），列出第几份。
  */
 export function neverRedLines(runId: number, mine: NeverRedRead, prev: NeverRedRead, jobs: readonly ApiJob[]): string[] {
-  if ('fault' in mine) return [`无从确认：${mine.fault}`]
+  if (!('data' in mine)) return [`无从确认：${'absent' in mine ? mine.absent : mine.fault}`]
   const d = mine.data
   if (d.earlyStop) return [`run ${runId} · ${d.head.slice(0, 7)} · 无从确认：那一跑没关提前停`]
   const out = [`run ${runId} · ${d.head.slice(0, 7)}`]
   for (const by of ['test', 'selfcheck']) {
     const v = d.verifiers[by]
     if (v === undefined) { out.push(`${by}：无从确认：那一行里没有这个验证者`); continue }
-    const p = 'fault' in prev ? undefined : prev.data.verifiers[by]
-    const diff = 'fault' in prev ? `比上一跑：无从确认：${prev.fault}` : p === undefined ? '比上一跑：无从确认：上一跑里没有这个验证者'
+    const p = 'data' in prev ? prev.data.verifiers[by] : undefined
+    const diff = !('data' in prev) ? `比上一跑：无从确认：${'absent' in prev ? prev.absent : prev.fault}` : p === undefined ? '比上一跑：无从确认：上一跑里没有这个验证者'
       : `比上一跑 ${v.neverRed === p.neverRed ? '±0' : v.neverRed > p.neverRed ? `+${v.neverRed - p.neverRed}` : `-${p.neverRed - v.neverRed}`}`
     out.push(`${by}：清册 ${v.catalog} 条，从没红过 ${v.neverRed} 条（没有负片跑到 ${v.notReached} 条），${diff}`)
   }
   const red = jobs.flatMap(j => { const m = /^不提前停的整跑（第 ([0-9]+)\/[0-9]+ 份）$/.exec(j.name); return m !== null && j.conclusion === 'failure' ? [m[1]] : [] })
   if (red.length > 0) out.push(`整跑有变异没被抓到：第 ${red.join('、')} 份`)
   return out
+}
+
+/**
+ * 入口读一个带值的选项：没给这个选项交回 undefined（用缺省）；给了却没跟值（在末尾，或后面紧跟的是另一个 `--` 选项）交回 fault；
+ * 不把「给了没跟值」当成没给 —— 那样 `--run` 后面漏写提交会悄悄用缺省的 `origin/main`
+ */
+export function optValue(args: readonly string[], name: string): string | undefined | { fault: string } {
+  const i = args.indexOf(name)
+  if (i < 0) return undefined
+  const v = args[i + 1]
+  return v === undefined || v.startsWith('--') ? { fault: `${name} 后面没跟值` } : v
+}
+
+/** (e) 入口要不要停：本周那一跑或上一跑交进来的日志形状不对（不止一行、不是 JSON、不是 never-red/v1、缺几样、数不对）就交回停的原因；没有那一行不算，照常报无从确认 */
+export function neverRedStop(mine: NeverRedRead, prev: NeverRedRead): string | undefined {
+  if ('fault' in mine) return `本周那一跑的日志：${mine.fault}`
+  if ('fault' in prev) return `上一跑的日志：${prev.fault}`
+  return undefined
 }
