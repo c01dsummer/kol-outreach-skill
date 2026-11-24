@@ -55,43 +55,30 @@
 「每次开始」做完、还没动 ADR-152 之前，取下面四段原料：候选只从 (b) 出，(a)、(d)、(e) 只进 PR 正文。
 既有的记录，本说明书任何时候都只许往 ADR-152 追加（「能写什么」第二条），要改先改本文；新开记录只有「候选句」那一种。
 
-**两棵树、一把尺子。** 本跑那棵树就是刚克隆下来、还没改过的主干；一周前那棵树是 `<日期>` 往前 7 天那天北京时间 00:00
-之前主干上的最后一个提交。两棵树都拿本跑这棵树上的入口去量 —— 尺子相同，两份欠条台账的差才只来自记录本身。
-命令都在仓库根目录跑，`<日期>` 换成块日期。几段命令之间只靠 `$tmp` 下的文件传东西：`$tmp` 按块日期定死，
-每段第一行重新算出它，分几次 shell 调用跑也接得上。
+**两棵树、一把尺子。** 本跑那棵树是 `origin/main`；一周前那棵树是 `<日期>` 往前 7 天那天北京时间 00:00
+之前主干上的最后一个提交。两棵树的 `docs/adr/` 都从 git 里直接读，拿本跑这份代码的台账与被引表去量 ——
+尺子相同，两份欠条台账的差才只来自记录本身。命令都在仓库根目录跑，`<日期>` 换成块日期。几段之间只靠 `$tmp` 下的文件传东西：
+`$tmp` 按块日期定死，每段第一行重新算出它，分几次 shell 调用跑也接得上。判定都在 `scripts/check/revisit-raw-rule.ts`，有需求测试守着。
 
 ```bash
-day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; run=$(git rev-parse origin/main)
-npm ci        # 只为装上 tsx；入口只读 docs/adr/，不用先跑测试
-git worktree remove --force "$tmp/old" 2>/dev/null; rm -rf "$tmp"; mkdir -p "$tmp"
-old=$(git rev-list -1 --first-parent --before="$(date -d "$day -7 days" +%F) 00:00 +0800" origin/main)
-[ -n "$old" ] && git worktree add --detach "$tmp/old" "$old"
-tsx=$PWD/node_modules/.bin/tsx; entry=$PWD/scripts/check/adr-ledger.ts
-"$tsx" "$entry" > "$tmp/新台账"; "$tsx" "$entry" --cites > "$tmp/新被引表"
-(cd "$tmp/old" || exit 1; "$tsx" "$entry" > "$tmp/旧台账"; "$tsx" "$entry" --cites > "$tmp/旧被引表")
-ok=1; git diff --quiet origin/main -- docs/adr || ok=0
-for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2>/dev/null | grep -qE '^  (欠条台账|被引表) [0-9]+ 条' || ok=0; done
-[ "$ok" = 1 ] && echo "原料齐了：一周前 ${old:0:7}" || echo 原料不齐
+day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day
+npm ci        # 只为装上 tsx；入口只读 git 与 docs/adr/，不用先跑测试
+rm -rf "$tmp"; mkdir -p "$tmp"
+"$PWD/node_modules/.bin/tsx" scripts/check/revisit-raw.ts --gather --today "$day" --dir "$tmp"
 ```
 
-- 最后一行打的是「原料不齐」，就不往下算：(b)、(d) 两段都写 `无从确认：<哪一步报了什么>`，块里照「一块怎么写」的「做不了的时候」写。
-  手头那几份文件这时不可信：取不到一周前那棵树时，比出来的是「新增 0、消失 0」，两份被引表也一模一样。
-- 那道门核三件事：一周前那棵树取到了；四份文件都打到了末尾那一行汇总；工作区的 `docs/adr/` 就是 `origin/main` 上的 ——
-  入口读工作区，下面的 blame 读 `$run`，两边不是同一棵树，行号就对不上。
-- 旧树上抽出孤儿欠条时入口以 1 退出，台账照样打全，照常用。
-- 这几份文件都在仓库外，不提交；三段都做完，`git worktree remove --force "$tmp/old"`。
+- 打一行。`原料齐了：一周前 <提交前 7 位> · 新增 <N> 行、消失 <M> 行`，以 0 退出；
+  `原料不齐：<为什么>`，以 1 退出，就不往下算：(b)、(d) 两段都写 `无从确认：<那一行冒号后面的话>`，块里照「一块怎么写」的「做不了的时候」写。
+  不齐时 `$tmp` 里那几份不可信（取不到一周前那棵树时，比出来的是全部都算新增）。
+- 不齐的几种：一周前那棵树取不到；哪棵树的 `docs/adr/` 读不出；哪份没打到末尾那一行汇总；工作区的 `docs/adr/` 与 `origin/main` 不同 ——
+  (b) 第 2 步读工作区、问 git 读 `origin/main`，两边不是同一棵树，行号就对不上。
+- `$tmp` 里六份：`新台账`、`旧台账`（同 `adr-ledger.ts` 打的全表）、`新被引表`、`旧被引表`（同 `adr-ledger.ts --cites`）、`新增`、`消失`（(b) 第 1 步）。
+  都在仓库外，不提交。
 
 ### (b) 欠条：一周的增减、到期清单与轮到的死亡条件
 
-1. **增减。** 两份欠条台账只比 `docs/adr/` 开头的行，比之前去掉行号：前面插进一段，后面的行号会整体挪，同一张欠条不该因此算成一减一增。
-
-   ```bash
-   day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day
-   d() { awk 'FILENAME == ARGV[1] { k=$0; sub(/:[0-9]+  /, "  ", k); a[k]++; next }
-              { k=$0; sub(/:[0-9]+  /, "  ", k); if (a[k]-- <= 0) print }' <(grep '^docs/adr/' "$1") <(grep '^docs/adr/' "$2"); }
-   d "$tmp/旧台账" "$tmp/新台账" > "$tmp/新增"; d "$tmp/新台账" "$tmp/旧台账" > "$tmp/消失"
-   wc -l < "$tmp/新增"; wc -l < "$tmp/消失"
-   ```
+1. **增减。** 开头那段已经算好，`$tmp/新增`、`$tmp/消失` 各一份，条数就是那一行里的两个数。两份欠条台账只比 `docs/adr/` 开头的行，
+   比之前去掉行号：前面插进一段，后面的行号会整体挪，同一张欠条不该因此算成一减一增；同一行出现两次算两张。
 
    「新增」里的行号在本跑上，「消失」里的在一周前那棵树上。条件原文改了一个字，也读作一减一增。
 
@@ -170,30 +157,41 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
 - **哪几跑**：`check.yml` 在主干上由 push 触发、结论为成功、创建时间在 `<日期>` 往前 7 天那天 00:00（含）到 `<日期>` 00:00（不含）之间的，北京时间。
   例程恰好隔 7 天跑时，前后两块的窗口首尾相接；隔的不是 7 天（有一周没跑，或手动多跑了一次），窗口会留缝或重叠，照算，不补。
   例程开跑时还没跑完的那一跑不是成功跑，取不到；它若创建在窗口里，下周又落在窗口外，就漏了。
-- **口径**：时长 = `run_started_at → updated_at`；「前 5 次」= 创建时间比它早的 5 次同类成功跑，排序后第 3 个是中位；
+- **取接口**（手头的 GitHub 工具或 REST 都行，存原样返回）：
+  `GET /repos/c01dsummer/kol-outreach-skill/actions/workflows/check.yml/runs?branch=main&event=push&status=success&per_page=100&created=%3C<窗口终点，UTC>`。
+  返回按创建时间从新到旧排；窗口起点之前要至少再有 5 跑（窗口里最早那一跑的「前 5 次」都在起点之前），不够就再取 `&page=2`，
+  几页存成一个 JSON 数组（每个元素是一页原样返回）。存成 `$tmp/a-runs.json`。接口取不到就整段写 `无从确认：<原因>`。
+- **算**：
+
+  ```bash
+  day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day
+  "$PWD/node_modules/.bin/tsx" scripts/check/revisit-raw.ts --slow --today "$day" --runs "$tmp/a-runs.json"
+  ```
+
+  打出来的原样抄进 PR 正文：第一行是窗口里一共几跑；比值 ≥ 1.30 的，按创建时间从新到旧，每一跑一行 run id、提交前 7 位、时长、中位、比值，
+  写法同 CI 上墙钟对比那一行（那一行后面的型号与工作量不抄），一跑都没有写「没有」；比它早的不足 5 跑写 `无从确认：前面不足 5 次`；
+  最后一行是工作量。交进去的文件形状不对，入口以 2 退出、说哪一跑哪一样不对，不打别的 —— 回头重取，不手算。
+- **口径**（脚本照这个算）：时长 = `run_started_at → updated_at`；「前 5 次」= 创建时间比它早的 5 次同类成功跑，排序后第 3 个是中位；
   比值 = 时长 ÷ 中位，四舍五入到两位小数以后再跟 1.30 比。
   这是 CI 上那一行墙钟对比算「主干前 5 次中位」用的口径；那一行的「本跑」只算到它那一步为止、跑时也看不见还没跑完的主干跑，
   所以这里事后算出的倍数与那一行打出来的可能差一点（ADR-151 第七节第一条）。
-- **端点**也与 CI 上那一步相同：
-  `GET /repos/c01dsummer/kol-outreach-skill/actions/workflows/check.yml/runs?branch=main&event=push&status=success&per_page=100&created=%3C<窗口终点，UTC>`。
-  返回按创建时间从新到旧排，窗口里的每一跑在列表里往后数 5 个，就是它的「前 5 次」；不够就再取 `&page=2`。
-- **写什么**：窗口里一共几跑；比值 ≥ 1.30 的，按创建时间从新到旧，每一跑写 run id、提交前 7 位、时长、中位（`分:秒`）、比值（`×1.84`），这几样的写法同 CI 上那一行（那一行后面的型号与工作量不抄），一跑都没有就写「没有」；
-  前面不足 5 次的写 `无从确认：前面不足 5 次`；接口取不到就整段写 `无从确认：<原因>`。
-- **工作量**：同一个窗口再写一行 `工作量：变异 <N> 条（比窗口前 <±d>） · 摊到每条的秒数中位 <X>（<k> 跑）`。
+- **工作量**那一行：`工作量：变异 <N> 条（比窗口前 <±d>） · 摊到每条的秒数中位 <X>（<k> 跑）`。
   滚动的中位跟着代码一起长，变异条数一周周涨上去，比值里也看不出来；这一行把「量涨了」与「摊到每条上的秒数变了」分开报，后者也随变异以外各步与机器快慢变。
-  - N：窗口里创建时间最晚的那一跑，它的 `head_sha` 上的变异条数：`git show <head_sha>:scripts/check/mutations.json | jq -er '.mutations | arrays | length'`（`mutations` 不是数组时什么都不打，算取不到）。CI 上那一行的「变异 N 条」是同一个数，取法也一样。
-  - ±d：窗口起点之前主干上最后一次成功跑（上面那个端点，`created=%3C` 后面换成窗口起点的 UTC 时刻，`per_page=1`），照样取它 `head_sha` 上的条数，N 减去它，带正负号写（如 `+405`、`-3`），差 0 写 `±0`。
-    例程恰好隔 7 天跑时，这一跑就是上一个窗口里最晚的那一跑。
-  - X：窗口里每一跑的时长（上面的口径）÷ 它 `head_sha` 上的条数，排序取中位（偶数跑取中间两个的平均），保留两位小数；k 是进了中位的跑数。
-    CI 上那一行的「摊到每条」用的是「本跑」，只算到那一步为止，与这里差末尾几秒（上面「口径」那条）。
-  - 某一跑的 `head_sha` 上取不到条数（比如那个提交被强推掉了）或条数为 0，它不进中位，k 照实写，后面接一句少了几跑；一跑都不剩时 X 写 `无从确认：<原因>`；N 取不到时 N 与 ±d 都写 `无从确认：<原因>`；N 取得到、窗口前那一跑的条数取不到时，只有 ±d 写 `无从确认：<原因>`；
-    窗口里一跑都没有，这一行写 `工作量：没有`。接口取不到时跟着上面整段写 `无从确认：<原因>`。
+  - N：窗口里创建时间最晚的那一跑，它的 `head_sha` 上 `scripts/check/mutations.json` 里 `mutations` 的条数（不是数组算取不到；从本地 git 取）。CI 上那一行的「变异 N 条」是同一个数。
+  - ±d：交进去的跑里窗口起点之前最晚的那一跑，照样取它 `head_sha` 上的条数，N 减去它，带正负号，差 0 写 `±0`。例程恰好隔 7 天跑时，这一跑就是上一个窗口里最晚的那一跑。
+  - X：窗口里每一跑的时长 ÷ 它 `head_sha` 上的条数，排序取中位（偶数跑取中间两个的平均），保留两位小数；k 是进了中位的跑数。
+    某一跑的提交上取不到条数（比如被强推掉了）或条数为 0，不进中位，后面接一句少了几跑；哪一样取不到就那一样写 `无从确认：<原因>`；窗口里一跑都没有写 `工作量：没有`。
 - 只报数，不判是劣化还是机器快慢（ADR-151 第四节第 3 条）。
 
 ### (d) 被引表前十：只进 PR 正文
 
-- 两份被引表各取 `docs/adr/` 开头的前 10 行（`grep -m 10 '^docs/adr/' "$tmp/旧被引表"`，新的一样），写进了前十的与掉出前十的
-  （编号，与两边的被引次数「一周前 → 本跑」；一周前还没有这条记录的，左边写「没有这条」），再抄两边末尾那一行汇总。
+```bash
+day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day
+"$PWD/node_modules/.bin/tsx" scripts/check/revisit-raw.ts --top --dir "$tmp"
+```
+
+- 打四行，原样抄：进了前十的、掉出前十的（编号，与两边的被引次数「一周前 → 本跑」；那一边还没有这条记录的写「没有这条」；一条都没有写「没有」），
+  再是两边末尾那一行汇总。前十 = 两份被引表各取 `docs/adr/` 开头的前 10 行，按记录编号比。
 - 开头那道门打的是「原料不齐」，整段写 `无从确认：<原因>`。
 - 只报数，不判哪几条是同一类（ADR-151 第四节第 1 条）。
 
@@ -202,17 +200,31 @@ for f in 新台账 旧台账 新被引表 旧被引表; do tail -n 1 "$tmp/$f" 2
 每周一北京时间 04:00，GitHub 上 `never-red` 那个工作流（`.github/workflows/never-red.yml`，ADR-240）把全部变异关掉「见齐就停」整跑一遍，
 列出从没被任何变异弄红过的有名字的断言。这一段只抄它的数，清单本身不抄。
 
-- **哪一跑**：`GET /repos/c01dsummer/kol-outreach-skill/actions/workflows/never-red.yml/runs?branch=main&status=completed&per_page=10`（只列跑完了的），
-  取创建时间在 `<日期>` 往前 7 天那天 00:00（含）到 `<日期>` 当天例程开跑之间（北京时间）最晚的那一跑，叫「本周那一跑」；它之前的那一跑叫「上一跑」。
-  这一页里找不齐两跑就加 `&page=2`、`&page=3` 往后翻，翻到某一页一条都没有还没找到的，那一跑写 `无从确认：<原因>`。
-- **读什么**：那一跑「清单」那个 job 的日志（手头的 GitHub 工具读 job 日志，或 `GET /repos/c01dsummer/kol-outreach-skill/actions/jobs/<job id>/logs`），
-  找以 `NEVER_RED_JSON ` 开头的那一行，后面是一段 JSON。上一跑照样读。
-- **写什么**：本周那一跑的 run id 与它验的提交前 7 位（JSON 的 `head`）；`earlyStop` 是 `false` 才照抄，是 `true` 写 `无从确认：那一跑没关提前停`；
-  两个验证者（`test`、`selfcheck`）各一行：`<验证者>：清册 <catalog> 条，从没红过 <neverRed> 条（没有负片跑到 <notReached> 条）`，
-  后面接「比上一跑 <±d>」（从没红过那个数相减，带正负号，差 0 写 `±0`；上一跑读不到写 `比上一跑：无从确认：<原因>`）。
-  那一跑的「不提前停的整跑」几份 job 里有红的，再接一行 `整跑有变异没被抓到：第 <k> 份`（几份就列几份），
-  它们说明那一周有变异跑到底以后改判了，清单照样算数。
-- 窗口里没有跑完的一跑、读不到日志、或日志里没有那一行，整段写 `无从确认：<原因>`。
+1. **挑哪一跑**：取 `GET /repos/c01dsummer/kol-outreach-skill/actions/workflows/never-red.yml/runs?branch=main&status=completed&per_page=10`（只列跑完了的），
+   原样存成 `$tmp/e-runs.json`（取了几页就存成数组），再：
+
+   ```bash
+   day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day
+   "$PWD/node_modules/.bin/tsx" scripts/check/revisit-raw.ts --never-red-pick --today "$day" --runs "$tmp/e-runs.json"
+   ```
+
+   打 `本周那一跑 <run id> · 上一跑 <run id>`。本周那一跑 = 创建在 `<日期>` 往前 7 天那天 00:00（含，北京时间）到这一刻之间最晚的一跑；上一跑 = 比它早的最晚一跑。
+   后面括号里说「接口还有下一页就再取」的，加 `&page=2` 再取、一起存，重跑这一条；翻到一条都没有还找不到，那一跑写无从确认。
+2. **取日志**：本周那一跑的 jobs（`GET /repos/c01dsummer/kol-outreach-skill/actions/runs/<run id>/jobs`）原样存成 `$tmp/e-jobs.json`；
+   两跑各自「清单」那个 job 的日志（手头的 GitHub 工具读 job 日志，或 `GET /repos/c01dsummer/kol-outreach-skill/actions/jobs/<job id>/logs`）存成 `$tmp/e-this.log`、`$tmp/e-prev.log`。
+   上一跑的日志读不到就不存。
+3. **算**：
+
+   ```bash
+   day=<日期>; tmp=${TMPDIR:-/tmp}/revisit-$day; id=<本周那一跑的 run id>
+   prev=(); [ -f "$tmp/e-prev.log" ] && prev=(--prev-log "$tmp/e-prev.log")
+   "$PWD/node_modules/.bin/tsx" scripts/check/revisit-raw.ts --never-red --run-id "$id" --log "$tmp/e-this.log" --jobs "$tmp/e-jobs.json" "${prev[@]}"
+   ```
+
+   打出来的原样抄：本周那一跑的 run id 与它验的提交前 7 位；两个验证者各一行 `<验证者>：清册 <N> 条，从没红过 <N> 条（没有负片跑到 <N> 条），比上一跑 <±d>`；
+   那一跑没关提前停（`earlyStop` 是 true）整段写无从确认；整跑那几份 job 有红的，再接一行 `整跑有变异没被抓到：第 <k> 份` ——
+   它们说明那一周有变异跑到底以后改判了，清单照样算数。日志里找的是 `never-red.ts` 打的 `NEVER_RED_JSON` 那一行（每行前面 GitHub 加的时刻不算）。
+- 窗口里没有跑完的一跑、读不到日志、或日志里没有那一行，整段写 `无从确认：<原因>`。交进去的文件形状不对，入口以 2 退出、不打别的。
 - 只报数，不判哪几条该删、该补（ADR-240）。
 
 ### 第一块与第二块

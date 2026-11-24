@@ -66,6 +66,7 @@ const EXEMPT: Record<string, string> = {
   // 生词提示同一类：只提醒、恒以 0 退出，CI 单列一步；真起由需求测试组 `h-jargon-entry` 在玩具仓库上做（ADR-237）
   'scripts/check/jargon.ts': '生词提示入口：需求测试组 h-jargon-entry 在玩具仓库上真起',
   'scripts/check/revisit-due.ts': '周回访到期清单、死亡条件轮换与只起草一条的入口：需求测试组 h-revisit-entry 在玩具仓库上真起 --list、--deaths 与 --born',
+  'scripts/check/revisit-raw.ts': '周回访取原料与 (a)、(d)、(e) 三段的入口：需求测试组 h-revisit-raw-entry 在玩具仓库上真起 --gather、--top、--slow、--never-red-pick 与 --never-red',
   // 增强结果格式说明的命令行入口不在检查链里：它只比对、回写一个文件，判定由需求测试调同一个生成函数做
   'scripts/check/enrichment-schema.ts': '增强结果格式说明的生成与回写入口（npm run enrichment-schema）：只读写一个文件；判定「入库那份与按类型现生成的逐字相同」由需求测试组 d21w-enrichment-schema 调同一个生成函数守（ADR-232）',
   // 要这条 PR 的评审意见与只读令牌，只在 GitHub 的工作流里跑；判定都在 same-spot-rule.ts，由需求测试组守。
