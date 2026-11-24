@@ -26143,7 +26143,7 @@ await group('h-revisit-raw', () => {
     slowRuns(runsA, '2026-11-23', count), ['窗口里 3 跑', '比值 ≥ 1.30 的：', `- run 6 · 6666666 · 本跑 23:49 · 主干前 5 次中位 18:20 · ×1.30`,
       '工作量：变异 3000 条（比窗口前 +200） · 摊到每条的秒数中位 0.41（2 跑，少了 1 跑：提交上取不到条数或条数为 0）'])
   eq('偏慢：比它早的不足 5 跑，交进来的比接口说的少就多打一行叫再取一页，一样多就不打',
-    [slowRuns(runsA.slice(0, -1), '2026-11-23', count, 9)[3], slowRuns(runsA.slice(0, -1), '2026-11-23', count, 8)[3].startsWith('工作量'), slowRuns(runsA, '2026-11-23', count, 99)[3].startsWith('工作量')],
+    [slowRuns(runsA.slice(0, -1), '2026-11-23', count, 9)[3], slowRuns(runsA.slice(0, -1), '2026-11-23', count, 8)[3]?.startsWith('工作量'), slowRuns(runsA, '2026-11-23', count, 99)[3]?.startsWith('工作量')],
     ['前面不足 5 次的可能是没取够：交进来 8 跑，接口说一共 9 跑，再取下一页', true, true])
   eq('偏慢：取得到条数的跑是奇数个，中位取正中那个；前 5 次的中位是 0 秒写无从确认',
     [slowRuns(runsA, '2026-11-23', s => s === String(6).repeat(40) ? 1000 : count(s)).at(-1),
