@@ -35811,6 +35811,18 @@
         "专属临时目录：tsx 编译缓存的名字是 tsx- 接用户号",
         "专属临时目录：没有用户号时接用户名"
       ]
+    },
+    {
+      "id": "M-H243-f",
+      "req": "harness",
+      "why": "给验证者换临时目录时把变异一步自己的环境也改了，之后起的验证者与自己建的临时文件都落进上一份专属目录",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return Object.assign(env, { TMPDIR: dir, TMP: dir, TEMP: dir })",
+      "by": "test",
+      "kills": [
+        "专属临时目录：不改交进来的那份环境"
+      ]
     }
   ],
   "exemptions": [

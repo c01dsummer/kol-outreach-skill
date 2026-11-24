@@ -8263,7 +8263,8 @@ group('stop-if-seen', [], () => {
      '}',
      `appendFileSync(${JSON.stringify(leftLog)}, mkdtempSync(join(tmpdir(), 'kol-stop-left-')) + '\\n')`,
      // 专属临时目录里那个 tsx 缓存的名字，解开以后应当是共用的那一份
-     `try { appendFileSync(${JSON.stringify(cacheLog)}, realpathSync(join(tmpdir(), ${JSON.stringify(tsxName)})) + '\\n') } catch { appendFileSync(${JSON.stringify(cacheLog)}, '没有\\n') }`,
+     // 记两样：它看到的临时目录（应当不是系统那一个）、那个名字解开后的真实路径；只记后一样的话，没给专属目录时也对得上
+     `try { appendFileSync(${JSON.stringify(cacheLog)}, realpathSync(tmpdir()) + '\\t' + realpathSync(join(tmpdir(), ${JSON.stringify(tsxName)})) + '\\n') } catch { appendFileSync(${JSON.stringify(cacheLog)}, realpathSync(tmpdir()) + '\\t没有\\n') }`,
      'let said = false',
      "const say = (): void => { if (!said) { said = true; endPath('甲', []) } }",
      `const kid = spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { stdio: 'ignore' })`,
@@ -8296,7 +8297,10 @@ group('stop-if-seen', [], () => {
   else named('见齐就停：被叫停的验证者建的临时目录，mutate 收尾后一个都不在了', left.every(d => !existsSync(d)),
     `还在的：${left.filter(d => existsSync(d)).join('、')}`)
   const caches = existsSync(cacheLog) ? readFileSync(cacheLog, 'utf8').split('\n').filter(l => l !== '') : []
-  named('见齐就停：验证者看到的 tsx 编译缓存是共用的那一份', caches.length > 0 && caches.every(c => c === realpathSync(sharedCache)), `看到的：${caches.join('、')}`)
+  // 两条合起来才说得清：验证者在专属目录里（不是系统那一个），而它在那里找到的缓存解开后是共用那份 —— 所以下一条「共用那份里的东西还在」是删过链接之后的
+  named('见齐就停：验证者看到的 tsx 编译缓存是共用的那一份', caches.length > 0
+    && caches.every(c => { const [seen, cache] = c.split('\t'); return seen !== realpathSync(tmpdir()) && cache === realpathSync(sharedCache) }),
+    `看到的（临时目录 → 缓存）：${caches.map(c => c.replace('\t', ' → ')).join('、')}`)
   named('见齐就停：删专属临时目录没删到共用的 tsx 编译缓存', existsSync(sentinel), `${sentinel} 不在了`)
   rmSync(sentinel, { force: true })
   // 负 pid 是 POSIX 的进程组语义；Windows 上 `detached` 给的是一个控制台窗口，那一刀落空（`mutate.ts` 头上记着），这里不判
