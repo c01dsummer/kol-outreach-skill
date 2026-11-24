@@ -18,12 +18,14 @@ import { addDays, adrId } from './revisit-rule.js'
 /** 取原料要问 git 的四件事。答不上来给 undefined */
 export interface RawGit {
   /** `rev` 第一亲代链上提交时间早于 `before` 的最后一个提交 */
+  // 字段不入断言：问 git 的口子，取原料那几例经它真问玩具仓库、按全文比结果
   lastBefore(rev: string, before: string): string | undefined
   /** `rev` 上 `docs/adr/` 下全部 `.md`（含子目录），键是仓库里的路径 */
   adrTree(rev: string): Map<string, string> | undefined
   /** 工作区（含暂存区）里 `docs/adr/` 与 `rev` 不同的路径 */
   adrDrift(rev: string): string[] | undefined
   /** `rev:path` 的全文 */
+  // 字段不入断言：问 git 的口子，条数那一例经它真问玩具仓库
   show(rev: string, path: string): string | undefined
 }
 
@@ -80,12 +82,22 @@ export function ledgerDiff(from: string, to: string): string[] {
   return out
 }
 
+/** 取原料写下的六份全文 */
+export interface RawFiles {
+  新台账: string // 字段不入断言：取原料那一例核末尾汇总那一行
+  旧台账: string // 字段不入断言：同上
+  新被引表: string // 字段不入断言：同上
+  旧被引表: string // 字段不入断言：同上
+  新增: string // 字段不入断言：取原料那一例按行核；M-H245-a、b、c 改的是求差
+  消失: string // 字段不入断言：同上
+}
+
 /** 取原料的结果：几份文件的全文、齐没齐、一周前那棵树 */
 export interface Raw {
-  files: { 新台账: string; 旧台账: string; 新被引表: string; 旧被引表: string; 新增: string; 消失: string }
+  files: RawFiles // 字段不入断言：六份由取原料那几例逐份核，入口那一例核写出的文件名
   /** 不齐的原因，齐了是空的 */
-  faults: string[]
-  old?: string
+  faults: string[] // 字段不入断言：取原料那几例按全文比；M-H245-e、f 改的是往里放的那两处
+  old?: string // 字段不入断言：取原料那一例按提交号全文比；M-H245-d 改的是取它的那一问
 }
 
 const SUMMARY = /^ {2}(欠条台账|被引表) [0-9]+ 条/
@@ -156,7 +168,22 @@ export function topTen(oldCites: string, newCites: string): string[] {
 }
 
 /** 接口交回的一跑里用得上的几样 */
-export interface ApiRun { id: number; head_sha: string; created_at: string; run_started_at: string; updated_at: string }
+export interface ApiRun {
+  id: number // 字段不入断言：接口原样的字段，不是算出来的；核形状那几例逐样钉住缺哪样、哪样不对
+  head_sha: string // 字段不入断言：同上
+  created_at: string // 字段不入断言：同上
+  run_started_at: string // 字段不入断言：同上
+  updated_at: string // 字段不入断言：同上
+}
+
+/** 读接口返回的结果：核过形状的跑（从新到旧），或不收的原因 */
+export type RunsRead =
+  | {
+    runs: ApiRun[] // 字段不入断言：读接口返回那一例按 id 全文比；M-H245-o、p 改的是去重与排序
+  }
+  | {
+    fault: string // 字段不入断言：核形状那一例五种情形按全文比
+  }
 
 const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x)
 
@@ -164,7 +191,7 @@ const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'obj
  * 读例程存下来的接口返回：一页（`{ workflow_runs: [...] }`）、几页排成的数组、或直接一组跑都认。
  * 整份先核形状：每一跑那几样都得在、类型对、时刻读得出，有一跑不对就整份不收，交回第几跑哪一样不对。
  */
-export function parseRuns(text: string): { runs: ApiRun[] } | { fault: string } {
+export function parseRuns(text: string): RunsRead {
   let data: unknown
   try { data = JSON.parse(text) } catch (e) { return { fault: `不是 JSON：${(e as Error).message}` } }
   const pages = Array.isArray(data) && data.every(isObject) && data.every(p => 'workflow_runs' in p) ? data : [data]
@@ -261,7 +288,13 @@ function workload(runs: readonly ApiRun[], window: readonly ApiRun[], start: num
  * (e) 挑「本周那一跑」与「上一跑」：`runs` 是 `never-red.yml` 在主干上跑完了的（从新到旧）。
  * 本周那一跑是创建在 `<日期>` 往前 7 天那天 00:00（含，北京时间）到 `now` 之间最晚的一跑；上一跑是比它早的最晚一跑。
  */
-export function pickNeverRed(runs: readonly ApiRun[], day: string, now: number): { this?: ApiRun; prev?: ApiRun; fault?: string } {
+export interface NeverRedPick {
+  this?: ApiRun // 字段不入断言：挑跑那一例三种情形按全文比；M-H245-ab 改的是挑法
+  prev?: ApiRun // 字段不入断言：同上
+  fault?: string // 字段不入断言：同上
+}
+
+export function pickNeverRed(runs: readonly ApiRun[], day: string, now: number): NeverRedPick {
   const start = beijingMidnight(addDays(day, -7))
   const at = (r: ApiRun) => Date.parse(r.created_at)
   const mine = runs.find(r => at(r) >= start && at(r) <= now)
@@ -271,10 +304,28 @@ export function pickNeverRed(runs: readonly ApiRun[], day: string, now: number):
 }
 
 /** 日志里那一行：`never-red.ts` 打的 `NEVER_RED_JSON <JSON>`，GitHub 的日志每行前面带一个时刻 */
-interface NeverRed { head: string; earlyStop: boolean; verifiers: Record<string, { catalog: number; notReached: number; neverRed: number }> }
+export interface NeverRed {
+  head: string // 字段不入断言：日志里那一行原样的数，读日志与打行那几例按全文比
+  earlyStop: boolean // 字段不入断言：同上；M-H245-af 改的是读到以后怎么办
+  verifiers: Record<string, NeverRedCounts> // 字段不入断言：同上
+}
+/** 一个验证者的三个数 */
+export interface NeverRedCounts {
+  catalog: number // 字段不入断言：日志里那一行原样的数，打行那一例按全文比
+  notReached: number // 字段不入断言：同上
+  neverRed: number // 字段不入断言：同上；M-H245-ah 改的是相减以后的正负号
+}
+/** 读日志的结果：那一行，或不收的原因 */
+export type NeverRedRead =
+  | {
+    data: NeverRed // 字段不入断言：读日志那一例按全文比
+  }
+  | {
+    fault: string // 字段不入断言：读日志那一例七种情形按全文比
+  }
 
 /** 从一份 job 日志里读出 `NEVER_RED_JSON` 那一行。没有、不止一行、形状不对都交回为什么 */
-export function readNeverRed(log: string): { data: NeverRed } | { fault: string } {
+export function readNeverRed(log: string): NeverRedRead {
   const hits = log.split('\n').map(l => l.replace(/\r$/, '').replace(/^\S*Z /, '')).filter(l => l.startsWith('NEVER_RED_JSON '))
   if (hits.length === 0) return { fault: '日志里没有 NEVER_RED_JSON 那一行' }
   if (hits.length > 1) return { fault: `日志里 NEVER_RED_JSON 有 ${hits.length} 行` }
@@ -291,10 +342,21 @@ export function readNeverRed(log: string): { data: NeverRed } | { fault: string 
 }
 
 /** 整跑那几份 job 的名字（`never-red.yml` 里 `不提前停的整跑（第 k/3 份）`）与结论 */
-export interface ApiJob { name: string; conclusion: string | null }
+export interface ApiJob {
+  name: string // 字段不入断言：接口原样的字段；jobs 那一例核形状，打行那一例按名字与结论挑红的份
+  conclusion: string | null // 字段不入断言：同上
+}
+/** 读 jobs 接口返回的结果 */
+export type JobsRead =
+  | {
+    jobs: ApiJob[] // 字段不入断言：jobs 那一例按条数比，打行那一例用它
+  }
+  | {
+    fault: string // 字段不入断言：jobs 那一例四种情形按全文比
+  }
 
 /** 读例程存下来的 `/actions/runs/<id>/jobs` 返回（一页，带 `jobs`），整份先核形状 */
-export function parseJobs(text: string): { jobs: ApiJob[] } | { fault: string } {
+export function parseJobs(text: string): JobsRead {
   let d: unknown
   try { d = JSON.parse(text) } catch (e) { return { fault: `不是 JSON：${(e as Error).message}` } }
   if (!isObject(d) || !Array.isArray(d.jobs)) return { fault: '不是一页 jobs 接口返回（带 jobs）' }
@@ -308,7 +370,7 @@ export function parseJobs(text: string): { jobs: ApiJob[] } | { fault: string } 
  * (e) 从没红过的断言：本周那一跑的 run id 与它验的提交；`earlyStop` 是 true 就整段无从确认；
  * 每个验证者一行清册、从没红过、没有负片跑到，接「比上一跑」；整跑那几份 job 有红的（结论 failure），列出第几份。
  */
-export function neverRedLines(runId: number, mine: { data: NeverRed } | { fault: string }, prev: { data: NeverRed } | { fault: string }, jobs: readonly ApiJob[]): string[] {
+export function neverRedLines(runId: number, mine: NeverRedRead, prev: NeverRedRead, jobs: readonly ApiJob[]): string[] {
   if ('fault' in mine) return [`无从确认：${mine.fault}`]
   const d = mine.data
   if (d.earlyStop) return [`run ${runId} · ${d.head.slice(0, 7)} · 无从确认：那一跑没关提前停`]
