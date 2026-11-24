@@ -546,8 +546,8 @@ const verifierEnv = (verifier: Verifier, cwd: string | undefined, countLog: stri
 const ownDirs = new Set<string>()
 /** 删一份专属临时目录：链接只删链接本身，共用的编译缓存不动。删不掉（验证者那边又自成一组的子进程还在往里写）不影响结论，那一次留着 */
 const dropOwnDir = (own: string): void => {
-  ownDirs.delete(own)
-  try { rmSync(own, { recursive: true, force: true, maxRetries: 3 }) } catch { /* 留着 */ }
+  // 删成了才从登记里拿掉：这一次删不掉的，退出时那一道再试一次
+  try { rmSync(own, { recursive: true, force: true, maxRetries: 3 }); ownDirs.delete(own) } catch { /* 留着，退出时再试 */ }
 }
 process.on('exit', () => { for (const own of [...ownDirs]) dropOwnDir(own) })
 /**

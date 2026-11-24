@@ -8250,13 +8250,15 @@ group('stop-if-seen', [], () => {
   const leftLog = join(tmp, 'stop-on-kills-left'), cacheLog = join(tmp, 'stop-on-kills-cache')
   // tsx 的编译缓存按「临时目录/tsx-<用户号>」找；专属目录里那个名字要指回共用的那一份，删专属目录时共用那份里的东西还在
   const tsxName = `tsx-${typeof process.geteuid === 'function' ? process.geteuid() : userInfo().username}`
-  const sharedCache = join(tmpdir(), tsxName), sentinel = join(sharedCache, `kol-stop-sentinel-${process.pid}`)
+  const sharedCache = join(tmpdir(), tsxName)
   mkdirSync(sharedCache, { recursive: true })
-  // 共用缓存在系统临时目录里：它要是一个链接、或不是本用户的，往里写就可能写到别人摆好的地方 —— 不写，这一跑说夹具没造对
-  const cacheStat = lstatSync(sharedCache)
-  if (cacheStat.isSymbolicLink() || (typeof process.geteuid === 'function' && cacheStat.uid !== process.geteuid())) {
-    failed++; console.error(`  ✗ 见齐就停${SELFCHECK_FIXTURE_MARK}：共用的 tsx 编译缓存 ${sharedCache} 是链接或不归本用户，不往里写`); return
+  // 自检本身在变异一步里当验证者跑时，这个名字是变异一步摆的链接、指回共用那份：按解开后的真实目录判、往那里写。
+  // 真实目录不是目录、或不归本用户，往里写就可能写到别人摆好的地方 —— 不写，这一跑说夹具没造对
+  const realCache = realpathSync(sharedCache), cacheStat = lstatSync(realCache)
+  if (!cacheStat.isDirectory() || (typeof process.geteuid === 'function' && cacheStat.uid !== process.geteuid())) {
+    failed++; console.error(`  ✗ 见齐就停${SELFCHECK_FIXTURE_MARK}：共用的 tsx 编译缓存 ${realCache} 不是目录或不归本用户，不往里写`); return
   }
+  const sentinel = join(realCache, `kol-stop-sentinel-${process.pid}`)
   // 只新建（wx）：同名的已经在（含指向别处的链接）就当场报错，不覆盖
   writeFileSync(sentinel, 'x', { flag: 'wx' })
   const childCode = `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(childStarted)}, String(Date.now()));`
