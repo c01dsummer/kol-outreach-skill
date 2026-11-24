@@ -26044,6 +26044,11 @@ await group('h-revisit-entry', () => {
     [early.status, early.stdout, list.status, list.stdout, files()],
     [0, '到期 0 张、列过没判 0 张、取不到登记日 0 张；这次列 0 张（最多 10 张）\n已重挂行里认不出现行那张的 0 行：它们的接手者按自己的登记日算\n',
       0, '到期 2 张、列过没判 0 张、取不到登记日 0 张；这次列 2 张（最多 10 张）\n2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8「丙(丁).*」\n已重挂行里认不出现行那张的 0 行：它们的接手者按自己的登记日算\n', before])
+  // 回访台账的旧块挪进了历史文件：历史文件里判过的照样算，3 月 10 日判了「留」的 ADR-8 那张四周内不再列
+  put('docs/adr/历史/ADR-152-候选.md', '| 2026-03-10#1 | ADR-8「丙(丁).*」 | 句 | 值 | 留 |\n')
+  const rotated = entry(['--list', '--today', '2026-03-31', '--run', 'HEAD'], '')
+  eq('入口 --list：回访台账历史文件里的人判也读', [rotated.status, rotated.stdout],
+    [0, '到期 1 张、列过没判 0 张、取不到登记日 0 张；这次列 1 张（最多 10 张）\n2026-01-02 ADR-9 第 3 行\n已重挂行里认不出现行那张的 0 行：它们的接手者按自己的登记日算\n'])
   rmSync(repo, { recursive: true, force: true })
 })
 await group('h-iou-file-reminder-entry', () => {
