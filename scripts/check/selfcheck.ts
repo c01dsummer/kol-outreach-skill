@@ -35,7 +35,7 @@ import { spawn, spawnSync } from './start-process.js'
 import { fixtureGit, fixtureGitOrThrow } from './git-fixture.js'
 import { askGit } from './git-entry.js'
 import { noteSpawns } from './selfcheck-spawn-notes.js'
-import { availableParallelism, tmpdir } from 'node:os'
+import { availableParallelism, tmpdir, userInfo } from 'node:os'
 import { createRequire } from 'node:module'
 import { createRequire as entrySelfcheckCreateRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path'
@@ -8235,6 +8235,13 @@ group('stop-if-seen', [], () => {
   const stopTmp = join(tmp, 'stop-on-kills')
   const childStarted = join(tmp, 'stop-on-kills-child-started'), childLate = join(tmp, 'stop-on-kills-child-late')
   const childLateMs = 3000
+  // 假验证者每一跑在它看到的临时目录里建一个目录、把路径记下来；mutate 收尾后一个都不该还在（ADR-243：被叫停的也要收）
+  const leftLog = join(tmp, 'stop-on-kills-left'), cacheLog = join(tmp, 'stop-on-kills-cache')
+  // tsx 的编译缓存按「临时目录/tsx-<用户号>」找；专属目录里那个名字要指回共用的那一份，删专属目录时共用那份里的东西还在
+  const tsxName = `tsx-${typeof process.geteuid === 'function' ? process.geteuid() : userInfo().username}`
+  const sharedCache = join(tmpdir(), tsxName), sentinel = join(sharedCache, `kol-stop-sentinel-${process.pid}`)
+  mkdirSync(sharedCache, { recursive: true })
+  writeFileSync(sentinel, 'x')
   const childCode = `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(childStarted)}, String(Date.now()));`
     + ` setTimeout(() => fs.writeFileSync(${JSON.stringify(childLate)}, 'alive'), ${childLateMs})`
   mkdirSync(join(stopTmp, 'scripts', 'check'), { recursive: true })
@@ -8248,10 +8255,15 @@ group('stop-if-seen', [], () => {
   // 那一行只有一处调用：清册按名字认，同名的两处会被当成重名拦在开跑之前
   writeFileSync(join(stopTmp, 'scripts', 'check', 'selfcheck.ts'),
     ["import { spawn } from 'node:child_process'",
-     "import { existsSync } from 'node:fs'",
+     "import { appendFileSync, existsSync, mkdtempSync, realpathSync } from 'node:fs'",
+     "import { tmpdir } from 'node:os'",
+     "import { join } from 'node:path'",
      'const endPath = (label: string, _rest: unknown[]): void => {',
      '  console.error(`  ✗ ${label}`)',
      '}',
+     `appendFileSync(${JSON.stringify(leftLog)}, mkdtempSync(join(tmpdir(), 'kol-stop-left-')) + '\\n')`,
+     // 专属临时目录里那个 tsx 缓存的名字，解开以后应当是共用的那一份
+     `try { appendFileSync(${JSON.stringify(cacheLog)}, realpathSync(join(tmpdir(), ${JSON.stringify(tsxName)})) + '\\n') } catch { appendFileSync(${JSON.stringify(cacheLog)}, '没有\\n') }`,
      'let said = false',
      "const say = (): void => { if (!said) { said = true; endPath('甲', []) } }",
      `const kid = spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { stdio: 'ignore' })`,
@@ -8279,6 +8291,14 @@ group('stop-if-seen', [], () => {
                   + `报的不是「被抓到」：\n${stopOut.split('\n').filter(l => l.includes('M-X-i')).join('\n')}`)
   } else console.log('  ✓ 见齐就停：验证者没结束，那条变异照样判「被抓到」')
   if (stopOut === undefined) return
+  const left = existsSync(leftLog) ? readFileSync(leftLog, 'utf8').split('\n').filter(l => l !== '') : []
+  if (left.length === 0) { failed++; console.error(`  ✗ 见齐就停收临时目录${SELFCHECK_FIXTURE_MARK}：假验证者一次都没记下它建的临时目录 —— 夹具没造对`) }
+  else named('见齐就停：被叫停的验证者建的临时目录，mutate 收尾后一个都不在了', left.every(d => !existsSync(d)),
+    `还在的：${left.filter(d => existsSync(d)).join('、')}`)
+  const caches = existsSync(cacheLog) ? readFileSync(cacheLog, 'utf8').split('\n').filter(l => l !== '') : []
+  named('见齐就停：验证者看到的 tsx 编译缓存是共用的那一份', caches.length > 0 && caches.every(c => c === realpathSync(sharedCache)), `看到的：${caches.join('、')}`)
+  named('见齐就停：删专属临时目录没删到共用的 tsx 编译缓存', existsSync(sentinel), `${sentinel} 不在了`)
+  rmSync(sentinel, { force: true })
   // 负 pid 是 POSIX 的进程组语义；Windows 上 `detached` 给的是一个控制台窗口，那一刀落空（`mutate.ts` 头上记着），这里不判
   if (process.platform === 'win32') { console.log('  ⊘ 见齐就停杀整组：Windows 上没有进程组，这里没验'); return }
   // 文件在、内容还没写进去时读成空串，`Number('')` 是 0：也当孩子没起来

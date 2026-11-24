@@ -31,7 +31,7 @@ import { prepareTaskReviews } from './lib/task-reviews.js'
 import { configurationKey, costObservation, configurationCost, configurationCostLines, type CostInput, type CostIdentity, type CostRoute, type CostBaseline, type CostMutation, type CostSummary } from './check/jobs-rule.js'
 import { REDS_PART_NAME, type RedsPart, creditedReds, earlyStopWanted, mergeParts, neverRed, ranAssertions, readRedsPart, redsPartName } from './check/never-red-rule.js'
 import type { RunVerdict } from './check/mutate-rule.js'
-import { stopsEarly } from './check/mutate-rule.js'
+import { ownTmpEnv, stopsEarly, tsxCacheName } from './check/mutate-rule.js'
 import {
   LAUNCH_LIMIT, LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, joinLaunchParts, launchPartFile, LAUNCH_SUMMARY_SCHEMA, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport,
   launchSummary, launchTally, paidLaunches, printLabel, settleLaunches, summaryLine, tallyLine,
@@ -9806,6 +9806,15 @@ await group('h-claims-restore', () => {
 
 await group('h-mutate', () => {
 // 预期来自独立 oracle；宿主控制和断言不以被测判定给自己打分。
+harness('验证者的专属临时目录：三个临时目录变量都指过去，tsx 编译缓存的名字照 tsx 的取法（ADR-243）')
+{
+  const before = { PATH: '/bin', TMPDIR: '/tmp', KEEP: 'k' }
+  eq('专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样', ownTmpEnv(before, '/x/own'),
+    { PATH: '/bin', TMPDIR: '/x/own', KEEP: 'k', TMP: '/x/own', TEMP: '/x/own' })
+  eq('专属临时目录：不改交进来的那份环境', before, { PATH: '/bin', TMPDIR: '/tmp', KEEP: 'k' })
+  eq('专属临时目录：tsx 编译缓存的名字是 tsx- 接用户号', tsxCacheName(1000), 'tsx-1000')
+  eq('专属临时目录：没有用户号时接用户名', tsxCacheName('ci'), 'tsx-ci')
+}
 harness('开跑前三道体检的先后：接线 → 自己验自己 → 点的夹具，见了第一道毛病就不再往下问（ADR-238）')
 {
   // 每一道记下自己被问过没有；第三道在前面有毛病时被问到就抛 —— 入口里它拿到不认得的验证者正是这样

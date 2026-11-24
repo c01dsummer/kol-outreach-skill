@@ -35750,6 +35750,67 @@
         "清单：选了那一组却跑不起来的负片不算跑到过它",
         "清单：整跑却跑不起来的负片也不算跑到过谁"
       ]
+    },
+    {
+      "id": "M-H243-a",
+      "req": "harness",
+      "why": "验证者建的临时文件不落在专属临时目录里，被叫停时留在系统临时目录没人收",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return { ...env, TMP: dir, TEMP: dir }",
+      "by": "test",
+      "kills": [
+        "专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样"
+      ]
+    },
+    {
+      "id": "M-H243-b",
+      "req": "harness",
+      "why": "只认 TMP 的程序建的临时文件不落在专属临时目录里",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return { ...env, TMPDIR: dir, TEMP: dir }",
+      "by": "test",
+      "kills": [
+        "专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样"
+      ]
+    },
+    {
+      "id": "M-H243-c",
+      "req": "harness",
+      "why": "只认 TEMP 的程序建的临时文件不落在专属临时目录里",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return { ...env, TMPDIR: dir, TMP: dir }",
+      "by": "test",
+      "kills": [
+        "专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样"
+      ]
+    },
+    {
+      "id": "M-H243-d",
+      "req": "harness",
+      "why": "给验证者的环境把别的变量丢了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { ...env, TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "replace": "return { TMPDIR: dir, TMP: dir, TEMP: dir }",
+      "by": "test",
+      "kills": [
+        "专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样"
+      ]
+    },
+    {
+      "id": "M-H243-e",
+      "req": "harness",
+      "why": "专属临时目录里放的编译缓存链接名字和 tsx 找的对不上，换了目录缓存就冷了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return `tsx-${user}`",
+      "replace": "return `tsx${user}`",
+      "by": "test",
+      "kills": [
+        "专属临时目录：tsx 编译缓存的名字是 tsx- 接用户号",
+        "专属临时目录：没有用户号时接用户名"
+      ]
     }
   ],
   "exemptions": [
