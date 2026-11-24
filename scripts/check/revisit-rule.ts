@@ -300,9 +300,14 @@ export function currentOf(text: string, self?: number | null): string | null {
   return m[2] !== undefined ? `ADR-${Number(m[1])}「${m[2].trim()}」` : `ADR-${Number(m[1])}:${Number(m[3])}`
 }
 
-/** 已重挂行里有几行认不出现行的是哪一张（`currentOf` 给 null 的）：这几张的接手者到期清单接不回原来的登记日，按自己的算 */
+/**
+ * 已重挂行里有几行认不出现行的是哪一张（`currentOf` 给 null 的），而且指着同一张旧欠条的已重挂行里没有一行认得出：
+ * 这几张的接手者到期清单接不回原来的登记日，按自己的算。旧行不许改，补的办法是别处追加一行固定写法的已重挂（ADR-167）。
+ */
 export function movesUnread(docs: Map<string, string>): number {
-  return statusLines(docs).filter(s => s.kind === '已重挂' && currentOf(s.text, recordNum(s.file)) === null).length
+  const moves = statusLines(docs).filter(s => s.kind === '已重挂')
+  const read = new Set(moves.filter(s => currentOf(s.text, recordNum(s.file)) !== null).map(s => s.key))
+  return moves.filter(s => !read.has(s.key)).length
 }
 
 /** 台账键换成回访里的记法：`ADR-9:5` → `ADR-9 第 5 行`，按名字的原样 */

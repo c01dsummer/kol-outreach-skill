@@ -30197,8 +30197,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "认不出的行数不给记录 —— 「本条第 M 行」都算认不出",
-      "find": "s.kind === '已重挂' && currentOf(s.text, recordNum(s.file)) === null",
-      "replace": "s.kind === '已重挂' && currentOf(s.text) === null",
+      "find": "moves.filter(s => currentOf(s.text, recordNum(s.file)) !== null)",
+      "replace": "moves.filter(s => currentOf(s.text) !== null)",
       "by": "test",
       "kills": ["已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出"]
     },
@@ -30207,8 +30207,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "认不出的行数不只数已重挂 —— 已还、续挂行也算进去",
-      "find": "s.kind === '已重挂' && currentOf(s.text, recordNum(s.file)) === null",
-      "replace": "currentOf(s.text, recordNum(s.file)) === null",
+      "find": "const moves = statusLines(docs).filter(s => s.kind === '已重挂')",
+      "replace": "const moves = statusLines(docs)",
       "by": "test",
       "kills": ["已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出"]
     },
@@ -30441,6 +30441,26 @@
       "replace": "lines.slice(e.line - 1, e.line)",
       "by": "test",
       "kills": ["这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整条相同（只差空白）的历史那份不列、第一行相同续行不同的照列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算"]
+    },
+    {
+      "id": "M-H167-bw",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "别处补了认得出的那行也照数 —— 补完了末行仍报原来那么多行",
+      "find": "moves.filter(s => !read.has(s.key))",
+      "replace": "moves.filter(s => currentOf(s.text, recordNum(s.file)) === null)",
+      "by": "test",
+      "kills": ["同一张旧欠条另有一行认得出的已重挂，认不出的那行就不数"]
+    },
+    {
+      "id": "M-H167-bx",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "同一张有别的已重挂行就当接得上，不看那行认不认得出 —— 两行都认不出的也不数了",
+      "find": "moves.filter(s => currentOf(s.text, recordNum(s.file)) !== null).map(s => s.key)",
+      "replace": "moves.map(s => s.key)",
+      "by": "test",
+      "kills": ["已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出"]
     },
     {
       "id": "M-H205-a",
