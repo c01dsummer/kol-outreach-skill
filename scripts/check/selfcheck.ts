@@ -8252,7 +8252,13 @@ group('stop-if-seen', [], () => {
   const tsxName = `tsx-${typeof process.geteuid === 'function' ? process.geteuid() : userInfo().username}`
   const sharedCache = join(tmpdir(), tsxName), sentinel = join(sharedCache, `kol-stop-sentinel-${process.pid}`)
   mkdirSync(sharedCache, { recursive: true })
-  writeFileSync(sentinel, 'x')
+  // 共用缓存在系统临时目录里：它要是一个链接、或不是本用户的，往里写就可能写到别人摆好的地方 —— 不写，这一跑说夹具没造对
+  const cacheStat = lstatSync(sharedCache)
+  if (cacheStat.isSymbolicLink() || (typeof process.geteuid === 'function' && cacheStat.uid !== process.geteuid())) {
+    failed++; console.error(`  ✗ 见齐就停${SELFCHECK_FIXTURE_MARK}：共用的 tsx 编译缓存 ${sharedCache} 是链接或不归本用户，不往里写`); return
+  }
+  // 只新建（wx）：同名的已经在（含指向别处的链接）就当场报错，不覆盖
+  writeFileSync(sentinel, 'x', { flag: 'wx' })
   const childCode = `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(childStarted)}, String(Date.now()));`
     + ` setTimeout(() => fs.writeFileSync(${JSON.stringify(childLate)}, 'alive'), ${childLateMs})`
   mkdirSync(join(stopTmp, 'scripts', 'check'), { recursive: true })
@@ -8292,6 +8298,9 @@ group('stop-if-seen', [], () => {
   const stopRun = runToolBoth('mutate 见齐就停（验证者不结束也不必等它）', 'mutate', [], stopTmp,
                               { status: 0 })
   const stopOut = stopRun.ok ? stopRun.stdout : undefined
+  // 先记下在不在、马上删掉，再往下判：下面几处提前收手时也不在共用缓存里留东西
+  const sentinelKept = existsSync(sentinel)
+  rmSync(sentinel, { force: true })
   if (stopOut === undefined) {
     // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
   } else if (!/M-X-i\s+\[X1\]/.test(stopOut)) {
@@ -8312,8 +8321,7 @@ group('stop-if-seen', [], () => {
   named('见齐就停：验证者看到的 tsx 编译缓存是共用的那一份', caches.length > 0
     && caches.every(c => { const [seen, cache] = c.split('\t'); return seen !== realpathSync(tmpdir()) && cache === realpathSync(sharedCache) }),
     `看到的（临时目录 → 缓存）：${caches.map(c => c.replace('\t', ' → ')).join('、')}`)
-  named('见齐就停：删专属临时目录没删到共用的 tsx 编译缓存', existsSync(sentinel), `${sentinel} 不在了`)
-  rmSync(sentinel, { force: true })
+  named('见齐就停：删专属临时目录没删到共用的 tsx 编译缓存', sentinelKept, `${sentinel} 不在了`)
   // 负 pid 是 POSIX 的进程组语义；Windows 上 `detached` 给的是一个控制台窗口，那一刀落空（`mutate.ts` 头上记着），这里不判
   if (process.platform === 'win32') { console.log('  ⊘ 见齐就停杀整组：Windows 上没有进程组，这里没验'); return }
   // 文件在、内容还没写进去时读成空串，`Number('')` 是 0：也当孩子没起来
