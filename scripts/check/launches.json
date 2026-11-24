@@ -180,6 +180,7 @@
     {"config":"[\"test\",[\"h-jargon\"]]","launches":0,"maxPaid":null,"running":44,"stopping":0},
     {"config":"[\"test\",[\"h-jargon-entry\"]]","launches":6,"maxPaid":null,"running":7,"stopping":0},
     {"config":"[\"test\",[\"h-jobs\"]]","launches":0,"maxPaid":null,"running":104,"stopping":0},
+    {"config":"[\"test\",[\"h-launch-entry\"]]","launches":0,"maxPaid":null,"running":19,"stopping":0},
     {"config":"[\"test\",[\"h-launch-parts\"]]","launches":0,"maxPaid":null,"running":12,"stopping":0},
     {"config":"[\"test\",[\"h-launch-preload\"]]","launches":3,"maxPaid":null,"running":20,"stopping":0},
     {"config":"[\"test\",[\"h-launch-preload-edge\"]]","launches":1,"maxPaid":null,"running":6,"stopping":0},
