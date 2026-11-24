@@ -371,6 +371,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-revisit-entry', needs: [] },
   { id: 'h-revisit-raw', needs: [] },
   { id: 'h-revisit-raw-entry', needs: [] },
+  { id: 'h-revisit-raw-log-entry', needs: [] },
   { id: 'h-iou-file-reminder-entry', needs: [] },
   { id: 'h-ticket-refs', needs: [] },
   { id: 'h-ticket-refs-entry', needs: [] },
@@ -26300,14 +26301,25 @@ await group('h-revisit-raw-entry', () => {
     const nrArgs = ['--log', join(files, 'this.log'), '--jobs', join(files, 'jobs.json')]
     const stop = entry('--never-red', '--run-id', '8', ...nrArgs)
     eq('入口 --never-red：jobs 不是 --run-id 那一跑的，以 2 退出、什么都不打', [stop.status, stop.stdout], [2, ''])
-    writeFileSync(join(files, 'bad.log'), 'NEVER_RED_JSON {"schema":"wrong"}\n'); writeFileSync(join(files, 'nomark.log'), '这一跑没跑到打那一行\n')
+    const none = entry('--nope')
+    eq('入口：不认识的用法以 2 退出', [none.status, none.stdout], [2, ''])
+  })
+})
+await group('h-revisit-raw-log-entry', () => {
+  harness('周回访 (e) 的入口拿到形状不对的日志：真起各一支')
+  // 从上一组拆出来：上一组每起一次都乘上它的全部变异，再加这三支就过了启动乘条数的上限（启动数闸门，ADR-145）
+  withToyRepo((toy, more) => {
+    const files = more('files')
+    const entry = (...args: string[]) => spawnSync(...tsxCommand([join(process.cwd(), 'scripts/check/revisit-raw.ts'), ...args]),
+      { cwd: toy.dir, env: fixtureEnv({}), encoding: 'utf8', timeout: 60_000 })
+    const good = `NEVER_RED_JSON ${JSON.stringify({ schema: 'never-red/v1', head: 'abcdef1234', earlyStop: false, verifiers: { test: { catalog: 9, notReached: 0, neverRed: 3 }, selfcheck: { catalog: 4, notReached: 0, neverRed: 0 } } })}\n`
+    writeFileSync(join(files, 'this.log'), good); writeFileSync(join(files, 'bad.log'), 'NEVER_RED_JSON {"schema":"wrong"}\n'); writeFileSync(join(files, 'nomark.log'), '这一跑没跑到打那一行\n')
+    writeFileSync(join(files, 'jobs.json'), JSON.stringify({ jobs: [{ run_id: 7, name: '不提前停的整跑（第 1/3 份）', conclusion: 'success' }] }))
     const withLogs = (mine: string, prev: string) => entry('--never-red', '--run-id', '7', '--log', join(files, mine), '--jobs', join(files, 'jobs.json'), '--prev-log', join(files, prev))
-    const badMine = withLogs('bad.log', 'prev.log'), badPrev = withLogs('this.log', 'bad.log'), noMark = withLogs('this.log', 'nomark.log')
+    const badMine = withLogs('bad.log', 'this.log'), badPrev = withLogs('this.log', 'bad.log'), noMark = withLogs('this.log', 'nomark.log')
     eq('入口 --never-red：哪一份日志形状不对都以 2 退出、什么都不打；上一跑的日志里只是没有那一行，照样打，比上一跑写无从确认',
       [badMine.status, badMine.stdout, badPrev.status, badPrev.stdout, noMark.status, noMark.stdout.split('\n')[1]],
       [2, '', 2, '', 0, 'test：清册 9 条，从没红过 3 条（没有负片跑到 0 条），比上一跑：无从确认：日志里没有 NEVER_RED_JSON 那一行'])
-    const none = entry('--nope')
-    eq('入口：不认识的用法以 2 退出', [none.status, none.stdout], [2, ''])
   })
 })
 await group('h-iou-file-reminder-entry', () => {
