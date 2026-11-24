@@ -30,8 +30,10 @@ import { prepareTaskReviews } from './lib/task-reviews.js'
 
 import { configurationKey, costObservation, configurationCost, configurationCostLines, type CostInput, type CostIdentity, type CostRoute, type CostBaseline, type CostMutation, type CostSummary } from './check/jobs-rule.js'
 import { REDS_PART_NAME, type RedsPart, creditedReds, earlyStopWanted, mergeParts, neverRed, ranAssertions, readRedsPart, redsPartName } from './check/never-red-rule.js'
+import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './check/catalog-rule.js'
+import { DOOR, NOT_READERS, catalogDoorFaults, isTestFile } from './check/catalog-door-rule.js'
 import type { RunVerdict } from './check/mutate-rule.js'
-import { stopsEarly } from './check/mutate-rule.js'
+import { ownTmpEnv, stopsEarly, tsxCacheName } from './check/mutate-rule.js'
 import {
   LAUNCH_LIMIT, LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, joinLaunchParts, launchPartFile, LAUNCH_SUMMARY_SCHEMA, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport,
   launchSummary, launchTally, paidLaunches, printLabel, settleLaunches, summaryLine, tallyLine,
@@ -41,7 +43,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, isGitProgram, launchDrift, 
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
-import { addDays, beijingDate, bornReport, cliGit, conditionLineOf, currentOf, dueItems, dueList, dueReport, dueRow, iouNameAt, listedItems, listings, movesUnread, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
+import { addDays, beijingDate, bornReport, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex } from './check/revisit-rule.js'
 import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
@@ -393,6 +395,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-jargon-entry', needs: [] },
   { id: 'h-same-spot', needs: [] },
   { id: 'h-never-red', needs: [] },
+  { id: 'h-catalog-read', needs: [] },
+  { id: 'h-catalog-door', needs: [] },
   { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
@@ -9806,6 +9810,15 @@ await group('h-claims-restore', () => {
 
 await group('h-mutate', () => {
 // 预期来自独立 oracle；宿主控制和断言不以被测判定给自己打分。
+harness('验证者的专属临时目录：三个临时目录变量都指过去，tsx 编译缓存的名字照 tsx 的取法（ADR-243）')
+{
+  const before = { PATH: '/bin', TMPDIR: '/tmp', KEEP: 'k' }
+  eq('专属临时目录：TMPDIR、TMP、TEMP 都换成那个目录，别的变量原样', ownTmpEnv(before, '/x/own'),
+    { PATH: '/bin', TMPDIR: '/x/own', KEEP: 'k', TMP: '/x/own', TEMP: '/x/own' })
+  eq('专属临时目录：不改交进来的那份环境', before, { PATH: '/bin', TMPDIR: '/tmp', KEEP: 'k' })
+  eq('专属临时目录：tsx 编译缓存的名字是 tsx- 接用户号', tsxCacheName(1000), 'tsx-1000')
+  eq('专属临时目录：没有用户号时接用户名', tsxCacheName('ci'), 'tsx-ci')
+}
 harness('开跑前三道体检的先后：接线 → 自己验自己 → 点的夹具，见了第一道毛病就不再往下问（ADR-238）')
 {
   // 每一道记下自己被问过没有；第三道在前面有毛病时被问到就抛 —— 入口里它拿到不认得的验证者正是这样
@@ -18067,7 +18080,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     [true, false, false, false])
 }
 
-harness('周回访定期清点：欠条哪天登记、按什么名字认、列过没有（拆过的记录取拆之前那一行）')
+harness('周回访：欠条哪天登记、按什么名字认（拆过的记录取拆之前那一行）')
 {
   // 一张欠条三种处境各钉一次：没拆过、拆过且条件没再改、拆过以后条件又改了。日期按提交时间钉死，北京时间不跨日
   const day = (d: string) => `${d}T04:00:00+00:00`
@@ -18134,22 +18147,32 @@ harness('周回访定期清点：欠条哪天登记、按什么名字认、列�
     ['ADR-80 第 9 行', 'ADR-120 第 1 行'])
   eq('先按日期，取不到日期的排最后', [{ key: 'ADR-1 第 1 行' }, { date: '2026-02-01', key: 'ADR-1 第 2 行' }, { date: '2026-01-01', key: 'ADR-9 第 1 行' }].sort(rowCompare).map(r => r.key),
     ['ADR-9 第 1 行', 'ADR-1 第 2 行', 'ADR-1 第 1 行'])
-  const listed = listedItems('| 2026-01-01 | ADR-8「丙(丁).*」、ADR-6「甲、乙」 | 句 |\n- 读过、没进候选：ADR-9 第 5 行、ADR-7「旧、名」、ADR-7 第 1 行\n')
-  eq('列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样', [...listed].sort(),
-    ['ADR-6「甲、乙」', 'ADR-7 第 1 行', 'ADR-7「旧、名」', 'ADR-8「丙(丁).*」', 'ADR-9 第 5 行'].sort())
-  const rows = [
-    { date: '2026-01-05', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] },
-    { date: '2026-01-05', key: 'ADR-8「丙(丁).*」', aliases: [] },
-    { date: '2026-01-04', key: 'ADR-7「新名」', aliases: ['ADR-7「旧、名」'] },
-    { date: '2026-01-06', key: 'ADR-80 第 2 行', aliases: [] },
-    { date: '2026-02-01', key: 'ADR-1 第 1 行', aliases: [] },
-    { key: 'ADR-2 第 2 行', aliases: [] },
-  ]
-  eq('三个数与前几行：取不到登记日 1、满四周 4、没列过 1（名字列过、第二个旧行号列过、旧名字列过的都算列过）',
-    dueReport(rows, '2026-01-31', listed), ['1', '4', '1', '2026-01-06 ADR-80 第 2 行'])
-  eq('台账里只取「重启条件」写着定期清点的行，取文件与行号',
-    periodicEntries('docs/adr/A.md:3  [重启条件]  定期清点\ndocs/adr/B.md:4  [死亡条件]  定期清点\ndocs/adr/C.md:5  [重启条件]  别的\nscripts/D.md:6  [重启条件]  定期清点\nx\n'),
-    [{ file: 'docs/adr/A.md', line: 3 }])
+}
+
+harness('死亡条件四周轮一遍：按记录编号分四组，每周列一组；拆时原样抄进主文件的只列一份')
+{
+  eq('第几周：1970-01-05 那个星期一起算，同一周七天同一个数', [weekIndex('1970-01-05'), weekIndex('1970-01-11'), weekIndex('1970-01-12'), weekIndex('2026-11-30'), weekIndex('2026-12-06')],
+    [0, 0, 1, 2969, 2969])
+  const deathDocs = new Map([
+    ['docs/adr/ADR-5-甲.md', '# ADR-5\n\n> **什么条件下整个撤掉**：五号\n\n## 什么条件下重开这个讨论\n\n- **改 x 时**：重看\n'],
+    ['docs/adr/ADR-9-乙.md', '# ADR-9\n\n> **什么条件下撤**：同 一句\n\n> **什么条件下退**：新写\n'],
+    ['docs/adr/历史/ADR-9-乙.md', '# ADR-9\n\n> **什么条件下撤**：同  一句\n\n> **什么条件下停**：只在历史\n\n> **什么条件下退**：新写\n> 续行不同\n'],
+    ['docs/adr/ADR-8-丙.md', '# ADR-8\n\n> **什么条件下撤**：八号\n'],
+    ['docs/adr/ADR-13-丁.md', '# ADR-13\n\n> ⚠️ 欠条：缺 x · 重启条件：下次\n\n> **什么条件下撤**：十三号\n'],
+    ['docs/adr/README.md', '# 索引\n\n> **什么条件下撤**：不是记录\n'],
+  ])
+  eq('这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整条相同（只差空白）的历史那份不列、第一行相同续行不同的照列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算',
+    deathRota(deathDocs, '2026-11-30'), [
+      '死亡条件 7 条（历史文件里与主文件整句相同的 1 条不重复算）；这一周轮到编号除以 4 余 1 的 6 条',
+      'ADR-5 第 3 行  什么条件下整个撤掉：五号',
+      'ADR-9 主文件第 3 行  什么条件下撤：同 一句',
+      'ADR-9 主文件第 5 行  什么条件下退：新写',
+      'ADR-9 第 5 行  什么条件下停：只在历史',
+      'ADR-9 第 7 行  什么条件下退：新写',
+      'ADR-13 第 5 行  什么条件下撤：十三号'])
+  eq('下一周轮到余 2 的，一条没有也打第一行；四周后轮回余 1', [deathRota(deathDocs, '2026-12-07'), deathRota(deathDocs, '2026-12-28').length],
+    [['死亡条件 7 条（历史文件里与主文件整句相同的 1 条不重复算）；这一周轮到编号除以 4 余 2 的 0 条'], 7])
+  eq('余 0 那一周只列 8 号', deathRota(deathDocs, '2026-12-21').slice(1), ['ADR-8 第 3 行  什么条件下撤：八号'])
 }
 
 harness('到期清单：开着、到期或列过没判的，最老先列，最多 10 张；整张改挂过来的接着算原来那张的登记日')
@@ -18239,6 +18262,24 @@ harness('到期清单：开着、到期或列过没判的，最老先列，最�
         { key: 'ADR-6「接六」', aliases: ['ADR-6「早六」', 'ADR-6 第 5 行'], date: '2026-01-01', until: undefined, carried: false },
       ])
     eq('已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出', movesUnread(docs), 1)
+    // 旧行不许改：别处追加一行补记，点名原来那行在哪，那张就接得上，原来那行不再数
+    const at = (docs.get(f4) ?? '').split('\n').findIndex(l => l.includes('本条下一张')) + 1
+    const docs2 = new Map(docs).set(f5, `${docs.get(f5)}\n> ⚠️ 已重挂：ADR-4「别」 · 补记接手者：照 ADR-4 第 ${at} 行那一行原文认定；现行的是 ADR-5「近」\n`)
+    eq('补记点名了原来那行、指同一张旧欠条、认得出：原来那行不再数', movesUnread(docs2), 0)
+    eq('补的那行让接手那张接上旧的记法', dueItems(cliGit(toy.dir, fixtureEnv({})), 'HEAD', docs2).find(d => d.key === 'ADR-5「近」')?.aliases.includes('ADR-4「别」'), true)
+    // 同一张旧欠条另挂给别处、没点名原来那行的，不算补了；点名的是别的行的，不算；点名了那行、却指着另一张旧欠条的，也不算
+    const docs3 = new Map(docs).set(f5, `${docs.get(f5)}\n> ⚠️ 已重挂：ADR-4「别」 · 后来另挂，现行的是 ADR-5「近」\n`
+      + `\n> ⚠️ 已重挂：ADR-4「别」 · 补记接手者：照 ADR-4 第 ${at + 100} 行那一行原文认定；现行的是 ADR-5「近」\n`
+      + `\n> ⚠️ 已重挂：ADR-5「近」 · 补记接手者：照 ADR-4 第 ${at} 行那一行原文认定；现行的是 ADR-2「续」\n`)
+    eq('没点名原来那行的、点名别的行的、指着别的旧欠条的补记都不算：原来那行照数', movesUnread(docs3), 1)
+    // 拆过以后：原文逐行原样进历史文件，行号不变；拆之前写的补记只写「ADR-4 第 N 行」
+    const h4 = 'docs/adr/历史/ADR-4-四.md', m4 = 'docs/adr/ADR-4-四.md'
+    const split4 = (main: string) => new Map([...docs].filter(([f]) => f !== f4)).set(h4, docs.get(f4) ?? '').set(m4, main)
+      .set(f5, `${docs.get(f5)}\n> ⚠️ 已重挂：ADR-4「别」 · 补记接手者：照 ADR-4 第 ${at} 行那一行原文认定；现行的是 ADR-5「近」\n`)
+    // 主文件里重写过，同一个行号上又是一行认不出的已重挂：不带「主文件」的补记不算补了它
+    const main4 = [...Array(at - 1).fill('# ADR-4'), '> ⚠️ 已重挂：ADR-4「别」 · 现行的是本条下一张', ''].join('\n')
+    eq('拆过以后原来那行进了历史文件：拆之前写的、不带「历史文件」的补记照样认；主文件里的那行不认不带「主文件」的写法',
+      [movesUnread(split4('# ADR-4\n')), movesUnread(split4(main4))], [0, 1])
   })
 }
 
@@ -25988,9 +26029,9 @@ await group('h-iou-file-reminder', () => {
 
 })
 
-// 入口单列一组：它每跑起 6 次入口，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
+// 入口单列一组：它每跑起 5 次入口，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
 await group('h-revisit-entry', () => {
-  harness('周回访定期清点与到期清单的入口：在玩具仓库里真起 --due、--born 与 --list')
+  harness('周回访到期清单、死亡条件轮换与只起草一条的入口：在玩具仓库里真起 --list、--deaths 与 --born')
   // 真起单独成组：判定在 h-check-rules 里直接调；入口每起一次，都会乘上那一组的全部变异（启动数闸门，ADR-145）
   const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-entry-'))
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
@@ -26007,13 +26048,19 @@ await group('h-revisit-entry', () => {
   g(null, 'add', '-A'); g('2026-01-02', 'commit', '-q', '-m', 'b')
   const entry = (args: string[], input: string) => spawnSync(...tsxCommand([join(process.cwd(), 'scripts/check/revisit-due.ts'), ...args]),
     { cwd: repo, env, input, encoding: 'utf8', timeout: 30_000 })
-  // 台账里列着、工作区没有的文件不让整份断掉：记一条取不到登记日，别的照常
-  const due = entry(['--due', '2026-03-31', '--run', 'HEAD'],
-    `${a8}:5  [重启条件]  > 重启条件：定期清点\n${a9}:3  [重启条件]  > ⚠️ 欠条：乙 重启条件：定期清点\ndocs/adr/ADR-7-不在.md:3  [重启条件]  定期清点\n`)
-  eq('入口 --due：取不到 1（文件不在）、满四周 2、没列过 1（ADR-152 里读的那一行列过 ADR-9 第 3 行），打出那一行',
-    [due.status, due.stdout], [0, '1\n2\n1\n2026-01-05 ADR-8「丙(丁).*」\n'])
-  const born = entry(['--born', '--run', 'HEAD'], `${a8}|5|N|S|过|\n${a9}|3|N|S|过|\n`)
-  eq('入口 --born：按「|」切出文件与行号，按登记日排', [born.status, born.stdout], [0, '2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8 第 5 行\n'])
+  // 两道门的行里列着、工作区没有的文件不让整份断掉：那一张取不到登记日、排最后，别的照常
+  const born = entry(['--born', '--run', 'HEAD'], `${a8}|5|N|S|过|\n${a9}|3|N|S|过|\ndocs/adr/ADR-7-不在.md|3|N|S|过|\n`)
+  eq('入口 --born：按「|」切出文件与行号，按登记日排；文件不在的取不到登记日、排最后', [born.status, born.stdout],
+    [0, '2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8 第 5 行\n ADR-7 第 3 行\n'])
+  // 死亡条件轮到哪几条读工作区里的整份决策记录；--today 给哪一周就按哪一周
+  put(a9, '# ADR-9\n\n> ⚠️ 欠条：乙 重启条件：定期清点\n\n> **什么条件下撤**：九号\n')
+  const deaths = [entry(['--deaths', '--today', '2026-11-30'], ''), entry(['--deaths', '--today', '2026-12-07'], '')]
+  const badDays = ['2026-13-01', '2026-02-30', '11-30'].map(d => entry(['--deaths', '--today', d], ''))
+  eq('入口 --today 写的不是成立的日子：以 2 退出、不打清单（月份 13、2 月 30 日、缺年份三种）', badDays.map(d => [d.status, d.stdout]), [[2, ''], [2, ''], [2, '']])
+  eq('入口 --deaths：按给的那天定轮到哪一组，第一行是几个数，后面是记法与条件原文',
+    deaths.map(d => [d.status, d.stdout]), [
+      [0, '死亡条件 1 条（历史文件里与主文件整句相同的 0 条不重复算）；这一周轮到编号除以 4 余 1 的 1 条\nADR-9 第 5 行  什么条件下撤：九号\n'],
+      [0, '死亡条件 1 条（历史文件里与主文件整句相同的 0 条不重复算）；这一周轮到编号除以 4 余 2 的 0 条\n']])
   // 到期清单读工作区里的整份决策记录与 ADR-152，问 git 取登记日；「读过、没进候选」不算列给需求所有者过
   const files = () => { const out: string[] = []; const walk = (d: string) => { for (const f of readdirSync(join(repo, d), { withFileTypes: true })) {
     const rel = d ? `${d}/${f.name}` : f.name
@@ -26345,6 +26392,9 @@ await group('h-field-use-entry-inputs', () => {
     g('checkout', '-q', '--', 'tsconfig.json')
     put('scripts/check/mutations.json', '{ "mutations": [] }')
     eq('字段断言入口：变异登记表读不出一组变异时说无从判断，以 1 退出', cannot(run(root), '变异登记表'), [1, true])
+    const twice = { id: 'M-D', file: 'scripts/check/a.ts', find: 'x', replace: 'y' }
+    put('scripts/check/mutations.json', JSON.stringify({ mutations: [twice, twice] }))
+    eq('字段断言入口：变异登记表编号重复时说无从判断、点名那个编号，以 1 退出', cannot(run(root), '变异目录里编号重复：M-D'), [1, true])
     g('checkout', '-q', '--', 'scripts/check/mutations.json')
     put('scripts/check/a.ts', 'export const nothing = 1\n')
     eq('字段断言入口：一个字段都没取到时说无从判断，以 1 退出', cannot(run(root), '一个字段都没取到'), [1, true])
@@ -27493,6 +27543,102 @@ harness('从没被负片弄红过的断言：每一条负片红过哪些、记�
     (() => { const back = parseReport(reportLine('M-X-r', { ...ranRed, red: undefined })); return back !== undefined && !Object.hasOwn(back, 'red') })())
 }
 })
+
+await group('h-catalog-read', () => {
+harness('变异目录只有一个读法：读不出、形状不对、编号重复都在读的时候拒（ADR-242）')
+{
+  // 预期都是手写的，不拿被测判定给自己打分
+  const good = readCatalog(JSON.stringify({ mutations: [{ id: 'M-a', file: 'x.ts' }, { id: 'M-b' }], exemptions: [{ req: 'P1' }] }))
+  eq('读目录：好的目录交出全部变异，别的字段原样带着', good.ok ? good.mutations : undefined, [{ id: 'M-a', file: 'x.ts' }, { id: 'M-b' }])
+  eq('读目录：好的目录交出豁免', good.ok ? good.exemptions : undefined, [{ req: 'P1' }])
+  const noEx = readCatalog('{"mutations":[]}')
+  eq('读目录：没写豁免的当空', noEx.ok ? noEx.exemptions : undefined, [])
+  eq('读目录：一条变异都没有也交得出（空不空由用的地方判）', noEx.ok ? noEx.mutations : undefined, [])
+  const fault = (text: string | undefined) => { const r = readCatalog(text); return r.ok ? undefined : r.fault }
+  eq('读目录：读不到文件时拒', fault(undefined), { kind: 'unreadable', why: '读不到这个文件' })
+  eq('读目录：不是 JSON 时拒，说是读不出', fault('{ 坏了')?.kind, 'unreadable')
+  eq('读目录：最外层是数组时拒', fault('[]'), { kind: 'shape', why: '最外层不是一个对象' })
+  eq('读目录：最外层是 null 时拒', fault('null'), { kind: 'shape', why: '最外层不是一个对象' })
+  eq('读目录：没有 mutations 时拒', fault('{}'), { kind: 'shape', why: 'mutations 不是数组' })
+  eq('读目录：mutations 不是数组时拒', fault('{"mutations":{}}'), { kind: 'shape', why: 'mutations 不是数组' })
+  eq('读目录：有一条是 null 时拒，点出第几项', fault('{"mutations":[{"id":"M-a"},null]}'), { kind: 'shape', why: 'mutations 第 2 项不是带字符串 id 的对象' })
+  eq('读目录：有一条是数组时拒', fault('{"mutations":[[]]}'), { kind: 'shape', why: 'mutations 第 1 项不是带字符串 id 的对象' })
+  eq('读目录：有一条的 id 不是字符串时拒', fault('{"mutations":[{"id":7}]}'), { kind: 'shape', why: 'mutations 第 1 项不是带字符串 id 的对象' })
+  eq('读目录：有一条缺 id 时拒', fault('{"mutations":[{"file":"x.ts"}]}'), { kind: 'shape', why: 'mutations 第 1 项不是带字符串 id 的对象' })
+  eq('读目录：豁免不是数组时拒', fault('{"mutations":[],"exemptions":{}}'), { kind: 'shape', why: 'exemptions 不是数组' })
+  eq('读目录：豁免写成 null 时拒（缺着才当空）', fault('{"mutations":[],"exemptions":null}'), { kind: 'shape', why: 'exemptions 不是数组' })
+  eq('读目录：编号重复时拒，点出每个重了的编号', fault('{"mutations":[{"id":"M-a"},{"id":"M-b"},{"id":"M-a"},{"id":"M-b"},{"id":"M-c"}]}'),
+    { kind: 'duplicate', ids: ['M-a', 'M-b'] })
+  eq('读目录：形状不对排在编号重复前面', fault('{"mutations":[{"id":"M-a"},{"id":"M-a"},null]}')?.kind, 'shape')
+  eq('读目录：说法 —— 编号重复', catalogFaultText({ kind: 'duplicate', ids: ['M-a', 'M-b'] }), '变异目录里编号重复：M-a、M-b')
+  eq('读目录：说法 —— 读不出', catalogFaultText({ kind: 'unreadable', why: '读不到这个文件' }), '变异目录读不出：读不到这个文件')
+  eq('读目录：说法 —— 形状不对', catalogFaultText({ kind: 'shape', why: 'mutations 不是数组' }), '变异目录形状不对：mutations 不是数组')
+  eq('读目录：目录的位置', MUTATION_CATALOG, 'scripts/check/mutations.json')
+}
+})
+
+await group('h-catalog-door', async () => {
+harness('读变异目录不许绕开读取函数：文件名只许写在读取函数那里，引用了读取函数所在模块就得真调用读取函数（ADR-242）')
+{
+  const name = 'mutations' + '.json'
+  const f = (path: string, text: string) => ({ path, text })
+  // 读取函数所在的文件给一份最小的替身：只要有那个声明，编译器才认得出调的是它
+  const door = f(DOOR, 'export const MUTATION_CATALOG = "x"\nexport function readCatalog(text: string | undefined): unknown { return text }\nexport function catalogFaultText(x: unknown): string { return String(x) }\n')
+  const allowed = [door, ...Object.keys(NOT_READERS).map(path => f(path, ''))]
+  const faults = (...files: { path: string; text: string }[]) => catalogDoorFaults([...allowed, ...files])
+  eq('绕开读取函数：字符串里直接写文件名，报那一行',
+    faults(f('scripts/check/a.ts', `const x = 1\nconst p = 'scripts/check/${name}'\n`)),
+    ['scripts/check/a.ts 第 2 行：直接写了变异目录的文件名，要读就从 catalog-rule.ts 导入位置并经 readCatalog 读'])
+  eq('绕开读取函数：模板串的结尾一段里写也算', faults(f('scripts/a.ts', 'const p = `${root}/' + name + '`\n')).length, 1)
+  eq('绕开读取函数：模板串的头一段里写也算', faults(f('scripts/a.ts', 'const p = `' + name + '${x}`\n')).length, 1)
+  eq('绕开读取函数：模板串的中间一段里写也算', faults(f('scripts/a.ts', 'const p = `${a}/' + name + '${b}`\n')).length, 1)
+  eq('绕开读取函数：不带替换的模板串里写也算', faults(f('scripts/a.ts', 'const p = `' + name + '`\n')).length, 1)
+  eq('绕开读取函数：一个文件里写了两处，各报一行', faults(f('scripts/a.ts', `'${name}'\n'${name}'\n`)).length, 2)
+  eq('绕开读取函数：注释里提到不算', faults(f('scripts/a.ts', `// 读 ${name}\n/* ${name} */\nconst x = 1\n`)), [])
+  eq('绕开读取函数：读取函数那个文件里可以写', faults(f(DOOR, `export const MUTATION_CATALOG = 'scripts/check/${name}'\n`)), [])
+  eq('绕开读取函数：测试文件不扫', faults(f('scripts/test.ts', `'${name}'\n`), f('scripts/check/selfcheck.ts', `'${name}'\n`), f('scripts/x-test.ts', `'${name}'\n`)), [])
+  eq('绕开读取函数：放行名单里的文件不扫', faults(f('scripts/check/claims.ts', `'${name}'\n`)), [])
+  const imp = "import { MUTATION_CATALOG } from './check/catalog-rule.js'\n"
+  eq('绕开读取函数：按名字导入了位置、没调用读取函数，报', faults(f('scripts/a.ts', imp)),
+    ['scripts/a.ts：引用了读取函数所在的模块，却没调用 readCatalog —— 读目录要经读取函数判'])
+  eq('绕开读取函数：导入了读取函数却没调用，报', faults(f('scripts/a.ts', "import { MUTATION_CATALOG, readCatalog } from './check/catalog-rule.js'\nconst p = MUTATION_CATALOG\n")).length, 1)
+  eq('绕开读取函数：整个模块导入、只取位置，报', faults(f('scripts/a.ts', "import * as c from './catalog-rule.js'\nconst p = c.MUTATION_CATALOG\n")).length, 1)
+  eq('绕开读取函数：动态导入、只取位置，报', faults(f('scripts/a.ts', "const { MUTATION_CATALOG: p } = await import('../check/catalog-rule.js')\n")).length, 1)
+  eq('绕开读取函数：require 进来、只取位置，报', faults(f('scripts/a.cts', "const c = require('./catalog-rule')\nc.MUTATION_CATALOG\n")).length, 1)
+  eq('绕开读取函数：改名转出位置，报', faults(f('scripts/a.ts', "export { MUTATION_CATALOG as W } from './catalog-rule.js'\n")).length, 1)
+  eq('绕开读取函数：只带类型的导入不算引用，放行', faults(f('scripts/a.ts', "import type { CatalogRead } from './catalog-rule.js'\n"), f('scripts/b.ts', "export type { CatalogRead } from './catalog-rule.js'\n")), [])
+  eq('绕开读取函数：导入了位置也调用了读取函数，放行',
+    faults(f('scripts/a.ts', imp.replace('MUTATION_CATALOG }', 'MUTATION_CATALOG, readCatalog }') + 'readCatalog(read(MUTATION_CATALOG))\n')), [])
+  eq('绕开读取函数：改了名调用读取函数，放行', faults(f('scripts/a.ts', "import { readCatalog as rc } from './catalog-rule.js'\nrc(t)\n")), [])
+  eq('绕开读取函数：经模块对象调用读取函数，放行', faults(f('scripts/a.ts', "import * as c from './catalog-rule.js'\nc.readCatalog(t)\n"), f('scripts/b.ts', "import * as c from './catalog-rule.js'\nc['readCatalog'](t)\n")), [])
+  eq('绕开读取函数：动态导入解构出读取函数并调用，放行', faults(f('scripts/a.ts', "const { readCatalog: rc } = await import('./catalog-rule.js')\nrc(t)\n")), [])
+  eq('绕开读取函数：只有带类型标记的名字的导入与转出不算引用，放行', faults(f('scripts/a.ts', "import { type CatalogRead } from './catalog-rule.js'\n"), f('scripts/b.ts', "export { type CatalogRead } from './catalog-rule.js'\n")), [])
+  eq('绕开读取函数：带类型标记的名字旁边还有值的名字，照样算引用', faults(f('scripts/a.ts', "import { type CatalogRead, MUTATION_CATALOG } from './catalog-rule.js'\n"), f('scripts/b.ts', "export { type CatalogRead, MUTATION_CATALOG } from './catalog-rule.js'\n")).length, 2)
+  eq('绕开读取函数：只为副作用导入那个模块也算引用', faults(f('scripts/a.ts', "import './catalog-rule.js'\n")).length, 1)
+  eq('绕开读取函数：自己定义一个同名的 readCatalog 来调，报', faults(f('scripts/a.ts', imp + 'function readCatalog(p: string): unknown { return JSON.parse(read(p)) }\nreadCatalog(MUTATION_CATALOG)\n')).length, 1)
+  eq('绕开读取函数：别的对象上的同名方法不算调用读取函数，报', faults(f('scripts/a.ts', imp + 'other.readCatalog(MUTATION_CATALOG)\n'), f('scripts/b.ts', imp + "other['readCatalog'](MUTATION_CATALOG)\n")).length, 2)
+  eq('绕开读取函数：从别的模块按名字导入的 readCatalog 不算，报', faults(f('scripts/a.ts', imp + "import { readCatalog } from './elsewhere.js'\nreadCatalog(t)\n")).length, 1)
+  eq('绕开读取函数：动态导入解构出不改名的读取函数并调用，放行', faults(f('scripts/a.ts', "const { readCatalog } = await import('./catalog-rule.js')\nreadCatalog(t)\n")), [])
+  eq('绕开读取函数：动态导入的模块对象上调读取函数，放行', faults(f('scripts/a.ts', "const c = await import('./catalog-rule.js')\nc.readCatalog(t)\n"), f('scripts/b.ts', "(await import('./catalog-rule.js')).readCatalog(t)\n"), f('scripts/c.ts', "(await import('./catalog-rule.js'))['readCatalog'](t)\n")), [])
+  eq('绕开读取函数：参数和导入进来的读取函数同名、调的是参数，报', faults(f('scripts/a.ts', "import { MUTATION_CATALOG, readCatalog as shared } from './catalog-rule.js'\nfunction bypass(shared: (p: string) => unknown) { return shared(MUTATION_CATALOG) }\nvoid shared\n")).length, 1)
+  eq('绕开读取函数：调了那个模块里别的函数、没调读取函数，报', faults(f('scripts/a.ts', "import { MUTATION_CATALOG, catalogFaultText } from './catalog-rule.js'\ncatalogFaultText(MUTATION_CATALOG)\n")).length, 1)
+  eq('绕开读取函数：从模块对象解构出读取函数再调，放行', faults(f('scripts/a.ts', "import * as door from './catalog-rule.js'\nconst { readCatalog } = door\nreadCatalog(t)\n")), [])
+  eq('绕开读取函数：读取函数所在的文件不在这组文件里时，谁都算没调用', catalogDoorFaults([...Object.keys(NOT_READERS).map(path => f(path, '')), f('scripts/a.ts', "import { readCatalog } from './catalog-rule.js'\nreadCatalog(t)\n")]).length, 1)
+  eq('绕开读取函数：别的模块名字里带着 catalog-rule 的不算', faults(f('scripts/a.ts', "import { x } from './my-catalog-rules.js'\n")), [])
+  eq('绕开读取函数：文件名后面还跟着字也算提到了', faults(f('scripts/a.ts', `console.log('${name} 读不出')\n`)).length, 1)
+  eq('绕开读取函数：放行名单里列了却不在要扫的文件里，报',
+    catalogDoorFaults([]).filter(x => x.endsWith('在放行名单里，却不在要扫的文件里')).length, Object.keys(NOT_READERS).length)
+  eq('绕开读取函数：哪些算测试文件', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/a-test.ts', 'scripts/check/test-rule.ts', 'scripts/a.ts'].map(isTestFile),
+    [true, true, true, false, false])
+  // 真树：scripts/ 下所有 TypeScript 与 JavaScript 源码，一处都不许绕开
+  const fs = await import('node:fs'), px = await import('node:path')
+  const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+    e.isDirectory() ? walk(px.join(dir, e.name)) : /\.[cm]?[jt]sx?$/.test(e.name) ? [px.join(dir, e.name)] : [])
+  const tree = walk('scripts').map(path => f(path.split(px.sep).join('/'), fs.readFileSync(path, 'utf8')))
+  eq('真树上读变异目录的地方都经读取函数', catalogDoorFaults(tree), [])
+}
+})
+
 
 await group('d19-config-known-gap', () => {
 // 用 harness 不用 suite：它钉的是 D19 不要求的行为（一个接受了的缺口），不该把 D19 记成被这一组覆盖

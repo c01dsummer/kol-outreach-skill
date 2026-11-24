@@ -35,7 +35,7 @@ import { spawn, spawnSync } from './start-process.js'
 import { fixtureGit, fixtureGitOrThrow } from './git-fixture.js'
 import { askGit } from './git-entry.js'
 import { noteSpawns } from './selfcheck-spawn-notes.js'
-import { availableParallelism, tmpdir } from 'node:os'
+import { availableParallelism, tmpdir, userInfo } from 'node:os'
 import { createRequire } from 'node:module'
 import { createRequire as entrySelfcheckCreateRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path'
@@ -65,7 +65,7 @@ const EXEMPT: Record<string, string> = {
   'scripts/check/debt-touch.ts': '欠条点名提醒入口：需求测试组 h-iou-file-reminder-entry 在玩具仓库上真起',
   // 生词提示同一类：只提醒、恒以 0 退出，CI 单列一步；真起由需求测试组 `h-jargon-entry` 在玩具仓库上做（ADR-237）
   'scripts/check/jargon.ts': '生词提示入口：需求测试组 h-jargon-entry 在玩具仓库上真起',
-  'scripts/check/revisit-due.ts': '周回访定期清点与到期清单入口：需求测试组 h-revisit-entry 在玩具仓库上真起 --due、--born 与 --list',
+  'scripts/check/revisit-due.ts': '周回访到期清单、死亡条件轮换与只起草一条的入口：需求测试组 h-revisit-entry 在玩具仓库上真起 --list、--deaths 与 --born',
   // 增强结果格式说明的命令行入口不在检查链里：它只比对、回写一个文件，判定由需求测试调同一个生成函数做
   'scripts/check/enrichment-schema.ts': '增强结果格式说明的生成与回写入口（npm run enrichment-schema）：只读写一个文件；判定「入库那份与按类型现生成的逐字相同」由需求测试组 d21w-enrichment-schema 调同一个生成函数守（ADR-232）',
   // 要这条 PR 的评审意见与只读令牌，只在 GitHub 的工作流里跑；判定都在 same-spot-rule.ts，由需求测试组守。
@@ -8040,6 +8040,17 @@ group('shard-load-entry', [], () => {
       }
     }
   }
+  // 当前树的变异目录编号重复：读取函数拒，算不出每一份的秒数，以 1 退出（ADR-242）
+  const dupTmp = join(tmp, 'shard-load-dup')
+  if (repo(dupTmp, true)) {
+    const one = muts([1, 0, 0]).mutations[0]
+    writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [one, one] }), 'utf8')
+    if (commit(dupTmp, 'dup')) {
+      const dup = runToolBoth('shard-load 变异目录编号重复即以退出码 1 结束', 'shard-load', [], dupTmp, { status: 1 })
+      if (dup.ok) named('shard-load 变异目录编号重复时说算不出、点名那个编号',
+        dup.stdout.includes('当前树算不出每一份的秒数（变异目录里编号重复：M-T-1-0）'), dup.stdout)
+    }
+  }
   // PR 上三组各加 1 条：涨 9.1%，红，点名那一道
   const growTmp = join(tmp, 'shard-load-grow')
   if (repo(growTmp, true)) {
@@ -8235,6 +8246,21 @@ group('stop-if-seen', [], () => {
   const stopTmp = join(tmp, 'stop-on-kills')
   const childStarted = join(tmp, 'stop-on-kills-child-started'), childLate = join(tmp, 'stop-on-kills-child-late')
   const childLateMs = 3000
+  // 假验证者每一跑在它看到的临时目录里建一个目录、把路径记下来；mutate 收尾后一个都不该还在（ADR-243：被叫停的也要收）
+  const leftLog = join(tmp, 'stop-on-kills-left'), cacheLog = join(tmp, 'stop-on-kills-cache')
+  // tsx 的编译缓存按「临时目录/tsx-<用户号>」找；专属目录里那个名字要指回共用的那一份，删专属目录时共用那份里的东西还在
+  const tsxName = `tsx-${typeof process.geteuid === 'function' ? process.geteuid() : userInfo().username}`
+  const sharedCache = join(tmpdir(), tsxName)
+  mkdirSync(sharedCache, { recursive: true })
+  // 自检本身在变异一步里当验证者跑时，这个名字是变异一步摆的链接、指回共用那份：按解开后的真实目录判、往那里写。
+  // 真实目录不是目录、或不归本用户，往里写就可能写到别人摆好的地方 —— 不写，这一跑说夹具没造对
+  const realCache = realpathSync(sharedCache), cacheStat = lstatSync(realCache)
+  if (!cacheStat.isDirectory() || (typeof process.geteuid === 'function' && cacheStat.uid !== process.geteuid())) {
+    failed++; console.error(`  ✗ 见齐就停${SELFCHECK_FIXTURE_MARK}：共用的 tsx 编译缓存 ${realCache} 不是目录或不归本用户，不往里写`); return
+  }
+  const sentinel = join(realCache, `kol-stop-sentinel-${process.pid}`)
+  // 只新建（wx）：同名的已经在（含指向别处的链接）就当场报错，不覆盖
+  writeFileSync(sentinel, 'x', { flag: 'wx' })
   const childCode = `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(childStarted)}, String(Date.now()));`
     + ` setTimeout(() => fs.writeFileSync(${JSON.stringify(childLate)}, 'alive'), ${childLateMs})`
   mkdirSync(join(stopTmp, 'scripts', 'check'), { recursive: true })
@@ -8248,10 +8274,16 @@ group('stop-if-seen', [], () => {
   // 那一行只有一处调用：清册按名字认，同名的两处会被当成重名拦在开跑之前
   writeFileSync(join(stopTmp, 'scripts', 'check', 'selfcheck.ts'),
     ["import { spawn } from 'node:child_process'",
-     "import { existsSync } from 'node:fs'",
+     "import { appendFileSync, existsSync, mkdtempSync, realpathSync } from 'node:fs'",
+     "import { tmpdir } from 'node:os'",
+     "import { join } from 'node:path'",
      'const endPath = (label: string, _rest: unknown[]): void => {',
      '  console.error(`  ✗ ${label}`)',
      '}',
+     `appendFileSync(${JSON.stringify(leftLog)}, mkdtempSync(join(tmpdir(), 'kol-stop-left-')) + '\\n')`,
+     // 专属临时目录里那个 tsx 缓存的名字，解开以后应当是共用的那一份
+     // 记两样：它看到的临时目录（应当不是系统那一个）、那个名字解开后的真实路径；只记后一样的话，没给专属目录时也对得上
+     `try { appendFileSync(${JSON.stringify(cacheLog)}, realpathSync(tmpdir()) + '\\t' + realpathSync(join(tmpdir(), ${JSON.stringify(tsxName)})) + '\\n') } catch { appendFileSync(${JSON.stringify(cacheLog)}, realpathSync(tmpdir()) + '\\t没有\\n') }`,
      'let said = false',
      "const say = (): void => { if (!said) { said = true; endPath('甲', []) } }",
      `const kid = spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { stdio: 'ignore' })`,
@@ -8268,6 +8300,9 @@ group('stop-if-seen', [], () => {
   const stopRun = runToolBoth('mutate 见齐就停（验证者不结束也不必等它）', 'mutate', [], stopTmp,
                               { status: 0 })
   const stopOut = stopRun.ok ? stopRun.stdout : undefined
+  // 先记下在不在、马上删掉，再往下判：下面几处提前收手时也不在共用缓存里留东西
+  const sentinelKept = existsSync(sentinel)
+  rmSync(sentinel, { force: true })
   if (stopOut === undefined) {
     // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
   } else if (!/M-X-i\s+\[X1\]/.test(stopOut)) {
@@ -8279,6 +8314,16 @@ group('stop-if-seen', [], () => {
                   + `报的不是「被抓到」：\n${stopOut.split('\n').filter(l => l.includes('M-X-i')).join('\n')}`)
   } else console.log('  ✓ 见齐就停：验证者没结束，那条变异照样判「被抓到」')
   if (stopOut === undefined) return
+  const left = existsSync(leftLog) ? readFileSync(leftLog, 'utf8').split('\n').filter(l => l !== '') : []
+  if (left.length === 0) { failed++; console.error(`  ✗ 见齐就停收临时目录${SELFCHECK_FIXTURE_MARK}：假验证者一次都没记下它建的临时目录 —— 夹具没造对`) }
+  else named('见齐就停：被叫停的验证者建的临时目录，mutate 收尾后一个都不在了', left.every(d => !existsSync(d)),
+    `还在的：${left.filter(d => existsSync(d)).join('、')}`)
+  const caches = existsSync(cacheLog) ? readFileSync(cacheLog, 'utf8').split('\n').filter(l => l !== '') : []
+  // 两条合起来才说得清：验证者在专属目录里（不是系统那一个），而它在那里找到的缓存解开后是共用那份 —— 所以下一条「共用那份里的东西还在」是删过链接之后的
+  named('见齐就停：验证者看到的 tsx 编译缓存是共用的那一份', caches.length > 0
+    && caches.every(c => { const [seen, cache] = c.split('\t'); return seen !== realpathSync(tmpdir()) && cache === realpathSync(sharedCache) }),
+    `看到的（临时目录 → 缓存）：${caches.map(c => c.replace('\t', ' → ')).join('、')}`)
+  named('见齐就停：删专属临时目录没删到共用的 tsx 编译缓存', sentinelKept, `${sentinel} 不在了`)
   // 负 pid 是 POSIX 的进程组语义；Windows 上 `detached` 给的是一个控制台窗口，那一刀落空（`mutate.ts` 头上记着），这里不判
   if (process.platform === 'win32') { console.log('  ⊘ 见齐就停杀整组：Windows 上没有进程组，这里没验'); return }
   // 文件在、内容还没写进去时读成空串，`Number('')` 是 0：也当孩子没起来
@@ -8413,6 +8458,12 @@ group('mutation-reds-entry', [], () => {
   const stale = runToolBoth('never-red 记录对不上变异目录即以 1 结束', 'never-red', [], rTmp, { status: 1 })
   if (stale.ok) named('never-red：记录对不上变异目录时说出缺了哪条、不出清单',
     stale.stderr.includes('M-X-s') && !stale.stdout.includes('｜ 乙'), stale.stderr)
+  // 变异目录里编号重复：读取函数拒，入口照着说、不出清单（ADR-242）
+  const once = { id: 'M-X-r', req: 'X1', why: '把那个字面量换掉', file: 'a.ts', find: "'P'", replace: "'Q'", by: 'selfcheck', kills: ['甲'] }
+  writeFileSync(join(rTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [once, once] }), 'utf8')
+  const twice = runToolBoth('never-red 变异目录编号重复即以 1 结束', 'never-red', [], rTmp, { status: 1 })
+  if (twice.ok) named('never-red：变异目录编号重复时点名那个编号、不出清单',
+    twice.stderr.includes('变异目录里编号重复：M-X-r') && !twice.stdout.includes('｜ 乙'), twice.stderr)
 })
 
 // ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
@@ -8738,6 +8789,7 @@ group('audit-entry', [], () => {
   let observedA: string | undefined;
   let observedB: string | undefined;
   let dupNamesRun: { status: number | null; stdout: string; stderr: string } | undefined;
+  let dupIdsRun: { status: number | null; stdout: string; stderr: string } | undefined;
   // 夹具没造对只报一次、只计一次失败。`raw` 是要交给人读的那份原始报告（报告认不出那一支给）：
   // 逐行加前缀再打，免得报告里自己的 `✗ …` 行顶格打出来，被 `killsMatched` 与汇总正则当成自检的话
   const fixtureFailure = (why: string, raw?: { stdout: string; stderr: string }): void => {
@@ -8949,6 +9001,15 @@ group('audit-entry', [], () => {
       return;
     }
     dupNamesRun = { status: dup.status, stdout: dup.stdout, stderr: dup.stderr };
+    // 第三跑：变异目录里编号重复 —— 读取函数拒，审计不往下审，以 1 退出（ADR-242）
+    writeFileSync(join(ownedToyRoot, 'scripts', 'check', 'mutations.json'),
+      encode({ ...mutationData, mutations: [...mutationData.mutations, mutationData.mutations[0]] }));
+    const dupIds = runToolBoth('audit-entry 起普通审计：变异目录编号重复', 'audit', [], ownedToyRoot, { status: 1, soft: [0] });
+    if (!dupIds.ok) {
+      runnerReportedFailure = true;
+      return;
+    }
+    dupIdsRun = { status: dupIds.status, stdout: dupIds.stdout, stderr: dupIds.stderr };
   } catch (error) {
     fixtureFailure(error instanceof Error ? error.message : String(error));
     return;
@@ -8966,6 +9027,9 @@ group('audit-entry', [], () => {
   named('审计入口：一条记录里两张欠条同名时把短名字有错计成硬失败，以 1 退出',
     dupNamesRun?.status === 1 && dupNamesRun.stdout.includes('docs/adr/ADR-1-玩具.md:5 欠条的短名字有错'),
     `退出码 ${dupNamesRun?.status}；输出：\n${dupNamesRun?.stdout}stderr 末几行：${stderrTail(dupNamesRun?.stderr ?? '')}`);
+  named('审计入口：变异目录编号重复时不往下审、点名那个编号，以 1 退出',
+    dupIdsRun?.status === 1 && dupIdsRun.stderr.includes('变异目录里编号重复：toy-negative-alpha') && dupIdsRun.stdout === '',
+    `退出码 ${dupIdsRun?.status}；输出：\n${dupIdsRun?.stdout}stderr 末几行：${stderrTail(dupIdsRun?.stderr ?? '')}`);
 });
 
 // ---- 子集基线：先验正常代码，同一配置只验一次，未通过就不能施加变异 ----

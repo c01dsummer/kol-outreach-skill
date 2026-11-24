@@ -21,6 +21,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mutationSourceIdentity } from './claims.js'
 import { LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, type LaunchTrunk, SELFCHECK_LAUNCHES_FILE, idleGroupsLine, joinLaunchParts, launchGate, launchSummary, summaryLine } from './launch-rule.js'
 import { executionRoutes } from './mutate-rule.js'
+import { MUTATION_CATALOG, readCatalog } from './catalog-rule.js'
 import { askGit } from './git-entry.js'
 import { resolveBaseline } from './size-rule.js'
 
@@ -47,7 +48,10 @@ const tree = source(), record = read.record, summary = launchSummary(record, tre
 // 读不成、算的时候抛错都交 undefined，由 idleGroupsLine 打成数不出来的那句
 const routes = (): Parameters<typeof idleGroupsLine>[2] => {
   try {
-    return executionRoutes((json('scripts/check/mutations.json') as { mutations: [] }).mutations,
+    // 读变异目录只经读取函数（ADR-242）；读不成也交 undefined，同上
+    const catalog = readCatalog(existsSync(MUTATION_CATALOG) ? readFileSync(MUTATION_CATALOG, 'utf8') : undefined)
+    if (!catalog.ok) return undefined
+    return executionRoutes(catalog.mutations as unknown as Parameters<typeof executionRoutes>[0],
       file => existsSync(file) ? readFileSync(file, 'utf8') : undefined).routes
   } catch { return undefined }
 }
