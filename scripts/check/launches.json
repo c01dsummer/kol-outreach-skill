@@ -208,6 +208,8 @@
     {"config":"[\"test\",[\"h-prebuilt-scope\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-restore-interrupt\"]]","launches":1,"maxPaid":null,"running":22,"stopping":0},
     {"config":"[\"test\",[\"h-revisit-entry\"]]","launches":8,"maxPaid":null,"running":6,"stopping":0},
+    {"config":"[\"test\",[\"h-revisit-raw\"]]","launches":0,"maxPaid":null,"running":49,"stopping":0},
+    {"config":"[\"test\",[\"h-revisit-raw-entry\"]]","launches":15,"maxPaid":null,"running":7,"stopping":0},
     {"config":"[\"test\",[\"h-same-spot\"]]","launches":0,"maxPaid":null,"running":52,"stopping":0},
     {"config":"[\"test\",[\"h-selfcheck-selection-entry\"]]","launches":2,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-selfcheck-shard-entry\"]]","launches":2,"maxPaid":null,"running":5,"stopping":0},
@@ -265,6 +267,8 @@
     {"config":"[\"test\",[\"u9-p1-independent-claim\"]]","launches":1,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"u9-review-output\"]]","launches":0,"maxPaid":null,"running":20,"stopping":0}
   ],
-  "findings": [],
+  "findings": [
+    {"config":"[\"test\",[\"h-revisit-raw-entry\"]]","ids":["M-H245-ak","M-H245-al","M-H245-am","M-H245-an","M-H245-av","M-H245-ay","M-H245-bc"],"kind":"product","launches":15}
+  ],
   "schema": "mutation-launch-summary/v1"
 }
