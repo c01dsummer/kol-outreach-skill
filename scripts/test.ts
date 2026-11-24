@@ -41,7 +41,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, isGitProgram, launchDrift, 
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
-import { catalogCount, cliRawGit, gatherRaw, ledgerDiff as rawLedgerDiff, neverRedLines, parseJobs, parseRuns, pickNeverRed, rawLine, readNeverRed, slowRuns, topTen } from './check/revisit-raw-rule.js'
+import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, ledgerDiff as rawLedgerDiff, NEVER_RED_RUNS, neverRedLines, parseJobs, parseRuns, pickNeverRed, type RawGit, rawLine, readNeverRed, slowRuns, topTen } from './check/revisit-raw-rule.js'
 import { addDays, beijingDate, bornReport, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex } from './check/revisit-rule.js'
 import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
@@ -26094,6 +26094,8 @@ await group('h-revisit-raw', () => {
       gatherRaw(git, 'HEAD', '2026-11-23').faults, ['工作区的 docs/adr/ 与本跑那棵树不同：docs/adr/ADR-1-甲.md'])
     eq('取原料：本跑那棵树读不出也不齐', gatherRaw(git, 'nope', '2026-11-23').faults.slice(0, 2),
       ['取不到一周前那棵树（2026-11-16 北京时间 00:00 之前主干上没有提交）', '读不出本跑那棵树（nope）的 docs/adr/'])
+    const half: RawGit = { ...git, lastBefore: () => 'abcdef0123', adrTree: rev => rev === 'abcdef0123' ? undefined : git.adrTree(rev) }
+    eq('取原料：一周前那棵树取到了却读不出，也不齐、说是哪一个提交', gatherRaw(half, 'HEAD', '2026-11-23').faults, ['读不出一周前那棵树（abcdef0）的 docs/adr/', '工作区的 docs/adr/ 与本跑那棵树不同：docs/adr/ADR-1-甲.md'])
     eq('条数：提交上 mutations 是数组就数，不是数组、文件不在都算取不到', (() => {
       toy.write('scripts/check/mutations.json', '{"mutations":[{},{},{}]}\n'); toy.git('add', '-A'); commit('2026-11-21T04:00:00+00:00', '四')
       const three = catalogCount(git, 'HEAD')
@@ -26109,15 +26111,25 @@ await group('h-revisit-raw', () => {
   eq('被引表前十：进了前十与掉出前十各列编号与「一周前 → 本跑」，一周前没有这条写没有这条；再抄两边汇总',
     topTen(oldC, newC), ['进了前十：ADR-12（没有这条 → 33）', '掉出前十：ADR-9（24 → 24）', '一周前汇总：被引表 11 条记录 · 旧', '本跑汇总：被引表 12 条记录 · 新'])
   eq('被引表前十：前十没变就都写没有', topTen(oldC, oldC).slice(0, 2), ['进了前十：没有', '掉出前十：没有'])
+  eq('被引表前十：docs/adr/ 开头却认不出的行不悄悄跳过，多打一行说两边各几行', topTen(oldC, `docs/adr/ADR-13-x.md  被引了 9 次\n${newC}`).at(-1),
+    '无从确认：认不出是被引表一行的有 一周前 0 行、本跑 1 行，前十可能不准')
 
   // 接口返回：整份先核形状
-  const R = (id: number, created: string, seconds: number) => ({ id, head_sha: String(id % 10).repeat(40), created_at: created, run_started_at: created,
-    updated_at: new Date(Date.parse(created) + seconds * 1000).toISOString() })
-  const page = (runs: unknown[]) => JSON.stringify({ total_count: runs.length, workflow_runs: runs })
+  // 排队的 30 秒不算时长：开跑时刻与创建时刻错开，时长只能从开跑算
+  const R = (id: number, created: string, seconds: number) => ({ id, head_sha: String(id % 10).repeat(40), head_branch: 'main', status: 'completed',
+    path: '.github/workflows/check.yml', event: 'push', conclusion: 'success', created_at: created,
+    run_started_at: new Date(Date.parse(created) + 30_000).toISOString(), updated_at: new Date(Date.parse(created) + 30_000 + seconds * 1000).toISOString() })
+  const page = (runs: unknown[], total = runs.length) => JSON.stringify({ total_count: total, workflow_runs: runs })
   const a = R(1, '2026-11-10T00:00:00Z', 10), b = R(2, '2026-11-11T00:00:00Z', 10)
-  const ids = (t: string) => { const r = parseRuns(t); return 'fault' in r ? r.fault : r.runs.map(x => x.id) }
-  eq('接口返回：一页、几页排成的数组、直接一组跑都认；两页里重复的一跑只算一次；排成从新到旧',
-    [ids(page([a, b])), ids(`[${page([a])},${page([b, a])}]`), ids(JSON.stringify([a, b]))], [[2, 1], [2, 1], [2, 1]])
+  const ids = (t: string) => { const r = parseRuns(t, CHECK_RUNS); return 'fault' in r ? r.fault : [r.runs.map(x => x.id), r.total] }
+  eq('接口返回：一页、几页排成的数组、直接一组跑都认；两页里重复的一跑只算一次；排成从新到旧；一共几跑取页上最大的，直接一组跑就没有',
+    [ids(page([a, b])), ids(`[${page([a], 7)},${page([b, a], 9)}]`), ids(JSON.stringify([a, b]))], [[[2, 1], 2], [[2, 1], 9], [[2, 1], undefined]])
+  eq('接口返回：混进不是要的那一种跑（别的分支、没跑完、别的 workflow、别的事件、没成功）整份不收、说第几跑哪一样',
+    [ids(JSON.stringify([a, { ...b, head_branch: 'x' }])), ids(JSON.stringify([{ ...a, status: 'in_progress' }])), ids(JSON.stringify([{ ...a, path: '.github/workflows/never-red.yml' }])),
+      ids(JSON.stringify([{ ...a, event: 'pull_request' }])), ids(JSON.stringify([{ ...a, conclusion: 'failure' }])),
+      (() => { const r = parseRuns(JSON.stringify([{ ...a, path: '.github/workflows/never-red.yml', event: 'schedule', conclusion: 'failure' }]), NEVER_RED_RUNS); return 'fault' in r ? r.fault : r.runs.length })()],
+    ['第 2 跑（2）的 head_branch 是 "x"，要的是 main', '第 1 跑（1）的 status 是 "in_progress"，要的是 completed', '第 1 跑（1）的 path 是 ".github/workflows/never-red.yml"，要的是 .github/workflows/check.yml',
+      '第 1 跑（1）的 event 是 "pull_request"，要的是 push', '第 1 跑（1）的 conclusion 是 "failure"，要的是 success', 1])
   eq('接口返回：不是 JSON、不是那几种形状、有一跑缺一样或时刻读不出，整份不收、说第几跑哪一样',
     [ids('{'), ids('{"x":1}'), ids(JSON.stringify([a, { ...b, head_sha: 'xyz' }])), ids(JSON.stringify([{ ...a, updated_at: '昨天' }])), ids(JSON.stringify([{ ...a, id: '1' }]))].map(x => typeof x === 'string' ? x.replace(/：.*/s, '') : x),
     ['不是 JSON', '既不是一页接口返回（带 workflow_runs），也不是一组跑', '第 2 跑（2）的 head_sha 不对', '第 1 跑（1）的 updated_at 读不出时刻', '第 1 跑缺 id'])
@@ -26130,6 +26142,13 @@ await group('h-revisit-raw', () => {
   eq('偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）',
     slowRuns(runsA, '2026-11-23', count), ['窗口里 3 跑', '比值 ≥ 1.30 的：', `- run 6 · 6666666 · 本跑 23:49 · 主干前 5 次中位 18:20 · ×1.30`,
       '工作量：变异 3000 条（比窗口前 +200） · 摊到每条的秒数中位 0.41（2 跑，少了 1 跑：提交上取不到条数或条数为 0）'])
+  eq('偏慢：比它早的不足 5 跑，交进来的比接口说的少就多打一行叫再取一页，一样多就不打',
+    [slowRuns(runsA.slice(0, -1), '2026-11-23', count, 9)[3], slowRuns(runsA.slice(0, -1), '2026-11-23', count, 8)[3].startsWith('工作量'), slowRuns(runsA, '2026-11-23', count, 99)[3].startsWith('工作量')],
+    ['前面不足 5 次的可能是没取够：交进来 8 跑，接口说一共 9 跑，再取下一页', true, true])
+  eq('偏慢：取得到条数的跑是奇数个，中位取正中那个；前 5 次的中位是 0 秒写无从确认',
+    [slowRuns(runsA, '2026-11-23', s => s === String(6).repeat(40) ? 1000 : count(s)).at(-1),
+      slowRuns([R(7, '2026-11-20T00:00:00Z', 10), ...[5, 4, 3, 2, 1].map(i => R(i, `2026-11-0${i}T00:00:00Z`, 0))], '2026-11-23', count)[2]],
+    ['工作量：变异 3000 条（比窗口前 +200） · 摊到每条的秒数中位 0.47（3 跑）', '- run 7 · 7777777 · 无从确认：前 5 次的中位是 0 秒'])
   eq('偏慢：比它早的不足 5 跑写无从确认；条数比窗口前少带负号、相同写 ±0；窗口里一跑都没有写没有',
     [slowRuns(runsA.slice(0, -1), '2026-11-23', count).slice(1, 3), slowRuns(runsA, '2026-11-23', s => s === String(5).repeat(40) ? 3100 : count(s)).at(-1)?.split(' · ')[0],
       slowRuns(runsA, '2026-11-23', s => s === String(5).repeat(40) ? 3000 : count(s)).at(-1)?.split(' · ')[0], slowRuns(runsA, '2026-12-23', count)],
@@ -26147,8 +26166,8 @@ await group('h-revisit-raw', () => {
   const nr = [R(3, '2026-11-23T02:00:00Z', 1), R(2, '2026-11-22T20:00:00Z', 1), R(1, '2026-11-15T15:00:00Z', 1)]
   const pick = (runs: ReturnType<typeof R>[]) => { const p = pickNeverRed(runs, '2026-11-23', now); return [p.this?.id, p.prev?.id, p.fault] }
   eq('从没红过：本周那一跑是窗口里（开跑之后创建的不算）最晚的一跑，上一跑是比它早的最晚一跑（可以在窗口外）；窗口里没有、没有更早的都说为什么',
-    [pick(nr), pick(nr.slice(2)), pick(nr.slice(0, 2))],
-    [[2, 1, undefined], [undefined, undefined, '窗口里没有跑完的一跑'], [2, undefined, '交进来的跑里没有比本周那一跑更早的（接口还有下一页就再取）']])
+    [pick(nr), pick(nr.slice(2)), pick(nr.slice(0, 2)), pick([R(4, '2026-11-15T16:00:00Z', 1), ...nr.slice(2)])],
+    [[2, 1, undefined], [undefined, undefined, '窗口里没有跑完的一跑'], [2, undefined, '交进来的跑里没有比本周那一跑更早的（接口还有下一页就再取）'], [4, 1, undefined]])
   const nrLine = (o: object) => `2026-11-24T04:10:00.1234567Z NEVER_RED_JSON ${JSON.stringify({ schema: 'never-red/v1', head: 'abcdef1234', earlyStop: false, stopped: 0,
     verifiers: { test: { catalog: 100, notReached: 3, neverRed: 7 }, selfcheck: { catalog: 50, notReached: 1, neverRed: 2 } }, ...o })}`
   const readNR = (log: string) => { const r = readNeverRed(log); return 'fault' in r ? r.fault : r.data.head }
@@ -26159,17 +26178,20 @@ await group('h-revisit-raw', () => {
       'NEVER_RED_JSON 里 test 那一份的数不对', 'NEVER_RED_JSON 那一行不是 JSON'])
   const prevNR = readNeverRed(nrLine({ verifiers: { test: { catalog: 99, notReached: 3, neverRed: 9 }, selfcheck: { catalog: 50, notReached: 1, neverRed: 2 } } }))
   const jobs = [{ name: '不提前停的整跑（第 1/3 份）', conclusion: 'success' }, { name: '不提前停的整跑（第 2/3 份）', conclusion: 'failure' },
-    { name: '不提前停的整跑（第 3/3 份）', conclusion: 'failure' }, { name: '清单', conclusion: 'failure' }]
+    { name: '不提前停的整跑（第 3/3 份）', conclusion: 'failure' }, { name: '清单', conclusion: 'failure' }].map(j => ({ run_id: 42, ...j }))
   eq('从没红过：两个验证者各一行，比上一跑带正负号、相同写 ±0；整跑那几份有红的列出第几份（清单那个 job 不算）',
     neverRedLines(42, readNeverRed(nrLine({})), prevNR, jobs),
     ['run 42 · abcdef1', 'test：清册 100 条，从没红过 7 条（没有负片跑到 3 条），比上一跑 -2', 'selfcheck：清册 50 条，从没红过 2 条（没有负片跑到 1 条），比上一跑 ±0', '整跑有变异没被抓到：第 2、3 份'])
   eq('从没红过：没关提前停的整段无从确认；本周那一跑读不到整段无从确认；上一跑读不到只有比上一跑无从确认',
     [neverRedLines(42, readNeverRed(nrLine({ earlyStop: true })), prevNR, []), neverRedLines(42, { fault: '日志读不到' }, prevNR, []),
-      neverRedLines(42, readNeverRed(nrLine({})), { fault: '上一跑的日志没给' }, [])[1]],
-    [['run 42 · abcdef1 · 无从确认：那一跑没关提前停'], ['无从确认：日志读不到'], 'test：清册 100 条，从没红过 7 条（没有负片跑到 3 条），比上一跑：无从确认：上一跑的日志没给'])
-  const jobsOf = (t: string) => { const r = parseJobs(t); return 'fault' in r ? r.fault.replace(/：.*/s, '') : r.jobs.length }
-  eq('jobs 接口返回：整份先核形状', [jobsOf(JSON.stringify({ jobs })), jobsOf('['), jobsOf('{"jobs":{}}'), jobsOf('{"jobs":[{"name":"x"}]}'), jobsOf('{"jobs":[{"conclusion":"success"}]}')],
+      neverRedLines(42, readNeverRed(nrLine({})), { fault: '上一跑的日志没给' }, [])[1],
+      neverRedLines(42, readNeverRed(nrLine({ verifiers: { test: { catalog: 100, notReached: 3, neverRed: 7 } } })), prevNR, [])[2]],
+    [['run 42 · abcdef1 · 无从确认：那一跑没关提前停'], ['无从确认：日志读不到'], 'test：清册 100 条，从没红过 7 条（没有负片跑到 3 条），比上一跑：无从确认：上一跑的日志没给',
+      'selfcheck：无从确认：那一行里没有这个验证者'])
+  const jobsOf = (t: string) => { const r = parseJobs(t, 42); return 'fault' in r ? r.fault.replace(/：.*/s, '') : r.jobs.length }
+  eq('jobs 接口返回：整份先核形状', [jobsOf(JSON.stringify({ jobs })), jobsOf('['), jobsOf('{"jobs":{}}'), jobsOf('{"jobs":[{"run_id":42,"name":"x"}]}'), jobsOf('{"jobs":[{"run_id":42,"conclusion":"success"}]}')],
     [4, '不是 JSON', '不是一页 jobs 接口返回（带 jobs）', '第 1 个 job 缺 name 或 conclusion', '第 1 个 job 缺 name 或 conclusion'])
+  eq('jobs 接口返回：有一个 job 不是给的那一跑的，整份不收', jobsOf(JSON.stringify({ jobs: [...jobs, { ...jobs[0], run_id: 41 }] })), '第 5 个 job 的 run_id 是 41，不是 42 那一跑的')
 })
 await group('h-revisit-raw-entry', () => {
   harness('周回访取原料与 (a)、(d)、(e) 的入口：在玩具仓库里真起各一支')
@@ -26197,26 +26219,35 @@ await group('h-revisit-raw-entry', () => {
     eq('入口 --gather：不齐以 1 退出，打原料不齐与为什么', [early.status, early.stdout.startsWith('原料不齐：取不到一周前那棵树')], [1, true])
     const bad = ['2026-13-01', '2026-02-30'].map(d => entry('--gather', '--today', d, '--dir', dir))
     eq('入口 --today 写的不是成立的日子：以 2 退出、什么都不打', bad.map(r => [r.status, r.stdout]), [[2, ''], [2, '']])
-    const R = (id: number, created: string, seconds: number) => ({ id, head_sha: sha, created_at: created, run_started_at: created,
-      updated_at: new Date(Date.parse(created) + seconds * 1000).toISOString() })
-    writeFileSync(join(files, 'runs.json'), JSON.stringify({ workflow_runs: [R(6, '2026-11-20T00:00:00Z', 200), ...[5, 4, 3, 2, 1].map(i => R(i, `2026-11-0${i}T00:00:00Z`, 100))] }))
+    const R = (id: number, created: string, seconds: number, path = 'check.yml') => ({ id, head_sha: sha, head_branch: 'main', status: 'completed', path: `.github/workflows/${path}`,
+      event: 'push', conclusion: 'success', created_at: created, run_started_at: new Date(Date.parse(created) + 30_000).toISOString(),
+      updated_at: new Date(Date.parse(created) + 30_000 + seconds * 1000).toISOString() })
+    writeFileSync(join(files, 'runs.json'), JSON.stringify({ total_count: 6, workflow_runs: [R(6, '2026-11-20T00:00:00Z', 183), ...[5, 4, 3, 2, 1].map(i => R(i, `2026-11-0${i}T00:00:00Z`, 100))] }))
     const slow = entry('--slow', '--today', '2026-11-23', '--runs', join(files, 'runs.json'))
-    eq('入口 --slow：读存下来的接口返回，条数从玩具仓库的 git 里取', [slow.status, slow.stdout],
-      [0, `窗口里 1 跑\n比值 ≥ 1.30 的：\n- run 6 · ${sha.slice(0, 7)} · 本跑 3:20 · 主干前 5 次中位 1:40 · ×2.00\n工作量：变异 2 条（比窗口前 ±0） · 摊到每条的秒数中位 100.00（1 跑）\n`])
+    eq('入口 --slow：读存下来的接口返回，条数从玩具仓库的 git 里取；秒数不足两位补 0', [slow.status, slow.stdout],
+      [0, `窗口里 1 跑\n比值 ≥ 1.30 的：\n- run 6 · ${sha.slice(0, 7)} · 本跑 3:03 · 主干前 5 次中位 1:40 · ×1.83\n工作量：变异 2 条（比窗口前 ±0） · 摊到每条的秒数中位 91.50（1 跑）\n`])
+    writeFileSync(join(files, 'short.json'), JSON.stringify({ total_count: 9, workflow_runs: [R(6, '2026-11-20T00:00:00Z', 183), R(5, '2026-11-05T00:00:00Z', 100)] }))
+    eq('入口 --slow：前面不足 5 次、交进来的比接口说的少，叫再取下一页（页上的一共几跑传到了判定里）',
+      entry('--slow', '--today', '2026-11-23', '--runs', join(files, 'short.json')).stdout.split('\n')[3], '前面不足 5 次的可能是没取够：交进来 2 跑，接口说一共 9 跑，再取下一页')
     writeFileSync(join(files, 'bad.json'), '{"workflow_runs":[{"id":1}]}')
     const badRuns = entry('--slow', '--today', '2026-11-23', '--runs', join(files, 'bad.json'))
     eq('入口 --slow：交进来的文件形状不对，以 2 退出、说哪里不对、不往下算', [badRuns.status, badRuns.stdout, badRuns.stderr.includes('第 1 跑（1）的 head_sha 不对')], [2, '', true])
-    const pick = entry('--never-red-pick', '--today', '2099-01-05', '--runs', join(files, 'runs.json'))
-    eq('入口 --never-red-pick：窗口里没有一跑就说无从确认', [pick.status, pick.stdout], [0, '本周那一跑 无从确认 · 上一跑 无从确认（窗口里没有跑完的一跑）\n'])
+    writeFileSync(join(files, 'nr.json'), JSON.stringify({ workflow_runs: [R(8, '2026-11-17T00:00:00Z', 1, 'never-red.yml'), R(7, '2026-11-10T00:00:00Z', 1, 'never-red.yml')] }))
+    const pick = entry('--never-red-pick', '--today', '2099-01-05', '--runs', join(files, 'nr.json'))
+    const pickWrong = entry('--never-red-pick', '--today', '2026-11-23', '--runs', join(files, 'runs.json'))
+    eq('入口 --never-red-pick：窗口里没有一跑就说无从确认；交进来的是 check.yml 的跑就以 2 退出', [pick.status, pick.stdout, pickWrong.status], [0, '本周那一跑 无从确认 · 上一跑 无从确认（窗口里没有跑完的一跑）\n', 2])
     const line = (n: number) => `NEVER_RED_JSON ${JSON.stringify({ schema: 'never-red/v1', head: sha, earlyStop: false, verifiers: { test: { catalog: 9, notReached: 0, neverRed: n }, selfcheck: { catalog: 4, notReached: 0, neverRed: 0 } } })}\n`
     writeFileSync(join(files, 'this.log'), line(3)); writeFileSync(join(files, 'prev.log'), line(1))
-    writeFileSync(join(files, 'jobs.json'), JSON.stringify({ jobs: [{ name: '不提前停的整跑（第 1/3 份）', conclusion: 'success' }] }))
+    writeFileSync(join(files, 'jobs.json'), JSON.stringify({ jobs: [{ run_id: 7, name: '不提前停的整跑（第 1/3 份）', conclusion: 'success' }] }))
     const nr = entry('--never-red', '--run-id', '7', '--log', join(files, 'this.log'), '--jobs', join(files, 'jobs.json'), '--prev-log', join(files, 'prev.log'))
     const noPrev = entry('--never-red', '--run-id', '7', '--log', join(files, 'this.log'), '--jobs', join(files, 'jobs.json'))
     eq('入口 --never-red：读两份日志与 jobs，打两个验证者各一行；上一跑的日志没给，比上一跑写无从确认',
       [nr.status, nr.stdout, noPrev.stdout.split('\n')[1]],
       [0, `run 7 · ${sha.slice(0, 7)}\ntest：清册 9 条，从没红过 3 条（没有负片跑到 0 条），比上一跑 +2\nselfcheck：清册 4 条，从没红过 0 条（没有负片跑到 0 条），比上一跑 ±0\n`,
         'test：清册 9 条，从没红过 3 条（没有负片跑到 0 条），比上一跑：无从确认：上一跑的日志没给'])
+    const nrArgs = ['--log', join(files, 'this.log'), '--jobs', join(files, 'jobs.json')]
+    const stops = [entry('--never-red', '--run-id', 'x', ...nrArgs), entry('--never-red', '--run-id', '8', ...nrArgs)]
+    eq('入口 --never-red：--run-id 不是正整数、jobs 不是那一跑的，都以 2 退出、什么都不打', stops.map(r => [r.status, r.stdout]), [[2, ''], [2, '']])
     const none = entry('--nope')
     eq('入口：不认识的用法以 2 退出', [none.status, none.stdout], [2, ''])
   })

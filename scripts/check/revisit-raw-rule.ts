@@ -141,14 +141,17 @@ export function rawLine(raw: Raw): string {
 }
 
 /** 被引表一行：记录编号与被引次数 */
+const CITE_ROW = /^(docs\/adr\/\S+?\.md) {2}被引 ([0-9]+) /
 const citeRows = (text: string): Array<{ id: string; cited: number }> => text.split('\n').flatMap(l => {
-  const m = /^(docs\/adr\/\S+?\.md) {2}被引 ([0-9]+) /.exec(l)
+  const m = CITE_ROW.exec(l)
   return m === null ? [] : [{ id: adrId(m[1]), cited: Number(m[2]) }]
 })
+/** `docs/adr/` 开头却认不出是被引表一行的行数：被引表的样子改了，前十就不可信 */
+const strayRows = (text: string): number => text.split('\n').filter(l => l.startsWith('docs/adr/') && !CITE_ROW.test(l)).length
 
 /**
  * (d) 被引表前十：两份各取前 10 行，写进了前十的与掉出前十的（编号与「一周前 → 本跑」的被引次数，
- * 那一边没有这条记录写「没有这条」），再抄两边末尾那一行汇总。
+ * 那一边没有这条记录写「没有这条」），再抄两边末尾那一行汇总。`docs/adr/` 开头却认不出的行不悄悄跳过，多打一行说有几行。
  */
 export function topTen(oldCites: string, newCites: string): string[] {
   const before = citeRows(oldCites), after = citeRows(newCites)
@@ -159,11 +162,13 @@ export function topTen(oldCites: string, newCites: string): string[] {
   const topB = before.slice(0, 10).map(r => r.id), topA = after.slice(0, 10).map(r => r.id)
   const fmt = (ids: string[]) => ids.length === 0 ? '没有' : ids.map(id => `${id}（${count(before, id)} → ${count(after, id)}）`).join('、')
   const tail = (t: string) => t.trimEnd().split('\n').at(-1)?.trim() ?? ''
+  const stray = [strayRows(oldCites), strayRows(newCites)]
   return [
     `进了前十：${fmt(topA.filter(id => !topB.includes(id)))}`,
     `掉出前十：${fmt(topB.filter(id => !topA.includes(id)))}`,
     `一周前汇总：${tail(oldCites)}`,
     `本跑汇总：${tail(newCites)}`,
+    ...(stray[0] + stray[1] === 0 ? [] : [`无从确认：认不出是被引表一行的有 一周前 ${stray[0]} 行、本跑 ${stray[1]} 行，前十可能不准`]),
   ]
 }
 
@@ -176,10 +181,12 @@ export interface ApiRun {
   updated_at: string // 字段不入断言：同上
 }
 
-/** 读接口返回的结果：核过形状的跑（从新到旧），或不收的原因 */
+/** 读接口返回的结果：核过形状的跑（从新到旧）与接口说的一共几跑，或不收的原因 */
 export type RunsRead =
   | {
     runs: ApiRun[] // 字段不入断言：读接口返回那一例按 id 全文比；M-H245-o、p 改的是去重与排序
+    /** 页上的 `total_count`（几页取最大的）；直接交一组跑就没有 */
+    total?: number // 字段不入断言：读接口返回那一例按全文比；M-H245-ao 改的是取它的那一处
   }
   | {
     fault: string // 字段不入断言：核形状那一例五种情形按全文比
@@ -187,11 +194,23 @@ export type RunsRead =
 
 const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x)
 
+/** 交进来的跑该是哪一种：哪份 workflow 文件、什么事件触发、什么结论（不写就不核） */
+export interface RunsWant {
+  path: string // 字段不入断言：核形状那一例按全文比；M-H245-ap 改的是比它的那一处
+  event?: string // 字段不入断言：同上；M-H245-aq
+  conclusion?: string // 字段不入断言：同上；M-H245-ar
+}
+/** (a) 要的：`check.yml` 在主干上 push 触发的成功跑 */
+export const CHECK_RUNS: RunsWant = { path: '.github/workflows/check.yml', event: 'push', conclusion: 'success' }
+/** (e) 要的：`never-red.yml` 在主干上跑完了的（红了的也要，整跑那几份红是要报的） */
+export const NEVER_RED_RUNS: RunsWant = { path: '.github/workflows/never-red.yml' }
+
 /**
  * 读例程存下来的接口返回：一页（`{ workflow_runs: [...] }`）、几页排成的数组、或直接一组跑都认。
- * 整份先核形状：每一跑那几样都得在、类型对、时刻读得出，有一跑不对就整份不收，交回第几跑哪一样不对。
+ * 整份先核形状：每一跑那几样都得在、类型对、时刻读得出，还得是 `want` 说的那一种（主干上、跑完了、那份 workflow、那种事件与结论），
+ * 有一跑不对就整份不收，交回第几跑哪一样不对 —— 取错了接口（别的 workflow、别的分支、没过滤结论）不会悄悄算进去。
  */
-export function parseRuns(text: string): RunsRead {
+export function parseRuns(text: string, want: RunsWant): RunsRead {
   let data: unknown
   try { data = JSON.parse(text) } catch (e) { return { fault: `不是 JSON：${(e as Error).message}` } }
   const pages = Array.isArray(data) && data.every(isObject) && data.every(p => 'workflow_runs' in p) ? data : [data]
@@ -201,6 +220,7 @@ export function parseRuns(text: string): RunsRead {
     if (list === undefined) return { fault: '既不是一页接口返回（带 workflow_runs），也不是一组跑' }
     runs.push(...list)
   }
+  const totals = pages.flatMap(p => isObject(p) && typeof p.total_count === 'number' ? [p.total_count] : [])
   for (const [i, r] of runs.entries()) {
     if (!isObject(r)) return { fault: `第 ${i + 1} 跑不是对象` }
     if (typeof r.id !== 'number') return { fault: `第 ${i + 1} 跑缺 id` }
@@ -208,11 +228,16 @@ export function parseRuns(text: string): RunsRead {
     for (const k of ['created_at', 'run_started_at', 'updated_at'] as const) {
       if (typeof r[k] !== 'string' || Number.isNaN(Date.parse(r[k] as string))) return { fault: `第 ${i + 1} 跑（${r.id}）的 ${k} 读不出时刻` }
     }
+    const expect: Array<[string, string | undefined]> = [['head_branch', 'main'], ['status', 'completed'], ['path', want.path], ['event', want.event], ['conclusion', want.conclusion]]
+    for (const [k, v] of expect) {
+      if (v !== undefined && r[k] !== v) return { fault: `第 ${i + 1} 跑（${r.id}）的 ${k} 是 ${JSON.stringify(r[k])}，要的是 ${v}` }
+    }
   }
   // 同一跑在两页里都出现（翻页时主干上又多了一跑）只算一次
   const byId = new Map<number, ApiRun>()
   for (const r of runs as ApiRun[]) byId.set(r.id, r)
-  return { runs: [...byId.values()].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)) }
+  const sorted = [...byId.values()].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+  return totals.length === 0 ? { runs: sorted } : { runs: sorted, total: Math.max(...totals) }
 }
 
 /** `<日期>` 那天北京时间 00:00 的毫秒数 */
@@ -239,9 +264,10 @@ export const SLOW_RATIO = 1.3
 /**
  * (a) 主干上偏慢的几跑：`runs` 是 `check.yml` 在主干上 push 触发的成功跑（从新到旧），要往窗口起点之前多取至少 5 跑。
  * 窗口是 `<日期>` 往前 7 天那天 00:00（含）到 `<日期>` 00:00（不含），北京时间。窗口里每一跑与比它早的 5 跑的中位（排序后第 3 个）比，
- * 四舍五入两位后 ≥ 1.30 的列出来；比它早的不足 5 跑写无从确认。再写一行工作量。
+ * 四舍五入两位后 ≥ 1.30 的列出来；比它早的不足 5 跑写无从确认 —— 交进来的比接口说的 `total` 少，多半是没翻完，多打一行叫再取一页。
+ * 再写一行工作量。
  */
-export function slowRuns(runs: readonly ApiRun[], day: string, count: (sha: string) => number | undefined): string[] {
+export function slowRuns(runs: readonly ApiRun[], day: string, count: (sha: string) => number | undefined, total?: number): string[] {
   const end = beijingMidnight(day), start = beijingMidnight(addDays(day, -7))
   const at = (r: ApiRun) => Date.parse(r.created_at)
   const window = runs.filter(r => at(r) >= start && at(r) < end)
@@ -258,6 +284,9 @@ export function slowRuns(runs: readonly ApiRun[], day: string, count: (sha: stri
     if (ratio >= SLOW_RATIO) slow.push(`${head} · 本跑 ${mmss(mine)} · 主干前 5 次中位 ${mmss(median)} · ×${ratio.toFixed(2)}`)
   }
   out.push(...(slow.length === 0 ? ['比值 ≥ 1.30 的：没有'] : ['比值 ≥ 1.30 的：', ...slow.map(s => `- ${s}`)]))
+  if (slow.some(s => s.endsWith('前面不足 5 次')) && total !== undefined && runs.length < total) {
+    out.push(`前面不足 5 次的可能是没取够：交进来 ${runs.length} 跑，接口说一共 ${total} 跑，再取下一页`)
+  }
   out.push(workload(runs, window, start, count))
   return out
 }
@@ -343,6 +372,7 @@ export function readNeverRed(log: string): NeverRedRead {
 
 /** 整跑那几份 job 的名字（`never-red.yml` 里 `不提前停的整跑（第 k/3 份）`）与结论 */
 export interface ApiJob {
+  run_id: number // 字段不入断言：接口原样的字段；jobs 那一例核它与 --run-id 给的是同一跑
   name: string // 字段不入断言：接口原样的字段；jobs 那一例核形状，打行那一例按名字与结论挑红的份
   conclusion: string | null // 字段不入断言：同上
 }
@@ -355,13 +385,14 @@ export type JobsRead =
     fault: string // 字段不入断言：jobs 那一例四种情形按全文比
   }
 
-/** 读例程存下来的 `/actions/runs/<id>/jobs` 返回（一页，带 `jobs`），整份先核形状 */
-export function parseJobs(text: string): JobsRead {
+/** 读例程存下来的 `/actions/runs/<id>/jobs` 返回（一页，带 `jobs`），整份先核形状；每个 job 都得是 `runId` 那一跑的（取错一跑的 jobs 不悄悄算） */
+export function parseJobs(text: string, runId: number): JobsRead {
   let d: unknown
   try { d = JSON.parse(text) } catch (e) { return { fault: `不是 JSON：${(e as Error).message}` } }
   if (!isObject(d) || !Array.isArray(d.jobs)) return { fault: '不是一页 jobs 接口返回（带 jobs）' }
   for (const [i, j] of d.jobs.entries()) {
     if (!isObject(j) || typeof j.name !== 'string' || !(typeof j.conclusion === 'string' || j.conclusion === null)) return { fault: `第 ${i + 1} 个 job 缺 name 或 conclusion` }
+    if (j.run_id !== runId) return { fault: `第 ${i + 1} 个 job 的 run_id 是 ${JSON.stringify(j.run_id)}，不是 ${runId} 那一跑的` }
   }
   return { jobs: d.jobs as ApiJob[] }
 }

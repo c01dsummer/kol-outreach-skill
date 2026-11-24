@@ -7,7 +7,7 @@
  *   tsx scripts/check/revisit-raw.ts --top --dir <目录>
  *     (d) 被引表前十：读 `<目录>` 里的两份被引表。
  *   tsx scripts/check/revisit-raw.ts --slow --today <日期> --runs <文件>
- *     (a) 主干上偏慢的几跑与工作量：`<文件>` 是例程存下来的 `check.yml` 成功跑（接口返回原样，一页或几页排成数组）。条数从本仓库的 git 里取。
+ *     (a) 主干上偏慢的几跑与工作量：`<文件>` 是例程存下来的 `check.yml` 在主干上 push 触发的成功跑（接口返回原样，一页或几页排成数组；混进别的跑就不收）。条数从本仓库的 git 里取。
  *   tsx scripts/check/revisit-raw.ts --never-red-pick --today <日期> --runs <文件>
  *     (e) 挑本周那一跑与上一跑：`<文件>` 是 `never-red.yml` 跑完了的那几页。打两个 run id。
  *   tsx scripts/check/revisit-raw.ts --never-red --run-id <id> --log <文件> --jobs <文件> [--prev-log <文件>]
@@ -18,7 +18,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { catalogCount, cliRawGit, gatherRaw, neverRedLines, parseJobs, parseRuns, pickNeverRed, rawLine, readNeverRed, slowRuns, topTen } from './revisit-raw-rule.js'
+import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, NEVER_RED_RUNS, neverRedLines, parseJobs, parseRuns, pickNeverRed, rawLine, readNeverRed, type RunsWant, slowRuns, topTen } from './revisit-raw-rule.js'
 
 const args = process.argv.slice(2)
 const opt = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1] }
@@ -32,9 +32,9 @@ const day = (): string => {
   if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== d) stop(`--today 要写成成立的日子 YYYY-MM-DD，收到的是 ${d}`)
   return d
 }
-const runs = (file: string) => {
-  const r = parseRuns(read(file))
-  return 'fault' in r ? stop(`${file}：${r.fault}`) : r.runs
+const runs = (file: string, want: RunsWant) => {
+  const r = parseRuns(read(file), want)
+  return 'fault' in r ? stop(`${file}：${r.fault}`) : r
 }
 
 const git = cliRawGit()
@@ -49,14 +49,15 @@ if (args.includes('--gather')) {
   const dir = need('--dir')
   for (const l of topTen(read(join(dir, '旧被引表')), read(join(dir, '新被引表')))) console.log(l)
 } else if (args.includes('--slow')) {
-  for (const l of slowRuns(runs(need('--runs')), day(), sha => catalogCount(git, sha))) console.log(l)
+  const r = runs(need('--runs'), CHECK_RUNS)
+  for (const l of slowRuns(r.runs, day(), sha => catalogCount(git, sha), r.total)) console.log(l)
 } else if (args.includes('--never-red-pick')) {
-  const p = pickNeverRed(runs(need('--runs')), day(), Date.now())
+  const p = pickNeverRed(runs(need('--runs'), NEVER_RED_RUNS).runs, day(), Date.now())
   console.log(`本周那一跑 ${p.this?.id ?? '无从确认'} · 上一跑 ${p.prev?.id ?? '无从确认'}${p.fault === undefined ? '' : `（${p.fault}）`}`)
 } else if (args.includes('--never-red')) {
   const id = Number(need('--run-id'))
   if (!Number.isInteger(id) || id <= 0) stop(`--run-id 要是正整数，收到的是 ${opt('--run-id')}`)
-  const jobs = parseJobs(read(need('--jobs')))
+  const jobs = parseJobs(read(need('--jobs')), id)
   if ('fault' in jobs) stop(`${opt('--jobs')}：${jobs.fault}`)
   const prevLog = opt('--prev-log')
   const prev = prevLog === undefined ? { fault: '上一跑的日志没给' } : readNeverRed(read(prevLog))
