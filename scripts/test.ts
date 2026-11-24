@@ -18259,6 +18259,14 @@ harness('到期清单：开着、到期或列过没判的，最老先列，最�
       + `\n> ⚠️ 已重挂：ADR-4「别」 · 补记接手者：照 ADR-4 第 ${at + 100} 行那一行原文认定；现行的是 ADR-5「近」\n`
       + `\n> ⚠️ 已重挂：ADR-5「近」 · 补记接手者：照 ADR-4 第 ${at} 行那一行原文认定；现行的是 ADR-2「续」\n`)
     eq('没点名原来那行的、点名别的行的、指着别的旧欠条的补记都不算：原来那行照数', movesUnread(docs3), 1)
+    // 拆过以后：原文逐行原样进历史文件，行号不变；拆之前写的补记只写「ADR-4 第 N 行」
+    const h4 = 'docs/adr/历史/ADR-4-四.md', m4 = 'docs/adr/ADR-4-四.md'
+    const split4 = (main: string) => new Map([...docs].filter(([f]) => f !== f4)).set(h4, docs.get(f4) ?? '').set(m4, main)
+      .set(f5, `${docs.get(f5)}\n> ⚠️ 已重挂：ADR-4「别」 · 补记接手者：照 ADR-4 第 ${at} 行那一行原文认定；现行的是 ADR-5「近」\n`)
+    // 主文件里重写过，同一个行号上又是一行认不出的已重挂：不带「主文件」的补记不算补了它
+    const main4 = [...Array(at - 1).fill('# ADR-4'), '> ⚠️ 已重挂：ADR-4「别」 · 现行的是本条下一张', ''].join('\n')
+    eq('拆过以后原来那行进了历史文件：拆之前写的、不带「历史文件」的补记照样认；主文件里的那行不认不带「主文件」的写法',
+      [movesUnread(split4('# ADR-4\n')), movesUnread(split4(main4))], [0, 1])
   })
 }
 
