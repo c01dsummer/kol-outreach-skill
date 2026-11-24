@@ -36072,7 +36072,7 @@
       "req": "harness",
       "why": "盘上表格的表头不进快照",
       "file": "scripts/check/data-shapes-rule.ts",
-      "find": "...(s.columns === undefined ? {} : { columns: s.columns })",
+      "find": "...(columns === undefined ? {} : { columns })",
       "replace": "...{}",
       "by": "test",
       "kills": [
@@ -36101,6 +36101,30 @@
       "by": "test",
       "kills": [
         "形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写"
+      ]
+    },
+    {
+      "id": "M-H246-q",
+      "req": "harness",
+      "why": "表头常量不是元组（写成 string[]）也照收",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "checker.isTupleType(t) ? checker.getTypeArguments(t as ts.TypeReference) : undefined",
+      "replace": "checker.isTupleType(t) ? checker.getTypeArguments(t as ts.TypeReference) : []",
+      "by": "test",
+      "kills": [
+        "形状快照：表头常量不是写死的一串字符串、或者没有这个常量，就不生成，说为什么"
+      ]
+    },
+    {
+      "id": "M-H246-r",
+      "req": "harness",
+      "why": "表头常量里有一项不是写死的字符串也照收",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "!items.every(i => i.isStringLiteral())",
+      "replace": "false",
+      "by": "test",
+      "kills": [
+        "形状快照：表头常量不是写死的一串字符串、或者没有这个常量，就不生成，说为什么"
       ]
     },
     {

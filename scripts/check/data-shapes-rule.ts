@@ -11,18 +11,19 @@
 import { join, resolve } from 'node:path'
 import { createGenerator } from 'ts-json-schema-generator'
 import ts from 'typescript'
-import { MANUAL_FEEDBACK_HEADERS } from '../lib/manual-feedback.js'
 
 /**
  * 一类存下来的数据：叫什么、存在哪、形状由哪份文件里的哪个类型说。
- * 盘上是表格、读的时候按表头逐列核的，再给 `columns`（表头原样、按顺序）：类型说的是读进来以后的样子，表头改了它看不出。
+ * 盘上是表格、读的时候按表头逐列核的，再给 `columnsFrom`：同一份文件里导出的那串表头常量（写死的字符串、`as const`）的名字。
+ * 类型说的是读进来以后的样子，表头改了它看不出；表头也从被检查的那份仓库里、由编译器读出来，与类型同出一处 ——
+ * 不从检查器自己 import：那样读到的是检查器所在那份仓库的表头。
  */
 export interface StoredShape {
   readonly name: string
   readonly stored: string
   readonly source: string
   readonly type: string
-  readonly columns?: readonly string[]
+  readonly columnsFrom?: string
 }
 
 /** 登记的几类。加一类就在这里加一行，再回写快照 */
@@ -33,7 +34,7 @@ export const STORED_SHAPES: readonly StoredShape[] = [
   { name: '跨任务记忆', stored: 'memory/creators.json', source: 'scripts/lib/memory.ts', type: 'MemoryFile' },
   { name: '经验库', stored: 'memory/lessons/<品类>.json', source: 'scripts/lib/lessons.ts', type: 'LessonsFile' },
   { name: '经验读取记录', stored: '任务目录里的 lessons-read.json', source: 'scripts/lib/lessons.ts', type: 'LessonsReadFile' },
-  { name: '人工反馈表的一行', stored: '任务目录里的 manual-feedback.csv（人填好后程序读回来）', source: 'scripts/lib/manual-feedback.ts', type: 'ManualFeedbackRow', columns: MANUAL_FEEDBACK_HEADERS },
+  { name: '人工反馈表的一行', stored: '任务目录里的 manual-feedback.csv（人填好后程序读回来）', source: 'scripts/lib/manual-feedback.ts', type: 'ManualFeedbackRow', columnsFrom: 'MANUAL_FEEDBACK_HEADERS' },
 ]
 
 /** 快照在仓库里的位置 */
@@ -67,12 +68,34 @@ export function generateShapes(root: string, shapes: readonly StoredShape[] = ST
   })
   const out: Record<string, unknown> = {}
   for (const s of shapes) {
-    out[s.name] = { stored: s.stored, type: `${s.source} 里的 ${s.type}`, ...(s.columns === undefined ? {} : { columns: s.columns }), shape: withoutNotes(generator.createSchema(s.type)) }
+    const columns = s.columnsFrom === undefined ? undefined : constColumns(program, resolve(root, s.source), s.source, s.columnsFrom)
+    out[s.name] = { stored: s.stored, type: `${s.source} 里的 ${s.type}`, ...(columns === undefined ? {} : { columns }), shape: withoutNotes(generator.createSchema(s.type)) }
   }
   return `${JSON.stringify({
     $comment: '存下来的数据的形状快照（ADR-246），由类型生成，勿手改。哪一类变了，先照 process/3-BUILD.md 第 9 条写明缺着怎么读、该不该升版本，再跑 npm run data-shapes -- --write 回写。',
     shapes: out,
   }, null, 2)}\n`
+}
+
+/**
+ * 从程序里那份文件读出导出常量 `name` 的值：必须是写死的一串字符串（`as const`，编译器看到的类型是逐项字面量的元组），
+ * 按顺序交回。不是这样（没有这个常量、不是元组、某一项不是写死的字符串）就抛：快照不收猜出来的表头。
+ */
+function constColumns(program: ts.Program, file: string, shown: string, name: string): string[] {
+  const sf = program.getSourceFile(file)
+  if (sf === undefined) throw new Error(`形状快照：程序里没有 ${shown}`)
+  const checker = program.getTypeChecker()
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st)) continue
+    for (const d of st.declarationList.declarations) {
+      if (!ts.isIdentifier(d.name) || d.name.text !== name) continue
+      const t = checker.getTypeAtLocation(d.name)
+      const items = checker.isTupleType(t) ? checker.getTypeArguments(t as ts.TypeReference) : undefined
+      if (items === undefined || !items.every(i => i.isStringLiteral())) throw new Error(`形状快照：${shown} 里的 ${name} 要是写死的一串字符串（as const）`)
+      return items.map(i => (i as ts.StringLiteralType).value)
+    }
+  }
+  throw new Error(`形状快照：${shown} 里没有常量 ${name}`)
 }
 
 /**

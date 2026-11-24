@@ -26112,11 +26112,17 @@ await group('h-data-shapes', () => {
     eq('形状快照：@deprecated 后面的说明改了不算形状变了，标成弃用算',
       [changes(base, gen('  version: 1\n  /** @deprecated 旧说法 */\n  name: string')), changes(gen('  version: 1\n  /** @deprecated 旧说法 */\n  name: string'), gen('  version: 1\n  /** @deprecated 换了一句说明 */\n  name: string'))],
       [['玩具：形状变了'], []])
-    const withCols = (columns: string[]) => generateShapes(root, [{ ...shapes[0], columns }])
+    // 表头从被检查的那份仓库里的常量读，不是从检查器自己那份
+    const withCols = (decl: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `${decl}\nexport interface Toy {\n  name: string\n}\n`); return generateShapes(root, [{ ...shapes[0], columnsFrom: 'COLS' }]) }
+    const cols = (list: string) => withCols(`export const COLS = [${list}] as const`)
     eq('形状快照：盘上表格的表头改名、换顺序都算形状变了，读进来的类型没动也一样',
-      [changes(withCols(['a', 'b']), withCols(['a', 'c'])), changes(withCols(['a', 'b']), withCols(['b', 'a'])), changes(withCols(['a', 'b']), withCols(['a', 'b']))],
-      [['玩具：形状变了'], ['玩具：形状变了'], []])
+      [changes(cols("'a', 'b'"), cols("'a', 'c'")), changes(cols("'a', 'b'"), cols("'b', 'a'")), changes(cols("'a', 'b'"), cols("'a', 'b'")),
+        (JSON.parse(cols("'a', 'b'")) as { shapes: Record<string, { columns: unknown }> }).shapes.玩具.columns],
+      [['玩具：形状变了'], ['玩具：形状变了'], [], ['a', 'b']])
     const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
+    eq('形状快照：表头常量不是写死的一串字符串、或者没有这个常量，就不生成，说为什么',
+      [thrown(() => withCols("export const COLS: string[] = ['a', 'b']")), thrown(() => withCols("export const COLS = ['a', String(1)] as const")), thrown(() => withCols("export const OTHER = ['a'] as const"))],
+      ['形状快照：toy.ts 里的 COLS 要是写死的一串字符串（as const）', '形状快照：toy.ts 里的 COLS 要是写死的一串字符串（as const）', '形状快照：toy.ts 里没有常量 COLS'])
     eq('形状快照：两类登记了同一个类型名就不生成，点名两类',
       thrown(() => generateShapes(root, [shapes[0], { name: '玩具二', stored: 'toy2.json', source: 'toy2.ts', type: 'Toy' }])),
       '形状快照：「玩具」（toy.ts）与「玩具二」（toy2.ts）登记了同一个类型名 Toy')
