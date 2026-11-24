@@ -41,7 +41,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, isGitProgram, launchDrift, 
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
-import { addDays, beijingDate, bornReport, cliGit, conditionLineOf, currentOf, dueItems, dueList, dueReport, dueRow, iouNameAt, listedItems, listings, movesUnread, periodicEntries, rehungLines, rowCompare } from './check/revisit-rule.js'
+import { addDays, beijingDate, bornReport, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex } from './check/revisit-rule.js'
 import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
@@ -18067,7 +18067,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     [true, false, false, false])
 }
 
-harness('周回访定期清点：欠条哪天登记、按什么名字认、列过没有（拆过的记录取拆之前那一行）')
+harness('周回访：欠条哪天登记、按什么名字认（拆过的记录取拆之前那一行）')
 {
   // 一张欠条三种处境各钉一次：没拆过、拆过且条件没再改、拆过以后条件又改了。日期按提交时间钉死，北京时间不跨日
   const day = (d: string) => `${d}T04:00:00+00:00`
@@ -18134,22 +18134,32 @@ harness('周回访定期清点：欠条哪天登记、按什么名字认、列�
     ['ADR-80 第 9 行', 'ADR-120 第 1 行'])
   eq('先按日期，取不到日期的排最后', [{ key: 'ADR-1 第 1 行' }, { date: '2026-02-01', key: 'ADR-1 第 2 行' }, { date: '2026-01-01', key: 'ADR-9 第 1 行' }].sort(rowCompare).map(r => r.key),
     ['ADR-9 第 1 行', 'ADR-1 第 2 行', 'ADR-1 第 1 行'])
-  const listed = listedItems('| 2026-01-01 | ADR-8「丙(丁).*」、ADR-6「甲、乙」 | 句 |\n- 读过、没进候选：ADR-9 第 5 行、ADR-7「旧、名」、ADR-7 第 1 行\n')
-  eq('列过的每一项：候选表第二栏、读过那一行按书名号外的「、」切开，名字里的「、」「」与括号原样', [...listed].sort(),
-    ['ADR-6「甲、乙」', 'ADR-7 第 1 行', 'ADR-7「旧、名」', 'ADR-8「丙(丁).*」', 'ADR-9 第 5 行'].sort())
-  const rows = [
-    { date: '2026-01-05', key: 'ADR-9「甲乙」', aliases: ['ADR-9 第 3 行', 'ADR-9 第 5 行'] },
-    { date: '2026-01-05', key: 'ADR-8「丙(丁).*」', aliases: [] },
-    { date: '2026-01-04', key: 'ADR-7「新名」', aliases: ['ADR-7「旧、名」'] },
-    { date: '2026-01-06', key: 'ADR-80 第 2 行', aliases: [] },
-    { date: '2026-02-01', key: 'ADR-1 第 1 行', aliases: [] },
-    { key: 'ADR-2 第 2 行', aliases: [] },
-  ]
-  eq('三个数与前几行：取不到登记日 1、满四周 4、没列过 1（名字列过、第二个旧行号列过、旧名字列过的都算列过）',
-    dueReport(rows, '2026-01-31', listed), ['1', '4', '1', '2026-01-06 ADR-80 第 2 行'])
-  eq('台账里只取「重启条件」写着定期清点的行，取文件与行号',
-    periodicEntries('docs/adr/A.md:3  [重启条件]  定期清点\ndocs/adr/B.md:4  [死亡条件]  定期清点\ndocs/adr/C.md:5  [重启条件]  别的\nscripts/D.md:6  [重启条件]  定期清点\nx\n'),
-    [{ file: 'docs/adr/A.md', line: 3 }])
+}
+
+harness('死亡条件四周轮一遍：按记录编号分四组，每周列一组；拆时原样抄进主文件的只列一份')
+{
+  eq('第几周：1970-01-05 那个星期一起算，同一周七天同一个数', [weekIndex('1970-01-05'), weekIndex('1970-01-11'), weekIndex('1970-01-12'), weekIndex('2026-11-30'), weekIndex('2026-12-06')],
+    [0, 0, 1, 2969, 2969])
+  const deathDocs = new Map([
+    ['docs/adr/ADR-5-甲.md', '# ADR-5\n\n> **什么条件下整个撤掉**：五号\n\n## 什么条件下重开这个讨论\n\n- **改 x 时**：重看\n'],
+    ['docs/adr/ADR-9-乙.md', '# ADR-9\n\n> **什么条件下撤**：同 一句\n\n> **什么条件下退**：新写\n'],
+    ['docs/adr/历史/ADR-9-乙.md', '# ADR-9\n\n> **什么条件下撤**：同  一句\n\n> **什么条件下停**：只在历史\n\n> **什么条件下退**：新写\n> 续行不同\n'],
+    ['docs/adr/ADR-8-丙.md', '# ADR-8\n\n> **什么条件下撤**：八号\n'],
+    ['docs/adr/ADR-13-丁.md', '# ADR-13\n\n> ⚠️ 欠条：缺 x · 重启条件：下次\n\n> **什么条件下撤**：十三号\n'],
+    ['docs/adr/README.md', '# 索引\n\n> **什么条件下撤**：不是记录\n'],
+  ])
+  eq('这一周轮到编号除以 4 余 1 的：主文件、只在历史文件里的都列，与主文件整条相同（只差空白）的历史那份不列、第一行相同续行不同的照列；先编号、再主文件、再行号；欠条、重开讨论与不是记录的文件不算',
+    deathRota(deathDocs, '2026-11-30'), [
+      '死亡条件 7 条（历史文件里与主文件整句相同的 1 条不重复算）；这一周轮到编号除以 4 余 1 的 6 条',
+      'ADR-5 第 3 行  什么条件下整个撤掉：五号',
+      'ADR-9 主文件第 3 行  什么条件下撤：同 一句',
+      'ADR-9 主文件第 5 行  什么条件下退：新写',
+      'ADR-9 第 5 行  什么条件下停：只在历史',
+      'ADR-9 第 7 行  什么条件下退：新写',
+      'ADR-13 第 5 行  什么条件下撤：十三号'])
+  eq('下一周轮到余 2 的，一条没有也打第一行；四周后轮回余 1', [deathRota(deathDocs, '2026-12-07'), deathRota(deathDocs, '2026-12-28').length],
+    [['死亡条件 7 条（历史文件里与主文件整句相同的 1 条不重复算）；这一周轮到编号除以 4 余 2 的 0 条'], 7])
+  eq('余 0 那一周只列 8 号', deathRota(deathDocs, '2026-12-21').slice(1), ['ADR-8 第 3 行  什么条件下撤：八号'])
 }
 
 harness('到期清单：开着、到期或列过没判的，最老先列，最多 10 张；整张改挂过来的接着算原来那张的登记日')
@@ -25988,9 +25998,9 @@ await group('h-iou-file-reminder', () => {
 
 })
 
-// 入口单列一组：它每跑起 6 次入口，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
+// 入口单列一组：它每跑起 5 次入口，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
 await group('h-revisit-entry', () => {
-  harness('周回访定期清点与到期清单的入口：在玩具仓库里真起 --due、--born 与 --list')
+  harness('周回访到期清单、死亡条件轮换与只起草一条的入口：在玩具仓库里真起 --list、--deaths 与 --born')
   // 真起单独成组：判定在 h-check-rules 里直接调；入口每起一次，都会乘上那一组的全部变异（启动数闸门，ADR-145）
   const repo = mkdtempSync(join(tmpdir(), 'kol-revisit-entry-'))
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
@@ -26007,13 +26017,19 @@ await group('h-revisit-entry', () => {
   g(null, 'add', '-A'); g('2026-01-02', 'commit', '-q', '-m', 'b')
   const entry = (args: string[], input: string) => spawnSync(...tsxCommand([join(process.cwd(), 'scripts/check/revisit-due.ts'), ...args]),
     { cwd: repo, env, input, encoding: 'utf8', timeout: 30_000 })
-  // 台账里列着、工作区没有的文件不让整份断掉：记一条取不到登记日，别的照常
-  const due = entry(['--due', '2026-03-31', '--run', 'HEAD'],
-    `${a8}:5  [重启条件]  > 重启条件：定期清点\n${a9}:3  [重启条件]  > ⚠️ 欠条：乙 重启条件：定期清点\ndocs/adr/ADR-7-不在.md:3  [重启条件]  定期清点\n`)
-  eq('入口 --due：取不到 1（文件不在）、满四周 2、没列过 1（ADR-152 里读的那一行列过 ADR-9 第 3 行），打出那一行',
-    [due.status, due.stdout], [0, '1\n2\n1\n2026-01-05 ADR-8「丙(丁).*」\n'])
-  const born = entry(['--born', '--run', 'HEAD'], `${a8}|5|N|S|过|\n${a9}|3|N|S|过|\n`)
-  eq('入口 --born：按「|」切出文件与行号，按登记日排', [born.status, born.stdout], [0, '2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8 第 5 行\n'])
+  // 两道门的行里列着、工作区没有的文件不让整份断掉：那一张取不到登记日、排最后，别的照常
+  const born = entry(['--born', '--run', 'HEAD'], `${a8}|5|N|S|过|\n${a9}|3|N|S|过|\ndocs/adr/ADR-7-不在.md|3|N|S|过|\n`)
+  eq('入口 --born：按「|」切出文件与行号，按登记日排；文件不在的取不到登记日、排最后', [born.status, born.stdout],
+    [0, '2026-01-02 ADR-9 第 3 行\n2026-01-05 ADR-8 第 5 行\n ADR-7 第 3 行\n'])
+  // 死亡条件轮到哪几条读工作区里的整份决策记录；--today 给哪一周就按哪一周
+  put(a9, '# ADR-9\n\n> ⚠️ 欠条：乙 重启条件：定期清点\n\n> **什么条件下撤**：九号\n')
+  const deaths = [entry(['--deaths', '--today', '2026-11-30'], ''), entry(['--deaths', '--today', '2026-12-07'], '')]
+  const badDays = ['2026-13-01', '2026-02-30', '11-30'].map(d => entry(['--deaths', '--today', d], ''))
+  eq('入口 --today 写的不是成立的日子：以 2 退出、不打清单（月份 13、2 月 30 日、缺年份三种）', badDays.map(d => [d.status, d.stdout]), [[2, ''], [2, ''], [2, '']])
+  eq('入口 --deaths：按给的那天定轮到哪一组，第一行是几个数，后面是记法与条件原文',
+    deaths.map(d => [d.status, d.stdout]), [
+      [0, '死亡条件 1 条（历史文件里与主文件整句相同的 0 条不重复算）；这一周轮到编号除以 4 余 1 的 1 条\nADR-9 第 5 行  什么条件下撤：九号\n'],
+      [0, '死亡条件 1 条（历史文件里与主文件整句相同的 0 条不重复算）；这一周轮到编号除以 4 余 2 的 0 条\n']])
   // 到期清单读工作区里的整份决策记录与 ADR-152，问 git 取登记日；「读过、没进候选」不算列给需求所有者过
   const files = () => { const out: string[] = []; const walk = (d: string) => { for (const f of readdirSync(join(repo, d), { withFileTypes: true })) {
     const rel = d ? `${d}/${f.name}` : f.name
