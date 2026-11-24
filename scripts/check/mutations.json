@@ -36702,6 +36702,18 @@
       "kills": [
         "启动数入口：带 write 派生得出来就写树内摘要，只打写成那一行，不红"
       ]
+    },
+    {
+      "id": "M-H145-p",
+      "req": "harness",
+      "why": "闸门那几行打在摘要那一行前面 —— 最后一步各行的先后与第四十四节说的不一样",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "lines: [...lines, sum.line, ...gate.lines]",
+      "replace": "lines: [...lines, ...gate.lines, sum.line]",
+      "by": "test",
+      "kills": [
+        "启动数入口：整份与分份都有时认整份，分份拼不起来也不打那一行"
+      ]
     }
   ],
   "exemptions": [
