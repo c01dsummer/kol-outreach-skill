@@ -34,8 +34,8 @@
  * 形如代码的那几种写法，snake_case 的内部名字挡不住（见 `why-rule.ts`）；打的清单（下面 `--brief`
  * 那一段）与查的清单（`briefLeaks`）各写一份，哪天这边多打一栏，那边不跟也不红。
  */
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { availableParallelism } from 'node:os'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { availableParallelism, tmpdir, userInfo } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
@@ -47,7 +47,7 @@ import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
   executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, routeReport, type RouteSnapshot,
-  anchorMatches, applyMutation, baselineFault, firstPrecheckFault, stopsEarly, wiringFault,
+  anchorMatches, applyMutation, baselineFault, firstPrecheckFault, ownTmpEnv, stopsEarly, tsxCacheName, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH, mutationSourceIdentity } from './claims.js'
 import {
@@ -542,6 +542,34 @@ const verifierEnv = (verifier: Verifier, cwd: string | undefined, countLog: stri
   return countLog === undefined ? env
     : countingEnv(env, { log: countLog, target: resolve(cwd ?? '.', verifier.script), preload: launchPreload })
 }
+/** 还没删的专属临时目录：被中断时 `onInterrupt` 直接退出、等不到验证者的 `close`，由退出时那一道补删 */
+const ownDirs = new Set<string>()
+/** 删一份专属临时目录：链接只删链接本身，共用的编译缓存不动。删不掉（验证者那边又自成一组的子进程还在往里写）不影响结论，那一次留着 */
+const dropOwnDir = (own: string): void => {
+  // 删成了才从登记里拿掉：这一次删不掉的，退出时那一道再试一次
+  try { rmSync(own, { recursive: true, force: true, maxRetries: 3 }); ownDirs.delete(own) } catch { /* 留着，退出时再试 */ }
+}
+process.on('exit', () => { for (const own of [...ownDirs]) dropOwnDir(own) })
+/**
+ * 建一份验证者专属的临时目录，里面放好指回共用 tsx 编译缓存的链接（ADR-243）。建不成交 `undefined`：
+ * 那一跑照旧用系统临时目录，只是这一次留下的没人收，不因此判这条变异跑不起来
+ */
+const ownTmpDir = (): string | undefined => {
+  let own: string | undefined
+  try {
+    // 前缀取短：tsx 把通信用的 socket 开在「临时目录/tsx-<用户号>/<进程号>.pipe」，Mac 上这条路径过 104 字节就起不来；验证者里再起玩具 mutate 还会套一层
+    own = mkdtempSync(join(tmpdir(), 'kv-'))
+    const user = typeof process.geteuid === 'function' ? process.geteuid() : userInfo().username
+    const shared = join(tmpdir(), tsxCacheName(user))
+    mkdirSync(shared, { recursive: true })
+    try { symlinkSync(shared, join(own, tsxCacheName(user)), 'dir') } catch { /* 链不上只是缓存冷，照跑 */ }
+    ownDirs.add(own)
+    return own
+  } catch {
+    if (own !== undefined) dropOwnDir(own)
+    return undefined
+  }
+}
 const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly string[], cwd?: string,
   baselineLive?: Set<ChildProcess>, observeSpawn?: () => void, countLog?: string):
   Promise<{ status: number | null; output: string; atStop?: string; started: boolean; ms: number }> =>
@@ -555,7 +583,9 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // POSIX 上才成立（见 `tsx-cmd.ts`）
     // 预编缓存里有整棵树现在这一版就裸 node 起，否则照旧 tsx（`prebuilt.ts`，ADR-158）。裸 node 没有壳：
     // 下面说的「壳会转发」「壳隔几十毫秒改发 SIGKILL」那几句只在退回 tsx 时成立，整组照杀，结果一样
-    const env = verifierEnv(verifier, cwd, countLog)
+    // 这一跑专属的临时目录：结束时整个删掉，被叫停的验证者留下的也一起（ADR-243）。tsx 的编译缓存经链接指回共用那份
+    const own = ownTmpDir()
+    const env = own === undefined ? verifierEnv(verifier, cwd, countLog) : ownTmpEnv(verifierEnv(verifier, cwd, countLog), own)
     const [exe, argv] = prebuiltCommand(
       only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`], cwd, env)
     const kid = spawn(exe, argv, { cwd, stdio: 'pipe', detached: true, env })
@@ -609,6 +639,7 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
       forgetVerifier()
       // 裸 node 起的按 tsx 的壳会报的那样换算信号死亡（`asTsx`）：判定与成本账看到的退出码不随起法变
       const { status } = asTsx(argv, code, signal)
+      if (own !== undefined) dropOwnDir(own)
       resolve({ status, output: `${out}\n${err}`, atStop, started, ms })
     })
     // **留号在装完那两个监听器之后。** 放在 `trackTest` 紧后面的话,这一句一抛就落在
