@@ -207,7 +207,7 @@
     {"config":"[\"test\",[\"h-prebuilt-owner-descendant-contract\"]]","launches":1,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"h-prebuilt-scope\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-restore-interrupt\"]]","launches":1,"maxPaid":null,"running":22,"stopping":0},
-    {"config":"[\"test\",[\"h-revisit-entry\"]]","launches":8,"maxPaid":null,"running":6,"stopping":0},
+    {"config":"[\"test\",[\"h-revisit-entry\"]]","launches":9,"maxPaid":null,"running":7,"stopping":0},
     {"config":"[\"test\",[\"h-same-spot\"]]","launches":0,"maxPaid":null,"running":52,"stopping":0},
     {"config":"[\"test\",[\"h-selfcheck-selection-entry\"]]","launches":2,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-selfcheck-shard-entry\"]]","launches":2,"maxPaid":null,"running":5,"stopping":0},
