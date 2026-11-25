@@ -57,7 +57,7 @@ import { withRestore, withSpies, withStandIns } from './check/child-process-stan
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
-  JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
+  JUDGMENT_EXEMPT, auditBook, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
   ledger, selfcheckCriterionMutations, unguarded,
 } from './check/audit-rule.js'
 import {
@@ -271,6 +271,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-launch-rule', needs: [] },
   { id: 'h-launch-summary-deep', needs: [] },
   { id: 'h-launch-parts', needs: [] },
+  { id: 'h-audit-feed', needs: [] },
   { id: 'h-launch-entry', needs: [] },
   { id: 'h-launch-preload', needs: [] },
   { id: 'h-launch-preload-edge', needs: [] },
@@ -10643,8 +10644,9 @@ entry();
     leadWired("const s = 'exemptionLead(exemptionCovered(x, y))'"), false)
   eq('别的对象上的同名方法不算', leadWired('other.exemptionLead(exemptionCovered(x, y))'), false)
   // 两个文件、三处调用：手搭的数据证不了真文件里还在调。判定按文件问，mutate 里那两处
-  // 断了哪一处它分不出；各入口的实际报告另由输出级夹具核，这里只保留调用存在的弱层
-  for (const f of ['scripts/check/mutate.ts', 'scripts/check/audit.ts']) {
+  // 断了哪一处它分不出；各入口的实际报告另由输出级夹具核，这里只保留调用存在的弱层。
+  // 审计那一处随喂数一起挪进了 audit-rule.ts 的 auditBook（ADR-70 入口喂数那张欠条），查的是那个文件
+  for (const f of ['scripts/check/mutate.ts', 'scripts/check/audit-rule.ts']) {
     ok(`${f} 里还有从判定取的豁免行`, leadWired(rf(f, 'utf8')))
   }
 }
@@ -12303,6 +12305,54 @@ await group('h-launch-parts', () => {
 // 启动数闸门入口的判法（读哪份、读不成怎么吞、在不在主干上怎么翻、退出码怎么并）挪进 launchEntry 以后，用假的读写直接调它（ADR-145
 // 欠条「启动数闸门入口的映射与吞错没有变异」）。期望值逐字手抄：闸门那几行照 ADR-145 第二十一节第 4 小节，摘要那一行照第三十五节第 4 小节与
 // 第四十四节，第七节末第二行照第三十一节第 4 小节，摘要全文照第三十五节第 2 小节；不调任何判定去算期望。整组只调纯函数，不起子进程
+// 审计入口喂给判定的那几份名单（ADR-70 历史文件「入口把什么喂给判定，仍然没人守着」那张欠条）。
+// 期望值都是照下面这份原料手数的，不调被测代码去算。D9.a 两份记录都认领，好让汇总行两栏交反时数不一样
+await group('h-audit-feed', () => {
+  const book = auditBook({
+    mutations: [
+      { req: 'D9', file: 'scripts/check/a.ts' },
+      { req: 'D9.a', file: 'scripts/check/b.ts' },
+      { req: 'D9.b', file: 'scripts/check/b.ts', by: 'selfcheck' },
+      { req: 'D9.c', file: 'scripts/check/b.ts' },
+      { req: 'P5.f', file: 'scripts/check/b.ts' },
+    ],
+    exemptions: [{ req: 'D8', why: '要真实接口' }, { req: 'D9.c', why: '人工约定' }],
+    covered: ['D9'], criteria: ['D9.a'], entryCriteria: ['D9.a', 'D9.b'],
+    corpus: new Map([
+      ['docs/requirements.json', 'D9'], ['docs/SPEC.md', 'D9'], ['docs/ARCHITECTURE.md', 'D9 落在哪'],
+      ['scripts/x.ts', '// D9 在这里'], ['scripts/y.ts', 'D90 不是它'],
+    ]),
+  })
+  const d9: Req = { id: 'D9', cat: 'D', pri: 'P1', text: 'x',
+    accept: ['a', 'b', 'c'].map(c => ({ id: `D9.${c}`, text: `D9.${c} 要什么` })) }
+  const d8: Req = { id: 'D8', cat: 'D', pri: 'P1', text: 'x', accept: [] }
+  const e9 = book.evidence(d9), e8 = book.evidence(d8)
+  const sorted = (set: ReadonlySet<string> | ReadonlyMap<string, string>) => [...set.keys()].sort()
+
+  eq('审计喂数：被单元记录认领的需求号', sorted(book.testedIds), ['D9'])
+  eq('审计喂数：有变异点着的编号取自全部变异', sorted(book.mutatedIds), ['D9', 'D9.a', 'D9.b', 'D9.c', 'P5.f'])
+  eq('审计喂数：显式豁免取自目录的豁免栏', [...book.exemptIds], [['D8', '要真实接口'], ['D9.c', '人工约定']])
+  eq('审计喂数：有测试的需求证据上是有测试，没有的不是', [e9.tested, e8.tested], [true, false])
+  eq('审计喂数：有变异的需求证据上是有变异，没有的不是', [e9.mutated, e8.mutated], [true, false])
+  eq('审计喂数：整条豁免的需求证据上是豁免，没有的不是', [e9.exempt, e8.exempt], [false, true])
+  eq('审计喂数：引用不数登记表自己、也不认更长的编号，架构文档算引用', book.refs('D9'), ['docs/ARCHITECTURE.md', 'scripts/x.ts'])
+  eq('审计喂数：证据上的引用数含架构文档、落到实处的不含', [e9.refs, e9.impl], [2, 1])
+  eq('审计喂数：单元认领的判据交进单元那一栏', sorted(e9.claimedCriteria), ['D9.a'])
+  eq('审计喂数：自检认领的判据交进自检那一栏', sorted(e9.entryCriteria), ['D9.a', 'D9.b'])
+  eq('审计喂数：证据上的豁免编号与目录的豁免栏一致', sorted(e9.exemptIds), ['D8', 'D9.c'])
+  eq('审计喂数：判据级负片取自全部变异、只收带点的', sorted(e9.mutatedCriteria), ['D9.a', 'D9.b', 'D9.c', 'P5.f'])
+  eq('审计喂数：改跑自检的判据级负片只收写了自检的', sorted(e9.selfcheckMutatedCriteria), ['D9.b'])
+  // 欠条原文要的那件事：交进去的变异表换成空数组时，报告上「负片 K」那一格要变
+  eq('审计喂数：这条需求名下的判据级负片数是 3，别的需求的那条不算', requirementVerdict(d9, e9).mutatedCrit, 3)
+  eq('审计喂数：没有变异落到的判定模块才算没人守', book.naked(['scripts/check/a.ts', 'scripts/check/c.ts']), ['scripts/check/c.ts'])
+  eq('审计喂数：豁免行按名下有没有变异说，取自全部变异', book.exemptionLines(), [
+    '⊘ D8 部分豁免（显式缺口，不消灭）· 名下无变异：\n     要真实接口',
+    '⊘ D9.c 部分豁免（显式缺口，不消灭）· 名下有负片：\n     人工约定',
+  ])
+  eq('审计喂数：验收判据那一行三栏各取各的名单', book.coverageLine(d9.accept, d9.accept),
+    '验收判据 3 条 · 有测试认领 1 · 入口认领 1 · 其中红线 3 条（测试认领 1 · 入口认领 1 · 显式豁免 1）')
+})
+
 await group('h-launch-entry', () => {
   const SRC = 'c4'.repeat(32), K = '["test",["g"]]'
   const tally = [{ config: K, launches: 3, paid: [], running: 1 }]

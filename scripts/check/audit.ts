@@ -9,10 +9,7 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
-  ledger, selfcheckCriterionMutations, unguarded,
-} from './audit-rule.js'
+import { JUDGMENT_EXEMPT, auditBook, deprecatedBlock, judgmentModules, ledger, type AuditSources } from './audit-rule.js'
 import {
   CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimInputs, claimsFresh, claimsReadFault, claimsWellFormed,
   fingerprint,
@@ -20,7 +17,6 @@ import {
 } from './claims.js'
 import { citeSummary, citeTable } from './cite-rule.js'
 import { ADR_DIR, adrDocs, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous } from './debt-rule.js'
-import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
 import {
   REDLINE_CAT, criteriaCell, mutationCell, requirementVerdict, tensionEvidence, tensionVerdict,
@@ -39,7 +35,6 @@ const { live: reqs, deprecated } = ledger(spec.requirements as Req[])
 // 这时还一行都没打，抛出的那句就是全部输出，以 1 退出（原先 JSON 坏了也是这样抛出去的）
 const catalogRead = readCatalog(existsSync(MUTATION_CATALOG) ? readFileSync(MUTATION_CATALOG, 'utf8') : undefined)
 if (!catalogRead.ok) throw new Error(`审计：${catalogFaultText(catalogRead.fault)}`)
-const mutCfg: { mutations: any[]; exemptions: any[] } = catalogRead
 
 function walk(dir: string, ext = '.ts'): string[] {
   const out: string[] = []
@@ -133,7 +128,6 @@ function readClaims(path: string, rerun: string): Claims {
 }
 
 const claims: Claims = readClaims(CLAIMS_PATH, 'npm test')
-const testedIds = new Set(claims.covered)
 /**
  * 判据级的覆盖。
  *
@@ -142,7 +136,6 @@ const testedIds = new Set(claims.covered)
  * ——「未配置增强层时 meta.json 的 enriched 必须为 false」—— 是另一条独立会坏的
  * 判定，粗计量看不见它（ADR-24）。
  */
-const testedCriteria = new Set(claims.criteria)
 /**
  * **入口认领**:自检端到端跑过的那几条判据,单独一份记录(`claims.ts` 记着为什么不是
  * 同一份里多一栏)。四道闸与单元那份逐字相同 —— 读不出、不是合法 JSON、形状不对、
@@ -151,59 +144,41 @@ const testedCriteria = new Set(claims.criteria)
  * 它也是必需的:检查链里自检排在审计前面,缺这份记录说明自检没跑或者没跑完,
  * 那时审计回答不了「入口那一半有没有跑过」—— 说「没有认领」就是替它编了个答案。
  */
-const entryCriteria = new Set(readClaims(ENTRY_CLAIMS_PATH, 'npm run selfcheck').criteria)
+const entryClaims = readClaims(ENTRY_CLAIMS_PATH, 'npm run selfcheck')
 /** 真正认领过的交点 —— 编号由 `tensionKey` 出，写认领的那一头用的是同一个函数 */
 const claimedTensions = new Set(claims.tensions)
 
-const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
-// 分类是判定，留在这里就没有测试够得着（`audit-rule.ts` 的 `criterionMutations`，
-// 与紧邻的 `unguarded` / `ledger` 同一个理由，`docs/CONVENTIONS.md` 第 10 条）。
-const mutatedCriteria = criterionMutations(mutCfg.mutations)
-// 只由自检认领的判据靠它过关 —— 分类同样是判定,同样在 `audit-rule.ts`（落地 4）
-const selfcheckMutatedCriteria = selfcheckCriterionMutations(mutCfg.mutations)
-const exemptIds = new Map<string, string>(
-  (mutCfg.exemptions ?? []).map((e: any) => [e.req, e.why]))
+/*
+ * 从原料到各份名单（哪些需求有测试、哪些判据有负片、哪些豁免……）都在 `audit-rule.ts` 的
+ * `auditBook` 里：原先由这里挑，挑错了（比如交个空数组）判定那边一个字也看不见 ——
+ * ADR-70 历史文件「入口把什么喂给判定，仍然没人守着」那张欠条。这里只把读到的原样交进去。
+ */
+// 每条的字段形状由读取函数只查了编号，其余照旧按目录的约定读（原先这里写的是 any）
+const catalog = catalogRead as unknown as Pick<AuditSources, 'mutations' | 'exemptions'>
+const book = auditBook({
+  mutations: catalog.mutations, exemptions: catalog.exemptions,
+  covered: claims.covered, criteria: claims.criteria, entryCriteria: entryClaims.criteria, corpus,
+})
+const { testedIds, mutatedIds, exemptIds } = book
 
 const rows: string[] = []
 const gaps: string[] = []
 let hard = 0
 
-/**
- * 架构文档也是合法的下游引用，但它**只是一份文档**。
- *
- * 不单独拎出来的话，一条只在锚点表里被提过、根本没落到代码的需求，会从
- * 「· 未被引用」变成「✓」—— 正是 4-VERIFY.md 说的「判据被无关的东西满足」，
- * 而且是新增这份文档时自己引入的。
- */
-const ARCH_DOC = 'docs/ARCHITECTURE.md'
-
 // ---- 1. 每条需求是否在下游被引用 ----
 for (const r of reqs) {
-  const refs = [...corpus.entries()]
-    .filter(([f, c]) => f !== 'docs/requirements.json' && f !== 'docs/SPEC.md' &&
-                        new RegExp(`\\b${r.id}\\b`).test(c))
-    .map(([f]) => f)
-  /** 落到实处的引用 —— 架构文档说了不算 */
-  const impl = refs.filter(f => f !== ARCH_DOC)
-  const tested = testedIds.has(r.id)
-  const mutated = mutatedIds.has(r.id)
-  const exempt = exemptIds.has(r.id)
-
   // 裁定在 spec-rule.ts：留在这个入口里，没有任何一条测试够得着它（ADR-13 的老处境）。
-  const v = requirementVerdict(r, {
-    tested, mutated, exempt, impl: impl.length, refs: refs.length,
-    claimedCriteria: testedCriteria, entryCriteria,
-    exemptIds: new Set(exemptIds.keys()),
-    mutatedCriteria, selfcheckMutatedCriteria,
-  })
+  // 证据怎么拼在 audit-rule.ts 的 auditBook（架构文档那条引用不算落到实处，也在那里）
+  const e = book.evidence(r)
+  const v = requirementVerdict(r, e)
   const { flag, claimed, exempted } = v
   hard += v.hard
   gaps.push(...v.gaps)
 
-  rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${tested ? '✓' : '·'} ` +
-            `${mutationCell(mutated, exempt)}  ` +
+  rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${e.tested ? '✓' : '·'} ` +
+            `${mutationCell(e.mutated, e.exempt)}  ` +
             `${criteriaCell(claimed, v.mutatedCrit, exempted, r.accept.length)}  ` +
-            `引用 ${refs.length} 处`)
+            `引用 ${e.refs} 处`)
 }
 
 // ---- 2. 可执行文件是否都被执行过 ----
@@ -232,7 +207,7 @@ for (const f of unexecuted) { hard++; gaps.push(`${f} 是可执行文件但未�
  */
 const judgments = judgmentModules(walk('scripts/check').map(f =>
   ({ path: f, entry: readFileSync(f, 'utf8').startsWith('#!') })))
-const naked = unguarded(judgments, mutCfg.mutations)
+const naked = book.naked(judgments)
 for (const f of naked) {
   hard++
   gaps.push(`${f} 是判定模块但没有变异守着 —— 它的测试没被证明过会红（process/4-VERIFY.md 的第三拍）`)
@@ -307,12 +282,9 @@ if (deadLines.length) {
 }
 
 // 说法与 `mutate` 那两份报告出自同一处判定（`exemptionLead`）—— 三处各写一份的话，
-// 一条判据有了负片之后，改了两处忘了第三处的症状是「同一件事，两份报告说两样」。
-// 本 PR 头一版正是只改了 `mutate.ts` 那两处，评审指出这里还留着写死的（#91）。
-for (const [id, why] of exemptIds) {
-  const lead = exemptionLead(exemptionCovered(id, mutCfg.mutations))
-  console.log(`  ⊘ ${id} 部分豁免（显式缺口，不消灭）· ${lead}：\n     ${why}`)
-}
+// 一条判据有了负片之后，改了两处忘了第三处的症状是「同一件事，两份报告说两样」（#91）。
+// 这一行怎么拼、拿哪份变异表去问，都在 auditBook 里
+for (const line of book.exemptionLines()) console.log(`  ${line}`)
 for (const [f, why] of Object.entries(EXEC_EXEMPT)) {
   console.log(`  ⊘ ${f} 免于自检执行：${why}`)
 }
@@ -339,7 +311,7 @@ console.log(`  需求之间的交点 ${tensions.length} 个 · 有测试认领 `
 const allCrit = reqs.flatMap(r => r.accept)
 const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accept)
 // 三个名单怎么数、分几栏报，都是判定，在 `audit-rule.ts` 里（第一轮评审指出）
-console.log(`  ${coverageSummary(allCrit, redlineCrit, testedCriteria, entryCriteria, exemptIds)}`)
+console.log(`  ${book.coverageLine(allCrit, redlineCrit)}`)
 console.log(`  ${ledgerSummary(debts)}`)
 console.log('    条件认三种写法、状态行认四种两种指法，别的形状不在账上 · 全表：`npm run audit -- --debts`')
 // 被引表只多这一行分布（ADR-151 第一节 P2、第三节第 1 条）；全表挂在只读入口上，新克隆上也跑得起来

@@ -36,8 +36,8 @@
     "sha256": "2e31fb451c67aaf1fb68e8803f4980760b295957e812ff4b1edbc52cdd992554"
   },
   "ADR-70-变异可以指定验证者：入口的接线从测不了变成有负片.md": {
-    "bytes": 686620,
-    "sha256": "fda1c87e385bec5e76accc247d441c892ceb1eb1baf9dfcc694dac7fdb49de02"
+    "bytes": 689457,
+    "sha256": "f682c599e730997f134ef7a8b8ada2e5ca0e6e71cad7c4013b96970604026bb0"
   },
   "ADR-94-第一页保证排在达标判断之前：那句每个维度都有产出换了形状又回来.md": {
     "bytes": 117724,

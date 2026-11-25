@@ -37723,6 +37723,262 @@
       "kills": [
         "启动数入口：分份拼不起来那一行里的文件名按名排、全列，用顿号连"
       ]
+    },
+    {
+      "id": "M-H70-ah",
+      "req": "harness",
+      "why": "单元覆盖记录认领的需求号没交进来 —— 每条需求都成了「没有测试」",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "const testedIds = new Set(s.covered)",
+      "replace": "const testedIds = new Set<string>()",
+      "by": "test",
+      "kills": [
+        "审计喂数：被单元记录认领的需求号",
+        "审计喂数：有测试的需求证据上是有测试，没有的不是"
+      ]
+    },
+    {
+      "id": "M-H70-ai",
+      "req": "harness",
+      "why": "单元认领的判据没交进来 —— 只有单元测试认领的判据全成了「没有认领」",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "const testedCriteria = new Set(s.criteria)",
+      "replace": "const testedCriteria = new Set<string>()",
+      "by": "test",
+      "kills": [
+        "审计喂数：单元认领的判据交进单元那一栏"
+      ]
+    },
+    {
+      "id": "M-H70-aj",
+      "req": "harness",
+      "why": "自检认领的判据没交进来 —— 只靠自检端到端跑过的判据全成了「没有认领」",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "const entryCriteria = new Set(s.entryCriteria)",
+      "replace": "const entryCriteria = new Set<string>()",
+      "by": "test",
+      "kills": [
+        "审计喂数：自检认领的判据交进自检那一栏"
+      ]
+    },
+    {
+      "id": "M-H70-ak",
+      "req": "harness",
+      "why": "有变异点着的需求号交了个空集合 —— 红线需求全成了「有测试但没有变异验证」",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "const mutatedIds = new Set(s.mutations.map(m => m.req))",
+      "replace": "const mutatedIds = new Set<string>()",
+      "by": "test",
+      "kills": [
+        "审计喂数：有变异点着的编号取自全部变异"
+      ]
+    },
+    {
+      "id": "M-H70-al",
+      "req": "harness",
+      "why": "判据级负片拿空表去分 —— 报告上每条需求的「负片」那一格都成了 0，欠条原文说的正是这一种",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "criterionMutations([...s.mutations])",
+      "replace": "criterionMutations([])",
+      "by": "test",
+      "kills": [
+        "审计喂数：判据级负片取自全部变异、只收带点的"
+      ]
+    },
+    {
+      "id": "M-H70-am",
+      "req": "harness",
+      "why": "改跑自检的负片拿空表去分 —— 只由自检认领的判据全都硬失败",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "selfcheckCriterionMutations([...s.mutations])",
+      "replace": "selfcheckCriterionMutations([])",
+      "by": "test",
+      "kills": [
+        "审计喂数：改跑自检的判据级负片只收写了自检的"
+      ]
+    },
+    {
+      "id": "M-H70-an",
+      "req": "harness",
+      "why": "显式豁免没交进来 —— 豁免了的需求照样报缺口，报告里那几行豁免也不见了",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "new Map(s.exemptions.map(e => [e.req, e.why]))",
+      "replace": "new Map<string, string>()",
+      "by": "test",
+      "kills": [
+        "审计喂数：显式豁免取自目录的豁免栏"
+      ]
+    },
+    {
+      "id": "M-H70-ao",
+      "req": "harness",
+      "why": "需求自己的两份登记表也算成下游引用 —— 一条从没落到代码的需求从「未被引用」变成有引用",
+      "file": "scripts/check/audit-rule.ts",
+      "find": ".filter(([f, c]) => !SPEC_FILES.has(f) && new RegExp(",
+      "replace": ".filter(([f, c]) => new RegExp(",
+      "by": "test",
+      "kills": [
+        "审计喂数：引用不数登记表自己、也不认更长的编号，架构文档算引用"
+      ]
+    },
+    {
+      "id": "M-H70-ap",
+      "req": "harness",
+      "why": "落到实处的引用把架构文档也算进去 —— 只在锚点表里被提过的需求被当成落到了代码",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "impl: all.filter(f => f !== ARCH_DOC).length",
+      "replace": "impl: all.length",
+      "by": "test",
+      "kills": [
+        "审计喂数：证据上的引用数含架构文档、落到实处的不含"
+      ]
+    },
+    {
+      "id": "M-H70-aq",
+      "req": "harness",
+      "why": "引用总数把架构文档剔掉 —— 报告上「引用几处」少数一处",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "refs: all.length",
+      "replace": "refs: all.filter(f => f !== ARCH_DOC).length",
+      "by": "test",
+      "kills": [
+        "审计喂数：证据上的引用数含架构文档、落到实处的不含"
+      ]
+    },
+    {
+      "id": "M-H70-ar",
+      "req": "harness",
+      "why": "证据上「有测试」一律写是 —— 没有测试的红线也过关",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "tested: testedIds.has(r.id)",
+      "replace": "tested: true",
+      "by": "test",
+      "kills": [
+        "审计喂数：有测试的需求证据上是有测试，没有的不是"
+      ]
+    },
+    {
+      "id": "M-H70-as",
+      "req": "harness",
+      "why": "证据上「有变异」一律写是 —— 没有变异的红线也过关",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "mutated: mutatedIds.has(r.id)",
+      "replace": "mutated: true",
+      "by": "test",
+      "kills": [
+        "审计喂数：有变异的需求证据上是有变异，没有的不是"
+      ]
+    },
+    {
+      "id": "M-H70-at",
+      "req": "harness",
+      "why": "证据上「整条豁免」一律写否 —— 豁免了的需求照样报硬失败",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "exempt: exemptIds.has(r.id)",
+      "replace": "exempt: false",
+      "by": "test",
+      "kills": [
+        "审计喂数：整条豁免的需求证据上是豁免，没有的不是"
+      ]
+    },
+    {
+      "id": "M-H70-au",
+      "req": "harness",
+      "why": "单元认领与自检认领交反了 —— 「只由自检认领却没有自检负片」那条硬失败问错了对象",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "claimedCriteria: testedCriteria, entryCriteria,",
+      "replace": "claimedCriteria: entryCriteria, entryCriteria: testedCriteria,",
+      "by": "test",
+      "kills": [
+        "审计喂数：单元认领的判据交进单元那一栏",
+        "审计喂数：自检认领的判据交进自检那一栏"
+      ]
+    },
+    {
+      "id": "M-H70-av",
+      "req": "harness",
+      "why": "证据上的豁免编号交了个空集合 —— 豁免了的判据照样报没有认领",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "exemptIds: new Set(exemptIds.keys()),",
+      "replace": "exemptIds: new Set<string>(),",
+      "by": "test",
+      "kills": [
+        "审计喂数：证据上的豁免编号与目录的豁免栏一致"
+      ]
+    },
+    {
+      "id": "M-H70-aw",
+      "req": "harness",
+      "why": "两种判据级负片交反了 —— 报告上的负片数只剩改跑自检的那几条",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "mutatedCriteria, selfcheckMutatedCriteria,",
+      "replace": "mutatedCriteria: selfcheckMutatedCriteria, selfcheckMutatedCriteria: mutatedCriteria,",
+      "by": "test",
+      "kills": [
+        "审计喂数：判据级负片取自全部变异、只收带点的",
+        "审计喂数：这条需求名下的判据级负片数是 3，别的需求的那条不算"
+      ]
+    },
+    {
+      "id": "M-H70-ax",
+      "req": "harness",
+      "why": "查判定模块有没有人守时拿空表去查 —— 每个判定模块都报没有变异守着",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "unguarded(modules, [...s.mutations])",
+      "replace": "unguarded(modules, [])",
+      "by": "test",
+      "kills": [
+        "审计喂数：没有变异落到的判定模块才算没人守"
+      ]
+    },
+    {
+      "id": "M-H70-ay",
+      "req": "harness",
+      "why": "豁免行拿空表去问名下有没有变异 —— 有负片的豁免也说成名下无变异",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "exemptionCovered(id, s.mutations)",
+      "replace": "exemptionCovered(id, [])",
+      "by": "test",
+      "kills": [
+        "审计喂数：豁免行按名下有没有变异说，取自全部变异"
+      ]
+    },
+    {
+      "id": "M-H70-az",
+      "req": "harness",
+      "why": "汇总行里单元认领与自检认领交反了 —— 两栏的数对调",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "testedCriteria, entryCriteria, exemptIds)",
+      "replace": "entryCriteria, testedCriteria, exemptIds)",
+      "by": "test",
+      "kills": [
+        "审计喂数：验收判据那一行三栏各取各的名单"
+      ]
+    },
+    {
+      "id": "M-H70-ba",
+      "req": "harness",
+      "why": "找引用时不认编号的边界 —— 更长的编号（D90 之于 D9）也算成引用",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "new RegExp(`\\\\b${id}\\\\b`)",
+      "replace": "new RegExp(`${id}`)",
+      "by": "test",
+      "kills": [
+        "审计喂数：引用不数登记表自己、也不认更长的编号，架构文档算引用"
+      ]
+    },
+    {
+      "id": "M-H70-bb",
+      "req": "harness",
+      "why": "交给入口的需求号名单与变异名单对调 —— 报告上「测试」「变异」两栏互换",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "testedIds, mutatedIds, exemptIds, evidence, refs,",
+      "replace": "testedIds: mutatedIds, mutatedIds: testedIds, exemptIds, evidence, refs,",
+      "by": "test",
+      "kills": [
+        "审计喂数：被单元记录认领的需求号",
+        "审计喂数：有变异点着的编号取自全部变异"
+      ]
     }
   ],
   "exemptions": [
