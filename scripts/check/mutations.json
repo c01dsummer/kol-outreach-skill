@@ -38286,6 +38286,18 @@
         "P2.g 坏字段当作没有：简介不是字符串时按「没查过」算（对不了，没查过），作品文案全不是字符串时也按「没查过」算",
         "P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错"
       ]
+    },
+    {
+      "id": "M-P2-s86",
+      "req": "P2.e",
+      "why": "出处登记写坏、读入拒收时，先写一份新的名单表格再退出：被拒之后交付物已经换了一份",
+      "file": "scripts/render.ts",
+      "find": "} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }",
+      "replace": "} catch (e) { writeCsv(join(dir, 'kol.csv'), ['x'], []); console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }",
+      "by": "test",
+      "kills": [
+        "P2.e 拒绝（入口）：被拒之后上一次的 kol.csv、kol.xlsx、meta.json、creators.json 也原字节留着（作者加，CodeRabbit 第一轮）"
+      ]
     }
   ],
   "exemptions": [
