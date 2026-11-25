@@ -259,6 +259,7 @@
     {"config":"[\"test\",[\"p2-draft-sources\"]]","launches":1,"maxPaid":null,"running":36,"stopping":0},
     {"config":"[\"test\",[\"p2-endorsement-claims\"]]","launches":0,"maxPaid":null,"running":42,"stopping":0},
     {"config":"[\"test\",[\"p2-placeholders\"]]","launches":1,"maxPaid":null,"running":8,"stopping":0},
+    {"config":"[\"test\",[\"p2-sources-isolated-entry\"]]","launches":4,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"p3-budget-token\"]]","launches":0,"maxPaid":null,"running":7,"stopping":0},
     {"config":"[\"test\",[\"p4-render-recheck\"]]","launches":1,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"p5-report\"]]","launches":0,"maxPaid":null,"running":15,"stopping":0},
