@@ -18480,8 +18480,18 @@ suite('P1', '适配器的缺失、查过为空与真实值保持可区分')
   const search = async (author: Record<string, unknown>) =>
     (await stub({ data: { aweme_list: [{ author: { unique_id: 'u', ...author }, statistics: {} }] } })
       .search({ keyword: 'k', dimension: 'category', platform: 'tiktok' }, 'US', 0)).creators[0]
+  // P1.p：搜索结果拆读那一步（需求所有者 2026-11-25 定的原文，ADR-247）
+  criterion('P1.p')
   eq('搜索未返回粉丝数时仍是未查询', (await search({})).followers, undefined)
+  // 空值是「没给」，不是「给了怪值」：不进 invalid_from_provider（那是 P1.m 的「已查询但未取得有效值」）
+  const nullFollowers = await search({ follower_count: null })
+  eq('搜索给的粉丝数是空值时仍是未查询', [nullFollowers.followers, nullFollowers.invalid_from_provider ?? '没有怪值记号'], [undefined, '没有怪值记号'])
+  eq('搜索未返回作品数时仍是未查询', (await search({})).post_count, undefined)
+  const nullPosts = await search({ aweme_count: null })
+  eq('搜索给的作品数是空值时仍是未查询', [nullPosts.post_count, nullPosts.invalid_from_provider ?? '没有怪值记号'], [undefined, '没有怪值记号'])
   eq('搜索占位作品数零不成为真实零', (await search({ aweme_count: 0 })).post_count, undefined)
+  // 反过来那一面：真给了数的照收，免得「一律记未查询」也过得去
+  eq('搜索给了真实粉丝数照收', (await search({ follower_count: 1200 })).followers, 1200)
 }
 })
 // ═══════════ provider 的契约：fetch 换成罐头，把四条一直没人跑过的路走一遍 ═══════════

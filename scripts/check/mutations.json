@@ -8207,7 +8207,7 @@
     },
     {
       "id": "M-P1-j",
-      "req": "P1",
+      "req": "P1.p",
       "why": "搜索结果里缺失的粉丝数被记成 0。这一层是三态第一次成形的地方，记成 0 之后下游再也分不出「没查过」和「真的没有粉丝」，入池判定会把一批还没查过的人当成粉丝数不达标挡掉",
       "file": "scripts/providers/tikhub.ts",
       "find": "const counts = countFields(readCount(a?.follower_count), ",
@@ -8219,7 +8219,7 @@
     },
     {
       "id": "M-P1-k",
-      "req": "P1",
+      "req": "P1.p",
       "why": "搜索结果里那个恒为 0 的作品数被当成真实值记下。那个端点对所有人都返回 0，它表示「这里不填这个字段」而不是「这个人一条作品都没有」—— 当成真值之后，内容积累那一档对全员失效，而且看不出来：每个人都拿到一个像模像样的 0",
       "file": "scripts/providers/tikhub.ts",
       "find": "readCount(a?.aweme_count === 0 ? undefined : a?.aweme_count)",
@@ -38078,6 +38078,32 @@
       "by": "test",
       "kills": [
         "审计喂数：验收判据那一行三栏各取各的名单"
+      ]
+    },
+    {
+      "id": "M-P1-bj",
+      "req": "P1.p",
+      "why": "搜索给的粉丝数、作品数是空值时被当成「给了怪值」—— 名单上「没查过」变成「查过但取不到有效值」，补查那一步不再把他当成该补的人",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "candidates.filter(v => v !== undefined && v !== null)",
+      "replace": "candidates.filter(v => v !== undefined)",
+      "by": "test",
+      "kills": [
+        "搜索给的粉丝数是空值时仍是未查询",
+        "搜索给的作品数是空值时仍是未查询"
+      ]
+    },
+    {
+      "id": "M-P1-bk",
+      "req": "P1.p",
+      "why": "搜索结果里没给的作品数被记成 0 —— 内容积累那一档对这些人全部失效，而 0 看起来像真实值",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "readCount(a?.aweme_count === 0 ? undefined : a?.aweme_count)",
+      "replace": "(readCount(a?.aweme_count === 0 ? undefined : a?.aweme_count) ?? 0)",
+      "by": "test",
+      "kills": [
+        "搜索未返回作品数时仍是未查询",
+        "搜索给的作品数是空值时仍是未查询"
       ]
     }
   ],
