@@ -36,6 +36,7 @@
     "admission": "tsx scripts/check/admission.ts",
     "launches": "tsx scripts/check/launches.ts",
     "enrichment-schema": "tsx scripts/check/enrichment-schema.ts",
+    "data-shapes": "tsx scripts/check/data-shapes.ts",
     "typecheck": "tsc --noEmit",
     "compile": "tsx scripts/check/compile.ts",
     "check": "npm run anchors && npm run size && npm run shard-load && npm run ticket-refs && npm run child-process-use && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run fields && npm run compile && npm test && npm run mutate && npm run selfcheck && npm run audit && npm run launches"

@@ -35912,6 +35912,222 @@
       ]
     },
     {
+      "id": "M-H246-a",
+      "req": "harness",
+      "why": "形状变了也不报",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "else if (JSON.stringify(before[name]) !== JSON.stringify(now))",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "形状快照：变了的、新登记的、登记里已经没有的各一句，没变的不提"
+      ]
+    },
+    {
+      "id": "M-H246-b",
+      "req": "harness",
+      "why": "新登记的一类说成形状变了",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "if (!(name in before)) out.push(",
+      "replace": "if (false) out.push(",
+      "by": "test",
+      "kills": [
+        "形状快照：变了的、新登记的、登记里已经没有的各一句，没变的不提"
+      ]
+    },
+    {
+      "id": "M-H246-c",
+      "req": "harness",
+      "why": "登记里删掉的一类不报",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "for (const name of Object.keys(before)) if",
+      "replace": "for (const name of [] as string[]) if",
+      "by": "test",
+      "kills": [
+        "形状快照：变了的、新登记的、登记里已经没有的各一句，没变的不提"
+      ]
+    },
+    {
+      "id": "M-H246-d",
+      "req": "harness",
+      "why": "快照不在说成不是 JSON",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "if (onDisk === undefined) return [",
+      "replace": "if (false) return [",
+      "by": "test",
+      "kills": [
+        "形状快照：快照不在、不是 JSON、没有 shapes 都说为什么"
+      ]
+    },
+    {
+      "id": "M-H246-e",
+      "req": "harness",
+      "why": "生成时类型里没写的键也认，形状与入库那份对不上",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "    additionalProperties: false,\n",
+      "replace": "    additionalProperties: true,\n",
+      "by": "test",
+      "kills": [
+        "形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写"
+      ]
+    },
+    {
+      "id": "M-H246-f",
+      "req": "harness",
+      "why": "跨任务记忆不登记，它的形状变了没人提醒",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "  { name: '跨任务记忆', stored: 'memory/creators.json', source: 'scripts/lib/memory.ts', type: 'MemoryFile' },\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写"
+      ]
+    },
+    {
+      "id": "M-H246-g",
+      "req": "harness",
+      "why": "任务状态加了一个可选字段却没回写快照",
+      "file": "scripts/lib/types.ts",
+      "find": "export interface TaskState {\n  product: string\n",
+      "replace": "export interface TaskState {\n  product: string\n  draft_note?: string\n",
+      "by": "test",
+      "kills": [
+        "形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写"
+      ]
+    },
+    {
+      "id": "M-H246-h",
+      "req": "harness",
+      "why": "经验库整份文件加了一个字段却没回写快照",
+      "file": "scripts/lib/lessons.ts",
+      "find": "export interface LessonsFile {\n  version: 1\n",
+      "replace": "export interface LessonsFile {\n  version: 1\n  owner?: string\n",
+      "by": "test",
+      "kills": [
+        "形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写"
+      ]
+    },
+    {
+      "id": "M-H246-i",
+      "req": "harness",
+      "why": "快照里没有 shapes 也照比",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "if (before === undefined) return ['快照里没有 shapes']",
+      "replace": "if (false) return ['快照里没有 shapes']",
+      "by": "test",
+      "kills": [
+        "形状快照：快照不在、不是 JSON、没有 shapes 都说为什么"
+      ]
+    },
+    {
+      "id": "M-H246-j",
+      "req": "harness",
+      "why": "注释也写进快照，只改一句说明就报形状变了",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "    jsDoc: 'basic',\n",
+      "replace": "    jsDoc: 'extended',\n",
+      "by": "test",
+      "kills": [
+        "形状快照：只改一句注释不算形状变了"
+      ]
+    },
+    {
+      "id": "M-H246-k",
+      "req": "harness",
+      "why": "两类登记了同一个类型名也照生成",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "if (first !== undefined) throw new Error(",
+      "replace": "if (false) throw new Error(",
+      "by": "test",
+      "kills": [
+        "形状快照：两类登记了同一个类型名就不生成，点名两类"
+      ]
+    },
+    {
+      "id": "M-H246-l",
+      "req": "harness",
+      "why": "程序又交回生成器按 glob 找文件",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "    tsProgram: program,\n",
+      "replace": "    path: join(root, new Set(shapes.map(s => s.source)).size === 1 ? shapes[0].source : `{${[...new Set(shapes.map(s => s.source))].join(',')}}`),\n    tsconfig: join(root, 'tsconfig.json'),\n",
+      "by": "test",
+      "kills": [
+        "形状快照：目录名里带 [ ] 也按字面路径读，不匹配到旁边名字相近的目录"
+      ]
+    },
+    {
+      "id": "M-H246-m",
+      "req": "harness",
+      "why": "弃用说明的文字也写进快照",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "k === 'deprecated' && typeof v === 'string' ? true : withoutNotes(v)",
+      "replace": "withoutNotes(v)",
+      "by": "test",
+      "kills": [
+        "形状快照：@deprecated 后面的说明改了不算形状变了，标成弃用算"
+      ]
+    },
+    {
+      "id": "M-H246-n",
+      "req": "harness",
+      "why": "盘上表格的表头不进快照",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "...(columns === undefined ? {} : { columns })",
+      "replace": "...{}",
+      "by": "test",
+      "kills": [
+        "形状快照：盘上表格的表头改名、换顺序都算形状变了，读进来的类型没动也一样"
+      ]
+    },
+    {
+      "id": "M-H246-o",
+      "req": "harness",
+      "why": "类型检查不过也照生成",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "if (broken.length > 0) throw",
+      "replace": "if (false) throw",
+      "by": "test",
+      "kills": [
+        "形状快照：类型检查不过就不生成，说为什么"
+      ]
+    },
+    {
+      "id": "M-H246-p",
+      "req": "harness",
+      "why": "任务状态里按任务下标记条数那张表又写成会被生成成数组的写法",
+      "file": "scripts/lib/types.ts",
+      "find": "  found?: { [index: number]: number | null }\n",
+      "replace": "  found?: Record<number, number | null>\n",
+      "by": "test",
+      "kills": [
+        "形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写"
+      ]
+    },
+    {
+      "id": "M-H246-q",
+      "req": "harness",
+      "why": "表头常量不是元组（写成 string[]）也照收",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "checker.isTupleType(t) ? checker.getTypeArguments(t as ts.TypeReference) : undefined",
+      "replace": "checker.isTupleType(t) ? checker.getTypeArguments(t as ts.TypeReference) : []",
+      "by": "test",
+      "kills": [
+        "形状快照：表头常量不是写死的一串字符串、或者没有这个常量，就不生成，说为什么"
+      ]
+    },
+    {
+      "id": "M-H246-r",
+      "req": "harness",
+      "why": "表头常量里有一项不是写死的字符串也照收",
+      "file": "scripts/check/data-shapes-rule.ts",
+      "find": "!items.every(i => i.isStringLiteral())",
+      "replace": "false",
+      "by": "test",
+      "kills": [
+        "形状快照：表头常量不是写死的一串字符串、或者没有这个常量，就不生成，说为什么"
+      ]
+    },
+    {
       "id": "M-H245-a",
       "req": "harness",
       "why": "去掉行号那一步没了，行号挪了就算一减一增",
