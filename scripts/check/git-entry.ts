@@ -30,6 +30,9 @@ export const QUESTIONS: readonly (readonly string[])[] = [
   ['rev-list', REV],
   ['ls-tree', '--name-only', REV, '--', PATHS],
   ['ls-tree', '-z', '--full-tree', '--name-only', REV, '--', PATHS],
+  // 周回访取原料：一棵树上 docs/adr/ 下全部文件（含子目录），一周前那棵树是哪个提交
+  ['ls-tree', '-r', '-z', '--name-only', REV, '--', PATHS],
+  ['rev-list', '-1', '--first-parent', '--before', VALUE, REV],
   ['show', REV],
   ['log', '-1', '--format=%B', REV],
   ['cat-file', 'blob', REV],
