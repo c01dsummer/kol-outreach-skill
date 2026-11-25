@@ -1,0 +1,2413 @@
+{
+  "$comment": "存下来的数据的形状快照（ADR-246），由类型生成，勿手改。哪一类变了，先照 process/3-BUILD.md 第 9 条写明缺着怎么读、该不该升版本，再跑 npm run data-shapes -- --write 回写。",
+  "shapes": {
+    "任务状态": {
+      "stored": "任务目录里的 task.json",
+      "type": "scripts/lib/types.ts 里的 TaskState",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/TaskState",
+        "definitions": {
+          "TaskState": {
+            "type": "object",
+            "properties": {
+              "product": {
+                "type": "string"
+              },
+              "market": {
+                "type": "string"
+              },
+              "target_count": {
+                "type": "number"
+              },
+              "brand_calibration": {
+                "$ref": "#/definitions/BrandCalibration"
+              },
+              "sender_name": {
+                "type": "string"
+              },
+              "budget_usd": {},
+              "cost_ledger": {},
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/SearchTask"
+                }
+              },
+              "done": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "offsets": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "answered": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "found": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "pages": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "requests": {},
+              "memory_status": {
+                "$ref": "#/definitions/MemoryStatus"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "product",
+              "market",
+              "target_count",
+              "tasks",
+              "done",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": false
+          },
+          "BrandCalibration": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "target_creator_types": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tone_aesthetic": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "natural_scenarios": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "negative_signals": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "brand_preference",
+                        "verified_product_fact"
+                      ]
+                    },
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "kind",
+                    "detail"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "version",
+              "target_creator_types",
+              "tone_aesthetic",
+              "natural_scenarios",
+              "negative_signals",
+              "sources"
+            ],
+            "additionalProperties": false
+          },
+          "SearchTask": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string"
+              },
+              "dimension": {
+                "$ref": "#/definitions/Dimension"
+              },
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "as_hashtag": {
+                "type": "boolean"
+              },
+              "ig_route": {
+                "type": "string",
+                "const": "hashtag"
+              }
+            },
+            "required": [
+              "keyword",
+              "dimension",
+              "platform"
+            ],
+            "additionalProperties": false
+          },
+          "Dimension": {
+            "type": "string",
+            "enum": [
+              "category",
+              "scene",
+              "competitor",
+              "audience"
+            ]
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "tiktok",
+              "instagram"
+            ]
+          },
+          "MemoryStatus": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "absent",
+              "unreadable_ignored",
+              "unknown"
+            ]
+          }
+        }
+      }
+    },
+    "名单里的一位创作者": {
+      "stored": "任务目录里的 creators.json 与 creators.raw.json（每一项）",
+      "type": "scripts/lib/types.ts 里的 Creator",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/Creator",
+        "definitions": {
+          "Creator": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "user_id": {
+                "type": "string"
+              },
+              "nickname": {
+                "type": "string"
+              },
+              "followers": {
+                "type": "number"
+              },
+              "following": {
+                "type": "number"
+              },
+              "post_count": {
+                "type": "number"
+              },
+              "invalid_from_provider": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "followers",
+                    "post_count"
+                  ]
+                }
+              },
+              "bio": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bio_links": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "verified": {
+                "type": "boolean"
+              },
+              "is_private": {
+                "type": "boolean"
+              },
+              "avatar": {
+                "type": "string"
+              },
+              "profile_url": {
+                "type": "string"
+              },
+              "source_keyword": {
+                "type": "string"
+              },
+              "source_dimension": {
+                "$ref": "#/definitions/Dimension"
+              },
+              "source_tasks": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "discovery_sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/DiscoverySource"
+                }
+              },
+              "recent_posts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/RecentPost"
+                }
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email_verified": {
+                "type": "boolean"
+              },
+              "audience_geo": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "fake_follower_score": {
+                "type": "number",
+                "deprecated": true
+              },
+              "cross_platform": {
+                "type": "boolean"
+              },
+              "linked_handle": {
+                "type": "string"
+              },
+              "merged_into": {
+                "type": "string"
+              },
+              "score": {
+                "type": "number"
+              },
+              "fit": {
+                "$ref": "#/definitions/Fit"
+              },
+              "fit_reason": {
+                "type": "string"
+              },
+              "tier": {
+                "$ref": "#/definitions/Tier"
+              },
+              "outreach_draft": {
+                "type": "string"
+              },
+              "draft_sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "draft": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "type": "string",
+                      "enum": [
+                        "bio",
+                        "post",
+                        "nickname",
+                        "product",
+                        "self"
+                      ]
+                    },
+                    "quote": {
+                      "type": "string"
+                    },
+                    "purpose": {
+                      "type": "string",
+                      "enum": [
+                        "schedule",
+                        "contact"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "draft",
+                    "from"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "eligibility": {
+                "$ref": "#/definitions/Eligibility"
+              },
+              "adoption_priority": {
+                "$ref": "#/definitions/AdoptionPriority"
+              },
+              "observed_content": {
+                "type": "string"
+              },
+              "work_evidence": {
+                "type": "string"
+              },
+              "natural_integration": {
+                "type": "string"
+              },
+              "mismatch_risk": {
+                "type": "string"
+              },
+              "brand_calibration_version": {
+                "type": "string"
+              },
+              "review_status": {
+                "$ref": "#/definitions/ReviewStatus"
+              },
+              "linked_agent_review": {
+                "type": "object",
+                "properties": {
+                  "account_key": {
+                    "type": "string"
+                  },
+                  "eligibility": {
+                    "$ref": "#/definitions/Eligibility"
+                  },
+                  "adoption_priority": {
+                    "$ref": "#/definitions/AdoptionPriority"
+                  },
+                  "review_status": {
+                    "$ref": "#/definitions/ReviewStatus"
+                  },
+                  "observed_content": {
+                    "type": "string"
+                  },
+                  "work_evidence": {
+                    "type": "string"
+                  },
+                  "natural_integration": {
+                    "type": "string"
+                  },
+                  "mismatch_risk": {
+                    "type": "string"
+                  },
+                  "fit": {
+                    "$ref": "#/definitions/Fit"
+                  },
+                  "fit_reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "account_key",
+                  "review_status"
+                ],
+                "additionalProperties": false
+              },
+              "manual_eligible": {
+                "$ref": "#/definitions/ManualVerdict"
+              },
+              "manual_adopted": {
+                "$ref": "#/definitions/ManualVerdict"
+              },
+              "manual_content_fit": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_engagement": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_comment_authenticity": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_reject_reason": {
+                "type": "string"
+              },
+              "manual_note": {
+                "type": "string"
+              },
+              "manual_reviewed": {
+                "type": "boolean"
+              },
+              "manual_round_id": {
+                "type": "string"
+              },
+              "manual_feedback_accounts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ManualFeedbackRow"
+                }
+              },
+              "effective_priority": {
+                "$ref": "#/definitions/AdoptionPriority"
+              },
+              "effective_priority_account_key": {
+                "type": "string"
+              },
+              "account_assessment": {
+                "$ref": "#/definitions/AccountAssessmentSummary"
+              },
+              "linked_account_assessment": {
+                "$ref": "#/definitions/AccountAssessmentSummary"
+              },
+              "tier_adjustments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/TierAdjustment"
+                }
+              },
+              "previously_recommended": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "platform",
+              "handle",
+              "nickname",
+              "bio_links",
+              "verified",
+              "profile_url",
+              "source_keyword",
+              "source_dimension"
+            ],
+            "additionalProperties": false
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "tiktok",
+              "instagram"
+            ]
+          },
+          "Dimension": {
+            "type": "string",
+            "enum": [
+              "category",
+              "scene",
+              "competitor",
+              "audience"
+            ]
+          },
+          "DiscoverySource": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "keyword": {
+                "type": "string"
+              },
+              "dimension": {
+                "$ref": "#/definitions/Dimension"
+              },
+              "endpoint": {
+                "$ref": "#/definitions/DiscoveryEndpoint"
+              }
+            },
+            "required": [
+              "platform",
+              "handle",
+              "keyword",
+              "dimension",
+              "endpoint"
+            ],
+            "additionalProperties": false
+          },
+          "DiscoveryEndpoint": {
+            "type": "string",
+            "enum": [
+              "/api/v1/tiktok/app/v3/fetch_video_search_result",
+              "/api/v1/instagram/v2/search_reels",
+              "/api/v1/instagram/v2/search_users",
+              "/api/v1/instagram/v2/fetch_hashtag_posts"
+            ]
+          },
+          "RecentPost": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "desc": {
+                "type": "string"
+              },
+              "plays": {
+                "type": "number"
+              },
+              "likes": {
+                "type": "number"
+              },
+              "comments": {
+                "type": "number"
+              },
+              "shares": {
+                "type": "number"
+              },
+              "published_at": {
+                "type": "string"
+              },
+              "is_pinned": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "desc"
+            ],
+            "additionalProperties": false
+          },
+          "Fit": {
+            "type": "string",
+            "enum": [
+              "✅",
+              "⚠️",
+              "❌"
+            ]
+          },
+          "Tier": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          "Eligibility": {
+            "type": "string",
+            "enum": [
+              "合格",
+              "不合格",
+              "待核实"
+            ]
+          },
+          "AdoptionPriority": {
+            "type": "string",
+            "enum": [
+              "优先联系",
+              "备选",
+              "待核实",
+              "暂不采用"
+            ]
+          },
+          "ReviewStatus": {
+            "type": "string",
+            "enum": [
+              "未评",
+              "已评",
+              "待重评"
+            ]
+          },
+          "ManualVerdict": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no",
+              "unknown"
+            ]
+          },
+          "ManualLevel": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "unknown"
+            ]
+          },
+          "ManualFeedbackRow": {
+            "type": "object",
+            "properties": {
+              "round_id": {
+                "type": "string"
+              },
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "account_key": {
+                "type": "string"
+              },
+              "line_number": {
+                "type": "number"
+              },
+              "manual_eligible": {
+                "$ref": "#/definitions/ManualVerdict"
+              },
+              "manual_adopted": {
+                "$ref": "#/definitions/ManualVerdict"
+              },
+              "manual_content_fit": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_engagement": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_comment_authenticity": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_reject_reason": {
+                "type": "string"
+              },
+              "manual_note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "round_id",
+              "platform",
+              "handle",
+              "account_key",
+              "line_number",
+              "manual_note"
+            ],
+            "additionalProperties": false
+          },
+          "AccountAssessmentSummary": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "followers": {
+                "type": "number"
+              },
+              "following": {
+                "type": "number"
+              },
+              "sample": {
+                "$ref": "#/definitions/PublicPostMeasurement<number>"
+              },
+              "metrics": {
+                "$ref": "#/definitions/PublicMetrics"
+              },
+              "collaboration_quote": {
+                "$ref": "#/definitions/QuoteMeasurement"
+              },
+              "quote_efficiency": {
+                "$ref": "#/definitions/QuoteEfficiency"
+              }
+            },
+            "required": [
+              "platform",
+              "handle"
+            ],
+            "additionalProperties": false
+          },
+          "PublicPostMeasurement<number>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "media_scope": {
+                      "$ref": "#/definitions/ProfileSampleScope"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "basis",
+                    "observed_at",
+                    "sample_size",
+                    "source",
+                    "status",
+                    "value"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "media_scope": {
+                      "$ref": "#/definitions/ProfileSampleScope"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "observed_at",
+                    "reason",
+                    "source",
+                    "status"
+                  ]
+                }
+              }
+            ]
+          },
+          "ProfileSampleScope": {
+            "type": "string",
+            "enum": [
+              "provider_returned_first12",
+              "legacy_video_filtered_first12",
+              "unknown"
+            ]
+          },
+          "MetricSource": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "public_api",
+                  "manual",
+                  "third_party"
+                ]
+              },
+              "provider": {
+                "type": "string"
+              },
+              "endpoint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "provider"
+            ],
+            "additionalProperties": false
+          },
+          "MetricUnavailableReason": {
+            "type": "string",
+            "enum": [
+              "private_account",
+              "insufficient_posts",
+              "missing_post_dates",
+              "invalid_post_date",
+              "missing_followers",
+              "missing_following",
+              "zero_denominator",
+              "insufficient_peer_group",
+              "insufficient_comparable_metrics",
+              "unsupported_content",
+              "account_unavailable",
+              "unknown_sample_scope",
+              "legacy_video_only_sample"
+            ]
+          },
+          "PublicMetrics": {
+            "type": "object",
+            "properties": {
+              "median_views": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "median_engagements": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "engagement_rate_followers": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "engagement_rate_views": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "view_rate": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "following_ratio": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "reach_consistency": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "median_post_gap_days": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "latest_post_at": {
+                "$ref": "#/definitions/Measurement<string>"
+              },
+              "days_since_last_post": {
+                "$ref": "#/definitions/Measurement<number>"
+              },
+              "activity_status": {
+                "$ref": "#/definitions/Measurement<ActivityStatus>"
+              },
+              "audience_quality_risk": {
+                "$ref": "#/definitions/Measurement<AudienceRiskAssessment>"
+              }
+            },
+            "required": [
+              "median_views",
+              "median_engagements",
+              "engagement_rate_followers",
+              "engagement_rate_views",
+              "view_rate",
+              "following_ratio",
+              "reach_consistency",
+              "median_post_gap_days",
+              "audience_quality_risk"
+            ],
+            "additionalProperties": false
+          },
+          "Measurement<number>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
+          "Measurement<string>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
+          "Measurement<ActivityStatus>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "$ref": "#/definitions/ActivityStatus"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
+          "ActivityStatus": {
+            "type": "string",
+            "enum": [
+              "active",
+              "cooling",
+              "dormant"
+            ]
+          },
+          "Measurement<AudienceRiskAssessment>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "$ref": "#/definitions/AudienceRiskAssessment"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "$ref": "#/definitions/MetricUnavailableReason"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
+          "AudienceRiskAssessment": {
+            "type": "object",
+            "properties": {
+              "level": {
+                "$ref": "#/definitions/AudienceRiskLevel"
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/AudienceRiskFlag"
+                }
+              },
+              "peer_size": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "level",
+              "flags",
+              "peer_size"
+            ],
+            "additionalProperties": false
+          },
+          "AudienceRiskLevel": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "AudienceRiskFlag": {
+            "type": "object",
+            "properties": {
+              "metric": {
+                "$ref": "#/definitions/AudienceRiskMetric"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "high"
+                ]
+              },
+              "value": {
+                "type": "number"
+              },
+              "threshold": {
+                "type": "number"
+              },
+              "peer_size": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "metric",
+              "direction",
+              "value",
+              "threshold",
+              "peer_size"
+            ],
+            "additionalProperties": false
+          },
+          "AudienceRiskMetric": {
+            "type": "string",
+            "enum": [
+              "engagement_rate_followers",
+              "view_rate",
+              "following_ratio"
+            ]
+          },
+          "QuoteMeasurement": {
+            "$ref": "#/definitions/ManualMeasurement<CollaborationQuote>"
+          },
+          "ManualMeasurement<CollaborationQuote>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "$ref": "#/definitions/CollaborationQuote"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
+          "CollaborationQuote": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "number"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "format": {
+                "type": "string",
+                "enum": [
+                  "tiktok_video",
+                  "instagram_reel",
+                  "instagram_post",
+                  "mixed_bundle"
+                ]
+              },
+              "quantity": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "creator_quote",
+                  "public_rate_card"
+                ]
+              },
+              "observed_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "amount",
+              "currency",
+              "platform",
+              "format",
+              "quantity",
+              "source",
+              "observed_at"
+            ],
+            "additionalProperties": false
+          },
+          "QuoteEfficiency": {
+            "type": "object",
+            "properties": {
+              "implied_ecpm": {
+                "$ref": "#/definitions/ManualMeasurement<number>"
+              },
+              "implied_ecpe": {
+                "$ref": "#/definitions/ManualMeasurement<number>"
+              }
+            },
+            "additionalProperties": false
+          },
+          "ManualMeasurement<number>": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "measured",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "measured"
+                    },
+                    "value": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    },
+                    "basis": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "value",
+                    "source",
+                    "observed_at",
+                    "sample_size",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    }
+                  }
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "unavailable"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "source": {
+                      "$ref": "#/definitions/MetricSource"
+                    },
+                    "observed_at": {
+                      "type": "string"
+                    },
+                    "sample_size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "source",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
+          "TierAdjustment": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "audience_geo",
+                  "audience_quality_risk"
+                ]
+              },
+              "from": {
+                "$ref": "#/definitions/Tier"
+              },
+              "to": {
+                "$ref": "#/definitions/Tier"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "from",
+              "to",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "评审正本": {
+      "stored": "任务目录里的 agent-review.json",
+      "type": "scripts/lib/review.ts 里的 AgentReviewDocument",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/AgentReviewDocument",
+        "definitions": {
+          "AgentReviewDocument": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "updated_at": {
+                "type": "string"
+              },
+              "reviews": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/AgentReview"
+                }
+              },
+              "rounds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ReviewRound"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "updated_at",
+              "reviews",
+              "rounds"
+            ],
+            "additionalProperties": false
+          },
+          "AgentReview": {
+            "type": "object",
+            "properties": {
+              "account_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "eligibility": {
+                "$ref": "#/definitions/Eligibility"
+              },
+              "adoption_priority": {
+                "$ref": "#/definitions/AdoptionPriority"
+              },
+              "observed_content": {
+                "type": "string"
+              },
+              "work_evidence": {
+                "type": "string"
+              },
+              "natural_integration": {
+                "type": "string"
+              },
+              "mismatch_risk": {
+                "type": "string"
+              },
+              "fit": {
+                "$ref": "#/definitions/Fit"
+              },
+              "fit_reason": {
+                "type": "string"
+              },
+              "outreach_draft": {
+                "type": "string"
+              },
+              "draft_sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/DraftSource"
+                }
+              },
+              "brand_calibration_version": {
+                "type": "string"
+              },
+              "reviewed_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_keys"
+            ],
+            "additionalProperties": false
+          },
+          "Eligibility": {
+            "type": "string",
+            "enum": [
+              "合格",
+              "不合格",
+              "待核实"
+            ]
+          },
+          "AdoptionPriority": {
+            "type": "string",
+            "enum": [
+              "优先联系",
+              "备选",
+              "待核实",
+              "暂不采用"
+            ]
+          },
+          "Fit": {
+            "type": "string",
+            "enum": [
+              "✅",
+              "⚠️",
+              "❌"
+            ]
+          },
+          "DraftSource": {
+            "type": "object",
+            "properties": {
+              "draft": {
+                "type": "string"
+              },
+              "from": {
+                "$ref": "#/definitions/DraftSourceKind"
+              },
+              "quote": {
+                "type": "string"
+              },
+              "purpose": {
+                "$ref": "#/definitions/DraftSourcePurpose"
+              }
+            },
+            "required": [
+              "draft",
+              "from"
+            ],
+            "additionalProperties": false
+          },
+          "DraftSourceKind": {
+            "type": "string",
+            "enum": [
+              "bio",
+              "post",
+              "nickname",
+              "product",
+              "self"
+            ]
+          },
+          "DraftSourcePurpose": {
+            "type": "string",
+            "enum": [
+              "schedule",
+              "contact"
+            ]
+          },
+          "ReviewRound": {
+            "type": "object",
+            "properties": {
+              "round_id": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "const": "task.json"
+              },
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ReviewRoundCandidate"
+                }
+              }
+            },
+            "required": [
+              "round_id",
+              "created_at",
+              "source",
+              "candidates"
+            ],
+            "additionalProperties": false
+          },
+          "ReviewRoundCandidate": {
+            "type": "object",
+            "properties": {
+              "account_key": {
+                "type": "string"
+              },
+              "source_tasks": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/ReviewSourceTask"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "account_key",
+              "source_tasks"
+            ],
+            "additionalProperties": false
+          },
+          "ReviewSourceTask": {
+            "type": "object",
+            "properties": {
+              "task_index": {
+                "type": "number"
+              },
+              "keyword": {
+                "type": "string"
+              },
+              "dimension": {
+                "$ref": "#/definitions/Dimension"
+              },
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              }
+            },
+            "required": [
+              "task_index",
+              "keyword",
+              "dimension",
+              "platform"
+            ],
+            "additionalProperties": false
+          },
+          "Dimension": {
+            "type": "string",
+            "enum": [
+              "category",
+              "scene",
+              "competitor",
+              "audience"
+            ]
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "tiktok",
+              "instagram"
+            ]
+          }
+        }
+      }
+    },
+    "跨任务记忆": {
+      "stored": "memory/creators.json",
+      "type": "scripts/lib/memory.ts 里的 MemoryFile",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/MemoryFile",
+        "definitions": {
+          "MemoryFile": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number"
+              },
+              "updated_at": {
+                "type": "string"
+              },
+              "creators": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/MemoryEntry"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "updated_at",
+              "creators"
+            ],
+            "additionalProperties": false
+          },
+          "MemoryEntry": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "type": "string"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "nickname": {
+                "type": "string"
+              },
+              "followers": {
+                "type": "number"
+              },
+              "first_seen": {
+                "type": "string"
+              },
+              "linked_to": {
+                "type": "string"
+              },
+              "recommendations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string"
+                    },
+                    "product": {
+                      "type": "string"
+                    },
+                    "keyword": {
+                      "type": "string"
+                    },
+                    "task": {
+                      "type": "string"
+                    },
+                    "tier": {
+                      "type": "string"
+                    },
+                    "fit_reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "product",
+                    "keyword"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "contacted": {
+                "type": "boolean"
+              },
+              "replied": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "platform",
+              "handle",
+              "nickname",
+              "followers",
+              "first_seen",
+              "recommendations",
+              "contacted",
+              "replied",
+              "blocked",
+              "note"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "经验库": {
+      "stored": "memory/lessons/<品类>.json",
+      "type": "scripts/lib/lessons.ts 里的 LessonsFile",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/LessonsFile",
+        "definitions": {
+          "LessonsFile": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "lessons": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/Lesson"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "lessons"
+            ],
+            "additionalProperties": false
+          },
+          "Lesson": {
+            "type": "object",
+            "properties": {
+              "situation": {
+                "type": "string"
+              },
+              "lesson": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "handle": {
+                    "type": "string"
+                  },
+                  "round_id": {
+                    "type": "string"
+                  },
+                  "manual": {
+                    "type": "string"
+                  },
+                  "agent": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "task",
+                  "platform",
+                  "handle",
+                  "round_id",
+                  "manual",
+                  "agent"
+                ],
+                "additionalProperties": false
+              },
+              "attribution": {
+                "type": "string",
+                "enum": [
+                  "能归到这一条",
+                  "混杂"
+                ]
+              },
+              "rule_version": {
+                "type": "string"
+              },
+              "added_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "situation",
+              "lesson",
+              "evidence",
+              "attribution",
+              "rule_version",
+              "added_at"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "经验读取记录": {
+      "stored": "任务目录里的 lessons-read.json",
+      "type": "scripts/lib/lessons.ts 里的 LessonsReadFile",
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/LessonsReadFile",
+        "definitions": {
+          "LessonsReadFile": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "read_at": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "ok"
+                  },
+                  "rule_version": {
+                    "type": "string"
+                  },
+                  "lessons": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/LessonSeen"
+                    }
+                  }
+                },
+                "required": [
+                  "category",
+                  "file",
+                  "lessons",
+                  "read_at",
+                  "rule_version",
+                  "status"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "read_at": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "absent"
+                  },
+                  "rule_version": {
+                    "type": "string"
+                  },
+                  "lessons": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 0
+                  }
+                },
+                "required": [
+                  "category",
+                  "file",
+                  "lessons",
+                  "read_at",
+                  "rule_version",
+                  "status"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "read_at": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "unreadable"
+                  },
+                  "detail": {
+                    "type": "string"
+                  },
+                  "rule_version": {
+                    "type": "string"
+                  },
+                  "lessons": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 0
+                  }
+                },
+                "required": [
+                  "category",
+                  "detail",
+                  "file",
+                  "lessons",
+                  "read_at",
+                  "rule_version",
+                  "status"
+                ]
+              }
+            ]
+          },
+          "LessonSeen": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "number"
+              },
+              "state": {
+                "$ref": "#/definitions/VersionState"
+              },
+              "situation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "state",
+              "situation"
+            ],
+            "additionalProperties": false
+          },
+          "VersionState": {
+            "type": "string",
+            "enum": [
+              "同一版本",
+              "写于规则改动之前",
+              "版本未知"
+            ]
+          }
+        }
+      }
+    },
+    "人工反馈表的一行": {
+      "stored": "任务目录里的 manual-feedback.csv（人填好后程序读回来）",
+      "type": "scripts/lib/manual-feedback.ts 里的 ManualFeedbackRow",
+      "columns": [
+        "round_id",
+        "platform",
+        "handle",
+        "manual_eligible",
+        "manual_adopted",
+        "manual_content_fit",
+        "manual_engagement",
+        "manual_comment_authenticity",
+        "manual_reject_reason",
+        "manual_note"
+      ],
+      "shape": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$ref": "#/definitions/ManualFeedbackRow",
+        "definitions": {
+          "ManualFeedbackRow": {
+            "type": "object",
+            "properties": {
+              "round_id": {
+                "type": "string"
+              },
+              "platform": {
+                "$ref": "#/definitions/Platform"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "account_key": {
+                "type": "string"
+              },
+              "line_number": {
+                "type": "number"
+              },
+              "manual_eligible": {
+                "$ref": "#/definitions/ManualVerdict"
+              },
+              "manual_adopted": {
+                "$ref": "#/definitions/ManualVerdict"
+              },
+              "manual_content_fit": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_engagement": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_comment_authenticity": {
+                "$ref": "#/definitions/ManualLevel"
+              },
+              "manual_reject_reason": {
+                "type": "string"
+              },
+              "manual_note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "round_id",
+              "platform",
+              "handle",
+              "account_key",
+              "line_number",
+              "manual_note"
+            ],
+            "additionalProperties": false
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "tiktok",
+              "instagram"
+            ]
+          },
+          "ManualVerdict": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no",
+              "unknown"
+            ]
+          },
+          "ManualLevel": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "unknown"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

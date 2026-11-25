@@ -68,6 +68,7 @@ const EXEMPT: Record<string, string> = {
   'scripts/check/revisit-due.ts': '周回访到期清单、死亡条件轮换与只起草一条的入口：需求测试组 h-revisit-entry 在玩具仓库上真起 --list、--deaths 与 --born',
   'scripts/check/revisit-raw.ts': '周回访取原料与 (a)、(d)、(e) 三段的入口：需求测试组 h-revisit-raw-entry 在玩具仓库上真起 --gather、--top、--slow、--never-red-pick 与 --never-red，h-revisit-raw-log-entry 拿形状不对的日志真起 --never-red',
   // 增强结果格式说明的命令行入口不在检查链里：它只比对、回写一个文件，判定由需求测试调同一个生成函数做
+  'scripts/check/data-shapes.ts': '存下来的数据的形状快照的检查与回写入口（npm run data-shapes）：只读写一个文件；判定「快照与按类型现生成的一样」由需求测试组 h-data-shapes 调同一个生成与比较函数守（ADR-246）',
   'scripts/check/enrichment-schema.ts': '增强结果格式说明的生成与回写入口（npm run enrichment-schema）：只读写一个文件；判定「入库那份与按类型现生成的逐字相同」由需求测试组 d21w-enrichment-schema 调同一个生成函数守（ADR-232）',
   // 要这条 PR 的评审意见与只读令牌，只在 GitHub 的工作流里跑；判定都在 same-spot-rule.ts，由需求测试组守。
   // 入口自己那几样（缺环境变量、翻页、退出码）没有东西起它，写在 ADR-225 第四节

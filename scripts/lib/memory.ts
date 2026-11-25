@@ -35,7 +35,8 @@ export interface MemoryEntry {
   note: string
 }
 
-interface MemoryFile {
+/** 跨任务记忆整份文件的形状（形状快照按它生成，见 `scripts/check/data-shapes.ts`） */
+export interface MemoryFile {
   version: number
   updated_at: string
   creators: Record<string, MemoryEntry>
