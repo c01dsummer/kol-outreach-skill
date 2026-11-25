@@ -290,6 +290,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-skill-rule', needs: [] },
   { id: 'h-admission', needs: [] },
   { id: 'h-admission-exit-code', needs: [] },
+  { id: 'h-admission-manifest-wiring', needs: [] },
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
@@ -15895,6 +15896,14 @@ harness('准入读物包的入口只设退出码、不当场退出（ADR-202 第
 // 认法借 mutate-rule.ts 的 exitRace（按语法树认 process.exit 与 process['exit'] 的调用，注释、字符串里写全了的不算）；
 // 先赋给别的名字再调的认不出，那是它写明了的窄头。不并进 h-admission：那一组头注说整组只调纯函数、不读文件。
 eq('准入读物入口：没有硬退出的调用，拒收时打出的那几百行不会被截掉', exitRace(rf('scripts/check/admission.ts', 'utf8')), [])
+})
+await group('h-admission-manifest-wiring', () => {
+harness('准入读物包的清单写明包外的接线自己备、去哪找说明（ADR-248）')
+// 清单是入口 admission.ts 里拼出来的一段字，变异只能落在入口上；入口是自检用得到的东西，自检那条（admission-entry 组里起真入口看清单）
+// 不能给它当负片，于是这里补一道读源码的：三句关键的话都还在入口正文里。只证字还在，清单真的写出来由自检那条证。
+const src = rf('scripts/check/admission.ts', 'utf8')
+eq('准入读物入口：清单里写着包外的接线自己备、能续跑的最小任务目录、enrich 没有保存失败注入',
+  ['**包外的接线，自己备、标出来。**', '「能续跑的最小任务目录」', 'enrich 没有对外的保存失败注入'].map(t => src.includes(t)), [true, true, true])
 })
 await group('h-group', () => {
 harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 needs 一起跑')
