@@ -37973,10 +37973,58 @@
       "why": "交给入口的需求号名单与变异名单对调 —— 报告上「测试」「变异」两栏互换",
       "file": "scripts/check/audit-rule.ts",
       "find": "testedIds, mutatedIds, exemptIds, evidence, refs,",
-      "replace": "testedIds: mutatedIds, mutatedIds: testedIds, exemptIds, evidence, refs,",
+      "replace": "mutatedIds: testedIds, testedIds: mutatedIds, exemptIds, evidence, refs,",
       "by": "test",
       "kills": [
         "审计喂数：被单元记录认领的需求号",
+        "审计喂数：有变异点着的编号取自全部变异"
+      ]
+    },
+    {
+      "id": "M-H70-bc",
+      "req": "harness",
+      "why": "交给入口的豁免名单换成空的 —— 报告上整条豁免的需求不再显示豁免",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "exemptIds, evidence, refs,",
+      "replace": "evidence, refs, exemptIds: new Map<string, string>(),",
+      "by": "test",
+      "kills": [
+        "审计喂数：显式豁免取自目录的豁免栏"
+      ]
+    },
+    {
+      "id": "M-H70-bd",
+      "req": "harness",
+      "why": "交给入口的证据把「有没有测试」说反 —— 有测试的需求报没有，没有的报有",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "evidence, refs,",
+      "replace": "refs, evidence: (r: Req) => ({ ...evidence(r), tested: !evidence(r).tested }),",
+      "by": "test",
+      "kills": [
+        "审计喂数：有测试的需求证据上是有测试，没有的不是"
+      ]
+    },
+    {
+      "id": "M-H70-be",
+      "req": "harness",
+      "why": "交给入口的引用名单换成空的 —— 每条需求都成了「未被引用」",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "evidence, refs,",
+      "replace": "evidence, ...{ refs: () => [] },",
+      "by": "test",
+      "kills": [
+        "审计喂数：引用不数登记表自己、也不认更长的编号，架构文档算引用"
+      ]
+    },
+    {
+      "id": "M-H70-bf",
+      "req": "harness",
+      "why": "交给入口的变异名单换成空的 —— 报告上每条需求都成了「没有变异」",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "mutatedIds, exemptIds, evidence, refs,",
+      "replace": "exemptIds, evidence, refs, mutatedIds: new Set<string>(),",
+      "by": "test",
+      "kills": [
         "审计喂数：有变异点着的编号取自全部变异"
       ]
     }

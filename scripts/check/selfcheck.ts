@@ -8823,6 +8823,10 @@ group('audit-entry', [], () => {
           {
             "id": "X1.b",
             "text": "Synthetic criterion without a declared negative case."
+          },
+          {
+            "id": "X1.c",
+            "text": "Synthetic criterion claimed only by the end-to-end run."
           }
         ]
       }
@@ -8834,6 +8838,12 @@ group('audit-entry', [], () => {
         "id": "toy-negative-alpha",
         "req": "X1.a",
         "why": "Synthetic data relationship for criterion A."
+      },
+      {
+        "id": "toy-selfcheck-gamma",
+        "req": "X1.c",
+        "why": "Synthetic end-to-end negative for criterion C.",
+        "by": "selfcheck"
       }
     ],
     "exemptions": [
@@ -8928,7 +8938,8 @@ group('audit-entry', [], () => {
     const claimsFiles = (): (readonly [string, string])[] => {
       const sourceHash = fingerprint(claimInputs(toyRoot));
       const unitClaims = { source_hash: sourceHash, covered: ['X1'], criteria: ['X1.a', 'X1.b'], tensions: [] };
-      const entryClaims = { source_hash: sourceHash, covered: [], criteria: [], tensions: [] };
+      // X1.c 只由入口那份认领：审计把入口那份原样交进判定，汇总行才数得出「入口认领 1」（ADR-70「审计读入口认领那处接线没有负片」）
+      const entryClaims = { source_hash: sourceHash, covered: [], criteria: ['X1.c'], tensions: [] };
       return [[CLAIMS_PATH, encode(unitClaims)], [ENTRY_CLAIMS_PATH, encode(entryClaims)]];
     };
     // 都是自造的玩具输入，不是真实产品测试的覆盖证据。
@@ -8962,6 +8973,18 @@ group('audit-entry', [], () => {
     named('审计入口：覆盖记录按整个玩具仓库现算的指纹写下，审计认它是新的、以 0 退出', run.status === 0,
       `退出码 ${run.status}；stderr 末几行：${stderrTail(run.stderr)}`);
     if (run.status !== 0) return;
+    // 两份认领记录都原样交进了判定：照上面的资料手数 —— 判据三条，单元认领 X1.a、X1.b，只有入口认领的是 X1.c；
+    // 玩具需求的类别是 X，不是红线，红线那三栏都是 0。入口那份交成空的、或两份交反了，这一行就变（ADR-70
+    // 「审计读入口认领那处接线没有负片」）。audit.ts 在验证基础设施闭包里，这条同样配不了变异，手工改过一次核过
+    named('审计入口：两份认领记录原样交进判定，验收判据那一行数出单元认领 2、入口认领 1',
+      run.stdout.includes('验收判据 3 条 · 有测试认领 2 · 入口认领 1 · 其中红线 0 条（测试认领 0 · 入口认领 0 · 显式豁免 0）'),
+      `输出：\n${run.stdout}`);
+    // 那一行逐条手数：X1 有单元认领（测试✓），没有记在需求号名下的变异（变异·）；三条判据都有认领，
+    // 判据级负片是 X1.a 与 X1.c 两条；引用只有 scripts/toy-reference.ts 一处（登记表自己不算）。
+    // 变异目录或下游语料交成空的，「负片 2」或「引用 1 处」就变
+    named('审计入口：变异目录与下游语料原样交进判定，X1 那一行是判据 3(负片 2)/3、引用 1 处',
+      run.stdout.includes('✓ X1  X  测试✓ 变异·  判据 3(负片 2)/3  引用 1 处'),
+      `输出：\n${run.stdout}`);
     if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
       fixtureFailure('审计跑完，玩具树里的源码、资料或覆盖记录变了');
       return;
