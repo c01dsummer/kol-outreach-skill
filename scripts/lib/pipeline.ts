@@ -547,7 +547,8 @@ export function keywordRows(
  *
  * collect 补全那一步怎么用它：搜索收完之后，对名单里 `needsProfile` 为真的每个人按顺序调一次
  * `TikHub.profile(handle, platform)`，拿回的那份交给本函数盖上，再 `fillEmail` 从简介里取邮箱；
- * 这些都是在内存里的名单上改，之后跟名单一起落盘。单个人补全失败（非 402）只计数、这个人保持原样，接着补下一个。
+ * 这些都是在内存里的名单上改，之后跟名单一起落盘。费用账出错、预算参数不合法、供应商回 402 时整步停下往外抛；
+ * 别的单个人补全失败只计数、这个人保持原样，接着补下一个。
  * 其余字段（简介、外链、认证、头像之类）：这次那份里有这个键就用它的值（值是 undefined 也照样盖成缺席），没有这个键才保留原值。
  */
 export function mergeProfile(c: Creator, p: Partial<Creator>): void {
