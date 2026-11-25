@@ -66,6 +66,18 @@ description: 海外 KOL 建联助手 —— 从产品理解到可发信名单。
 3. **每词每平台只抓 1 页**，把真实抓到的人摆给用户看
 4. 问一句"这批对吗"，不对就调词重来；有 `brand_calibration` 时，把它的要点、来源与待核实项放进同一次确认，用户修正后换 `version`（建任务前一直是手写标签；任务建好后由命令换成内容哈希，见 Phase 04）
 
+试探的命令与配置文件（`--config` 的路径按仓库根目录解析，同 collect；`budget_usd` 缺席时按 $0.5，`market` 缺席时按 US，`tasks` 的写法同 collect）：
+
+```bash
+npm run probe -- --config probe.json
+```
+
+```
+probe.json  {"market":"US","budget_usd":0.5,
+             "tasks":[{"keyword":"power bank review","dimension":"category","platform":"tiktok"},
+                      {"keyword":"powerbank","dimension":"category","platform":"instagram"}]}
+```
+
 试探用于减少整轮返工；请求数按本次词与补全动作计算，费用按对应端点声明另核。**不要跳过这一步直接放量（F3）。**
 
 若本次某平台的关键词与发现路径召回都差，如实说明本次没找到足够候选，再建议调整方向；不能据此宣称该平台没人做这类内容，也不要硬凑数量。

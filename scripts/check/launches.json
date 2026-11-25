@@ -139,6 +139,7 @@
     {"config":"[\"test\",[\"feedback-template-crossings\"]]","launches":0,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"h-admission\"]]","launches":0,"maxPaid":null,"running":72,"stopping":0},
     {"config":"[\"test\",[\"h-admission-exit-code\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
+    {"config":"[\"test\",[\"h-admission-manifest-wiring\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-adr-fact-table\"]]","launches":0,"maxPaid":null,"running":27,"stopping":0},
     {"config":"[\"test\",[\"h-adr-plain-index\"]]","launches":0,"maxPaid":null,"running":24,"stopping":0},
     {"config":"[\"test\",[\"h-audit-feed\"]]","launches":0,"maxPaid":null,"running":29,"stopping":0},
