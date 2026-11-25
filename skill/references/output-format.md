@@ -571,7 +571,7 @@ stderr 每处一行，有几处出几行，两个文件各自查完一起报。`
 - `attempt_id`：只在 `scope` 为 `task` 且 `result` 为 `reserved` 时有，是这次尝试在任务账里的序号。
 - `reason`：只在 `rejected` 时有，取五个之一。`budget`：已知额度不够付这一次。`ledger-unavailable`：费用账缺席、损坏或版本认不得。`pending`：账上有没结的预留。`root-conflict`：根预算与账上的上限冲突。`save-failed`：这次预留没能存进任务账，或本跑早先已有一次保存失败。
 
-`reserved` 记录在这次预留已经存好（任务账）之后、真正发出这次 HTTP 请求之前写出。每一次真实的 HTTP 尝试（包括重试和换路）恰好对应一条 `reserved` 记录，没有发出去的尝试没有 `reserved` 记录。`rejected` 记录在被拒的那一刻写出，这次请求不发。
+`reserved` 记录在这次预留已经存好（任务账）之后、真正发出这次 HTTP 请求之前写出。每一次真实的 HTTP 尝试（包括重试和换路）前面都有恰好一条 `reserved` 记录；被拒的预留不写 `reserved`。反过来不成立：进程在写出 `reserved` 之后、发出请求之前被杀掉时，会留下一条 `reserved` 却没有发出的请求。`rejected` 记录在被拒的那一刻写出，这次请求不发。
 
 **二、让某一次保存故意失败。** 只对 collect 生效，也只在设了 `KOL_TEST_OBSERVER_EVENTS` 时生效。这时当前目录下有 `.kol-save-fault.json` 的话，collect 启动时读它一次，只读，不改也不删。
 
