@@ -300,6 +300,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-selfcheck-shard-open', needs: [] },
   { id: 'h-check-rules', needs: [] },
   { id: 'p1-provider', needs: [] },
+  { id: 'p1-search-counts', needs: [] },
   { id: 'd6-provider', needs: [] },
   { id: 'd12-ledger', needs: [] },
   { id: 'p3-budget-token', needs: [] },
@@ -18482,6 +18483,167 @@ suite('P1', '适配器的缺失、查过为空与真实值保持可区分')
       .search({ keyword: 'k', dimension: 'category', platform: 'tiktok' }, 'US', 0)).creators[0]
   eq('搜索未返回粉丝数时仍是未查询', (await search({})).followers, undefined)
   eq('搜索占位作品数零不成为真实零', (await search({ aweme_count: 0 })).post_count, undefined)
+}
+})
+// ═══════════ P1.p：搜索结果拆读那一步，没给的粉丝数、作品数记未查询 ═══════════
+// 这一组由没读过实现的隔离上下文照准入读物包写成（ADR-247 第三节），合进来时只改了接线：
+// 断言与假 fetch 换成本文件的，删掉了 Instagram 三条搜索路与话题页解析的「正对照照留真实值」（8 条）——
+// 这几条路本来就不读这两个数（等主页补全），隔离稿按「会读」假设写的，跑出来就是错的。
+// Instagram 那几条「零作品数记成未查询」守的是今天「这几条路不读作品数」：哪天这几条路开始读作品数，
+// 先问清 Instagram 搜索给的 0 是不是占位，再改这几条。
+// 取值先转成字符串再比：eq 走 JSON.stringify，数组里的 undefined 与 null 分不清；
+// 「查无此人」防止人没解析出来时被读成「未查询」而空过。
+await group('p1-search-counts', async () => {
+suite('P1', '搜索结果里没给的粉丝数、作品数记未查询')
+{
+  criterion('P1.p')
+  type Page = Awaited<ReturnType<TikHub['search']>>
+  const show = (page: Page, handle: string, key: 'followers' | 'post_count' | 'invalid_from_provider'): string => {
+    const c = page.creators.find(x => x.handle === handle)
+    if (!c) return '查无此人'
+    const v = c[key] as unknown
+    if (v === undefined) return 'undefined'
+    if (v === null) return 'null'
+    return `${typeof v}:${JSON.stringify(v)}`
+  }
+  const routed = async (routes: { match: string; body: unknown }[], fn: () => Promise<Page>) => {
+    const calls: string[] = []
+    const real = globalThis.fetch
+    globalThis.fetch = (async (input: unknown) => {
+      const url = String(input)
+      calls.push(url)
+      const r = routes.find(x => url.includes(x.match))
+      if (!r) throw new Error(`测试没有为这个地址准备响应: ${url}`)
+      return new Response(JSON.stringify(r.body), { status: 200 })
+    }) as typeof fetch
+    try { return { page: await fn(), calls } } finally { globalThis.fetch = real }
+  }
+  const envelope = (data: unknown) => ({ code: 200, message: 'ok', data })
+  const client = () => new TikHub('test-key', fundedBudget())
+
+  const ttItem = (awemeId: string, author: Record<string, unknown>) => ({
+    aweme_info: { aweme_id: awemeId, desc: `desc ${awemeId}`, statistics: { play_count: 1000, digg_count: 10 }, author },
+  })
+  const TT_BODY = envelope({
+    aweme_list: [],
+    search_item_list: [
+      ttItem('7000000000000000001', { unique_id: 'tt_absent', nickname: 'TT Absent' }),
+      ttItem('7000000000000000002', { unique_id: 'tt_null', nickname: 'TT Null', follower_count: null, aweme_count: null }),
+      ttItem('7000000000000000003', { unique_id: 'tt_zero', nickname: 'TT Zero', follower_count: 8800, aweme_count: 0 }),
+      ttItem('7000000000000000004', { unique_id: 'tt_real', nickname: 'TT Real', follower_count: 12345, aweme_count: 57 }),
+    ],
+    has_more: 0,
+    cursor: 4,
+  })
+  const igUser = (username: string, counts: Record<string, unknown>) =>
+    ({ username, full_name: `Full ${username}`, id: `id_${username}`, is_verified: false, is_private: false, ...counts })
+  const igUsers = (prefix: string) => [
+    igUser(`${prefix}_absent`, {}),
+    igUser(`${prefix}_null`, { follower_count: null, media_count: null }),
+    igUser(`${prefix}_zero`, { follower_count: 8800, media_count: 0 }),
+  ]
+  const reelItems = (prefix: string) => igUsers(prefix).map((user, i) => ({
+    id: `31000000000000000${i}`, media_type: 2, product_type: 'clips', is_video: true,
+    caption: { text: `reel ${i}` }, play_count: 500, like_count: 20, user,
+  }))
+  const hashtagItems = (prefix: string) => igUsers(prefix).map((user, i) => ({
+    id: `32000000000000000${i}`, media_type: 2, product_type: 'clips', is_video: true,
+    caption_text: `tag post ${i}`, play_count: 500, like_count: 20, user,
+  }))
+  const TT_TASK = { keyword: 'smoothie recipe', dimension: 'category', platform: 'tiktok' } as const
+  const IG_REELS_TASK = { keyword: 'smoothie', dimension: 'category', platform: 'instagram' } as const
+  const IG_USERS_TASK = { keyword: 'journaling', dimension: 'category', platform: 'instagram' } as const
+  const IG_TAG_TASK = { keyword: '#selfcare', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' } as const
+
+  // 一、TikTok 视频搜索
+  {
+    const { page, calls } = await routed([{ match: '/api/v1/tiktok/app/v3/fetch_video_search_result', body: TT_BODY }],
+      () => client().search(TT_TASK as any, 'US', 0))
+    ok('抖音搜索确实请求了视频搜索端点', calls.some(u => u.includes('/api/v1/tiktok/app/v3/fetch_video_search_result')))
+
+    eq('抖音搜索·粉丝数字段没有时记成未查询', show(page, 'tt_absent', 'followers'), 'undefined')
+    eq('抖音搜索·作品数字段没有时记成未查询', show(page, 'tt_absent', 'post_count'), 'undefined')
+    eq('抖音搜索·两个字段都没有时不记怪值', show(page, 'tt_absent', 'invalid_from_provider'), 'undefined')
+
+    eq('抖音搜索·粉丝数是空值时记成未查询', show(page, 'tt_null', 'followers'), 'undefined')
+    eq('抖音搜索·作品数是空值时记成未查询', show(page, 'tt_null', 'post_count'), 'undefined')
+    eq('抖音搜索·两个字段都是空值时不记怪值', show(page, 'tt_null', 'invalid_from_provider'), 'undefined')
+
+    eq('抖音搜索·占位的零作品数记成未查询', show(page, 'tt_zero', 'post_count'), 'undefined')
+    eq('抖音搜索·占位的零作品数不记怪值', show(page, 'tt_zero', 'invalid_from_provider'), 'undefined')
+    eq('抖音搜索·占位零旁边的真实粉丝数照留', show(page, 'tt_zero', 'followers'), 'number:8800')
+
+    eq('抖音搜索·正对照真实粉丝数照留', show(page, 'tt_real', 'followers'), 'number:12345')
+    eq('抖音搜索·正对照非零作品数照留', show(page, 'tt_real', 'post_count'), 'number:57')
+    eq('抖音搜索·正对照不记怪值', show(page, 'tt_real', 'invalid_from_provider'), 'undefined')
+  }
+
+  // 二～四、Instagram 三条搜索路：本来就不读这两个数，给了什么都该是未查询、不记怪值
+  const igPaths: { task: object; routes: { match: string; body: unknown }[]; endpoint: string }[] = [
+    { task: IG_REELS_TASK, endpoint: '/api/v1/instagram/v2/search_reels',
+      routes: [{ match: '/api/v1/instagram/v2/search_reels', body: envelope({ data: { count: 4, items: reelItems('reel') } }) }] },
+    { task: IG_USERS_TASK, endpoint: '/api/v1/instagram/v2/search_users',
+      routes: [
+        { match: '/api/v1/instagram/v2/search_reels', body: envelope({ data: { count: 0, items: [] } }) },
+        { match: '/api/v1/instagram/v2/search_users', body: envelope({ data: { count: 4, items: igUsers('user') } }) },
+      ] },
+    { task: IG_TAG_TASK, endpoint: '/api/v1/instagram/v2/fetch_hashtag_posts',
+      routes: [{ match: '/api/v1/instagram/v2/fetch_hashtag_posts', body: envelope({ data: { count: 4, items: hashtagItems('tag') } }) }] },
+  ]
+  // 标签逐条写成字面量：故意改坏的用例按名字认领断言，名字得能在源码里原样找到
+  {
+    const p = igPaths[0]
+    const { page, calls } = await routed(p.routes, () => client().search(p.task as any, 'US', 0))
+    ok('短视频搜索确实请求了短视频搜索端点', calls.some(u => u.includes(p.endpoint)))
+    eq('短视频搜索·粉丝数字段没有时记成未查询', show(page, 'reel_absent', 'followers'), 'undefined')
+    eq('短视频搜索·作品数字段没有时记成未查询', show(page, 'reel_absent', 'post_count'), 'undefined')
+    eq('短视频搜索·两个字段都没有时不记怪值', show(page, 'reel_absent', 'invalid_from_provider'), 'undefined')
+    eq('短视频搜索·粉丝数是空值时记成未查询', show(page, 'reel_null', 'followers'), 'undefined')
+    eq('短视频搜索·作品数是空值时记成未查询', show(page, 'reel_null', 'post_count'), 'undefined')
+    eq('短视频搜索·两个字段都是空值时不记怪值', show(page, 'reel_null', 'invalid_from_provider'), 'undefined')
+    eq('短视频搜索·零作品数记成未查询', show(page, 'reel_zero', 'post_count'), 'undefined')
+    eq('短视频搜索·零作品数不记怪值', show(page, 'reel_zero', 'invalid_from_provider'), 'undefined')
+  }
+  {
+    const p = igPaths[1]
+    const { page, calls } = await routed(p.routes, () => client().search(p.task as any, 'US', 0))
+    ok('账号名搜索·短视频无结果后确实请求了账号名搜索端点', calls.some(u => u.includes(p.endpoint)))
+    eq('账号名搜索·粉丝数字段没有时记成未查询', show(page, 'user_absent', 'followers'), 'undefined')
+    eq('账号名搜索·作品数字段没有时记成未查询', show(page, 'user_absent', 'post_count'), 'undefined')
+    eq('账号名搜索·两个字段都没有时不记怪值', show(page, 'user_absent', 'invalid_from_provider'), 'undefined')
+    eq('账号名搜索·粉丝数是空值时记成未查询', show(page, 'user_null', 'followers'), 'undefined')
+    eq('账号名搜索·作品数是空值时记成未查询', show(page, 'user_null', 'post_count'), 'undefined')
+    eq('账号名搜索·两个字段都是空值时不记怪值', show(page, 'user_null', 'invalid_from_provider'), 'undefined')
+    eq('账号名搜索·零作品数记成未查询', show(page, 'user_zero', 'post_count'), 'undefined')
+    eq('账号名搜索·零作品数不记怪值', show(page, 'user_zero', 'invalid_from_provider'), 'undefined')
+  }
+  {
+    const p = igPaths[2]
+    const { page, calls } = await routed(p.routes, () => client().search(p.task as any, 'US', 0))
+    ok('话题搜索确实请求了话题端点', calls.some(u => u.includes(p.endpoint)))
+    eq('话题搜索·粉丝数字段没有时记成未查询', show(page, 'tag_absent', 'followers'), 'undefined')
+    eq('话题搜索·作品数字段没有时记成未查询', show(page, 'tag_absent', 'post_count'), 'undefined')
+    eq('话题搜索·两个字段都没有时不记怪值', show(page, 'tag_absent', 'invalid_from_provider'), 'undefined')
+    eq('话题搜索·粉丝数是空值时记成未查询', show(page, 'tag_null', 'followers'), 'undefined')
+    eq('话题搜索·作品数是空值时记成未查询', show(page, 'tag_null', 'post_count'), 'undefined')
+    eq('话题搜索·两个字段都是空值时不记怪值', show(page, 'tag_null', 'invalid_from_provider'), 'undefined')
+    eq('话题搜索·零作品数记成未查询', show(page, 'tag_zero', 'post_count'), 'undefined')
+    eq('话题搜索·零作品数不记怪值', show(page, 'tag_zero', 'invalid_from_provider'), 'undefined')
+  }
+
+  // 五、话题页解析函数（不发请求）
+  {
+    const items = hashtagItems('parse')
+    const page = parseInstagramHashtagPage({ code: 200, message: 'ok', data: { data: { count: 4, items }, items } }, IG_TAG_TASK as any)
+    eq('话题页解析·粉丝数字段没有时记成未查询', show(page, 'parse_absent', 'followers'), 'undefined')
+    eq('话题页解析·作品数字段没有时记成未查询', show(page, 'parse_absent', 'post_count'), 'undefined')
+    eq('话题页解析·两个字段都没有时不记怪值', show(page, 'parse_absent', 'invalid_from_provider'), 'undefined')
+    eq('话题页解析·粉丝数是空值时记成未查询', show(page, 'parse_null', 'followers'), 'undefined')
+    eq('话题页解析·作品数是空值时记成未查询', show(page, 'parse_null', 'post_count'), 'undefined')
+    eq('话题页解析·两个字段都是空值时不记怪值', show(page, 'parse_null', 'invalid_from_provider'), 'undefined')
+    eq('话题页解析·零作品数记成未查询', show(page, 'parse_zero', 'post_count'), 'undefined')
+    eq('话题页解析·零作品数不记怪值', show(page, 'parse_zero', 'invalid_from_provider'), 'undefined')
+  }
 }
 })
 // ═══════════ provider 的契约：fetch 换成罐头，把四条一直没人跑过的路走一遍 ═══════════
