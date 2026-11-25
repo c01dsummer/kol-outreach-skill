@@ -36128,6 +36128,763 @@
       ]
     },
     {
+      "id": "M-H245-a",
+      "req": "harness",
+      "why": "去掉行号那一步没了，行号挪了就算一减一增",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "l.replace(/:[0-9]+ {2}/, '  ')",
+      "replace": "l",
+      "by": "test",
+      "kills": [
+        "增减：行号挪了不算增减，多出来的那一份照算，不是 docs/adr/ 开头的行不比"
+      ]
+    },
+    {
+      "id": "M-H245-b",
+      "req": "harness",
+      "why": "同一行第二份不再算新增",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (n > 0) left.set(key(l), n - 1); else out.push(l)",
+      "replace": "if (n > 0) continue; else out.push(l)",
+      "by": "test",
+      "kills": [
+        "增减：行号挪了不算增减，多出来的那一份照算，不是 docs/adr/ 开头的行不比"
+      ]
+    },
+    {
+      "id": "M-H245-c",
+      "req": "harness",
+      "why": "不是 docs/adr/ 开头的行也拿来比",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "    if (!l.startsWith('docs/adr/')) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "增减：行号挪了不算增减，多出来的那一份照算，不是 docs/adr/ 开头的行不比"
+      ]
+    },
+    {
+      "id": "M-H245-d",
+      "req": "harness",
+      "why": "一周前那棵树连 00:00 整那一秒的提交也算进去",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "`${addDays(day, -8)} 23:59:59 +0800`",
+      "replace": "`${addDays(day, -7)} 00:00 +0800`",
+      "by": "test",
+      "kills": [
+        "取原料：一周前是 11-16 北京时间 00:00 之前最后一个提交；插了一段挪了行号的那张不算增减，子目录里新加的那张算新增"
+      ]
+    },
+    {
+      "id": "M-H245-e",
+      "req": "harness",
+      "why": "一周前那棵树取不到也不说不齐",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (old === undefined) faults.push(",
+      "replace": "if (false) faults.push(",
+      "by": "test",
+      "kills": [
+        "取原料：一周前那天之前主干上没有提交，就不齐、说为什么，新增照算成全部（所以不能用）"
+      ]
+    },
+    {
+      "id": "M-H245-f",
+      "req": "harness",
+      "why": "工作区改过 docs/adr/ 也不说不齐",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "else if (drift.length > 0) faults.push",
+      "replace": "else if (false) faults.push",
+      "by": "test",
+      "kills": [
+        "取原料：工作区的 docs/adr/ 与本跑那棵树不同就不齐，点名是哪个文件；别处（已提交的 scripts/a.ts）改了不管"
+      ]
+    },
+    {
+      "id": "M-H245-g",
+      "req": "harness",
+      "why": "工作区别处改了也算 docs/adr/ 不同",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "...extra.split('\\0')].filter(p => p.startsWith('docs/adr/'))",
+      "replace": "...extra.split('\\0')].filter(Boolean)",
+      "by": "test",
+      "kills": [
+        "取原料：工作区的 docs/adr/ 与本跑那棵树不同就不齐，点名是哪个文件；别处（已提交的 scripts/a.ts）改了不管"
+      ]
+    },
+    {
+      "id": "M-H245-h",
+      "req": "harness",
+      "why": "docs/adr/ 下不是 .md 的也读进来",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "names.split('\\0').filter(p => p.endsWith('.md'))",
+      "replace": "names.split('\\0').filter(Boolean)",
+      "by": "test",
+      "kills": [
+        "取原料：子目录里的记录也读进来，不是 .md 的不读，键是仓库里的路径"
+      ]
+    },
+    {
+      "id": "M-H245-i",
+      "req": "harness",
+      "why": "列文件不往子目录里走",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "['ls-tree', '-r', '-z', '--name-only', rev",
+      "replace": "['ls-tree', '-z', '--full-tree', '--name-only', rev",
+      "by": "test",
+      "kills": [
+        "取原料：子目录里的记录也读进来，不是 .md 的不读，键是仓库里的路径"
+      ]
+    },
+    {
+      "id": "M-H245-j",
+      "req": "harness",
+      "why": "一次读出的几个文件切错位置",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "at = nl + 1 + size + 1",
+      "replace": "at = nl + 1 + size",
+      "by": "test",
+      "kills": [
+        "取原料：子目录里的记录也读进来，不是 .md 的不读，键是仓库里的路径"
+      ]
+    },
+    {
+      "id": "M-H245-k",
+      "req": "harness",
+      "why": "原料不齐也打原料齐了",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (raw.faults.length > 0) return `原料不齐",
+      "replace": "if (false) return `原料不齐",
+      "by": "test",
+      "kills": [
+        "取原料：一周前那天之前主干上没有提交，就不齐、说为什么，新增照算成全部（所以不能用）"
+      ]
+    },
+    {
+      "id": "M-H245-l",
+      "req": "harness",
+      "why": "进了前十的算成两边都在的",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "fmt(topA.filter(id => !topB.includes(id)))",
+      "replace": "fmt(topA.filter(id => topB.includes(id)))",
+      "by": "test",
+      "kills": [
+        "被引表前十：进了前十与掉出前十各列编号与「一周前 → 本跑」，一周前没有这条写没有这条；再抄两边汇总"
+      ]
+    },
+    {
+      "id": "M-H245-m",
+      "req": "harness",
+      "why": "那一边没有这条记录写成 0",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "return r === undefined ? '没有这条' : String(r.cited)",
+      "replace": "return r === undefined ? '0' : String(r.cited)",
+      "by": "test",
+      "kills": [
+        "被引表前十：进了前十与掉出前十各列编号与「一周前 → 本跑」，一周前没有这条写没有这条；再抄两边汇总"
+      ]
+    },
+    {
+      "id": "M-H245-n",
+      "req": "harness",
+      "why": "一周前取前十一行",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "before.slice(0, 10).map",
+      "replace": "before.slice(0, 11).map",
+      "by": "test",
+      "kills": [
+        "被引表前十：进了前十与掉出前十各列编号与「一周前 → 本跑」，一周前没有这条写没有这条；再抄两边汇总"
+      ]
+    },
+    {
+      "id": "M-H245-o",
+      "req": "harness",
+      "why": "两页里重复的一跑算两次",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "const sorted = [...byId.values()]",
+      "replace": "const sorted = [...(runs as ApiRun[])]",
+      "by": "test",
+      "kills": [
+        "接口返回：一页、几页排成的数组、直接一组跑都认；两页里重复的一跑只算一次；排成从新到旧；一共几跑取页上最大的，直接一组跑就没有"
+      ]
+    },
+    {
+      "id": "M-H245-p",
+      "req": "harness",
+      "why": "跑排成从旧到新",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "Date.parse(b.created_at) - Date.parse(a.created_at))\n",
+      "replace": "Date.parse(a.created_at) - Date.parse(b.created_at))\n",
+      "by": "test",
+      "kills": [
+        "接口返回：一页、几页排成的数组、直接一组跑都认；两页里重复的一跑只算一次；排成从新到旧；一共几跑取页上最大的，直接一组跑就没有"
+      ]
+    },
+    {
+      "id": "M-H245-q",
+      "req": "harness",
+      "why": "head_sha 不对也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "!/^[0-9a-f]{7,40}$/.test(r.head_sha)",
+      "replace": "false",
+      "by": "test",
+      "kills": [
+        "接口返回：不是 JSON、不是那几种形状、有一跑缺一样或时刻读不出，整份不收、说第几跑哪一样"
+      ]
+    },
+    {
+      "id": "M-H245-r",
+      "req": "harness",
+      "why": "窗口起点那一刻的一跑不算进窗口",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "at(r) >= start && at(r) < end",
+      "replace": "at(r) > start && at(r) < end",
+      "by": "test",
+      "kills": [
+        "偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）"
+      ]
+    },
+    {
+      "id": "M-H245-s",
+      "req": "harness",
+      "why": "窗口终点那一刻的一跑也算进窗口",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "&& at(r) < end)",
+      "replace": "&& at(r) <= end)",
+      "by": "test",
+      "kills": [
+        "偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）"
+      ]
+    },
+    {
+      "id": "M-H245-t",
+      "req": "harness",
+      "why": "中位取排序后第 4 个",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "prev.map(runSeconds).sort((a, b) => a - b)[2]",
+      "replace": "prev.map(runSeconds).sort((a, b) => a - b)[3]",
+      "by": "test",
+      "kills": [
+        "偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）"
+      ]
+    },
+    {
+      "id": "M-H245-u",
+      "req": "harness",
+      "why": "比值不先四舍五入就跟 1.30 比",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "const ratio = round2(mine / median)",
+      "replace": "const ratio = mine / median",
+      "by": "test",
+      "kills": [
+        "偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）"
+      ]
+    },
+    {
+      "id": "M-H245-v",
+      "req": "harness",
+      "why": "前面 4 跑也照算",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (prev.length < 5)",
+      "replace": "if (prev.length < 4)",
+      "by": "test",
+      "kills": [
+        "偏慢：比它早的不足 5 跑写无从确认；条数比窗口前少带负号、相同写 ±0；窗口里一跑都没有写没有"
+      ]
+    },
+    {
+      "id": "M-H245-w",
+      "req": "harness",
+      "why": "窗口起点那一刻的一跑也算窗口前",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "const before = runs.find(r => Date.parse(r.created_at) < start)",
+      "replace": "const before = runs.find(r => Date.parse(r.created_at) <= start)",
+      "by": "test",
+      "kills": [
+        "偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）"
+      ]
+    },
+    {
+      "id": "M-H245-x",
+      "req": "harness",
+      "why": "条数比窗口前少也写正号",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "n > m ? `+${n - m}` : `-${m - n}`",
+      "replace": "n > m ? `+${n - m}` : `+${m - n}`",
+      "by": "test",
+      "kills": [
+        "偏慢：比它早的不足 5 跑写无从确认；条数比窗口前少带负号、相同写 ±0；窗口里一跑都没有写没有"
+      ]
+    },
+    {
+      "id": "M-H245-y",
+      "req": "harness",
+      "why": "偶数跑的中位取靠后那个",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "(per[k / 2 - 1] + per[k / 2]) / 2",
+      "replace": "per[k / 2]",
+      "by": "test",
+      "kills": [
+        "偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）"
+      ]
+    },
+    {
+      "id": "M-H245-z",
+      "req": "harness",
+      "why": "条数为 0 的一跑也进中位",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "c === undefined || c === 0 ? []",
+      "replace": "c === undefined ? []",
+      "by": "test",
+      "kills": [
+        "偏慢：最晚那一跑上取不到条数，条数与比窗口前都写无从确认；窗口前那一跑取不到只有比窗口前写无从确认；每一跑都取不到，中位写无从确认"
+      ]
+    },
+    {
+      "id": "M-H245-aa",
+      "req": "harness",
+      "why": "N 取不到也照算差",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (n === undefined) head = `变异 无从确认",
+      "replace": "if (false) head = `变异 无从确认",
+      "by": "test",
+      "kills": [
+        "偏慢：最晚那一跑上取不到条数，条数与比窗口前都写无从确认；窗口前那一跑取不到只有比窗口前写无从确认；每一跑都取不到，中位写无从确认"
+      ]
+    },
+    {
+      "id": "M-H245-ab",
+      "req": "harness",
+      "why": "例程开跑之后创建的一跑也算本周那一跑",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "at(r) >= start && at(r) <= now)",
+      "replace": "at(r) >= start)",
+      "by": "test",
+      "kills": [
+        "从没红过：本周那一跑是窗口里（开跑之后创建的不算）最晚的一跑，上一跑是比它早的最晚一跑（可以在窗口外）；窗口里没有、没有更早的都说为什么"
+      ]
+    },
+    {
+      "id": "M-H245-ac",
+      "req": "harness",
+      "why": "日志每行前面的时刻不去掉",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "l.replace(/\\r$/, '').replace(/^\\S*Z /, '')",
+      "replace": "l.replace(/\\r$/, '')",
+      "by": "test",
+      "kills": [
+        "从没红过：日志每行前面带时刻也认；没有、不止一行、不是 never-red/v1、缺几样、数不对都说为什么"
+      ]
+    },
+    {
+      "id": "M-H245-ad",
+      "req": "harness",
+      "why": "NEVER_RED_JSON 有两行也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (hits.length > 1) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "从没红过：日志每行前面带时刻也认；没有、不止一行、不是 never-red/v1、缺几样、数不对都说为什么"
+      ]
+    },
+    {
+      "id": "M-H245-ae",
+      "req": "harness",
+      "why": "不是 never-red/v1 也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "d.schema !== 'never-red/v1'",
+      "replace": "false",
+      "by": "test",
+      "kills": [
+        "从没红过：日志每行前面带时刻也认；没有、不止一行、不是 never-red/v1、缺几样、数不对都说为什么"
+      ]
+    },
+    {
+      "id": "M-H245-af",
+      "req": "harness",
+      "why": "没关提前停也照抄",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (d.earlyStop) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "从没红过：没关提前停的整段无从确认；本周那一跑读不到整段无从确认；上一跑读不到只有比上一跑无从确认"
+      ]
+    },
+    {
+      "id": "M-H245-ag",
+      "req": "harness",
+      "why": "不是整跑那几份的 job 红了也列",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "/^不提前停的整跑（第 ([0-9]+)\\/[0-9]+ 份）$/",
+      "replace": "/^(.*)$/",
+      "by": "test",
+      "kills": [
+        "从没红过：两个验证者各一行，比上一跑带正负号、相同写 ±0；整跑那几份有红的列出第几份（清单那个 job 不算）"
+      ]
+    },
+    {
+      "id": "M-H245-ah",
+      "req": "harness",
+      "why": "从没红过比上一跑少也写正号",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "`-${p.neverRed - v.neverRed}`",
+      "replace": "`+${p.neverRed - v.neverRed}`",
+      "by": "test",
+      "kills": [
+        "从没红过：两个验证者各一行，比上一跑带正负号、相同写 ±0；整跑那几份有红的列出第几份（清单那个 job 不算）"
+      ]
+    },
+    {
+      "id": "M-H245-ai",
+      "req": "harness",
+      "why": "job 缺 name 也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "typeof j.name !== 'string' ||",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "jobs 接口返回：整份先核形状"
+      ]
+    },
+    {
+      "id": "M-H245-aj",
+      "req": "harness",
+      "why": "目录读不出也数成 0 条",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "r.ok ? r.mutations.length : undefined",
+      "replace": "r.ok ? r.mutations.length : 0",
+      "by": "test",
+      "kills": [
+        "条数：提交上的变异目录经读口判过才数，形状不对、编号重复、文件不在都算取不到"
+      ]
+    },
+    {
+      "id": "M-H245-ak",
+      "req": "harness",
+      "why": "原料不齐也以 0 退出",
+      "file": "scripts/check/revisit-raw.ts",
+      "find": "if (raw.faults.length > 0) process.exitCode = 1",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "入口 --gather：不齐以 1 退出，打原料不齐与为什么"
+      ]
+    },
+    {
+      "id": "M-H245-al",
+      "req": "harness",
+      "why": "2 月 30 日这种挪到下个月的日子也收",
+      "file": "scripts/check/revisit-raw.ts",
+      "find": "new Date(ms).toISOString().slice(0, 10) !== d",
+      "replace": "false",
+      "by": "test",
+      "kills": [
+        "入口 --today 写的不是成立的日子：以 2 退出、什么都不打"
+      ]
+    },
+    {
+      "id": "M-H245-am",
+      "req": "harness",
+      "why": "交进来的文件形状不对也往下算",
+      "file": "scripts/check/revisit-raw.ts",
+      "find": "return 'fault' in r ? stop(`${file}：${r.fault}`) : r\n",
+      "replace": "return 'fault' in r ? { runs: [] } : r\n",
+      "by": "test",
+      "kills": [
+        "入口 --slow：交进来的文件形状不对，以 2 退出、说哪里不对、不往下算"
+      ]
+    },
+    {
+      "id": "M-H245-an",
+      "req": "harness",
+      "why": "上一跑的日志给了也不读",
+      "file": "scripts/check/revisit-raw.ts",
+      "find": "prevLog === undefined ? { absent: '上一跑的日志没给' }",
+      "replace": "true ? { absent: '上一跑的日志没给' }",
+      "by": "test",
+      "kills": [
+        "入口 --never-red：读两份日志与 jobs，打两个验证者各一行；上一跑的日志没给，比上一跑写无从确认"
+      ]
+    },
+    {
+      "id": "M-H245-ao",
+      "req": "harness",
+      "why": "一共几跑不交回",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "return totals.length === 0 ? { runs: sorted } : { runs: sorted, total: Math.max(...totals) }",
+      "replace": "return { runs: sorted }",
+      "by": "test",
+      "kills": [
+        "接口返回：一页、几页排成的数组、直接一组跑都认；两页里重复的一跑只算一次；排成从新到旧；一共几跑取页上最大的，直接一组跑就没有"
+      ]
+    },
+    {
+      "id": "M-H245-ap",
+      "req": "harness",
+      "why": "别的 workflow 的跑也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "['path', want.path]",
+      "replace": "['path', undefined]",
+      "by": "test",
+      "kills": [
+        "接口返回：混进不是要的那一种跑（别的分支、没跑完、别的 workflow、别的事件、没成功）整份不收、说第几跑哪一样"
+      ]
+    },
+    {
+      "id": "M-H245-aq",
+      "req": "harness",
+      "why": "别的事件触发的跑也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "['event', want.event]",
+      "replace": "['event', undefined]",
+      "by": "test",
+      "kills": [
+        "接口返回：混进不是要的那一种跑（别的分支、没跑完、别的 workflow、别的事件、没成功）整份不收、说第几跑哪一样"
+      ]
+    },
+    {
+      "id": "M-H245-ar",
+      "req": "harness",
+      "why": "没成功的跑也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "['conclusion', want.conclusion]",
+      "replace": "['conclusion', undefined]",
+      "by": "test",
+      "kills": [
+        "接口返回：混进不是要的那一种跑（别的分支、没跑完、别的 workflow、别的事件、没成功）整份不收、说第几跑哪一样"
+      ]
+    },
+    {
+      "id": "M-H245-as",
+      "req": "harness",
+      "why": "别的分支上的跑也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "['head_branch', 'main'], ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "接口返回：混进不是要的那一种跑（别的分支、没跑完、别的 workflow、别的事件、没成功）整份不收、说第几跑哪一样"
+      ]
+    },
+    {
+      "id": "M-H245-at",
+      "req": "harness",
+      "why": "没跑完的跑也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "['status', 'completed'], ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "接口返回：混进不是要的那一种跑（别的分支、没跑完、别的 workflow、别的事件、没成功）整份不收、说第几跑哪一样"
+      ]
+    },
+    {
+      "id": "M-H245-au",
+      "req": "harness",
+      "why": "交进来的与接口说的一样多也叫再取一页",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "&& runs.length < total)",
+      "replace": "&& runs.length <= total)",
+      "by": "test",
+      "kills": [
+        "偏慢：比它早的不足 5 跑，交进来的比接口说的少就多打一行叫再取一页，一样多就不打"
+      ]
+    },
+    {
+      "id": "M-H245-av",
+      "req": "harness",
+      "why": "入口没把一共几跑传给判定",
+      "file": "scripts/check/revisit-raw.ts",
+      "find": "sha => catalogCount(git, sha), r.total)",
+      "replace": "sha => catalogCount(git, sha))",
+      "by": "test",
+      "kills": [
+        "入口 --slow：前面不足 5 次、交进来的比接口说的少，叫再取下一页（页上的一共几跑传到了判定里）"
+      ]
+    },
+    {
+      "id": "M-H245-aw",
+      "req": "harness",
+      "why": "别的一跑的 jobs 也收",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (j.run_id !== runId) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "jobs 接口返回：有一个 job 不是给的那一跑的，整份不收"
+      ]
+    },
+    {
+      "id": "M-H245-ax",
+      "req": "harness",
+      "why": "认不出的行悄悄跳过",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "...(stray[0] + stray[1] === 0 ? [] :",
+      "replace": "...(true ? [] :",
+      "by": "test",
+      "kills": [
+        "被引表前十：docs/adr/ 开头却认不出的行不悄悄跳过，多打一行说两边各几行"
+      ]
+    },
+    {
+      "id": "M-H245-ay",
+      "req": "harness",
+      "why": "入口挑本周那一跑时按 check.yml 核",
+      "file": "scripts/check/revisit-raw.ts",
+      "find": "runs(need('--runs'), NEVER_RED_RUNS)",
+      "replace": "runs(need('--runs'), CHECK_RUNS)",
+      "by": "test",
+      "kills": [
+        "入口 --never-red-pick：窗口里没有一跑就说无从确认；交进来的是 check.yml 的跑就以 2 退出"
+      ]
+    },
+    {
+      "id": "M-H245-az",
+      "req": "harness",
+      "why": "奇数跑的中位取靠后那个",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "k % 2 === 1 ? per[(k - 1) / 2]",
+      "replace": "k % 2 === 1 ? per[(k + 1) / 2]",
+      "by": "test",
+      "kills": [
+        "偏慢：取得到条数的跑是奇数个，中位取正中那个；前 5 次的中位是 0 秒写无从确认"
+      ]
+    },
+    {
+      "id": "M-H245-ba",
+      "req": "harness",
+      "why": "本周那一跑不认窗口起点那一刻",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "at(r) >= start && at(r) <= now)",
+      "replace": "at(r) > start && at(r) <= now)",
+      "by": "test",
+      "kills": [
+        "从没红过：本周那一跑是窗口里（开跑之后创建的不算）最晚的一跑，上一跑是比它早的最晚一跑（可以在窗口外）；窗口里没有、没有更早的都说为什么"
+      ]
+    },
+    {
+      "id": "M-H245-bb",
+      "req": "harness",
+      "why": "前 5 次中位是 0 秒也照算比值",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (median <= 0)",
+      "replace": "if (median < 0)",
+      "by": "test",
+      "kills": [
+        "偏慢：取得到条数的跑是奇数个，中位取正中那个；前 5 次的中位是 0 秒写无从确认"
+      ]
+    },
+    {
+      "id": "M-H245-bc",
+      "req": "harness",
+      "why": "入口 jobs 不按 --run-id 核",
+      "file": "scripts/check/revisit-raw.ts",
+      "find": "parseJobs(read(need('--jobs')), id)",
+      "replace": "parseJobs(read(need('--jobs')), Number(JSON.parse(read(need('--jobs'))).jobs[0]?.run_id))",
+      "by": "test",
+      "kills": [
+        "入口 --never-red：jobs 不是 --run-id 那一跑的，以 2 退出、什么都不打"
+      ]
+    },
+    {
+      "id": "M-H245-bd",
+      "req": "harness",
+      "why": "时长从创建时刻算（排队也算进去）",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "Date.parse(r.updated_at) - Date.parse(r.run_started_at)",
+      "replace": "Date.parse(r.updated_at) - Date.parse(r.created_at)",
+      "by": "test",
+      "kills": [
+        "偏慢：窗口终点那一刻不算、起点那一刻算；与比它早的 5 跑的中位比，先四舍五入两位再跟 1.30 比（1.299 算、1.290 不算）；工作量取窗口里最晚那一跑的条数、比窗口前最后一跑多几条、摊到每条的秒数中位（偶数跑取中间两个平均，取不到条数的不进）"
+      ]
+    },
+    {
+      "id": "M-H245-be",
+      "req": "harness",
+      "why": "日志里没有那一行当成形状不对（入口会以 2 退出，不再报无从确认）",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "return { absent: '日志里没有 NEVER_RED_JSON 那一行' }",
+      "replace": "return { fault: '日志里没有 NEVER_RED_JSON 那一行' }",
+      "by": "test",
+      "kills": [
+        "从没红过：日志每行前面带时刻也认；没有、不止一行、不是 never-red/v1、缺几样、数不对都说为什么",
+        "从没红过：入口停不停 —— 本周那一跑或上一跑的日志形状不对就停、说是哪一份；没有那一行、上一跑没给都不停（照常报无从确认）"
+      ]
+    },
+    {
+      "id": "M-H245-bf",
+      "req": "harness",
+      "why": "工作区比对只看提交过的文件，docs/adr/ 下没提交的新文件漏掉",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "[...out.split('\\0'), ...extra.split('\\0')]",
+      "replace": "[...out.split('\\0')]",
+      "by": "test",
+      "kills": [
+        "取原料：docs/adr/ 下还没提交的新文件也算工作区不同（diff 看不见它），别处没提交的新文件不管"
+      ]
+    },
+    {
+      "id": "M-H245-bg",
+      "req": "harness",
+      "why": "选项后面紧跟另一个选项时，把那个选项名当成值",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "v === undefined || v.startsWith('--')",
+      "replace": "v === undefined",
+      "by": "test",
+      "kills": [
+        "入口读带值的选项：没给是 undefined（用缺省）；给了跟着值就是那个值；给了却在末尾或后面紧跟另一个选项，说没跟值"
+      ]
+    },
+    {
+      "id": "M-H245-bh",
+      "req": "harness",
+      "why": "没给选项也说没跟值（缺省用不上）",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if (i < 0) return undefined",
+      "replace": "if (i < 0) return { fault: `${name} 后面没跟值` }",
+      "by": "test",
+      "kills": [
+        "入口读带值的选项：没给是 undefined（用缺省）；给了跟着值就是那个值；给了却在末尾或后面紧跟另一个选项，说没跟值"
+      ]
+    },
+    {
+      "id": "M-H245-bi",
+      "req": "harness",
+      "why": "上一跑的日志形状不对不停，照常往下算",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "if ('fault' in prev) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "从没红过：入口停不停 —— 本周那一跑或上一跑的日志形状不对就停、说是哪一份；没有那一行、上一跑没给都不停（照常报无从确认）"
+      ]
+    },
+    {
+      "id": "M-H245-bj",
+      "req": "harness",
+      "why": "没跟值时不说是哪个选项",
+      "file": "scripts/check/revisit-raw-rule.ts",
+      "find": "{ fault: `${name} 后面没跟值` } : v",
+      "replace": "{ fault: '' } : v",
+      "by": "test",
+      "kills": [
+        "入口读带值的选项：没给是 undefined（用缺省）；给了跟着值就是那个值；给了却在末尾或后面紧跟另一个选项，说没跟值"
+      ]
+    },
+    {
+      "id": "M-H245-bk",
+      "req": "harness",
+      "why": "日志形状不对也照打报告",
+      "file": "scripts/check/revisit-raw.ts",
+      "find": "if (why !== undefined) stop(why)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "入口 --never-red：哪一份日志形状不对都以 2 退出、什么都不打；上一跑的日志里只是没有那一行，照样打，比上一跑写无从确认"
+      ]
+    },
+    {
       "id": "M-H243-a",
       "req": "harness",
       "why": "验证者建的临时文件不落在专属临时目录里，被叫停时留在系统临时目录没人收",
