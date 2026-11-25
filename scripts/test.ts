@@ -12315,9 +12315,11 @@ await group('h-audit-feed', () => {
       { req: 'D9.b', file: 'scripts/check/b.ts', by: 'selfcheck' },
       { req: 'D9.c', file: 'scripts/check/b.ts' },
       { req: 'P5.f', file: 'scripts/check/b.ts' },
+      { req: 'P7', file: 'scripts/check/b.ts' },
+      { req: 'harness', file: 'scripts/check/d.ts', by: 'selfcheck' },
     ],
-    exemptions: [{ req: 'D8', why: '要真实接口' }, { req: 'D9.c', why: '人工约定' }],
-    covered: ['D9'], criteria: ['D9.a'], entryCriteria: ['D9.a', 'D9.b'],
+    exemptions: [{ req: 'D8', why: '要真实接口' }, { req: 'D9.c', why: '人工约定' }, { req: 'P6', why: '只能靠自觉' }],
+    covered: ['D9', 'P7', 'P6'], criteria: ['D9.a'], entryCriteria: ['D9.a', 'D9.b'],
     corpus: new Map([
       ['docs/requirements.json', 'D9'], ['docs/SPEC.md', 'D9'], ['docs/ARCHITECTURE.md', 'D9 落在哪'],
       ['scripts/x.ts', '// D9 在这里'], ['scripts/y.ts', 'D90 不是它'],
@@ -12326,12 +12328,17 @@ await group('h-audit-feed', () => {
   const d9: Req = { id: 'D9', cat: 'D', pri: 'P1', text: 'x',
     accept: ['a', 'b', 'c'].map(c => ({ id: `D9.${c}`, text: `D9.${c} 要什么` })) }
   const d8: Req = { id: 'D8', cat: 'D', pri: 'P1', text: 'x', accept: [] }
+  // 两条红线：P7 有测试有变异，P6 有测试、没变异、整条豁免
+  const p7: Req = { id: 'P7', cat: 'P', pri: 'P0', text: 'x', accept: [] }
+  const p6: Req = { id: 'P6', cat: 'P', pri: 'P0', text: 'x', accept: [] }
   const e9 = book.evidence(d9), e8 = book.evidence(d8)
-  const sorted = (set: ReadonlySet<string> | ReadonlyMap<string, string>) => [...set.keys()].sort()
+  const sorted = (set: ReadonlySet<string>) => [...set].sort()
 
-  eq('审计喂数：被单元记录认领的需求号', sorted(book.testedIds), ['D9'])
-  eq('审计喂数：有变异点着的编号取自全部变异', sorted(book.mutatedIds), ['D9', 'D9.a', 'D9.b', 'D9.c', 'P5.f'])
-  eq('审计喂数：显式豁免取自目录的豁免栏', [...book.exemptIds], [['D8', '要真实接口'], ['D9.c', '人工约定']])
+  eq('审计喂数：红线那一行数出两条、有测试 2、有变异 1、显式豁免 1', book.redlineLine([d9, d8, p7, p6]),
+    '红线 2 条 · 有测试 2 · 有变异 1 · 显式豁免 1')
+  eq('审计喂数：需求那一行数出四条、被测试覆盖 3，有作废的说作废几条', book.requirementLine([d9, d8, p7, p6], 1),
+    '需求 4 条 · 被测试覆盖 3 · 已作废 1 条（不计入）')
+  eq('审计喂数：没有作废的，需求那一行不提作废', book.requirementLine([d9, d8], 0), '需求 2 条 · 被测试覆盖 1')
   eq('审计喂数：有测试的需求证据上是有测试，没有的不是', [e9.tested, e8.tested], [true, false])
   eq('审计喂数：有变异的需求证据上是有变异，没有的不是', [e9.mutated, e8.mutated], [true, false])
   eq('审计喂数：整条豁免的需求证据上是豁免，没有的不是', [e9.exempt, e8.exempt], [false, true])
@@ -12339,18 +12346,21 @@ await group('h-audit-feed', () => {
   eq('审计喂数：证据上的引用数含架构文档、落到实处的不含', [e9.refs, e9.impl], [2, 1])
   eq('审计喂数：单元认领的判据交进单元那一栏', sorted(e9.claimedCriteria), ['D9.a'])
   eq('审计喂数：自检认领的判据交进自检那一栏', sorted(e9.entryCriteria), ['D9.a', 'D9.b'])
-  eq('审计喂数：证据上的豁免编号与目录的豁免栏一致', sorted(e9.exemptIds), ['D8', 'D9.c'])
+  eq('审计喂数：证据上的豁免编号与目录的豁免栏一致', sorted(e9.exemptIds), ['D8', 'D9.c', 'P6'])
   eq('审计喂数：判据级负片取自全部变异、只收带点的', sorted(e9.mutatedCriteria), ['D9.a', 'D9.b', 'D9.c', 'P5.f'])
   eq('审计喂数：改跑自检的判据级负片只收写了自检的', sorted(e9.selfcheckMutatedCriteria), ['D9.b'])
   // 欠条原文要的那件事：交进去的变异表换成空数组时，报告上「负片 K」那一格要变
   eq('审计喂数：这条需求名下的判据级负片数是 3，别的需求的那条不算', requirementVerdict(d9, e9).mutatedCrit, 3)
-  eq('审计喂数：没有变异落到的判定模块才算没人守', book.naked(['scripts/check/a.ts', 'scripts/check/c.ts']), ['scripts/check/c.ts'])
+  // d.ts 只被一条改跑自检的变异点着，也算有人守：拿哪种变异去查都得是全部
+  eq('审计喂数：没有变异落到的判定模块才算没人守', book.naked(['scripts/check/a.ts', 'scripts/check/c.ts', 'scripts/check/d.ts']), ['scripts/check/c.ts'])
   eq('审计喂数：豁免行按名下有没有变异说，取自全部变异', book.exemptionLines(), [
     '⊘ D8 部分豁免（显式缺口，不消灭）· 名下无变异：\n     要真实接口',
     '⊘ D9.c 部分豁免（显式缺口，不消灭）· 名下有负片：\n     人工约定',
+    '⊘ P6 部分豁免（显式缺口，不消灭）· 名下无变异：\n     只能靠自觉',
   ])
-  eq('审计喂数：验收判据那一行三栏各取各的名单', book.coverageLine(d9.accept, d9.accept),
-    '验收判据 3 条 · 有测试认领 1 · 入口认领 1 · 其中红线 3 条（测试认领 1 · 入口认领 1 · 显式豁免 1）')
+  // 红线那份只交 D9.c 一条，好让全体与红线两份交反时数不一样
+  eq('审计喂数：验收判据那一行三栏各取各的名单', book.coverageLine(d9.accept, d9.accept.slice(2)),
+    '验收判据 3 条 · 有测试认领 1 · 入口认领 1 · 其中红线 1 条（测试认领 0 · 入口认领 0 · 显式豁免 1）')
 })
 
 await group('h-launch-entry', () => {

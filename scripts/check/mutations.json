@@ -37733,8 +37733,9 @@
       "replace": "const testedIds = new Set<string>()",
       "by": "test",
       "kills": [
-        "审计喂数：被单元记录认领的需求号",
-        "审计喂数：有测试的需求证据上是有测试，没有的不是"
+        "审计喂数：有测试的需求证据上是有测试，没有的不是",
+        "审计喂数：红线那一行数出两条、有测试 2、有变异 1、显式豁免 1",
+        "审计喂数：需求那一行数出四条、被测试覆盖 3，有作废的说作废几条"
       ]
     },
     {
@@ -37770,7 +37771,8 @@
       "replace": "const mutatedIds = new Set<string>()",
       "by": "test",
       "kills": [
-        "审计喂数：有变异点着的编号取自全部变异"
+        "审计喂数：有变异的需求证据上是有变异，没有的不是",
+        "审计喂数：红线那一行数出两条、有测试 2、有变异 1、显式豁免 1"
       ]
     },
     {
@@ -37806,7 +37808,9 @@
       "replace": "new Map<string, string>()",
       "by": "test",
       "kills": [
-        "审计喂数：显式豁免取自目录的豁免栏"
+        "审计喂数：整条豁免的需求证据上是豁免，没有的不是",
+        "审计喂数：证据上的豁免编号与目录的豁免栏一致",
+        "审计喂数：红线那一行数出两条、有测试 2、有变异 1、显式豁免 1"
       ]
     },
     {
@@ -37968,31 +37972,6 @@
       ]
     },
     {
-      "id": "M-H70-bb",
-      "req": "harness",
-      "why": "交给入口的需求号名单与变异名单对调 —— 报告上「测试」「变异」两栏互换",
-      "file": "scripts/check/audit-rule.ts",
-      "find": "testedIds, mutatedIds, exemptIds, evidence, refs,",
-      "replace": "mutatedIds: testedIds, testedIds: mutatedIds, exemptIds, evidence, refs,",
-      "by": "test",
-      "kills": [
-        "审计喂数：被单元记录认领的需求号",
-        "审计喂数：有变异点着的编号取自全部变异"
-      ]
-    },
-    {
-      "id": "M-H70-bc",
-      "req": "harness",
-      "why": "交给入口的豁免名单换成空的 —— 报告上整条豁免的需求不再显示豁免",
-      "file": "scripts/check/audit-rule.ts",
-      "find": "exemptIds, evidence, refs,",
-      "replace": "evidence, refs, exemptIds: new Map<string, string>(),",
-      "by": "test",
-      "kills": [
-        "审计喂数：显式豁免取自目录的豁免栏"
-      ]
-    },
-    {
       "id": "M-H70-bd",
       "req": "harness",
       "why": "交给入口的证据把「有没有测试」说反 —— 有测试的需求报没有，没有的报有",
@@ -38017,15 +37996,88 @@
       ]
     },
     {
-      "id": "M-H70-bf",
+      "id": "M-H70-bb",
       "req": "harness",
-      "why": "交给入口的变异名单换成空的 —— 报告上每条需求都成了「没有变异」",
+      "why": "红线那一行的「有测试」拿有变异的名单去数",
       "file": "scripts/check/audit-rule.ts",
-      "find": "mutatedIds, exemptIds, evidence, refs,",
-      "replace": "exemptIds, evidence, refs, mutatedIds: new Set<string>(),",
+      "find": "有测试 ${count(red, id => testedIds.has(id))}",
+      "replace": "有测试 ${count(red, id => mutatedIds.has(id))}",
       "by": "test",
       "kills": [
-        "审计喂数：有变异点着的编号取自全部变异"
+        "审计喂数：红线那一行数出两条、有测试 2、有变异 1、显式豁免 1"
+      ]
+    },
+    {
+      "id": "M-H70-bc",
+      "req": "harness",
+      "why": "红线那一行的「有变异」拿有测试的名单去数",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "有变异 ${count(red, id => mutatedIds.has(id))}",
+      "replace": "有变异 ${count(red, id => testedIds.has(id))}",
+      "by": "test",
+      "kills": [
+        "审计喂数：红线那一行数出两条、有测试 2、有变异 1、显式豁免 1"
+      ]
+    },
+    {
+      "id": "M-H70-bf",
+      "req": "harness",
+      "why": "红线那一行的「显式豁免」不数 —— 豁免了的红线在汇总里看不见",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "显式豁免 ${count(red, id => exemptIds.has(id))}",
+      "replace": "显式豁免 ${count(red, () => false)}",
+      "by": "test",
+      "kills": [
+        "审计喂数：红线那一行数出两条、有测试 2、有变异 1、显式豁免 1"
+      ]
+    },
+    {
+      "id": "M-H70-bg",
+      "req": "harness",
+      "why": "红线那一行把全部需求都当红线数",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "const red = reqs.filter(r => r.cat === REDLINE_CAT)",
+      "replace": "const red = reqs.filter(() => true)",
+      "by": "test",
+      "kills": [
+        "审计喂数：红线那一行数出两条、有测试 2、有变异 1、显式豁免 1"
+      ]
+    },
+    {
+      "id": "M-H70-bh",
+      "req": "harness",
+      "why": "需求那一行的「被测试覆盖」把全部需求都算上",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "被测试覆盖 ${count(reqs, id => testedIds.has(id))}",
+      "replace": "被测试覆盖 ${reqs.length}",
+      "by": "test",
+      "kills": [
+        "审计喂数：需求那一行数出四条、被测试覆盖 3，有作废的说作废几条",
+        "审计喂数：没有作废的，需求那一行不提作废"
+      ]
+    },
+    {
+      "id": "M-H70-bi",
+      "req": "harness",
+      "why": "需求那一行不提作废了几条",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "(deprecated ? ` · 已作废 ${deprecated} 条（不计入）` : '')",
+      "replace": "''",
+      "by": "test",
+      "kills": [
+        "审计喂数：需求那一行数出四条、被测试覆盖 3，有作废的说作废几条"
+      ]
+    },
+    {
+      "id": "M-H70-bj",
+      "req": "harness",
+      "why": "验收判据那一行把全体与红线两份交反 —— 红线那半数成了全体",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "coverageSummary(all, redline,",
+      "replace": "coverageSummary(redline, all,",
+      "by": "test",
+      "kills": [
+        "审计喂数：验收判据那一行三栏各取各的名单"
       ]
     }
   ],

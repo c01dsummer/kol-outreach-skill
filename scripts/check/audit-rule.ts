@@ -39,7 +39,7 @@
  * 死亡条件记在 ADR-85:关系钩那两节各一条;红线覆盖那两节判过,不该有。
  */
 
-import { active, type Evidence, type Req } from './spec-rule.js'
+import { REDLINE_CAT, active, type Evidence, type Req } from './spec-rule.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 
 export const JUDGMENT_EXEMPT: Record<string, string> = {
@@ -147,8 +147,8 @@ interface Claimed { has(id: string): boolean }
  * 把入口认领那个数改成从单元那份名单里数、或者把红线那半数成全体,报告上的数字当场变了,
  * 而单元测试与全部变异照样全绿。`docs/CONVENTIONS.md` 第 10 条。
  *
- * ⚠️ 它守的是**数得对不对**,不是**喂得对不对**:交进来的名单由 `audit.ts` 挑,
- * 挑错了(比如交个空集合)这里一个字也看不见 —— 那一半是入口的接线,ADR-70 记着欠条。
+ * ⚠️ 它守的是**数得对不对**,不是**喂得对不对**:交进来的名单由下面的 `auditBook` 挑,
+ * 挑得对不对由 `h-audit-feed` 那组断言守(ADR-70 历史文件 2026-11-25 那一节)。
  */
 export function coverageSummary(
   all: readonly { id: string }[], redline: readonly { id: string }[],
@@ -196,17 +196,11 @@ export interface AuditSources {
 }
 
 /** 架构文档也是合法的下游引用，但它只是一份文档：只在锚点表里被提过的需求不算落到实处 */
-export const ARCH_DOC = 'docs/ARCHITECTURE.md'
+const ARCH_DOC = 'docs/ARCHITECTURE.md'
 /** 需求自己的两份登记表不算下游引用 */
 const SPEC_FILES: ReadonlySet<string> = new Set(['docs/requirements.json', 'docs/SPEC.md'])
 
 export interface AuditBook {
-  /** 被单元覆盖记录认领的需求号 */
-  readonly testedIds: ReadonlySet<string>
-  /** 有变异点着的需求号（判据号也在里面，查的时候只拿需求号去查） */
-  readonly mutatedIds: ReadonlySet<string>
-  /** 显式豁免：编号 → 理由 */
-  readonly exemptIds: ReadonlyMap<string, string>
   /** 一条需求的全部证据，交给 `requirementVerdict` */
   readonly evidence: (r: Req) => Evidence
   /** 引用了这条需求的下游文件（含架构文档） */
@@ -217,6 +211,10 @@ export interface AuditBook {
   readonly exemptionLines: () => string[]
   /** 验收判据那一行汇总 */
   readonly coverageLine: (all: readonly { id: string }[], redline: readonly { id: string }[]) => string
+  /** 红线那一行汇总：几条、有测试、有变异、显式豁免各几条 */
+  readonly redlineLine: (reqs: readonly Req[]) => string
+  /** 需求那一行汇总：几条、被测试覆盖几条，有作废的再说作废几条 */
+  readonly requirementLine: (reqs: readonly Req[], deprecated: number) => string
 }
 
 export function auditBook(s: AuditSources): AuditBook {
@@ -240,11 +238,19 @@ export function auditBook(s: AuditSources): AuditBook {
       mutatedCriteria, selfcheckMutatedCriteria,
     }
   }
+  const count = (reqs: readonly Req[], pick: (id: string) => boolean): number => reqs.filter(r => pick(r.id)).length
   return {
-    testedIds, mutatedIds, exemptIds, evidence, refs,
+    evidence, refs,
     naked: modules => unguarded(modules, [...s.mutations]),
     exemptionLines: () => [...exemptIds].map(([id, why]) =>
       `⊘ ${id} 部分豁免（显式缺口，不消灭）· ${exemptionLead(exemptionCovered(id, s.mutations))}：\n     ${why}`),
     coverageLine: (all, redline) => coverageSummary(all, redline, testedCriteria, entryCriteria, exemptIds),
+    redlineLine: reqs => {
+      const red = reqs.filter(r => r.cat === REDLINE_CAT)
+      return `红线 ${red.length} 条 · 有测试 ${count(red, id => testedIds.has(id))} · `
+           + `有变异 ${count(red, id => mutatedIds.has(id))} · 显式豁免 ${count(red, id => exemptIds.has(id))}`
+    },
+    requirementLine: (reqs, deprecated) => `需求 ${reqs.length} 条 · 被测试覆盖 ${count(reqs, id => testedIds.has(id))}`
+      + (deprecated ? ` · 已作废 ${deprecated} 条（不计入）` : ''),
   }
 }

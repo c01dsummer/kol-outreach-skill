@@ -159,7 +159,6 @@ const book = auditBook({
   mutations: catalog.mutations, exemptions: catalog.exemptions,
   covered: claims.covered, criteria: claims.criteria, entryCriteria: entryClaims.criteria, corpus,
 })
-const { testedIds, mutatedIds, exemptIds } = book
 
 const rows: string[] = []
 const gaps: string[] = []
@@ -297,11 +296,8 @@ if (gaps.length) {
   for (const g of gaps) console.log(`    · ${g}`)
 }
 
-const P = reqs.filter(r => r.cat === REDLINE_CAT)
-console.log(`\n  红线 ${P.length} 条 · 有测试 ${P.filter(r => testedIds.has(r.id)).length} · ` +
-            `有变异 ${P.filter(r => mutatedIds.has(r.id)).length} · 显式豁免 ${P.filter(r => exemptIds.has(r.id)).length}`)
-console.log(`  需求 ${reqs.length} 条 · 被测试覆盖 ${reqs.filter(r => testedIds.has(r.id)).length}` +
-            `${deprecated.length ? ` · 已作废 ${deprecated.length} 条（不计入）` : ''}`)
+console.log(`\n  ${book.redlineLine(reqs)}`)
+console.log(`  ${book.requirementLine(reqs, deprecated.length)}`)
 console.log(`  检查链的判定模块 ${judgments.length} 个 · 有变异守着 ${judgments.length - naked.length}`)
 const tensions = reqs.flatMap(r => (r.tension ?? []).map(t => ({ from: r.id, t })))
 console.log(`  需求之间的交点 ${tensions.length} 个 · 有测试认领 ` +
