@@ -195,7 +195,7 @@ export function parseInstagramHashtagPage(raw: unknown, task: SearchTask): Searc
  *   的条目不产出账号。粉丝数读 `author.follower_count`，作品数读 `author.aweme_count`；
  *   两者没给或是 null 时记未查询，`aweme_count` 给 0 也记未查询（这个接口对所有人都回 0，是占位，P1.p）。
  * - Instagram 三条搜索路（Reels、Reels 搜不到人时改搜账号名、话题页）：作者取条目的 `user`
- *   （账号名搜索里条目本身就是账号），没有 `username` 的条目不产出账号。**这三条路不读粉丝数与作品数**，
+ *   （Reels 那条也认 `media.user`；账号名搜索里条目本身就是账号），没有 `username` 的条目不产出账号。**这三条路不读粉丝数与作品数**，
  *   条目里给了什么都记未查询，等补主页那一步再填。
  */
 export class TikHub {

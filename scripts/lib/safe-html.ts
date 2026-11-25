@@ -83,7 +83,7 @@ export function html(strings: TemplateStringsArray, ...values: readonly {}[]): S
  * 报错点名「一串里的第几项（共几项）」。
  * - 不传分隔：各项直接首尾相接，中间什么都不加。
  * - 空数组：得到一个空片段（原样输出时什么也不写），不抛。
- * - 分隔不是本模块造的片段（文字，或仿造的对象）：照样当文字转义后夹在各项之间，不抛。
+ * - 分隔不是本模块造的片段（文字，或仿造的对象）：照样当文字转义后夹在各项之间，不抛（`null` 不在此列，会抛）。
  */
 export function joinHtml(items: readonly {}[], separator?: SafeHtml): SafeHtml {
   // 分隔也走 piece：只认本模块造的片段，仿造的（`meta` 一类 any 取值不用强转就能塞进来）照样当文字转义
