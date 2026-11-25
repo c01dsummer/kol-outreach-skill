@@ -3541,8 +3541,12 @@ ok('P2.g 不加列（入口）：kol.xlsx 的工作簿关系指向三张各不�
 // 第三次：正本写坏
 let third: any
 let reportBefore: Buffer = Buffer.alloc(0)
+// 作者加（CodeRabbit 第一轮）：报告之外的交付物也在第三次之前留底，被拒之后逐份比
+const OTHER_DELIVERABLES = ['kol.csv', 'kol.xlsx', 'meta.json', 'creators.json'] as const
+const othersBefore = new Map<string, Buffer>()
 ok('P2.e 拒绝（入口）：正本里 bob 那条评审的登记有一项多了不认得的键 note 时，render 以 2 结束', passes(() => {
   reportBefore = readFileSync(at('report.html'))
+  for (const name of OTHER_DELIVERABLES) othersBefore.set(name, readFileSync(at(name)))
   const doc = readJson(REVIEW_FILE)
   doc.reviews[B].draft_sources[2].note = '手滑多写的'
   writeFileSync(at(REVIEW_FILE), JSON.stringify(doc, null, 2))
@@ -3562,6 +3566,10 @@ ok('P2.e 拒绝（入口）：被拒之后盘上那份写坏的 agent-review.jso
 }))
 ok('P2.e 拒绝（入口）：拒绝发生在写交付物之前 —— 上一次的 report.html 原字节留着', passes(() => {
   must(reportBefore.equals(readFileSync(at('report.html'))), 'report.html 的字节变了')
+}))
+ok('P2.e 拒绝（入口）：被拒之后上一次的 kol.csv、kol.xlsx、meta.json、creators.json 也原字节留着（作者加，CodeRabbit 第一轮）', passes(() => {
+  same(othersBefore.size, OTHER_DELIVERABLES.length, '第三次之前留底的交付物份数')
+  for (const name of OTHER_DELIVERABLES) must(othersBefore.get(name)!.equals(readFileSync(at(name))), `${name} 的字节变了`)
 }))
 
 // 第四次：正本删掉 alice 的登记
