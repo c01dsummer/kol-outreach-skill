@@ -191,6 +191,13 @@ export function budgetStopLines(view: CostView, saved: string, command: string):
   ]
 }
 
+/**
+ * 开一本账：`state` 是费用状态要写进的对象（任务里就是 task.json 那个对象；要一本空账就传 `{}`），
+ * `limit` 是总上限，单位是百万分之一美元（`parseUsdMicros('1')` 得 1 美元那么多），
+ * `scope` 说上限管一个任务（`'task'`）还是这一次运行（`'process'`）。
+ * 开账会把上限与账目写进 `state`；`notify` 只在已占用头一回到上限的 50% 与 80% 时各通知一次（上限为 0 时不通知），`persist` 每次记账后存盘，都可不传。
+ * 测试里要一本够用的账：`startBudget({}, parseUsdMicros('1'), 'process')`。
+ */
 export function startBudget(state: CostState, limit: MicroUsd, scope: 'task' | 'process', notify?: NotifyCost, persist?: PersistCost): Budget {
   const engine = createCostBudget(limit, scope, TIKHUB_PRICE_CATALOG)
   setCostLimitField(state, limit)

@@ -38,7 +38,10 @@ export const need = <T>(value: T | undefined | null, name: string): T => {
   return value
 }
 
-/** 取值转成文字再转义；缺值（undefined、null，数组里任一项或空位）抛 `MissingValueError`，`where` 是报错里点名的那一格（要用时才算） */
+/**
+ * 取值转成文字再转义；缺值（undefined、null，数组里任一项或空位）抛 `MissingValueError`，`where` 是报错里点名的那一格（要用时才算）。
+ * 不认片段：`SafeHtml` 传进来也按 `String` 转成文字（得到 `[object Object]`）再转义 —— 要原样输出片段，插进 `html` 模板或交给 `joinHtml`。
+ */
 export const escapeText = (value: {}, where: string | (() => string) = '▯'): string => {
   if (value === undefined || value === null) throw new MissingValueError(typeof where === 'string' ? where : where())
   if (Array.isArray(value)) return Array.from(value as unknown[], item => escapeText(item as {}, where)).join(',')
@@ -75,7 +78,13 @@ export function html(strings: TemplateStringsArray, ...values: readonly {}[]): S
   return make(out)
 }
 
-/** 把一串片段（或文字，文字照样转义）用分隔片段连起来；哪一项缺了抛 `MissingValueError` */
+/**
+ * 把一串片段（或文字，文字照样转义）用分隔片段连起来；哪一项缺了（undefined、null、空位）抛 `MissingValueError`，
+ * 报错点名「一串里的第几项（共几项）」。
+ * - 不传分隔：各项直接首尾相接，中间什么都不加。
+ * - 空数组：得到一个空片段（原样输出时什么也不写），不抛。
+ * - 分隔不是本模块造的片段（文字，或仿造的对象）：照样当文字转义后夹在各项之间，不抛（`null` 不在此列，会抛）。
+ */
 export function joinHtml(items: readonly {}[], separator?: SafeHtml): SafeHtml {
   // 分隔也走 piece：只认本模块造的片段，仿造的（`meta` 一类 any 取值不用强转就能塞进来）照样当文字转义
   return make(Array.from(items, (item, i) => piece(item, () => `一串里的第 ${i + 1} 项（共 ${items.length} 项）`))
