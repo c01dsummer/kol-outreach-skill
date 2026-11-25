@@ -392,6 +392,10 @@ function accountKeys(c: Creator, graph: Map<string, Set<string>>, direct: Map<st
  * 记忆读不出来时**默认抛**（P4 无法保证就不产出名单）。`ignoreUnreadable` 是调用方
  * 显式打出来的逃生口：它不让这件事消失，只是把「接受重复打扰的风险」从一个
  * 静默默认变成一次显式决定，代价随 memory_status 原样带出去（ADR-15）。
+ *
+ * `knownRelations`：本任务已知的跨平台同一人关系，只认每条的 `linked_handle`（`"<平台>:<账号>"`，
+ * 冒号恰好一个）连同这条自己的 `platform`、`handle`：两边是同一个人，记忆里任一边被联系过、拉黑过都算到另一边。
+ * 两边同一平台、写法不合法的那条不建立关系，也不报错。不传就只按记忆里已有的关系认。
  */
 export function filterByMemory(
   creators: Creator[], product: string, task?: string,

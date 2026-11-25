@@ -174,6 +174,9 @@ export function saveCreators(dir: string, creators: Creator[]): void {
  *
  * 每一步自己是整体替换（`atomic.ts`，写到一半被杀不会留下截断的文件）；
  * 两个采集同时写同一个目录时的交错，按 D4 当前不保证（ADR-66）。
+ *
+ * `state` 要传从盘上读回的整份任务状态（`task.json` 那个对象）：两次写 `task.json` 都是拿它整份覆盖，
+ * 传一个只填了几个字段的对象，盘上其余字段（费用账、进度、配置）就没了。
  */
 export function persistListAndStatus(
   dir: string, state: TaskState, creators: Creator[], status: MemoryStatus,

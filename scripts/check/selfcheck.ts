@@ -7634,6 +7634,10 @@ group('admission-entry', [], () => {
     })
     named('admission 清单逐个文件列路径与 SHA256、不列自己', rows.length === 0 && !manifest.includes('| `00-清单.md` |'),
       `对不上的：${rows.join('、')}\n${manifest}`)
+    // 包外的接线那一段（ADR-248）：写测试的上下文据它知道哪些自己备、去哪几处找说明，少了它就回到「只能猜」
+    named('admission 清单写明包外的接线自己备、去哪找说明',
+      manifest.includes('**包外的接线，自己备、标出来。**') && manifest.includes('「能续跑的最小任务目录」')
+        && manifest.includes('enrich 没有对外的保存失败注入'), manifest)
     const mlines = manifest.split('\n')
     named('admission 读不到 git 时清单写无从确认、不写干净',
       manifest.includes('出自提交：无从确认') && mlines.some(l => l.includes('工作区') && l.includes('无从确认'))

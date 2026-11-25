@@ -13,6 +13,10 @@ enrich 先校验任务列表、品牌输入、Agent 正本、冻结来源与已�
 npm run enrich -- --dir output/xxx
 ```
 
+候选从哪来：名单读任务目录的 `creators.json`（`creators.raw.json` 只用来认关联账号、取粉丝数与关注数，不往候选里加人，它不在时拿 `creators.json` 顶上），
+每人的 `fit` 按 Agent 正本 `agent-review.json` 重建，正本不在时用 `creators.json` 旧行里带的 `fit`（enrich 不存迁好的正本，那一步归 render）。
+`fit` 是 `✅` 或 `⚠️` 的人要查；他的 `linked_handle` 写成 `tiktok:<账号>` 或 `instagram:<账号>` 时，那个关联账号也查。同一账号只查一次。
+
 已知额度不足时，断点保存成功后退出 3；保存失败退出 6；供应商余额不足（402）退出 5（ADR-193）。`--budget` 修改的是同一任务的**总上限**：
 
 ```bash

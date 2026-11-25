@@ -175,6 +175,29 @@ export function parseInstagramHashtagPage(raw: unknown, task: SearchTask): Searc
   return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }
 }
 
+/**
+ * TikHub 数据源：搜索、补主页、取作品样本。
+ *
+ * **请求怎么发**（测试替换请求层就从这里下手）：每次请求都走全局的 `fetch`，GET
+ * `https://api.tikhub.io<端点>?<参数>`，带 `Authorization: Bearer <key>`；构造函数不收传输层，
+ * 测试里把 `globalThis.fetch` 换成假的、用完换回去即可。每次请求前先等 150 毫秒（限速，关不掉；
+ * 撞过 429 之后等得更久）。没有 key 时不发请求，抛 `BudgetInputError`。每次请求先按端点向账本预留一笔钱，
+ * 钱不够就不发。
+ *
+ * **响应怎么读**：HTTP 200 的正文按 JSON 解析后原样交给解析那一步，不剥外壳。TikHub 把平台原始响应包在
+ * 自己的外壳里，形如 `{ "code": 200, "message": "…", "data": { … } }`；对外文档
+ * `references/providers/tikhub.md` 里写的键路径（`data.search_item_list` 之类）都从这一层的根算起。
+ * 402 抛 `TikHubError`（余额不足）；429 退避重试，最多 3 次；其余非 200 抛 `TikHubError`。
+ *
+ * **搜索结果里哪些条目产出账号**：
+ * - TikTok 视频搜索：列表按 `pickList` 探测（实测在 `data.search_item_list`，每条的作品在 `aweme_info` 下；
+ *   也认直接在 `data.aweme_list` 里的作品）。作者取作品的 `author`，没有 `author.unique_id`（或 `uniqueId`）
+ *   的条目不产出账号。粉丝数读 `author.follower_count`，作品数读 `author.aweme_count`；
+ *   两者没给或是 null 时记未查询，`aweme_count` 给 0 也记未查询（这个接口对所有人都回 0，是占位，P1.p）。
+ * - Instagram 三条搜索路（Reels、Reels 搜不到人时改搜账号名、话题页）：作者取条目的 `user`
+ *   （账号名搜索里条目本身就是账号），没有 `username` 的条目不产出账号。**这三条路不读粉丝数与作品数**，
+ *   条目里给了什么都记未查询，等补主页那一步再填。
+ */
 export class TikHub {
   constructor(private key: string | undefined, private budget: Budget) {}
 
