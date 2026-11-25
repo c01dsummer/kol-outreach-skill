@@ -18486,9 +18486,11 @@ suite('P1', '适配器的缺失、查过为空与真实值保持可区分')
 }
 })
 // ═══════════ P1.p：搜索结果拆读那一步，没给的粉丝数、作品数记未查询 ═══════════
-// 这一组由没读过实现的隔离上下文照准入读物包写成（ADR-247 第四节），合进来时只改了接线：
-// 断言与假 fetch 换成本文件的，删掉了 Instagram 三条搜索路的「正对照照留真实值」——
-// 那三条路本来就不读这两个数（等主页补全），隔离稿按「会读」假设写的，跑出来就是错的。
+// 这一组由没读过实现的隔离上下文照准入读物包写成（ADR-247 第三节），合进来时只改了接线：
+// 断言与假 fetch 换成本文件的，删掉了 Instagram 三条搜索路与话题页解析的「正对照照留真实值」（8 条）——
+// 这几条路本来就不读这两个数（等主页补全），隔离稿按「会读」假设写的，跑出来就是错的。
+// Instagram 那几条「零作品数记成未查询」守的是今天「这几条路不读作品数」：哪天这几条路开始读作品数，
+// 先问清 Instagram 搜索给的 0 是不是占位，再改这几条。
 // 取值先转成字符串再比：eq 走 JSON.stringify，数组里的 undefined 与 null 分不清；
 // 「查无此人」防止人没解析出来时被读成「未查询」而空过。
 await group('p1-search-counts', async () => {
@@ -18579,20 +18581,20 @@ suite('P1', '搜索结果里没给的粉丝数、作品数记未查询')
   // 二～四、Instagram 三条搜索路：本来就不读这两个数，给了什么都该是未查询、不记怪值
   const igPaths: { task: object; routes: { match: string; body: unknown }[]; endpoint: string }[] = [
     { task: IG_REELS_TASK, endpoint: '/api/v1/instagram/v2/search_reels',
-      routes: [{ match: '/api/v1/instagram/v2/search_reels', body: envelope({ data: { count: 3, items: reelItems('reel') } }) }] },
+      routes: [{ match: '/api/v1/instagram/v2/search_reels', body: envelope({ data: { count: 4, items: reelItems('reel') } }) }] },
     { task: IG_USERS_TASK, endpoint: '/api/v1/instagram/v2/search_users',
       routes: [
         { match: '/api/v1/instagram/v2/search_reels', body: envelope({ data: { count: 0, items: [] } }) },
-        { match: '/api/v1/instagram/v2/search_users', body: envelope({ data: { count: 3, items: igUsers('user') } }) },
+        { match: '/api/v1/instagram/v2/search_users', body: envelope({ data: { count: 4, items: igUsers('user') } }) },
       ] },
     { task: IG_TAG_TASK, endpoint: '/api/v1/instagram/v2/fetch_hashtag_posts',
-      routes: [{ match: '/api/v1/instagram/v2/fetch_hashtag_posts', body: envelope({ data: { count: 3, items: hashtagItems('tag') } }) }] },
+      routes: [{ match: '/api/v1/instagram/v2/fetch_hashtag_posts', body: envelope({ data: { count: 4, items: hashtagItems('tag') } }) }] },
   ]
   // 标签逐条写成字面量：故意改坏的用例按名字认领断言，名字得能在源码里原样找到
   {
     const p = igPaths[0]
     const { page, calls } = await routed(p.routes, () => client().search(p.task as any, 'US', 0))
-    ok('短视频搜索确实请求了对应端点', calls.some(u => u.includes(p.endpoint)))
+    ok('短视频搜索确实请求了短视频搜索端点', calls.some(u => u.includes(p.endpoint)))
     eq('短视频搜索·粉丝数字段没有时记成未查询', show(page, 'reel_absent', 'followers'), 'undefined')
     eq('短视频搜索·作品数字段没有时记成未查询', show(page, 'reel_absent', 'post_count'), 'undefined')
     eq('短视频搜索·两个字段都没有时不记怪值', show(page, 'reel_absent', 'invalid_from_provider'), 'undefined')
@@ -18605,7 +18607,7 @@ suite('P1', '搜索结果里没给的粉丝数、作品数记未查询')
   {
     const p = igPaths[1]
     const { page, calls } = await routed(p.routes, () => client().search(p.task as any, 'US', 0))
-    ok('账号名搜索确实请求了对应端点', calls.some(u => u.includes(p.endpoint)))
+    ok('账号名搜索·短视频无结果后确实请求了账号名搜索端点', calls.some(u => u.includes(p.endpoint)))
     eq('账号名搜索·粉丝数字段没有时记成未查询', show(page, 'user_absent', 'followers'), 'undefined')
     eq('账号名搜索·作品数字段没有时记成未查询', show(page, 'user_absent', 'post_count'), 'undefined')
     eq('账号名搜索·两个字段都没有时不记怪值', show(page, 'user_absent', 'invalid_from_provider'), 'undefined')
@@ -18618,7 +18620,7 @@ suite('P1', '搜索结果里没给的粉丝数、作品数记未查询')
   {
     const p = igPaths[2]
     const { page, calls } = await routed(p.routes, () => client().search(p.task as any, 'US', 0))
-    ok('话题搜索确实请求了对应端点', calls.some(u => u.includes(p.endpoint)))
+    ok('话题搜索确实请求了话题端点', calls.some(u => u.includes(p.endpoint)))
     eq('话题搜索·粉丝数字段没有时记成未查询', show(page, 'tag_absent', 'followers'), 'undefined')
     eq('话题搜索·作品数字段没有时记成未查询', show(page, 'tag_absent', 'post_count'), 'undefined')
     eq('话题搜索·两个字段都没有时不记怪值', show(page, 'tag_absent', 'invalid_from_provider'), 'undefined')
@@ -18632,7 +18634,7 @@ suite('P1', '搜索结果里没给的粉丝数、作品数记未查询')
   // 五、话题页解析函数（不发请求）
   {
     const items = hashtagItems('parse')
-    const page = parseInstagramHashtagPage({ code: 200, message: 'ok', data: { data: { count: 3, items }, items } }, IG_TAG_TASK as any)
+    const page = parseInstagramHashtagPage({ code: 200, message: 'ok', data: { data: { count: 4, items }, items } }, IG_TAG_TASK as any)
     eq('话题页解析·粉丝数字段没有时记成未查询', show(page, 'parse_absent', 'followers'), 'undefined')
     eq('话题页解析·作品数字段没有时记成未查询', show(page, 'parse_absent', 'post_count'), 'undefined')
     eq('话题页解析·两个字段都没有时不记怪值', show(page, 'parse_absent', 'invalid_from_provider'), 'undefined')
