@@ -8214,7 +8214,9 @@
       "replace": "const counts = countFields(readCount(a?.follower_count ?? 0), ",
       "by": "test",
       "kills": [
-        "搜索未返回粉丝数时仍是未查询"
+        "搜索未返回粉丝数时仍是未查询",
+        "抖音搜索·粉丝数字段没有时记成未查询",
+        "抖音搜索·粉丝数是空值时记成未查询"
       ]
     },
     {
@@ -8226,7 +8228,8 @@
       "replace": "readCount(a?.aweme_count)",
       "by": "test",
       "kills": [
-        "搜索占位作品数零不成为真实零"
+        "搜索占位作品数零不成为真实零",
+        "抖音搜索·占位的零作品数记成未查询"
       ]
     },
     {
@@ -38083,14 +38086,13 @@
     {
       "id": "M-P1-bj",
       "req": "P1.p",
-      "why": "搜索给的粉丝数、作品数是空值时被当成「给了怪值」—— 名单上「没查过」变成「查过但取不到有效值」，补查那一步不再把他当成该补的人",
+      "why": "搜索给的粉丝数、作品数是空值时被当成「给了怪值」—— 名单上「没查过」变成「查过但取不到有效值」，交付表与报告上那一格从「未查询」印成「未知」",
       "file": "scripts/providers/tikhub.ts",
       "find": "candidates.filter(v => v !== undefined && v !== null)",
       "replace": "candidates.filter(v => v !== undefined)",
       "by": "test",
       "kills": [
-        "搜索给的粉丝数是空值时仍是未查询",
-        "搜索给的作品数是空值时仍是未查询"
+        "抖音搜索·两个字段都是空值时不记怪值"
       ]
     },
     {
@@ -38102,8 +38104,87 @@
       "replace": "(readCount(a?.aweme_count === 0 ? undefined : a?.aweme_count) ?? 0)",
       "by": "test",
       "kills": [
-        "搜索未返回作品数时仍是未查询",
-        "搜索给的作品数是空值时仍是未查询"
+        "抖音搜索·作品数字段没有时记成未查询",
+        "抖音搜索·作品数是空值时记成未查询",
+        "抖音搜索·占位的零作品数记成未查询"
+      ]
+    },
+    {
+      "id": "M-P1-bl",
+      "req": "P1.p",
+      "why": "搜索结果里的粉丝数一律不读 —— 只要求「没给的记未查询」时这样也过得去，但真给了数的人全变成「未查询」，要等主页补全才有数，补全没跑到的人在入池判定里全部掉进「待查」",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "const counts = countFields(readCount(a?.follower_count), ",
+      "replace": "const counts = countFields(readCount(undefined), ",
+      "by": "test",
+      "kills": [
+        "抖音搜索·占位零旁边的真实粉丝数照留",
+        "抖音搜索·正对照真实粉丝数照留"
+      ]
+    },
+    {
+      "id": "M-P1-bm",
+      "req": "P1.p",
+      "why": "搜索结果里的作品数一律不读 —— 连非零的真实作品数也丢掉，「占位的零记未查询」被做过了头",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "readCount(a?.aweme_count === 0 ? undefined : a?.aweme_count)",
+      "replace": "readCount(undefined)",
+      "by": "test",
+      "kills": [
+        "抖音搜索·正对照非零作品数照留"
+      ]
+    },
+    {
+      "id": "M-P1-bn",
+      "req": "P1.p",
+      "why": "Instagram 短视频搜索把没给或空值的粉丝数、作品数补成 0 —— 名单上「没查过」变成「真的是 0」，入池判定按粉丝数不达标把人挡掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "nickname: u?.full_name ?? '',   // P1 例外：展示用\n        // 早期 Reels",
+      "replace": "nickname: u?.full_name ?? '',   // P1 例外：展示用\n        followers: u?.follower_count ?? 0, post_count: u?.media_count ?? 0,\n        // 早期 Reels",
+      "by": "test",
+      "kills": [
+        "短视频搜索·粉丝数字段没有时记成未查询",
+        "短视频搜索·作品数字段没有时记成未查询",
+        "短视频搜索·粉丝数是空值时记成未查询",
+        "短视频搜索·作品数是空值时记成未查询",
+        "短视频搜索·零作品数记成未查询"
+      ]
+    },
+    {
+      "id": "M-P1-bo",
+      "req": "P1.p",
+      "why": "Instagram 账号名搜索把没给或空值的粉丝数、作品数补成 0 —— 名单上「没查过」变成「真的是 0」，入池判定按粉丝数不达标把人挡掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "nickname: u?.full_name ?? '',   // P1 例外：展示用\n        bio_links: [],",
+      "replace": "nickname: u?.full_name ?? '',   // P1 例外：展示用\n        followers: u?.follower_count ?? 0, post_count: u?.media_count ?? 0,\n        bio_links: [],",
+      "by": "test",
+      "kills": [
+        "账号名搜索·粉丝数字段没有时记成未查询",
+        "账号名搜索·作品数字段没有时记成未查询",
+        "账号名搜索·粉丝数是空值时记成未查询",
+        "账号名搜索·作品数是空值时记成未查询",
+        "账号名搜索·零作品数记成未查询"
+      ]
+    },
+    {
+      "id": "M-P1-bq",
+      "req": "P1.p",
+      "why": "Instagram 话题页解析把没给或空值的粉丝数、作品数补成 0 —— 名单上「没查过」变成「真的是 0」，入池判定按粉丝数不达标把人挡掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "nickname: u?.full_name ?? '',   // P1 例外：展示用\n      bio_links: [],",
+      "replace": "nickname: u?.full_name ?? '',   // P1 例外：展示用\n      followers: u?.follower_count ?? 0, post_count: u?.media_count ?? 0,\n      bio_links: [],",
+      "by": "test",
+      "kills": [
+        "话题搜索·粉丝数字段没有时记成未查询",
+        "话题搜索·作品数字段没有时记成未查询",
+        "话题搜索·粉丝数是空值时记成未查询",
+        "话题搜索·作品数是空值时记成未查询",
+        "话题搜索·零作品数记成未查询",
+        "话题页解析·粉丝数字段没有时记成未查询",
+        "话题页解析·作品数字段没有时记成未查询",
+        "话题页解析·粉丝数是空值时记成未查询",
+        "话题页解析·作品数是空值时记成未查询",
+        "话题页解析·零作品数记成未查询"
       ]
     }
   ],
