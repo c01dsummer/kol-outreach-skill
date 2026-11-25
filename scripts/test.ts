@@ -35,7 +35,7 @@ import { DOOR, NOT_READERS, catalogDoorFaults, isTestFile } from './check/catalo
 import type { RunVerdict } from './check/mutate-rule.js'
 import { ownTmpEnv, stopsEarly, tsxCacheName } from './check/mutate-rule.js'
 import {
-  LAUNCH_LIMIT, LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, joinLaunchParts, launchPartFile, LAUNCH_SUMMARY_SCHEMA, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport,
+  LAUNCH_DIR, LAUNCH_LIMIT, LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, SELFCHECK_LAUNCHES_FILE, launchEntry, launchTrunk, writeErrorCode, joinLaunchParts, launchPartFile, LAUNCH_SUMMARY_SCHEMA, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport,
   launchSummary, launchTally, paidLaunches, printLabel, settleLaunches, summaryLine, tallyLine,
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchSummary, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
@@ -271,6 +271,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-launch-rule', needs: [] },
   { id: 'h-launch-summary-deep', needs: [] },
   { id: 'h-launch-parts', needs: [] },
+  { id: 'h-launch-entry', needs: [] },
   { id: 'h-launch-preload', needs: [] },
   { id: 'h-launch-preload-edge', needs: [] },
   { id: 'h-prebuilt', needs: [] },
@@ -12297,6 +12298,110 @@ await group('h-launch-parts', () => {
   eq('拼份：有一份的 findings 不是数组', fault([p1, { ...p2, findings: {} }]), '有一份的 tally、findings 不是数组，或 baselines、again 不是对象')
   eq('拼份：文件名', [launchPartFile(2, 3), LAUNCH_PART_NAME.test('launches-2-of-3.json'), LAUNCH_PART_NAME.test('launches.json')],
     ['output/mutation-launches/launches-2-of-3.json', true, false])
+})
+
+// 启动数闸门入口的判法（读哪份、读不成怎么吞、在不在主干上怎么翻、退出码怎么并）挪进 launchEntry 以后，用假的读写直接调它（ADR-145
+// 欠条「启动数闸门入口的映射与吞错没有变异」）。期望值逐字手抄：闸门那几行照 ADR-145 第二十一节第 4 小节，摘要那一行照第三十五节第 4 小节与
+// 第四十四节，第七节末第二行照第三十一节第 4 小节，摘要全文照第三十五节第 2 小节；不调任何判定去算期望。整组只调纯函数，不起子进程
+await group('h-launch-entry', () => {
+  const SRC = 'c4'.repeat(32), K = '["test",["g"]]'
+  const tally = [{ config: K, launches: 3, paid: [], running: 1 }]
+  const rec = (findings: unknown[], more: object = {}) => ({ schema: 'mutation-launches/v1', head: 'H', source: SRC, tally,
+    findings, baselines: { [K]: { total: 3, prints: [] } }, again: {}, ...more })
+  const CALM = JSON.stringify(rec([])), FOUND = JSON.stringify(rec([{ kind: 'paid', config: K, id: 'M-1', paid: 60 }]))
+  const OTHER_TREE = JSON.stringify(rec([], { source: 'd5'.repeat(32) }))
+  // CALM 派生的摘要全文：一种配置一行，键按名排；没有会提前停的，maxPaid 是 null、stopping 是 0
+  const CALM_TEXT = '{\n  "configs": [\n    {"config":"[\\"test\\",[\\"g\\"]]","launches":3,"maxPaid":null,"running":1,"stopping":0}\n  ],\n'
+    + '  "findings": [],\n  "schema": "mutation-launch-summary/v1"\n}\n'
+  const measure = (onTrunk: boolean): Baseline => ({ kind: 'measure', trunk: 'main', head: 'h', base: 'b', onTrunk, commits: [] })
+  const OFF = measure(false), ON = measure(true), FOG: Baseline = { kind: 'cannot-answer', why: '浅克隆', how: '拉全历史' }
+  const WHOLE = `${LAUNCH_DIR}/launches.json`, SUMMARY = 'scripts/check/launches.json'
+  const missing = () => Object.assign(new Error('没有这个文件'), { code: 'ENOENT' })
+  // files 里没有的路径读时抛 ENOENT；值是 Error 的读时抛它。其余几样给 Error 就抛它
+  const run = (o: { files?: Record<string, string | Error>; dir?: string[] | Error; source?: string | Error; routes?: { by: string; executes: string[] }[] | Error;
+    baseline?: Baseline; write?: boolean; writeFails?: unknown }): unknown => {
+    const written: string[][] = []
+    const give = <T>(v: T | Error): T => { if (v instanceof Error) throw v; return v }
+    try {
+      const r = launchEntry({ write: o.write ?? false, baseline: o.baseline ?? OFF,
+        readText: path => { const f = o.files?.[path]; if (f === undefined) throw missing(); return give(f) },
+        listDir: () => give(o.dir ?? []), source: () => give(o.source ?? SRC), routes: () => give(o.routes ?? []),
+        writeText: (path, text) => { if (o.writeFails !== undefined) throw o.writeFails; written.push([path, text]) } })
+      return { lines: r.lines, red: r.red, written }
+    } catch (e) { return `抛错：${String(e)}` }
+  }
+  const lines = (o: Parameters<typeof run>[0]) => (run(o) as { lines?: unknown[] }).lines
+  const red = (o: Parameters<typeof run>[0]) => (run(o) as { red?: unknown }).red
+
+  // 逐字的各行
+  const IDLE_NONE = '有启动但没有变异的组：没有自检整跑的按族启动计数（只报数）'
+  const IDLE_FOREIGN = '有启动但没有变异的组：自检的按族启动计数不是这棵树上数的（只报数）'
+  const IDLE_NO_ROUTES = '有启动但没有变异的组：算不出自检变异落到哪些组（只报数）'
+  const IDLE_FOUR = '有启动但没有变异的组（自检，只报数）：整族没有变异落到、起过进程的 1 族、1 组共起 4 次，不含 git；最多的：g 4；与有变异的组同族、按族分不开的 0 组不在其内'
+  const NO_FILE = '没有启动数文件，或读不出来、不是一个 JSON 对象', NO_SOURCE = '当前树的源码身份取不到', FOREIGN = '启动数文件是另一棵树上写的（源码身份对不上）'
+  const cannot = (why: string) => `启动数摘要（只报数）：这一跑现算不出来（${why}），不比`
+  const SUM_ABSENT_RED = `✗ 启动数摘要：树内没有 ${SUMMARY}；在这棵树上跑过 npm run mutate 之后，跑 npm run launches -- --write 写出来`
+  const SUM_ABSENT_TRUNK = `启动数摘要（只报数）：树内没有 ${SUMMARY}，不比`
+  const SUM_SAME = `启动数摘要（只报数）：树内 ${SUMMARY} 与这一跑现算的相同，1 种配置`
+  const gateNoData = (why: string) => [`✗ 启动数闸门：无从判断 —— ${why}`,
+    '  先跑 npm run mutate：它在全部正常基线都绿了以后写 output/mutation-launches/launches.json；数的那一段出错时不写，看它输出里「启动数没数成」那一行']
+  const GATE_CALM = '✓ 启动数闸门：1 种配置有计数，都在线内'
+  const NOTHING = { lines: [IDLE_NONE, cannot(NO_FILE), ...gateNoData(NO_FILE)], red: true, written: [] }
+
+  eq('启动数入口：在不在主干上 —— 答不出来交原因，没有父提交的主干算在主干上，量得出来的照它说的',
+    [launchTrunk(FOG), launchTrunk({ kind: 'not-applicable', trunk: 'main' }), launchTrunk(ON), launchTrunk(OFF)],
+    [{ unknown: '浅克隆' }, { onTrunk: true }, { onTrunk: true }, { onTrunk: false }])
+  eq('启动数入口：在不在主干上那一翻交给了摘要那一行 —— 没有父提交的主干上树内没有摘要只报数，答不出时按 PR 红',
+    [run({ files: { [WHOLE]: CALM }, baseline: { kind: 'not-applicable', trunk: 'main' } }), run({ files: { [WHOLE]: CALM }, baseline: FOG })],
+    [{ lines: [IDLE_NONE, SUM_ABSENT_TRUNK, GATE_CALM], red: false, written: [] }, { lines: [IDLE_NONE, SUM_ABSENT_RED, GATE_CALM], red: true, written: [] }])
+  eq('启动数入口：在主干上有发现、树内没有摘要时闸门只报数、不红；不在主干上同一份文件红',
+    [red({ files: { [WHOLE]: FOUND }, baseline: ON }), red({ files: { [WHOLE]: FOUND, [SUMMARY]: '随便什么' }, baseline: OFF })], [false, true])
+  eq('启动数入口：整份与分份都有时认整份，分份拼不起来也不打那一行',
+    run({ files: { [WHOLE]: CALM, [`${LAUNCH_DIR}/launches-1-of-2.json`]: '{}' }, dir: ['launches-1-of-2.json'] }),
+    { lines: [IDLE_NONE, SUM_ABSENT_RED, GATE_CALM], red: true, written: [] })
+  const part = (index: number, mine: boolean) => JSON.stringify({ ...rec([]), shard: { index, count: 2 }, tally: mine ? tally : [],
+    baselines: mine ? { [K]: { total: 3, prints: [] } } : {} })
+  eq('启动数入口：没有整份时拼回分份来判，目录里别的文件不算',
+    run({ files: { [`${LAUNCH_DIR}/launches-1-of-2.json`]: part(1, true), [`${LAUNCH_DIR}/launches-2-of-2.json`]: part(2, false) },
+      dir: ['launches-2-of-2.json', 'launches-1-of-2.json', 'launches.json.bak'] }),
+    { lines: [IDLE_NONE, SUM_ABSENT_RED, GATE_CALM], red: true, written: [] })
+  const BROKEN = '✗ 分份的启动数文件：launches-2-of-2.json 拼不起来：要第 1 到第 2 份各一份，拿到的是第 2 份'
+  eq('启动数入口：分份拼不起来时最先打一行 ✗、列出文件名，当没有启动数文件来判',
+    run({ files: { [`${LAUNCH_DIR}/launches-2-of-2.json`]: part(2, false) }, dir: ['launches-2-of-2.json'] }),
+    { ...NOTHING, lines: [BROKEN, ...NOTHING.lines] })
+  eq('启动数入口：分份拼不起来那一行里的文件名按名排、全列，用顿号连',
+    lines({ files: { [`${LAUNCH_DIR}/launches-2-of-2.json`]: part(2, false), [`${LAUNCH_DIR}/launches-1-of-2.json`]: part(2, false) },
+      dir: ['launches-2-of-2.json', 'launches-1-of-2.json'] }),
+    ['✗ 分份的启动数文件：launches-1-of-2.json、launches-2-of-2.json 拼不起来：要第 1 到第 2 份各一份，拿到的是第 2、2 份', ...NOTHING.lines])
+  eq('启动数入口：列目录抛错时当没有分份文件，不抛', run({ dir: missing() }), NOTHING)
+  eq('启动数入口：启动数文件读的时候抛错、读出来不是 JSON，都当没有，不抛',
+    [run({ files: { [WHOLE]: new Error('EISDIR') } }), run({ files: { [WHOLE]: '{坏' } })], [NOTHING, NOTHING])
+  eq('启动数入口：源码身份取不到时交「没有」，不抛', run({ files: { [WHOLE]: CALM }, source: new Error('不是 git 仓库') }),
+    { lines: [IDLE_NONE, cannot(NO_SOURCE), ...gateNoData(NO_SOURCE)], red: true, written: [] })
+  const FAMILIES = JSON.stringify({ schema: 'selfcheck-launches/v1', source: SRC, families: [{ groups: ['g'], launches: 4 }] })
+  eq('启动数入口：按族计数照读、路由交过去，第七节末那一行带数；源码身份取不到时那一行说不是这棵树上数的',
+    [lines({ files: { [SELFCHECK_LAUNCHES_FILE]: FAMILIES }, routes: [] })?.[0], lines({ files: { [SELFCHECK_LAUNCHES_FILE]: FAMILIES }, source: new Error('x') })?.[0]],
+    [IDLE_FOUR, IDLE_FOREIGN])
+  eq('启动数入口：路由算不出时抛错也不抛，第七节末那一行打算不出那句',
+    lines({ files: { [SELFCHECK_LAUNCHES_FILE]: FAMILIES }, routes: new Error('目录坏了') }), [IDLE_NO_ROUTES, ...NOTHING.lines.slice(1)])
+  eq('启动数入口：树内摘要读的时候抛错当没有，不抛', run({ files: { [WHOLE]: CALM, [SUMMARY]: new Error('EISDIR') } }),
+    { lines: [IDLE_NONE, SUM_ABSENT_RED, GATE_CALM], red: true, written: [] })
+  eq('启动数入口：摘要那一行红、闸门不红时也以 1 退出（不在主干上、树内没有摘要）', red({ files: { [WHOLE]: CALM } }), true)
+  eq('启动数入口：闸门红、摘要那一行不红时以 1 退出（启动数文件是另一棵树上写的）',
+    run({ files: { [WHOLE]: OTHER_TREE } }), { lines: [IDLE_NONE, cannot(FOREIGN), ...gateNoData(FOREIGN)], red: true, written: [] })
+  eq('启动数入口：两样都不红、第七节末那一行带数也以 0 退出',
+    run({ files: { [WHOLE]: CALM, [SUMMARY]: CALM_TEXT, [SELFCHECK_LAUNCHES_FILE]: FAMILIES } }),
+    { lines: [IDLE_FOUR, SUM_SAME, GATE_CALM], red: false, written: [] })
+  eq('启动数入口：带 write 派生得出来就写树内摘要，只打写成那一行，不红',
+    run({ files: { [WHOLE]: CALM }, write: true }), { lines: [`启动数摘要已写回 ${SUMMARY}：1 种配置`], red: false, written: [[SUMMARY, CALM_TEXT]] })
+  eq('启动数入口：带 write 派生不出来时只打一行 ✗、红、不写', run({ write: true }), { lines: [`✗ 启动数摘要没写：${NO_FILE}`], red: true, written: [] })
+  eq('启动数入口：带 write 时分份拼不起来那一行照打在最前，再打没写的那一行',
+    run({ files: { [`${LAUNCH_DIR}/launches-2-of-2.json`]: part(2, false) }, dir: ['launches-2-of-2.json'], write: true }),
+    { lines: [BROKEN, `✗ 启动数摘要没写：${NO_FILE}`], red: true, written: [] })
+  eq('启动数入口：带 write 写不进时打一行 ✗ 带错误码、红；错误码没有或不是字符串打未知',
+    [run({ files: { [WHOLE]: CALM }, write: true, writeFails: Object.assign(new Error('x'), { code: 'EACCES' }) }),
+      writeErrorCode(new Error('x')), writeErrorCode({ code: 13 }), writeErrorCode(null), writeErrorCode('EACCES')],
+    [{ lines: [`✗ 启动数摘要没写：写不进 ${SUMMARY}（EACCES）`], red: true, written: [] }, '未知', '未知', '未知', '未知'])
 })
 
 const printsOf = (b: BaselineLaunches | undefined) => b?.prints.map(p => [p.body, p.launched])

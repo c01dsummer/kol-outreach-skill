@@ -1,5 +1,6 @@
 /**
- * 变异的入口启动数有没有过线（ADR-145）。纯判定：不起进程、不读文件，计数由别处数好交进来。
+ * 变异的入口启动数有没有过线（ADR-145）。纯判定：不起进程、不读文件，计数由别处数好交进来；
+ * 闸门入口要读写的也由入口交进来（`launchEntry`），这里只调、不自己碰。
  *
  * 两条线：
  * - **规则一**：会提前停的变异（`stopsEarly`，今天就是自检变异），在它点名的断言出结果之前要付的
@@ -17,6 +18,7 @@
 import { type CostMutation, configurationKey } from './jobs-rule.js'
 import { launchDrift } from './launch-count.js'
 import { VERIFIERS, stopsEarly } from './mutate-rule.js'
+import type { Baseline } from './size-rule.js'
 
 export const LAUNCH_LIMIT = { paid: 50, product: 100 } as const
 
@@ -509,4 +511,73 @@ export function summaryLine(tree: string | undefined, computed: LaunchSummary, t
   if (onTrunk) return { red: false, line: `${head}树内 ${LAUNCH_SUMMARY_FILE} 已过期（${diff}），下一条 PR 须 npm run launches -- --write` }
   return { red: true, line: `${red}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的不同（${diff}）；CI 上比的是与主干的合并提交，这条 PR 没改数时多半是主干已经过期：`
     + `把主干合进来，${write} 写回` }
+}
+
+/** resolveBaseline 交回的翻成在不在主干上：答不出来交它给的原因；HEAD 就是主干且没有父提交（not-applicable）也算在主干上 */
+export function launchTrunk(baseline: Baseline): LaunchTrunk {
+  return baseline.kind === 'cannot-answer' ? { unknown: baseline.why } : { onTrunk: baseline.kind === 'not-applicable' || baseline.onTrunk }
+}
+
+/** 变异一步写启动数文件的目录：整份跑写 launches.json，分份跑写 launches-k-of-n.json（ADR-200） */
+export const LAUNCH_DIR = 'output/mutation-launches'
+
+/**
+ * 启动数闸门入口（`launches.ts`）要读写的，由入口交进来；这里只调，不自己碰文件、不问 git。除了 `baseline`，每一样都可以抛错。
+ * `routes` 交回 `executionRoutes` 的全部路由，算不出时交 undefined 或抛错都行
+ */
+export interface LaunchEntryIo {
+  readonly write: boolean
+  readonly baseline: Baseline
+  readonly readText: (path: string) => string
+  readonly listDir: (dir: string) => readonly string[]
+  readonly source: () => string
+  readonly routes: () => Parameters<typeof idleGroupsLine>[2]
+  readonly writeText: (path: string, text: string) => void
+}
+
+/** 入口要打的各行（按先后，不带缩进）与要不要以 1 退出 */
+export interface LaunchEntryResult { readonly lines: readonly string[]; readonly red: boolean }
+
+/** 抛错就当没有：入口每一处读都是这个吞法 */
+function attempt<T>(read: () => T): T | undefined { try { return read() } catch { return undefined } }
+
+/** 写不进时括号里打的：错误的 code 是字符串就打它，没有或不是字符串打「未知」 */
+export function writeErrorCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code
+  return typeof code === 'string' ? code : '未知'
+}
+
+/**
+ * 启动数闸门入口的全部判法（ADR-145 第二十一节、第三十一节第 3 小节、第三十五节第 4 小节、第四十四节第 2、3 小节，ADR-200）。
+ * 读整份的启动数文件；没有或读不出来才拼分份的，拼不起来打一行 ✗、当没有文件（这一行不改退出码）。
+ * 带 `write` 时只写树内摘要：派生不出来或写不进打一行 ✗、红，写成打一行、不红；不打别的行、不判闸门。
+ * 不带时依次打第七节末第二行（只报数）、摘要那一行、闸门那几行；摘要那一行或闸门有一样红就红
+ */
+export function launchEntry(io: LaunchEntryIo): LaunchEntryResult {
+  const json = (path: string): unknown => attempt(() => JSON.parse(io.readText(path)) as unknown)
+  const lines: string[] = []
+  let record = json(`${LAUNCH_DIR}/launches.json`)
+  // 两样都有时认整份那一份：变异一步开跑前会删掉另一样，两样并存只可能是手放进来的
+  if (record === undefined) {
+    const names = (attempt(() => io.listDir(LAUNCH_DIR)) ?? []).filter(n => LAUNCH_PART_NAME.test(n)).sort()
+    if (names.length > 0) {
+      const joined = joinLaunchParts(names.map(n => json(`${LAUNCH_DIR}/${n}`)))
+      if ('fault' in joined) lines.push(`✗ 分份的启动数文件：${names.join('、')} 拼不起来：${joined.fault}`)
+      else record = joined.record
+    }
+  }
+  const tree = attempt(io.source), summary = launchSummary(record, tree)
+  if (io.write) {
+    if ('fault' in summary) return { lines: [...lines, `✗ 启动数摘要没写：${summary.fault}`], red: true }
+    try { io.writeText(LAUNCH_SUMMARY_FILE, summary.text) } catch (e) {
+      return { lines: [...lines, `✗ 启动数摘要没写：写不进 ${LAUNCH_SUMMARY_FILE}（${writeErrorCode(e)}）`], red: true }
+    }
+    return { lines: [...lines, `启动数摘要已写回 ${LAUNCH_SUMMARY_FILE}：${summary.configs} 种配置`], red: false }
+  }
+  const trunk = launchTrunk(io.baseline)
+  lines.push(idleGroupsLine(json(SELFCHECK_LAUNCHES_FILE), tree, attempt(io.routes)))
+  // 树内摘要没有、是个目录、读的时候出错，都交 undefined：第三十五节第 4 小节第 2 句，PR 上是第四十四节的乙
+  const sum = summaryLine(attempt(() => io.readText(LAUNCH_SUMMARY_FILE)), summary, trunk)
+  const gate = launchGate(record, tree, trunk)
+  return { lines: [...lines, sum.line, ...gate.lines], red: gate.red || sum.red }
 }

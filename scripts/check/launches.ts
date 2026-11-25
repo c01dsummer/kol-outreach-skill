@@ -16,63 +16,33 @@
  * 再打启动数摘要那一行（ADR-145 第三十五节第 4 小节）：树内的 `scripts/check/launches.json` 照 UTF-8 读，与 `launchSummary`
  * 照这一跑现算的一起交给 `summaryLine`。它说红就以 1 退出，闸门绿着也一样（第四十四节第 2 小节）；红不红全由它判。
  * 带 `--write` 时只做一件事（第 3 小节）：派生得出来就写这个文件；派生不出来或写不进去打一行 ✗、以 1 退出。不打别的行，不判闸门。
+ *
+ * 上面这些判法（读哪份、读不成怎么吞、在不在主干上怎么翻、退出码怎么并）全在 `launch-rule.ts` 的 `launchEntry`，由需求测试直接调；
+ * 这里只把读文件、写文件、问 git、算源码身份与路由交给它，照它交回的打、退出。
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mutationSourceIdentity } from './claims.js'
-import { LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, type LaunchTrunk, SELFCHECK_LAUNCHES_FILE, idleGroupsLine, joinLaunchParts, launchGate, launchSummary, summaryLine } from './launch-rule.js'
+import { launchEntry } from './launch-rule.js'
 import { executionRoutes } from './mutate-rule.js'
 import { MUTATION_CATALOG, readCatalog } from './catalog-rule.js'
 import { askGit } from './git-entry.js'
 import { resolveBaseline } from './size-rule.js'
 
-const json = (path: string): unknown => { try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return undefined } }
-const source = (): string | undefined => { try { return mutationSourceIdentity() } catch { return undefined } }
-// 与体量闸门同一个判法，git 经 git 入口问（ADR-220）；HEAD 就是主干且没有父提交也算在主干上
-const baseline = resolveBaseline(askGit)
-const trunk: LaunchTrunk = baseline.kind === 'cannot-answer' ? { unknown: baseline.why }
-  : { onTrunk: baseline.kind === 'not-applicable' || baseline.onTrunk }
-
-// 整份跑写 launches.json 一份；CI 上分份跑（ADR-200）各写 launches-k-of-n.json，在这里拼回整份的那一份。
-// 两样都有时认整份那一份（变异一步开跑前会删掉另一样，两样并存只可能是手放进来的）；拼不起来就当没有文件，闸门照旧红
-const parts = (): { record: unknown; fault?: string } => {
-  const dir = 'output/mutation-launches'
-  let names: string[] = []
-  try { names = readdirSync(dir).filter(n => LAUNCH_PART_NAME.test(n)).sort() } catch { /* 没有这个目录：当没有分份文件 */ }
-  if (names.length === 0) return { record: undefined }
-  const joined = joinLaunchParts(names.map(n => json(`${dir}/${n}`)))
-  return 'fault' in joined ? { record: undefined, fault: `${names.join('、')} 拼不起来：${joined.fault}` } : { record: joined.record }
-}
-const whole = json('output/mutation-launches/launches.json')
-const read = whole !== undefined ? { record: whole } : parts()
-const tree = source(), record = read.record, summary = launchSummary(record, tree)
-// 读不成、算的时候抛错都交 undefined，由 idleGroupsLine 打成数不出来的那句
-const routes = (): Parameters<typeof idleGroupsLine>[2] => {
-  try {
-    // 读变异目录只经读取函数（ADR-242）；读不成也交 undefined，同上
+const result = launchEntry({
+  write: process.argv.slice(2).includes('--write'),
+  // 与体量闸门同一个判法，git 经 git 入口问（ADR-220）
+  baseline: resolveBaseline(askGit),
+  readText: path => readFileSync(path, 'utf8'),
+  listDir: dir => readdirSync(dir),
+  source: mutationSourceIdentity,
+  routes: () => {
+    // 读变异目录只经读取函数（ADR-242）；读不成就抛，由 launchEntry 照「算不出」吞掉
     const catalog = readCatalog(existsSync(MUTATION_CATALOG) ? readFileSync(MUTATION_CATALOG, 'utf8') : undefined)
-    if (!catalog.ok) return undefined
+    if (!catalog.ok) throw new Error('变异目录读不成')
     return executionRoutes(catalog.mutations as unknown as Parameters<typeof executionRoutes>[0],
       file => existsSync(file) ? readFileSync(file, 'utf8') : undefined).routes
-  } catch { return undefined }
-}
-// 没有这个文件、是个目录、读的时候出错，都交 undefined：第三十五节第 4 小节第 2 句，PR 上是第四十四节的乙
-const inTree = (): string | undefined => { try { return readFileSync(LAUNCH_SUMMARY_FILE, 'utf8') } catch { return undefined } }
-// 写不进去时括号里是那个错误的 code，没有就是「未知」
-const code = (e: unknown): string => { const c = (e as { code?: unknown } | null)?.code; return typeof c === 'string' ? c : '未知' }
-if (read.fault !== undefined) console.log(`✗ 分份的启动数文件：${read.fault}`)
-if (process.argv.slice(2).includes('--write')) {
-  if ('fault' in summary) { console.log(`✗ 启动数摘要没写：${summary.fault}`); process.exitCode = 1 }
-  else {
-    try {
-      writeFileSync(LAUNCH_SUMMARY_FILE, summary.text)
-      console.log(`启动数摘要已写回 ${LAUNCH_SUMMARY_FILE}：${summary.configs} 种配置`)
-    } catch (e) { console.log(`✗ 启动数摘要没写：写不进 ${LAUNCH_SUMMARY_FILE}（${code(e)}）`); process.exitCode = 1 }
-  }
-} else {
-  console.log(idleGroupsLine(json(SELFCHECK_LAUNCHES_FILE), tree, routes()))
-  const sum = summaryLine(inTree(), summary, trunk)
-  console.log(sum.line)
-  const gate = launchGate(record, tree, trunk)
-  for (const line of gate.lines) console.log(line)
-  process.exitCode = gate.red || sum.red ? 1 : 0
-}
+  },
+  writeText: (path, text) => writeFileSync(path, text),
+})
+for (const line of result.lines) console.log(line)
+process.exitCode = result.red ? 1 : 0
