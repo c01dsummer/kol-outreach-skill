@@ -60,6 +60,7 @@ import {
   JUDGMENT_EXEMPT, auditBook, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
   ledger, selfcheckCriterionMutations, unguarded,
 } from './check/audit-rule.js'
+import { GATE_LIMIT, iouGate, registersIou, roundOf } from './check/iou-gate-rule.js'
 import {
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitFaults, exitRace,
   judgeRun, killsMatched,
@@ -275,6 +276,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-launch-parts', needs: [] },
   { id: 'h-audit-feed', needs: [] },
   { id: 'h-launch-entry', needs: [] },
+  { id: 'h-iou-gate', needs: [] },
   { id: 'h-launch-preload', needs: [] },
   { id: 'h-launch-preload-edge', needs: [] },
   { id: 'h-prebuilt', needs: [] },
@@ -13757,6 +13759,69 @@ await group('h-launch-entry', () => {
     [run({ files: { [WHOLE]: CALM }, write: true, writeFails: Object.assign(new Error('x'), { code: 'EACCES' }) }),
       writeErrorCode(new Error('x')), writeErrorCode({ code: 13 }), writeErrorCode(null), writeErrorCode('EACCES')],
     [{ lines: [`✗ 启动数摘要没写：写不进 ${SUMMARY}（EACCES）`], red: true, written: [] }, '未知', '未知', '未知', '未知'])
+})
+
+// 新登记欠条的闸门：判定（ADR-167 第四节第 4 小节，第 9 片）。期望值逐字手抄，不调判定拼
+await group('h-iou-gate', () => {
+  const REG = '> ⚠️ 欠条「甲」：漏了一处 · 档：登记 · 重启条件：下一条改它的改动'
+  const ROUND3 = '> ⚠️ 欠条：措辞 · 档：本改动(第 3 轮,不阻塞) · 重启条件：下次碰到'
+  const NOROUND = '> ⚠️ 欠条：措辞 · 档：本改动(轮次核不出,不阻塞) · 重启条件：下次碰到'
+  const ROUND2 = '> ⚠️ 欠条：措辞 · 档：本改动(第 2 轮,不阻塞) · 重启条件：下次碰到'
+  const FIXED = '> ⚠️ 欠条：措辞 · 档：本改动 · 重启条件：本 PR 已合入'
+  const SCOPE = '> ⚠️ 欠条「乙」：另一处 · 档：扩范围 · 重启条件：本 PR 已合入'
+  const OLD = '> ⚠️ 欠条「丙」：早有的 · 档：既有缺陷 · 重启条件：本 PR 已合入'
+  const PAID = '> ⚠️ 已还：ADR-1「甲」 · 还在本改动'
+  const CARRY = '> ⚠️ 续挂：ADR-1「甲」 · 在本改动上响了 · 到 2026-12-25 · 因为还不了'
+  const PROSE = '散文里引了一句 ⚠️ 欠条：别处的 · 档：登记'
+  const INDENT = '   >  ⚠️ 欠条（档：登记）：缩进与括号写法'
+  const HEAD = (n: number) => `列给需求所有者、他还没判的欠条 ${n} 张（满 10 张就不许新登记）`
+  const WAYS = '  三条路任选：把这条发现修在本改动；照扩范围或既有缺陷排队；或者等需求所有者判完列给他的那几张、状态行落下之后再登记'
+
+  eq('新登记闸门：门槛是 10', GATE_LIMIT, 10)
+  eq('新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞、没照格式写档的算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算',
+    [REG, ROUND3, NOROUND, ROUND2, FIXED, SCOPE, OLD, PAID, CARRY, PROSE, INDENT].map(registersIou),
+    [true, true, true, false, false, false, false, false, false, false, true])
+  eq('新登记闸门：轮次写汉字也认 —— 第二轮不算登记，第三轮、第十二轮算',
+    ['（第二轮，不阻塞）', '（第三轮，不阻塞）', '（第十二轮，不阻塞）'].map(t => registersIou(`> ⚠️ 欠条：措辞 · 档：本改动${t} · 重启条件：下次碰到`)),
+    [false, true, true])
+  eq('新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出',
+    ['第 12 轮', '第3轮', '第二轮', '第十轮', '第十二轮', '第二十轮', '第二十三轮', '第十十轮', '第二二十轮', '第二三轮', '第一百轮', '没写'].map(t => String(roundOf(t))),
+    ['12', '3', '2', '10', '12', '20', '23', 'undefined', 'undefined', 'undefined', 'undefined', 'undefined'])
+  eq('新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记',
+    ['> ⚠️ 欠条（档：登记）后来改了 · 档：扩范围 · 重启条件：本 PR 已合入',
+      '> ⚠️ 欠条「重启条件：说明」：问题 · 档：扩范围 · 重启条件：本 PR 已合入',
+      '> ⚠️ 欠条「响应格式待补」：说明 · 档：扩范围 · 重启条件：收到（档：登记）响应时',
+      '> ⚠️ 欠条：措辞 · 来源：评审说别写成档：扩范围 · 档：登记 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：没照格式写 · 档：扩范围 · 去向：另开一条',
+      '> ⚠️ 欠条：只写了档：扩范围 · 重启条件：本 PR 已合入',
+      '> ⚠️ 欠条：措辞 · 档：扩范围 · 来源：后来改判 · 档：登记 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：说明里抄了一句「 · 档：扩范围 · 重启条件：」 · 档：登记 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：打错了 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：驳回 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：扩范围外 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：扩范围  · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：登记 · 来源：后来改判 · 档：扩范围 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：本改动（） · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：本改动(第 2 轮,不阻塞,另说) · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：本改动（第 2 轮，不阻塞） · 重启条件：下次碰到'].map(registersIou),
+    [false, false, false, true, true, true, true, true, true, false, true, false, false, true, true, false])
+  eq('新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路',
+    iouGate({ added: [PROSE, REG, SCOPE, ROUND3], waiting: 10, revisit: false }),
+    { red: true, lines: [`✗ 新登记闸门：${HEAD(10)}，这条改动又新登记了 2 张：`, `  ${REG}`, `  ${ROUND3}`, WAYS] })
+  eq('新登记闸门：列出的块去掉行首空白',
+    iouGate({ added: [INDENT], waiting: 12, revisit: false }).lines,
+    [`✗ 新登记闸门：列给需求所有者、他还没判的欠条 12 张（满 10 张就不许新登记），这条改动又新登记了 1 张：`, '  >  ⚠️ 欠条（档：登记）：缩进与括号写法', WAYS])
+  eq('新登记闸门：9 张时新登记照放行，只报数',
+    iouGate({ added: [PROSE, REG, PAID], waiting: 9, revisit: false }),
+    { red: false, lines: [`新登记闸门（只报数）：${HEAD(9)}；这条改动新登记 1 张，没满，放行`] })
+  eq('新登记闸门：满了但这条改动只加了状态行、扩范围、既有缺陷的块，不红',
+    iouGate({ added: [PAID, CARRY, SCOPE, OLD, FIXED], waiting: 10, revisit: false }),
+    { red: false, lines: [`新登记闸门（只报数）：${HEAD(10)}；这条改动没有新登记的欠条`] })
+  eq('新登记闸门：回访 PR 满了、新登记了也不红',
+    iouGate({ added: [REG], waiting: 10, revisit: true }),
+    { red: false, lines: [`新登记闸门（只报数）：${HEAD(10)}；回访 PR 不拦`] })
+  eq('新登记闸门：门槛可以另给，满了就红',
+    iouGate({ added: [REG], waiting: 3, revisit: false, limit: 3 }).red, true)
 })
 
 const printsOf = (b: BaselineLaunches | undefined) => b?.prints.map(p => [p.body, p.launched])
