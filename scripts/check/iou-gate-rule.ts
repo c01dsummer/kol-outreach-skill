@@ -31,9 +31,10 @@ export function roundOf(tier: string): number | undefined {
   return t * 10 + o
 }
 
-/** 欠条块里写档的那一格：紧跟在「·」或开括号后面的「档：」，有几格取最后一格；正文里顺口提到的「档：」不算 */
+/** 欠条块里写档的那一格：重启条件之前、紧跟在「·」或开括号后面的「档：」，有几格取最后一格；正文里顺口提到的、重启条件里写的「档：」不算 */
 export function tierOf(line: string): string {
-  const cells = [...line.matchAll(/(?:·|（|\()\s*档[：:]\s*([^·）)]*)/g)]
+  const head = line.split(/重启条件[：:]/)[0]
+  const cells = [...head.matchAll(/(?:·|（|\()\s*档[：:]\s*([^·）)]*)/g)]
   return cells.length === 0 ? '' : cells[cells.length - 1][1]
 }
 
