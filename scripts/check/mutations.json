@@ -38298,6 +38298,219 @@
       "kills": [
         "P2.e 拒绝（入口）：被拒之后上一次的 kol.csv、kol.xlsx、meta.json、creators.json 也原字节留着（作者加，CodeRabbit 第一轮）"
       ]
+    },
+    {
+      "id": "M-H167-bz",
+      "req": "harness",
+      "why": "门槛从 10 改成 11 —— 每周最多列 10 张，闸门永远不红",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "export const GATE_LIMIT = 10",
+      "replace": "export const GATE_LIMIT = 11",
+      "by": "test",
+      "kills": [
+        "新登记闸门：门槛是 10"
+      ]
+    },
+    {
+      "id": "M-H167-ca",
+      "req": "harness",
+      "why": "满了才拦改成超过才拦 —— 正好列满一周没判时放行",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (input.waiting < limit) return",
+      "replace": "  if (input.waiting <= limit) return",
+      "by": "test",
+      "kills": [
+        "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
+        "新登记闸门：门槛可以另给，满了就红"
+      ]
+    },
+    {
+      "id": "M-H167-cb",
+      "req": "harness",
+      "why": "不认引用行开头 —— 散文里写着欠条的也算新登记",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (!/^\\s*>\\s*⚠️\\s*欠条/.test(line)) return false",
+      "replace": "  if (!/⚠️\\s*欠条/.test(line)) return false",
+      "by": "test",
+      "kills": [
+        "新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算"
+      ]
+    },
+    {
+      "id": "M-H167-cc",
+      "req": "harness",
+      "why": "只认顶格的引用行 —— 缩进的欠条块漏数",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (!/^\\s*>\\s*⚠️\\s*欠条/.test(line)) return false",
+      "replace": "  if (!/^>\\s*⚠️\\s*欠条/.test(line)) return false",
+      "by": "test",
+      "kills": [
+        "新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算"
+      ]
+    },
+    {
+      "id": "M-H167-cd",
+      "req": "harness",
+      "why": "档写登记的不算 —— 最常见的新登记放过",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (/^登记/.test(tier)) return true",
+      "replace": "  if (/^登记了/.test(tier)) return true",
+      "by": "test",
+      "kills": [
+        "新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算",
+        "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路"
+      ]
+    },
+    {
+      "id": "M-H167-ce",
+      "req": "harness",
+      "why": "本改动的块不看不阻塞 —— 修在本改动的也被当成登记拦下",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (!/^本改动/.test(tier) || !tier.includes('不阻塞')) return false",
+      "replace": "  if (!/^本改动/.test(tier)) return false",
+      "by": "test",
+      "kills": [
+        "新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算",
+        "新登记闸门：满了但这条改动只加了状态行、扩范围、既有缺陷的块，不红"
+      ]
+    },
+    {
+      "id": "M-H167-cf",
+      "req": "harness",
+      "why": "本改动不阻塞的一律不算 —— 第三轮起不阻塞的登记放过",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (!/^本改动/.test(tier) || !tier.includes('不阻塞')) return false",
+      "replace": "  return false",
+      "by": "test",
+      "kills": [
+        "新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算",
+        "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路"
+      ]
+    },
+    {
+      "id": "M-H167-cg",
+      "req": "harness",
+      "why": "第一、二轮判不阻塞的也算登记",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  return round === undefined || Number(round) >= 3",
+      "replace": "  return round === undefined || Number(round) >= 1",
+      "by": "test",
+      "kills": [
+        "新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算"
+      ]
+    },
+    {
+      "id": "M-H167-ch",
+      "req": "harness",
+      "why": "轮次核不出的不算登记",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  return round === undefined || Number(round) >= 3",
+      "replace": "  return round !== undefined && Number(round) >= 3",
+      "by": "test",
+      "kills": [
+        "新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算"
+      ]
+    },
+    {
+      "id": "M-H167-ci",
+      "req": "harness",
+      "why": "回访 PR 也拦",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (input.revisit) return",
+      "replace": "  if (input.revisit && input.added.length === 0) return",
+      "by": "test",
+      "kills": [
+        "新登记闸门：回访 PR 满了、新登记了也不红"
+      ]
+    },
+    {
+      "id": "M-H167-cj",
+      "req": "harness",
+      "why": "不挑新登记的块，新加什么行都算 —— 只写状态行的改动也被拦",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  const fresh = input.added.filter(registersIou)",
+      "replace": "  const fresh = [...input.added]",
+      "by": "test",
+      "kills": [
+        "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
+        "新登记闸门：满了但这条改动只加了状态行、扩范围、既有缺陷的块，不红"
+      ]
+    },
+    {
+      "id": "M-H167-ck",
+      "req": "harness",
+      "why": "红时不逐块列出",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "      ...fresh.map(l => `  ${l.replace(/^\\s+/, '')}`),",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
+        "新登记闸门：列出的块去掉行首空白"
+      ]
+    },
+    {
+      "id": "M-H167-cl",
+      "req": "harness",
+      "why": "红时列出的块不去行首空白",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "      ...fresh.map(l => `  ${l.replace(/^\\s+/, '')}`),",
+      "replace": "      ...fresh.map(l => `  ${l}`),",
+      "by": "test",
+      "kills": [
+        "新登记闸门：列出的块去掉行首空白"
+      ]
+    },
+    {
+      "id": "M-H167-cm",
+      "req": "harness",
+      "why": "红时不写三条路",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "      '  三条路任选：把这条发现修在本改动；照扩范围或既有缺陷排队；或者等需求所有者判完列给他的那几张、状态行落下之后再登记',",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
+        "新登记闸门：列出的块去掉行首空白"
+      ]
+    },
+    {
+      "id": "M-H167-cn",
+      "req": "harness",
+      "why": "红时第一行不以 ✗ 起头 —— 检查链认不出这是失败行",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "      `✗ 新登记闸门：${head}，这条改动又新登记了 ${fresh.length} 张：`,",
+      "replace": "      `新登记闸门：${head}，这条改动又新登记了 ${fresh.length} 张：`,",
+      "by": "test",
+      "kills": [
+        "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
+        "新登记闸门：列出的块去掉行首空白"
+      ]
+    },
+    {
+      "id": "M-H167-co",
+      "req": "harness",
+      "why": "放行时数的是新加的全部行而不是新登记的块",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "这条改动新登记 ${fresh.length} 张，没满，放行",
+      "replace": "这条改动新登记 ${input.added.length} 张，没满，放行",
+      "by": "test",
+      "kills": [
+        "新登记闸门：9 张时新登记照放行，只报数"
+      ]
+    },
+    {
+      "id": "M-H167-cp",
+      "req": "harness",
+      "why": "满了也不红 —— 闸门照样打出点名的几行，退出码却放行",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "    red: true,",
+      "replace": "    red: false,",
+      "by": "test",
+      "kills": [
+        "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
+        "新登记闸门：门槛可以另给，满了就红"
+      ]
     }
   ],
   "exemptions": [
