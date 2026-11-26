@@ -7,7 +7,8 @@
  *
  * 只在一种情形红：这条改动新加了以登记为去向的欠条块，而主干上列过没判的满了。新加的块认：
  * - 以「⚠️ 欠条」起头的引用行（`> ⚠️ 欠条…`），
- * - 档写的是「登记」，或者「本改动」而且同一格里写了「不阻塞」、轮次是第三轮起或者没写轮次（第三轮起不阻塞、合并者判不阻塞的那一种）。
+ * - 档（流程固定格式里紧挨重启条件的那一格）写的是「登记」，或者「本改动」而且同一格里写了「不阻塞」、轮次是第三轮起或者没写轮次；
+ * - 没照固定格式写档的，也算（需求所有者定）。
  * 档写扩范围、既有缺陷的不拦（那两档有自己的去向）；只写状态行的改动加的是「⚠️ 已还／收尾／已重挂／续挂」行，不是欠条块，不拦。
  * 回访 PR 不拦（它就是来列欠条、落状态行的）。
  */
@@ -31,17 +32,19 @@ export function roundOf(tier: string): number | undefined {
   return t * 10 + o
 }
 
-/** 欠条块里写档的那一格：重启条件之前、紧跟在「·」或开括号后面的「档：」，有几格取最后一格；正文里顺口提到的、重启条件里写的「档：」不算 */
-export function tierOf(line: string): string {
-  const head = line.split(/重启条件[：:]/)[0]
-  const cells = [...head.matchAll(/(?:·|（|\()\s*档[：:]\s*([^·）)]*)/g)]
-  return cells.length === 0 ? '' : cells[cells.length - 1][1]
+/**
+ * 欠条块里的档：只认流程（`process/6-INTEGRATE.md`「登记怎么做」）定死的那一行格式里、紧挨在重启条件前面的那一格
+ * —— `… · 档：<档> · 重启条件：<条件>`。不照这个格式写的交回 undefined，不在整行文字里猜哪一处是档
+ */
+export function tierOf(line: string): string | undefined {
+  return / · 档[：:]\s*([^·]+?) · 重启条件[：:]/.exec(line)?.[1]
 }
 
-/** 一行是不是新开的、以登记为去向的欠条块 */
+/** 一行是不是新开的、以登记为去向的欠条块；没照固定格式写档的，按需求所有者定的算登记 */
 export function registersIou(line: string): boolean {
   if (!/^\s*>\s*⚠️\s*欠条/.test(line)) return false
   const tier = tierOf(line)
+  if (tier === undefined) return true
   if (/^登记/.test(tier)) return true
   if (!/^本改动/.test(tier) || !tier.includes('不阻塞')) return false
   // 第一、二轮里判不阻塞的仍算修在本改动；写了轮次的从第三轮起算登记，轮次核不出的也算
