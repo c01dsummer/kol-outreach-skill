@@ -38316,8 +38316,8 @@
       "req": "harness",
       "why": "满了才拦改成超过才拦 —— 正好列满一周没判时放行",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "  if (input.waiting < limit) return",
-      "replace": "  if (input.waiting <= limit) return",
+      "find": "  if (waiting < limit) return",
+      "replace": "  if (waiting <= limit) return",
       "by": "test",
       "kills": [
         "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
@@ -38327,9 +38327,9 @@
     {
       "id": "M-H167-cb",
       "req": "harness",
-      "why": "不认引用行开头 —— 散文里写着欠条的也算新登记",
+      "why": "块头不从行首认 —— 散文里写着欠条的也算新登记",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "  if (!/^\\s*>\\s*⚠️\\s*欠条/.test(line)) return false",
+      "find": "  if (!IOU_HEAD.test(line)) return false",
       "replace": "  if (!/⚠️\\s*欠条/.test(line)) return false",
       "by": "test",
       "kills": [
@@ -38339,9 +38339,9 @@
     {
       "id": "M-H167-cc",
       "req": "harness",
-      "why": "只认顶格的引用行 —— 缩进的欠条块漏数",
+      "why": "块头只认引用行、不认加粗 —— 台账认的块闸门漏数",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "  if (!/^\\s*>\\s*⚠️\\s*欠条/.test(line)) return false",
+      "find": "  if (!IOU_HEAD.test(line)) return false",
       "replace": "  if (!/^>\\s*⚠️\\s*欠条/.test(line)) return false",
       "by": "test",
       "kills": [
@@ -38420,7 +38420,7 @@
       "replace": "  if (input.revisit && input.added.length === 0) return",
       "by": "test",
       "kills": [
-        "新登记闸门：回访 PR 满了、新登记了也不红"
+        "新登记闸门：回访 PR 新登记了也不红，不去数列过没判的"
       ]
     },
     {
@@ -38441,24 +38441,12 @@
       "req": "harness",
       "why": "红时不逐块列出",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "      ...fresh.map(l => `  ${l.replace(/^\\s+/, '')}`),",
+      "find": "      ...fresh.map(l => `  ${l}`),",
       "replace": "",
       "by": "test",
       "kills": [
         "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
-        "新登记闸门：列出的块去掉行首空白"
-      ]
-    },
-    {
-      "id": "M-H167-cl",
-      "req": "harness",
-      "why": "红时列出的块不去行首空白",
-      "file": "scripts/check/iou-gate-rule.ts",
-      "find": "      ...fresh.map(l => `  ${l.replace(/^\\s+/, '')}`),",
-      "replace": "      ...fresh.map(l => `  ${l}`),",
-      "by": "test",
-      "kills": [
-        "新登记闸门：列出的块去掉行首空白"
+        "新登记闸门：红时逐块列出新加块的整段文字"
       ]
     },
     {
@@ -38471,7 +38459,7 @@
       "by": "test",
       "kills": [
         "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
-        "新登记闸门：列出的块去掉行首空白"
+        "新登记闸门：红时逐块列出新加块的整段文字"
       ]
     },
     {
@@ -38484,7 +38472,7 @@
       "by": "test",
       "kills": [
         "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
-        "新登记闸门：列出的块去掉行首空白"
+        "新登记闸门：红时逐块列出新加块的整段文字"
       ]
     },
     {
@@ -38620,7 +38608,7 @@
       "replace": " · 档[：:]\\s*(.+?) · 重启条件",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
@@ -38632,7 +38620,7 @@
       "replace": "([^·]+?)/",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
@@ -38644,7 +38632,7 @@
       "replace": "  if (tier !== undefined && !TIERS.test(tier.trim())) return true",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
@@ -38656,19 +38644,19 @@
       "replace": "/档[：:]\\s*",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
       "id": "M-H167-dc",
       "req": "harness",
-      "why": "几处两格取第一处，说明里抄的一句骗过闸门",
+      "why": "有几处两格取最后一处 —— 重启条件里抄的一句被当成真档",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "pairs[pairs.length - 1][1]",
-      "replace": "pairs[0][1]",
+      "find": "pairs.length === 1 ? pairs[0][1] : undefined",
+      "replace": "pairs.length > 0 ? pairs[pairs.length - 1][1] : undefined",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
@@ -38680,7 +38668,7 @@
       "replace": "  if (tier === undefined) return true",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
@@ -38692,7 +38680,7 @@
       "replace": "既有缺陷|本改动",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
@@ -38704,7 +38692,7 @@
       "replace": "[)）])/",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
@@ -38716,7 +38704,7 @@
       "replace": "TIERS.test(tier)",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
@@ -38728,7 +38716,7 @@
       "replace": "[^()（）]*",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
       ]
     },
     {
@@ -38740,7 +38728,247 @@
       "replace": "\\s*,\\s*不阻塞",
       "by": "test",
       "kills": [
-        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记"
+      ]
+    },
+    {
+      "id": "M-H167-dj",
+      "req": "harness",
+      "why": "挪走的块抵掉之后不减数 —— 同一块多出来的一张不算新加",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "    left.set(b, n - 1)",
+      "replace": "    left.set(b, n)",
+      "by": "test",
+      "kills": [
+        "新登记闸门：新加的块按整段文字比 —— 挪进历史文件的不算、同一块多了一张算一张、围栏与注释里的不算，续行接上、去掉引用号"
+      ]
+    },
+    {
+      "id": "M-H167-dk",
+      "req": "harness",
+      "why": "改动前没有的块也不算新加 —— 闸门永远没东西可拦",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "    if (n === 0) return true",
+      "replace": "    if (n === 0) return false",
+      "by": "test",
+      "kills": [
+        "新登记闸门：新加的块按整段文字比 —— 挪进历史文件的不算、同一块多了一张算一张、围栏与注释里的不算，续行接上、去掉引用号"
+      ]
+    },
+    {
+      "id": "M-H167-dl",
+      "req": "harness",
+      "why": "围栏与注释里的示例块也算新加",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "iouBlocks(lines, quotedMask(text))",
+      "replace": "iouBlocks(lines, lines.map(() => false))",
+      "by": "test",
+      "kills": [
+        "新登记闸门：新加的块按整段文字比 —— 挪进历史文件的不算、同一块多了一张算一张、围栏与注释里的不算，续行接上、去掉引用号"
+      ]
+    },
+    {
+      "id": "M-H167-dm",
+      "req": "harness",
+      "why": "续行没去掉行首的引用号，写到第二行的块认错",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "k === 0 ? l : l.replace(/^\\s*>?/, '')",
+      "replace": "l",
+      "by": "test",
+      "kills": [
+        "新登记闸门：新加的块按整段文字比 —— 挪进历史文件的不算、同一块多了一张算一张、围栏与注释里的不算，续行接上、去掉引用号"
+      ]
+    },
+    {
+      "id": "M-H167-dn",
+      "req": "harness",
+      "why": "记录不按文件名排，列出的顺序随读入顺序变",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "[...docs.keys()].sort()",
+      "replace": "[...docs.keys()]",
+      "by": "test",
+      "kills": [
+        "新登记闸门：新加的块按整段文字比 —— 挪进历史文件的不算、同一块多了一张算一张、围栏与注释里的不算，续行接上、去掉引用号"
+      ]
+    },
+    {
+      "id": "M-H167-do",
+      "req": "harness",
+      "why": "只取块头一行，写到第二行的档与重启条件丢了",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "lines.slice(start, end)",
+      "replace": "lines.slice(start, start + 1)",
+      "by": "test",
+      "kills": [
+        "新登记闸门：新加的块按整段文字比 —— 挪进历史文件的不算、同一块多了一张算一张、围栏与注释里的不算，续行接上、去掉引用号"
+      ]
+    },
+    {
+      "id": "M-H167-dp",
+      "req": "harness",
+      "why": "主干上也拦 —— 已经合进来的改动拦不回去，主干从此一直红",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (input.trunk) return",
+      "replace": "  if (input.trunk && limit < 0) return",
+      "by": "test",
+      "kills": [
+        "新登记闸门：主干上满了、新登记了也不红，只报数"
+      ]
+    },
+    {
+      "id": "M-H167-dq",
+      "req": "harness",
+      "why": "没有新登记也去数列过没判的 —— 每次检查白等几十秒",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (fresh.length === 0) return",
+      "replace": "  if (fresh.length === 0 && input.waiting() < 0) return",
+      "by": "test",
+      "kills": [
+        "新登记闸门：没有新登记的不去数列过没判的"
+      ]
+    },
+    {
+      "id": "M-H167-dr",
+      "req": "harness",
+      "why": "回访 PR 报的张数把散文与状态行也算上",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "回访 PR 不拦；这条改动新登记 ${fresh.length} 张",
+      "replace": "回访 PR 不拦；这条改动新登记 ${input.added.length} 张",
+      "by": "test",
+      "kills": [
+        "新登记闸门：回访 PR 新登记了也不红，不去数列过没判的"
+      ]
+    },
+    {
+      "id": "M-H167-ds",
+      "req": "harness",
+      "why": "主干上报的张数把散文与状态行也算上",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "这次合进来新登记 ${fresh.length} 张",
+      "replace": "这次合进来新登记 ${input.added.length} 张",
+      "by": "test",
+      "kills": [
+        "新登记闸门：主干上满了、新登记了也不红，只报数"
+      ]
+    },
+    {
+      "id": "M-H167-dt",
+      "req": "harness",
+      "why": "回访分支名不从头认，别的分支名里带着这一段也当成回访 PR 放行",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "return ref !== undefined && ref.startsWith('claude/revisit-')",
+      "replace": "return ref !== undefined && ref.includes('claude/revisit-')",
+      "by": "test",
+      "kills": [
+        "新登记闸门：回访 PR 认分支名以 claude/revisit- 起头，取不到分支名的不算"
+      ]
+    },
+    {
+      "id": "M-H167-du",
+      "req": "harness",
+      "why": "回访台账先读主文件、后读历史文件 —— 同一天列出的先后颠倒",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "[...pick('docs/adr/历史/'), ...pick('docs/adr/')]",
+      "replace": "[...pick('docs/adr/'), ...pick('docs/adr/历史/')]",
+      "by": "test",
+      "kills": [
+        "新登记闸门：回访台账先读历史文件、再读主文件，别的记录与更深的目录不读"
+      ]
+    },
+    {
+      "id": "M-H167-dv",
+      "req": "harness",
+      "why": "编号以 152 起头的别的记录也当成回访台账读",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "/^ADR-152-[^/]*\\.md$/",
+      "replace": "/^ADR-152[^/]*\\.md$/",
+      "by": "test",
+      "kills": [
+        "新登记闸门：回访台账先读历史文件、再读主文件，别的记录与更深的目录不读"
+      ]
+    },
+    {
+      "id": "M-H167-dw",
+      "req": "harness",
+      "why": "数成了到期的张数，不是列过没判的",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "listings(revisitLedger(docs))).again",
+      "replace": "listings(revisitLedger(docs))).due",
+      "by": "test",
+      "kills": [
+        "新登记闸门：列过没判的照周回访的数法数 —— 最近一次列出没判的算，判过的、后来又列出没判的照算，历史文件里列过的也认"
+      ]
+    },
+    {
+      "id": "M-H167-dx",
+      "req": "harness",
+      "why": "满了又新登记也以 0 退出 —— 检查链看不出红",
+      "file": "scripts/check/iou-gate.ts",
+      "find": "  return verdict.red ? 1 : 0",
+      "replace": "  return 0",
+      "by": "test",
+      "kills": [
+        "入口：主干上列过没判的满 10 张、这条改动（还没提交）新登记一张，以 1 退出，点名那一块"
+      ]
+    },
+    {
+      "id": "M-H167-dy",
+      "req": "harness",
+      "why": "列过没判的在共同祖先上数 —— 主干上判完了，分支仍被拦",
+      "file": "scripts/check/iou-gate.ts",
+      "find": "      const docs = raw.adrTree(baseline.trunk)",
+      "replace": "      const docs = raw.adrTree(baseline.base)",
+      "by": "test",
+      "kills": [
+        "入口：分支长出来之后主干上判掉一张，按主干最新那一版数 9 张，放行、以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H167-dz",
+      "req": "harness",
+      "why": "CI 上不看 PR 的分支名 —— 回访 PR 在 CI 上被拦",
+      "file": "scripts/check/iou-gate.ts",
+      "find": "  const branch = process.env.GITHUB_HEAD_REF || (",
+      "replace": "  const branch = (",
+      "by": "test",
+      "kills": [
+        "入口：回访 PR 不拦 —— CI 上认 PR 的分支名，本地认当前分支，都以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H167-ea",
+      "req": "harness",
+      "why": "本地不看当前分支 —— 本地跑回访时被拦",
+      "file": "scripts/check/iou-gate.ts",
+      "find": "(askGit('symbolic-ref', '-q', '--short', 'HEAD') ?? undefined)",
+      "replace": "undefined",
+      "by": "test",
+      "kills": [
+        "入口：回访 PR 不拦 —— CI 上认 PR 的分支名，本地认当前分支，都以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H167-eb",
+      "req": "harness",
+      "why": "主干上也拦 —— 合进来之后主干一直红",
+      "file": "scripts/check/iou-gate.ts",
+      "find": "    trunk: baseline.onTrunk,",
+      "replace": "    trunk: false,",
+      "by": "test",
+      "kills": [
+        "入口：在主干上只报数，以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H167-ec",
+      "req": "harness",
+      "why": "量不了时放行 —— 没得比当成比过了",
+      "file": "scripts/check/iou-gate.ts",
+      "find": "    console.log(`  怎么办：${baseline.how}`)\n    return 1",
+      "replace": "    console.log(`  怎么办：${baseline.how}`)\n    return 0",
+      "by": "test",
+      "kills": [
+        "入口：不是 git 仓库时说无从比较，以 1 退出"
       ]
     }
   ],
