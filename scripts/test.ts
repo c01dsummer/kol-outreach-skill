@@ -60,7 +60,7 @@ import {
   JUDGMENT_EXEMPT, auditBook, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
   ledger, selfcheckCriterionMutations, unguarded,
 } from './check/audit-rule.js'
-import { GATE_LIMIT, iouGate, registersIou } from './check/iou-gate-rule.js'
+import { GATE_LIMIT, iouGate, registersIou, roundOf } from './check/iou-gate-rule.js'
 import {
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitFaults, exitRace,
   judgeRun, killsMatched,
@@ -13781,6 +13781,16 @@ await group('h-iou-gate', () => {
   eq('新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算',
     [REG, ROUND3, NOROUND, ROUND2, FIXED, SCOPE, OLD, PAID, CARRY, PROSE, INDENT].map(registersIou),
     [true, true, true, false, false, false, false, false, false, false, true])
+  eq('新登记闸门：轮次写汉字也认 —— 第二轮不算登记，第三轮、第十二轮算',
+    ['（第二轮，不阻塞）', '（第三轮，不阻塞）', '（第十二轮，不阻塞）'].map(t => registersIou(`> ⚠️ 欠条：措辞 · 档：本改动${t} · 重启条件：下次碰到`)),
+    [false, true, true])
+  eq('新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出',
+    ['第 12 轮', '第3轮', '第二轮', '第十轮', '第十二轮', '第二十轮', '第二十三轮', '第十十轮', '第二二十轮', '第二三轮', '第一百轮', '没写'].map(roundOf),
+    [12, 3, 2, 10, 12, 20, 23, undefined, undefined, undefined, undefined, undefined])
+  eq('新登记闸门：档只取欠条块里写档的那几格、取最后一格，正文顺口提到的「档：」不算',
+    ['> ⚠️ 欠条（档：登记）后来改了 · 档：扩范围 · 去向：另开一条',
+      '> ⚠️ 欠条：原先写档：扩范围，改了 · 档：登记 · 重启条件：别再写成档：既有缺陷'].map(registersIou),
+    [false, true])
   eq('新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路',
     iouGate({ added: [PROSE, REG, SCOPE, ROUND3], waiting: 10, revisit: false }),
     { red: true, lines: [`✗ 新登记闸门：${HEAD(10)}，这条改动又新登记了 2 张：`, `  ${REG}`, `  ${ROUND3}`, WAYS] })

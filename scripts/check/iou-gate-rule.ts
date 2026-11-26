@@ -15,15 +15,37 @@
 /** 列过没判的满了这个数就拦（需求所有者 2026-10-23 定 10，四周后按回访数据再调） */
 export const GATE_LIMIT = 10
 
+const DIGITS = '一二三四五六七八九'
+
+/** 轮次：阿拉伯数字，或一到九十九的汉字（「第三轮」「第十二轮」）；认不出交回 undefined */
+export function roundOf(tier: string): number | undefined {
+  const m = /第\s*(\d+|[一二三四五六七八九十]+)\s*轮/.exec(tier)?.[1]
+  if (m === undefined) return undefined
+  if (/^\d+$/.test(m)) return Number(m)
+  const parts = m.split('十')
+  if (parts.length > 2) return undefined
+  const [tens, ones] = parts.length === 2 ? parts : ['', parts[0]]
+  if (tens.length > 1 || ones.length > 1) return undefined
+  const t = parts.length === 2 ? (tens === '' ? 1 : DIGITS.indexOf(tens) + 1) : 0
+  const o = ones === '' ? 0 : DIGITS.indexOf(ones) + 1
+  return t * 10 + o
+}
+
+/** 欠条块里写档的那一格：紧跟在「·」或开括号后面的「档：」，有几格取最后一格；正文里顺口提到的「档：」不算 */
+export function tierOf(line: string): string {
+  const cells = [...line.matchAll(/(?:·|（|\()\s*档[：:]\s*([^·）)]*)/g)]
+  return cells.length === 0 ? '' : cells[cells.length - 1][1]
+}
+
 /** 一行是不是新开的、以登记为去向的欠条块 */
 export function registersIou(line: string): boolean {
   if (!/^\s*>\s*⚠️\s*欠条/.test(line)) return false
-  const tier = /档[：:]\s*([^·）)]*)/.exec(line)?.[1] ?? ''
+  const tier = tierOf(line)
   if (/^登记/.test(tier)) return true
   if (!/^本改动/.test(tier) || !tier.includes('不阻塞')) return false
   // 第一、二轮里判不阻塞的仍算修在本改动；写了轮次的从第三轮起算登记，轮次核不出的也算
-  const round = /第\s*(\d+)\s*轮/.exec(tier)?.[1]
-  return round === undefined || Number(round) >= 3
+  const round = roundOf(tier)
+  return round === undefined || round >= 3
 }
 
 export interface GateInput {

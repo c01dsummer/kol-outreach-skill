@@ -38392,8 +38392,8 @@
       "req": "harness",
       "why": "第一、二轮判不阻塞的也算登记",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "  return round === undefined || Number(round) >= 3",
-      "replace": "  return round === undefined || Number(round) >= 1",
+      "find": "  return round === undefined || round >= 3",
+      "replace": "  return round === undefined || round >= 1",
       "by": "test",
       "kills": [
         "新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算"
@@ -38404,8 +38404,8 @@
       "req": "harness",
       "why": "轮次核不出的不算登记",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "  return round === undefined || Number(round) >= 3",
-      "replace": "  return round !== undefined && Number(round) >= 3",
+      "find": "  return round === undefined || round >= 3",
+      "replace": "  return round !== undefined && round >= 3",
       "by": "test",
       "kills": [
         "新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算"
@@ -38510,6 +38510,129 @@
       "kills": [
         "新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路",
         "新登记闸门：门槛可以另给，满了就红"
+      ]
+    },
+    {
+      "id": "M-H167-cq",
+      "req": "harness",
+      "why": "轮次的汉字一律认不出，第二轮按核不出算成登记",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "[一二三四五六七八九十]+)\\s*轮/",
+      "replace": "[十]+)\\s*轮/",
+      "by": "test",
+      "kills": [
+        "新登记闸门：轮次写汉字也认 —— 第二轮不算登记，第三轮、第十二轮算",
+        "新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出"
+      ]
+    },
+    {
+      "id": "M-H167-cr",
+      "req": "harness",
+      "why": "汉字个位少算一，第三轮读成第二轮",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  const o = ones === '' ? 0 : DIGITS.indexOf(ones) + 1",
+      "replace": "  const o = ones === '' ? 0 : DIGITS.indexOf(ones)",
+      "by": "test",
+      "kills": [
+        "新登记闸门：轮次写汉字也认 —— 第二轮不算登记，第三轮、第十二轮算",
+        "新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出"
+      ]
+    },
+    {
+      "id": "M-H167-cs",
+      "req": "harness",
+      "why": "「十二」的十位没写数字时读成零",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "(tens === '' ? 1 : DIGITS.indexOf(tens) + 1)",
+      "replace": "(tens === '' ? 0 : DIGITS.indexOf(tens) + 1)",
+      "by": "test",
+      "kills": [
+        "新登记闸门：轮次写汉字也认 —— 第二轮不算登记，第三轮、第十二轮算",
+        "新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出"
+      ]
+    },
+    {
+      "id": "M-H167-ct",
+      "req": "harness",
+      "why": "写了两个「十」照样读出数",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (parts.length > 2) return undefined",
+      "replace": "  if (parts.length > 9) return undefined",
+      "by": "test",
+      "kills": [
+        "新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出"
+      ]
+    },
+    {
+      "id": "M-H167-cu",
+      "req": "harness",
+      "why": "十位写了两个字照样读出数",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (tens.length > 1 || ones.length > 1) return undefined",
+      "replace": "  if (ones.length > 1) return undefined",
+      "by": "test",
+      "kills": [
+        "新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出"
+      ]
+    },
+    {
+      "id": "M-H167-cv",
+      "req": "harness",
+      "why": "个位写了两个字照样读出数",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (tens.length > 1 || ones.length > 1) return undefined",
+      "replace": "  if (tens.length > 1) return undefined",
+      "by": "test",
+      "kills": [
+        "新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出"
+      ]
+    },
+    {
+      "id": "M-H167-cw",
+      "req": "harness",
+      "why": "阿拉伯数字的轮次读偏一",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  if (/^\\d+$/.test(m)) return Number(m)",
+      "replace": "  if (/^\\d+$/.test(m)) return Number(m) + 1",
+      "by": "test",
+      "kills": [
+        "新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出"
+      ]
+    },
+    {
+      "id": "M-H167-cx",
+      "req": "harness",
+      "why": "整十的个位当成一，第十轮读成十一",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "  const o = ones === '' ? 0 :",
+      "replace": "  const o = ones === '' ? 1 :",
+      "by": "test",
+      "kills": [
+        "新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出"
+      ]
+    },
+    {
+      "id": "M-H167-cy",
+      "req": "harness",
+      "why": "几格档里取第一格",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "cells.length === 0 ? '' : cells[cells.length - 1][1]",
+      "replace": "cells.length === 0 ? '' : cells[0][1]",
+      "by": "test",
+      "kills": [
+        "新登记闸门：档只取欠条块里写档的那几格、取最后一格，正文顺口提到的「档：」不算"
+      ]
+    },
+    {
+      "id": "M-H167-cz",
+      "req": "harness",
+      "why": "正文里顺口提到的「档：」也当成一格",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "/(?:·|（|\\()\\s*档[：:]",
+      "replace": "/(?:·|（|\\()?\\s*档[：:]",
+      "by": "test",
+      "kills": [
+        "新登记闸门：档只取欠条块里写档的那几格、取最后一格，正文顺口提到的「档：」不算"
       ]
     }
   ],
