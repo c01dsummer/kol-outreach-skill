@@ -225,6 +225,8 @@ const GROUPS: readonly Group[] = [
   { id: 'p2-endorsement-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'p2-draft-sources', needs: [] },
+  { id: 'p2-sources-isolated', needs: [] },
+  { id: 'p2-sources-isolated-entry', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
   { id: 'd4s-independent-claim', needs: [] },
@@ -2251,9 +2253,9 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     badHtml = renderHtml([mk('tiktok', 'bad', { nickname: 7 as unknown as string, bio: 5 as unknown as string, recent_posts: [{ desc: null }] as unknown as Creator['recent_posts'], tier: 'A',
       outreach_draft: 'Hi,\n\nYou rock. Your bio. Your post. Your name.', draft_sources: [{ draft: 'Your bio.', from: 'bio', quote: '5' }, { draft: 'Your post.', from: 'post', quote: 'null' }, { draft: 'Your name.', from: 'nickname', quote: '7' }], profile_url: 'https://example.com/bad' })], meta, { mode: 'review' })
   } catch (error) { crashed = String(error) }
-  // 原文写成坏资料变成字符串后的样子（5、null、7）也对不上：不是字符串的资料不当字符串用。
+  // 不是字符串的资料不当字符串用，按没查过算（需求所有者 2026-11-25 选「照需求原话改」，ADR-249）：原文写成坏资料变成字符串后的样子（5、null、7）也对不了。
   eq('P2.g 名单里昵称、简介、作品文案不是字符串时这一行照出，不抛错', [crashed, lineOf(badHtml, 'bad')], ['', HEAD + '要看：' + ['「Hi,」（没登记出处）', '「You rock. Your bio. Your post. Your name.」（只登记了其中一段，没登记的：「You rock.」）',
-    '「Your bio.」← 简介原文「5」（原文对不上：他的简介里没有这段）', '「Your post.」← 作品文案原文「null」（原文对不上：他的作品文案里没有这段）', '「Your name.」← 昵称原文「7」（对不了：他的昵称没查过）'].join('；') + TAIL])
+    '「Your bio.」← 简介原文「5」（对不了，没查过：他的简介没取回来）', '「Your post.」← 作品文案原文「null」（对不了，没查过：他的作品文案没取回来）', '「Your name.」← 昵称原文「7」（对不了，没查过：他的昵称没取回来）'].join('；') + TAIL])
   // 资料三态（P1）：简介查过没写（null）是「对不上」；简介没查过（缺席）、作品没查过（缺席或空数组）是「对不了，没查过」，不说成「没有」。
   const SRC3 = [{ draft: 'Hey Sam,', from: 'self' }, { draft: 'Your bio says hi.', from: 'bio', quote: 'hi' }, { draft: 'Your posts too.', from: 'post', quote: 'too' }, { draft: 'Sam Rivera here.', from: 'nickname', quote: 'sam rivera' }] as NonNullable<Creator['draft_sources']>
   const DRAFT3 = 'Hey Sam,\n\nYour bio says hi. Your posts too. Sam Rivera here.'
@@ -2267,8 +2269,8 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
   const NICK = `${BAR}对得上：「Sam Rivera here.」← 昵称原文「sam rivera」${BAR}${SELF}「Hey Sam,」`
   eq('P2.f 资料三态分开说：简介查过没写是对不上，简介或作品没查过是对不了、没查过，查过但没有这段是对不上；昵称照对',
     ['bare', 'unq', 'had'].map(h => lineOf(bare, h)), [
-      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
-      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（对不了：他的简介没查过）', '「Your posts too.」← 作品文案原文「too」（对不了：他的作品文案没查过）'].join('；') + NICK + TAIL,
+      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（对不了，没查过：他的作品文案没取回来）'].join('；') + NICK + TAIL,
+      HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（对不了，没查过：他的简介没取回来）', '「Your posts too.」← 作品文案原文「too」（对不了，没查过：他的作品文案没取回来）'].join('；') + NICK + TAIL,
       HEAD + '要看：' + ['「Your bio says hi.」← 简介原文「hi」（原文对不上：他的简介里没有这段）', '「Your posts too.」← 作品文案原文「too」（原文对不上：他的作品文案里没有这段）'].join('；') + NICK + TAIL,
     ])
   // 主题行只认第一个非空行（同 U13.a）；后面某行以 Subject: 开头只是正文，标签也要登记，下一行另算一行。
@@ -2455,6 +2457,1297 @@ suite('P2', '开发信每一句对它登记的出处（博主资料、已证实�
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
   } finally { rmSync(root, { recursive: true, force: true }) }
   }
+})
+// 开发信出处三条的隔离重写（ADR-249）分两组：函数层一组不起进程，入口层一组真起 render 四次。
+// 分开是为了变异：点名函数层断言的变异只跑那一组，不必每条都陪着起四次 render（启动数上限，ADR-145）。
+// 来历见 ADR-249：断言、素材、期望值出自隔离会话，搬入时只换了接线（动态 import、起入口、临时目录、断言外壳），逐处写在那里。
+// 每条断言照原样是一段函数：里面任一处不符就抛错，外层 passes 记下原因并交给 ok 报红。
+const p2IsolatedKit = async () => {
+const passes = (fn: () => unknown): boolean => {
+  try { fn(); return true } catch (error) { console.log('    ' + String(error instanceof Error ? error.message : error).split('\n').join('\n    ')); return false }
+}
+const readFileSync = rf
+const { inspect } = await import('node:util')
+const show = (v: unknown) => inspect(v, { depth: 8, breakLength: 160, maxStringLength: 2000 })
+function must(cond: unknown, msg: string): void {
+  if (!cond) throw new Error(msg)
+}
+function same(actual: unknown, expected: unknown, what = '值'): void {
+  if (!isDeepStrictEqual(actual, expected)) throw new Error(`${what} 不符\n  实际: ${show(actual)}\n  期望: ${show(expected)}`)
+}
+function has(text: string, piece: string, what = '文字'): void {
+  if (typeof text !== 'string' || !text.includes(piece)) throw new Error(`${what} 里应有「${piece}」\n  实际: ${show(text)}`)
+}
+function hasNot(text: string, piece: string, what = '文字'): void {
+  if (typeof text !== 'string') throw new Error(`${what} 不是字符串: ${show(text)}`)
+  if (text.includes(piece)) throw new Error(`${what} 里不应有「${piece}」\n  实际: ${show(text)}`)
+}
+/** 几段字都在，而且按给的先后出现（后一段从前一段结束处往后找） */
+function inOrder(text: string, pieces: string[], what = '文字'): void {
+  let from = 0
+  for (const p of pieces) {
+    const at = text.indexOf(p, from)
+    if (at === -1) throw new Error(`${what} 里应按先后有 ${show(pieces)}，找不到「${p}」（从第 ${from} 个字起）\n  实际: ${show(text)}`)
+    from = at + p.length
+  }
+}
+const count = (text: string, piece: string) => text.split(piece).length - 1
+function thrown(fn: () => unknown): any {
+  try {
+    fn()
+  } catch (e) {
+    return e
+  }
+  throw new Error('应当拒绝（抛错），却照收了')
+}
+/** 报错里给人看的全部文字：problems 数组（ReviewInputError）与 message 都算 */
+const said = (e: any): string => [Array.isArray(e?.problems) ? e.problems.join('\n') : '', String(e?.message ?? e)].join('\n')
+const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v))
+
+// 搬入时换的接线：模块用本文件的动态 import，入口用仓库的 prebuiltCommand 起，临时目录在组末统一删
+const temps: string[] = []
+function tempDir(): string {
+  const d = mkdtempSync(join(tmpdir(), 'p2-efg-'))
+  temps.push(d)
+  return d
+}
+function runRender(cwd: string, dirArg: string) {
+  const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dirArg])
+  return spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
+}
+/** 自备的最小 zip 读取（kol.xlsx 是 zip）：文件名 → 内容 */
+function unzip(buf: Buffer): Map<string, Buffer> {
+  const out = new Map<string, Buffer>()
+  const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
+  if (eocd === -1) throw new Error('不是 zip：找不到目录结尾')
+  const n = buf.readUInt16LE(eocd + 10)
+  let p = buf.readUInt32LE(eocd + 16)
+  for (let i = 0; i < n; i++) {
+    const method = buf.readUInt16LE(p + 10)
+    const csize = buf.readUInt32LE(p + 20)
+    const nameLen = buf.readUInt16LE(p + 28)
+    const extraLen = buf.readUInt16LE(p + 30)
+    const commentLen = buf.readUInt16LE(p + 32)
+    const local = buf.readUInt32LE(p + 42)
+    const name = buf.toString('utf8', p + 46, p + 46 + nameLen)
+    const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28)
+    const data = buf.subarray(start, start + csize)
+    out.set(name, method === 0 ? Buffer.from(data) : inflateRawSync(data))
+    p += 46 + nameLen + extraLen + commentLen
+  }
+  return out
+}
+
+// ───────────────────────────── 自备：从报告网页里取「逐行出处」那一行 ─────────────────────────────
+// 依据 output-format.md：这一行写作「逐行出处：…（改写得准不准请对照原文自己看）」，带 data-draft-sources="lines"。
+const LINE_ATTR = 'data-draft-sources="lines"'
+const LINE_TAIL = '改写得准不准请对照原文自己看'
+/** 每一行的网页原文（还没去标签、没还原转义）：从属性到后面那句固定的括注为止 */
+function rawLines(html: string): string[] {
+  const out: string[] = []
+  let at = html.indexOf(LINE_ATTR)
+  while (at !== -1) {
+    const next = html.indexOf(LINE_ATTR, at + LINE_ATTR.length)
+    const end = html.indexOf(LINE_TAIL, at)
+    if (end !== -1 && (next === -1 || end < next)) out.push(html.slice(at + LINE_ATTR.length, end))
+    at = next
+  }
+  return out
+}
+/** 一行的内容文字：去标签、还原转义、去掉开头「逐行出处：」与结尾那半个括号 */
+function lineText(raw: string): string {
+  let t = raw.slice(raw.indexOf('>') + 1).replace(/<[^>]*>/g, '')
+  t = t
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'")
+    .replace(/&amp;/g, '&')
+  const head = t.indexOf('逐行出处：')
+  if (head !== -1) t = t.slice(head + '逐行出处：'.length)
+  return t.trim().replace(/（$/, '').trim()
+}
+/** 含某段字的那一行（内容文字）；没有返回 undefined */
+const lineWith = (html: string, token: string): string | undefined => rawLines(html).map(lineText).find((t) => t.includes(token))
+/** 段与段用「　｜　」隔开（output-format.md） */
+const SEG = '　｜　'
+/** 一段里冒号后面的各条（条与条用「；」连，draft-sources.d.ts） */
+const entries = (segment: string): string[] => segment.slice(segment.indexOf('：') + 1).split('；')
+const entryWith = (segment: string, token: string): string => {
+  const e = entries(segment).find((x) => x.includes(token))
+  if (e === undefined) throw new Error(`这一段里找不到含「${token}」的那一条\n  实际: ${show(segment)}`)
+  return e
+}
+
+// ───────────────────────────── 夹具（全部字面量）─────────────────────────────
+const FACT = 'Portable blender with a 400ml cup. Rinses clean in about ten seconds.'
+const POST = 'Day 12 of my 3 ingredient smoothie series, and yes I show the cleanup every time'
+const BIO = '3-ingredient recipes for busy mornings 🥤'
+
+/** outreach-draft.md「好例子」那封信，逐字 */
+const GOOD_DRAFT = [
+  'Subject: Your 3-ingredient smoothie series',
+  '',
+  'Hi Mei,',
+  '',
+  'Your 3-ingredient smoothie series shows the cleanup every time.',
+  'That part stuck with me.',
+  '',
+  "I'm Yu from Brightly. We make a portable blender with a 400ml cup",
+  'that rinses clean in about ten seconds. It felt relevant to that exact point.',
+  '',
+  'Happy to send one over, no strings. If it doesn\'t fit your kitchen,',
+  "no post needed. If it does, we'd love to talk about a paid piece.",
+  '',
+  'Want me to ship one? Just need an address.',
+  '',
+  'Best,',
+  'Yu',
+].join('\n')
+/** 同一处文档给的登记，逐字 */
+const GOOD_SOURCES = [
+  { draft: 'Your 3-ingredient smoothie series', from: 'post', quote: 'my 3 ingredient smoothie series' },
+  { draft: 'Hi Mei,', from: 'self' },
+  { draft: 'Your 3-ingredient smoothie series shows the cleanup every time.', from: 'post', quote: 'my 3 ingredient smoothie series, and yes I show the cleanup every time' },
+  { draft: 'That part stuck with me.', from: 'self' },
+  { draft: "I'm Yu from Brightly.", from: 'self' },
+  { draft: 'We make a portable blender with a 400ml cup that rinses clean in about ten seconds.', from: 'product', quote: 'Portable blender with a 400ml cup. Rinses clean in about ten seconds.' },
+  { draft: 'It felt relevant to that exact point.', from: 'self' },
+  { draft: "Happy to send one over, no strings. If it doesn't fit your kitchen, no post needed. If it does, we'd love to talk about a paid piece.", from: 'self' },
+  { draft: 'Want me to ship one? Just need an address.', from: 'self' },
+  { draft: 'Best, Yu', from: 'self' },
+]
+const GOOD_GIVEN = { bio: BIO, posts: [POST], nickname: 'Mei Lin', facts: [FACT] }
+
+const BOB_BIO = 'Smoothies, cleanup hacks & marathon training'
+const BOB_DRAFT = [
+  'Subject: Marathon fuel idea',
+  '',
+  'Hi Bob,',
+  'You run ultra marathons daily.',
+  'Your latest post rocks.',
+  'It has a 2 year warranty.',
+  'Totally unregistered line here.',
+  'We ship fast and cheap.',
+  'Call me on 415 555 0199.',
+  'Free on Tuesday at 3pm EST?',
+  'Best, Yu',
+].join('\n')
+/** 故意不按信里的先后登记；第一条登记的那句信里已经没有 */
+const BOB_SOURCES = [
+  { draft: 'ZZ-GONE-MARKER sentence.', from: 'self' },
+  { draft: 'Best, Yu', from: 'self' },
+  { draft: 'Free on Tuesday at 3pm EST?', from: 'self', purpose: 'schedule' },
+  { draft: 'Call me on 415 555 0199.', from: 'self', purpose: 'contact' },
+  { draft: 'We ship fast', from: 'self' },
+  { draft: 'It has a 2 year warranty.', from: 'product', quote: '2 year warranty' },
+  { draft: 'Your latest post rocks.', from: 'post', quote: 'this post rocks' },
+  { draft: 'You run ultra marathons daily.', from: 'bio', quote: 'I run ultra marathons' },
+  { draft: 'Hi Bob,', from: 'nickname', quote: 'bob' },
+  { draft: 'Marathon fuel idea', from: 'bio', quote: 'marathon   TRAINING' },
+]
+/** 作品没查过（posts 缺席）；产品事实里没有保修那句 */
+const BOB_GIVEN = { bio: BOB_BIO, nickname: 'Bob Tan', facts: [FACT] }
+
+/** 五种来处、两种用途各一条；形状合规（P2.e 只管形状） */
+const ALL_KINDS = [
+  { draft: 'Your 3-ingredient smoothie series', from: 'post', quote: 'my 3 ingredient smoothie series' },
+  { draft: 'Hi Mei,', from: 'nickname', quote: 'Mei' },
+  { draft: 'busy mornings', from: 'bio', quote: 'busy mornings' },
+  { draft: 'We make a portable blender with a 400ml cup', from: 'product', quote: 'Portable blender with a 400ml cup.' },
+  { draft: 'That part stuck with me.', from: 'self' },
+  { draft: 'Tuesday at 3pm EST', from: 'self', purpose: 'schedule' },
+  { draft: '415 555 0199', from: 'self', purpose: 'contact' },
+]
+
+const creatorBase = (handle: string, nickname: string) => ({
+  platform: 'tiktok',
+  handle,
+  nickname,
+  followers: 80000,
+  bio_links: [],
+  verified: false,
+  profile_url: `https://www.tiktok.com/@${handle}`,
+  source_keyword: 'portable charger',
+  source_dimension: 'category',
+  source_tasks: [0],
+})
+/** 旧名单里的三个人：alice、bob 带旧判断与草稿，dave 没草稿 */
+const ALICE = { ...creatorBase('alice', 'Mei Lin'), bio: BIO, email: 'mei@example.com', recent_posts: [{ desc: POST }], fit: '✅', fit_reason: '作品文案写三种原料的冰沙系列，每次都拍清洗', outreach_draft: GOOD_DRAFT }
+const BOB = { ...creatorBase('bob', 'Bob Tan'), bio: BOB_BIO, email: 'bob@example.com', fit: '✅', fit_reason: '简介写冰沙与清洗技巧，作品未查询', outreach_draft: BOB_DRAFT }
+const DAVE = { ...creatorBase('dave', 'Dave'), bio: 'Kitchen gadgets', fit: '⚠️', fit_reason: '简介只写厨房小工具，作品未查询' }
+
+const TASK = {
+  product: 'demo',
+  market: 'US',
+  target_count: 1,
+  brand_calibration: {
+    version: 'brand-v1',
+    target_creator_types: [],
+    tone_aesthetic: [],
+    natural_scenarios: [],
+    negative_signals: [],
+    sources: [
+      { source: 'https://example.com/p/blender', kind: 'verified_product_fact', detail: FACT },
+      { source: 'brand brief', kind: 'brand_preference', detail: 'We would like to offer a 2 year warranty' },
+    ],
+  },
+  tasks: [
+    { keyword: 'portable charger', dimension: 'category', platform: 'tiktok' },
+    { keyword: 'power bank', dimension: 'category', platform: 'instagram' },
+  ],
+  done: [0],
+  answered: { '0': 1 },
+  found: { '0': 1 },
+  offsets: { '0': 0 },
+  pages: { '0': 1 },
+  created_at: '2026-10-01T00:00:00Z',
+  updated_at: '2026-10-01T00:00:00Z',
+}
+
+/** HEADERS（rows.d.ts 里的 43 列字面量）+ U9.k 列出的 22 列 = 评审表 65 列 */
+const REVIEW_HEADERS_65 = [
+  'tier', 'score', 'fit', 'fit_reason', 'platform', 'handle', 'nickname', 'followers', 'post_count', 'bio',
+  'email', 'email_verified', 'audience_geo_top', 'metrics_account_followers', 'metrics_account_following', 'engagement_rate_followers', 'engagement_rate_views', 'median_views', 'median_engagements', 'view_rate',
+  'following_ratio', 'reach_consistency', 'median_post_gap_days', 'latest_post_at', 'days_since_last_post', 'activity_status', 'audience_quality_risk', 'audience_quality_reasons', 'tier_adjustments', 'collaboration_quote',
+  'implied_ecpm', 'implied_ecpe', 'metrics_observed_at', 'cross_platform', 'linked_handle', 'profile_url', 'source_keyword', 'source_dimension', 'best_post_desc', 'outreach_draft',
+  'previously_recommended', 'discovery_sources', 'metrics_sample_scope',
+  'effective_priority', 'effective_priority_account_key', 'eligibility', 'adoption_priority', 'observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk', 'brand_calibration_version', 'review_status',
+  'manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement', 'manual_comment_authenticity', 'manual_reject_reason', 'manual_note', 'manual_reviewed', 'manual_round_id',
+  'linked_agent_review', 'manual_feedback_accounts', 'outreach_subject',
+]
+
+const review: any = await import('./lib/review.js')
+const projection: any = await import('./lib/review-projection.js')
+const ds: any = await import('./lib/draft-sources.js')
+const pipeline: any = await import('./lib/pipeline.js')
+const rows: any = await import('./lib/rows.js')
+const report: any = await import('./lib/report.js')
+const REVIEW_FILE = 'agent-review.json'
+const A = 'tiktok:alice'
+const B = 'tiktok:bob'
+
+/** 自备：让被测代码自己迁出一份合规正本（alice、bob 各一条旧评审），不手写必填项 */
+function baseDoc(): any {
+  const empty = tempDir()
+  const doc = clone(projection.migrateLegacyAgentReviews(review.readAgentReviewDocument(empty), [ALICE, BOB]))
+  doc.updated_at = '2026-10-02T00:00:00Z'
+  return doc
+}
+const withSources = (key: string, sources: unknown): any => {
+  const doc = baseDoc()
+  doc.reviews[key].draft_sources = sources
+  return doc
+}
+
+return { passes, readFileSync, inspect, show, must, same, has, hasNot, inOrder, count, thrown, said, clone, temps, tempDir, runRender, unzip, LINE_ATTR, LINE_TAIL, rawLines, lineText, lineWith, SEG, entries, entryWith, FACT, POST, BIO, GOOD_DRAFT, GOOD_SOURCES, GOOD_GIVEN, BOB_BIO, BOB_DRAFT, BOB_SOURCES, BOB_GIVEN, ALL_KINDS, creatorBase, ALICE, BOB, DAVE, TASK, REVIEW_HEADERS_65, review, projection, ds, pipeline, rows, report, REVIEW_FILE, A, B, baseDoc, withSources }
+}
+await group('p2-sources-isolated', async () => {
+suite('P2', '开发信出处登记、逐行出处那一行与只标不拦（P2.e、P2.f、P2.g）：没读过实现的会话照准入读物包写的那一份')
+const { passes, readFileSync, show, must, same, has, hasNot, inOrder, count, thrown, said, clone, tempDir, SEG, entries, entryWith, FACT, POST, BIO, GOOD_DRAFT, GOOD_SOURCES, GOOD_GIVEN, BOB_DRAFT, BOB_SOURCES, BOB_GIVEN, ALL_KINDS, ALICE, BOB, DAVE, REVIEW_HEADERS_65, review, projection, ds, pipeline, rows, REVIEW_FILE, A, B, baseDoc, withSources, temps } = await p2IsolatedKit()
+try {
+// ═════════════════════════════ P2.e：正本里的 draft_sources ═════════════════════════════
+
+ok('接线前提：迁出的正本里有 tiktok:alice 与 tiktok:bob 两条评审，不带 draft_sources 时写得进去', passes(() => {
+  const doc = baseDoc()
+  same(Object.keys(doc.reviews).sort(), [A, B], '评审主键')
+  review.writeAgentReviewDocument(tempDir(), doc)
+}))
+
+ok('P2.e 合规：bio、post、nickname、product、self 五种来处与 schedule、contact 两种用途的登记写得进正本（product 不被当成不认得的来处）', passes(() => {
+  review.writeAgentReviewDocument(tempDir(), withSources(A, ALL_KINDS))
+}))
+
+ok('P2.e 往返：写进去再读回来，那条评审的 draft_sources 与写入的七项逐项相同（self 项没有 quote 键，没标用途的没有 purpose 键）', passes(() => {
+  const dir = tempDir()
+  review.writeAgentReviewDocument(dir, withSources(A, ALL_KINDS))
+  const read = review.readAgentReviewDocument(dir)
+  same(read.status, 'present', '读取状态')
+  same(read.document.reviews[A].draft_sources, [
+    { draft: 'Your 3-ingredient smoothie series', from: 'post', quote: 'my 3 ingredient smoothie series' },
+    { draft: 'Hi Mei,', from: 'nickname', quote: 'Mei' },
+    { draft: 'busy mornings', from: 'bio', quote: 'busy mornings' },
+    { draft: 'We make a portable blender with a 400ml cup', from: 'product', quote: 'Portable blender with a 400ml cup.' },
+    { draft: 'That part stuck with me.', from: 'self' },
+    { draft: 'Tuesday at 3pm EST', from: 'self', purpose: 'schedule' },
+    { draft: '415 555 0199', from: 'self', purpose: 'contact' },
+  ])
+}))
+
+ok('P2.e 往返：盘上的 agent-review.json 里那条评审的 draft_sources 也是这七项，另一条评审（bob）没有这个键', passes(() => {
+  const dir = tempDir()
+  review.writeAgentReviewDocument(dir, withSources(A, ALL_KINDS))
+  const disk = JSON.parse(readFileSync(join(dir, REVIEW_FILE), 'utf8'))
+  same(disk.reviews[A].draft_sources, clone(ALL_KINDS))
+  same('draft_sources' in disk.reviews[B], false, 'bob 评审带不带 draft_sources')
+}))
+
+ok('P2.e 合规：draft_sources 是空数组也收，读回来还是空数组', passes(() => {
+  const dir = tempDir()
+  review.writeAgentReviewDocument(dir, withSources(A, []))
+  same(review.readAgentReviewDocument(dir).document.reviews[A].draft_sources, [])
+}))
+
+// 不合规的 20 种：坏的那一项放在三项里的第 2 项（前后各一项合规的）
+const good1 = { draft: 'That part stuck with me.', from: 'self' }
+const good2 = { draft: 'Hi Mei,', from: 'self' }
+const mid = (bad: unknown) => [good1, bad, good2]
+const BAD: Array<{ label: string; sources: unknown; names: string }> = [
+  { label: 'draft_sources 是对象不是数组', sources: { '0': good1 }, names: 'draft_sources' },
+  { label: 'draft_sources 是一句字符串', sources: 'Hi Mei, 是发件人自己的话', names: 'draft_sources' },
+  { label: '其中一项是字符串不是对象', sources: mid('Hi Mei,'), names: 'draft_sources' },
+  { label: '其中一项是 null', sources: mid(null), names: 'draft_sources' },
+  { label: '其中一项是数组', sources: mid(['Hi Mei,', 'self']), names: 'draft_sources' },
+  { label: '多出不认得的键 note', sources: mid({ draft: 'Hi Mei,', from: 'self', note: '问候' }), names: 'note' },
+  { label: '缺 draft', sources: mid({ from: 'self' }), names: 'draft' },
+  { label: 'draft 是空串', sources: mid({ draft: '', from: 'self' }), names: 'draft' },
+  { label: 'draft 是数字', sources: mid({ draft: 42, from: 'self' }), names: 'draft' },
+  { label: '缺 from', sources: mid({ draft: 'Hi Mei,' }), names: 'from' },
+  { label: 'from 写成 work_evidence（Agent 自己记的证据不算出处）', sources: mid({ draft: 'Hi Mei,', from: 'work_evidence', quote: 'Mei' }), names: 'from' },
+  { label: 'from 写成 web', sources: mid({ draft: 'Hi Mei,', from: 'web', quote: 'Mei' }), names: 'from' },
+  { label: 'from 为 bio 却没写 quote', sources: mid({ draft: 'busy mornings', from: 'bio' }), names: 'quote' },
+  { label: 'from 为 post 而 quote 是空串', sources: mid({ draft: 'Your smoothie series', from: 'post', quote: '' }), names: 'quote' },
+  { label: 'from 为 nickname 而 quote 是数字', sources: mid({ draft: 'Hi Mei,', from: 'nickname', quote: 7 }), names: 'quote' },
+  { label: 'from 为 product 却没写 quote', sources: mid({ draft: 'We make a portable blender', from: 'product' }), names: 'quote' },
+  { label: 'from 为 self 却写了 quote', sources: mid({ draft: 'Hi Mei,', from: 'self', quote: 'Mei' }), names: 'quote' },
+  { label: 'purpose 写成认不得的 banana', sources: mid({ draft: 'Tuesday at 3pm EST', from: 'self', purpose: 'banana' }), names: 'purpose' },
+  { label: 'from 为 product 却挂了 purpose: schedule', sources: mid({ draft: 'Rinses clean in about ten seconds', from: 'product', quote: 'Rinses clean in about ten seconds.', purpose: 'schedule' }), names: 'purpose' },
+  { label: 'from 为 bio 却挂了 purpose: contact', sources: mid({ draft: 'busy mornings', from: 'bio', quote: 'busy mornings', purpose: 'contact' }), names: 'purpose' },
+]
+for (const bad of BAD) {
+  // 每种三条：写入被拒且原字节不变／报错点名评审与键／读取也拒
+  let writeError: any
+  ok(`P2.e 拒绝·写入：${bad.label} —— 写正本时抛错拒绝，盘上已有的 agent-review.json 一个字节不变（D21.i）`, passes(() => {
+    const dir = tempDir()
+    review.writeAgentReviewDocument(dir, withSources(A, ALL_KINDS))
+    const before = readFileSync(join(dir, REVIEW_FILE))
+    writeError = thrown(() => review.writeAgentReviewDocument(dir, withSources(A, bad.sources)))
+    must(before.equals(readFileSync(join(dir, REVIEW_FILE))), '拒绝之后 agent-review.json 的字节变了')
+  }))
+  ok(`P2.e 拒绝·点名：${bad.label} —— 报错是 ReviewInputError，写明评审 tiktok:alice、draft_sources 与「${bad.names}」`, passes(() => {
+    must(writeError !== undefined, '上一条没拿到报错')
+    must(writeError instanceof review.ReviewInputError, `报错应是 ReviewInputError，实际: ${show(writeError)}`)
+    const text = said(writeError)
+    has(text, A, '报错')
+    has(text, 'draft_sources', '报错')
+    // 「draft」这个键名不能靠「draft_sources」这几个字蒙混过去
+    if (bad.names !== 'draft_sources') has(text.split('draft_sources').join(''), bad.names, '报错（去掉 draft_sources 字样后）')
+  }))
+  ok(`P2.e 拒绝·读取：${bad.label} —— 盘上的正本写成这样时读取抛错拒绝（不当成缺席），报错写明 tiktok:alice`, passes(() => {
+    const dir = tempDir()
+    writeFileSync(join(dir, REVIEW_FILE), JSON.stringify(withSources(A, bad.sources), null, 2))
+    const e = thrown(() => review.readAgentReviewDocument(dir))
+    has(said(e), A, '报错')
+  }))
+}
+
+ok('P2.e 拒绝：任务目录里原本没有 agent-review.json 时，写不合规的登记被拒之后文件仍不存在', passes(() => {
+  const dir = tempDir()
+  thrown(() => review.writeAgentReviewDocument(dir, withSources(A, [{ draft: 'Hi Mei,', from: 'self', note: '问候' }])))
+  same(existsSync(join(dir, REVIEW_FILE)), false, 'agent-review.json 在不在')
+}))
+
+ok('P2.e 点名哪条评审：坏登记在 bob 那条评审里时，报错写 tiktok:bob、不写 tiktok:alice', passes(() => {
+  const doc = withSources(A, ALL_KINDS)
+  doc.reviews[B].draft_sources = [{ draft: 'Hi Bob,', from: 'self', note: '问候' }]
+  const text = said(thrown(() => review.writeAgentReviewDocument(tempDir(), doc)))
+  has(text, B, '报错')
+  hasNot(text, A, '报错')
+}))
+
+const noDigits = (bad: unknown, at: number) => {
+  const list: unknown[] = [good1, good2, { draft: 'Best, Yu', from: 'self' }]
+  list[at] = bad
+  return list
+}
+ok('P2.e 点名第几项：同一种坏法放在三项里的第 1 项与第 3 项，两次报错的文字不同（看得出是第几项）', passes(() => {
+  const bad = { draft: 'Best, Yu', from: 'self', note: '落款' }
+  const first = said(thrown(() => review.writeAgentReviewDocument(tempDir(), withSources(A, noDigits(bad, 0)))))
+  const third = said(thrown(() => review.writeAgentReviewDocument(tempDir(), withSources(A, noDigits(bad, 2)))))
+  must(first !== third, `两次报错一字不差，看不出第几项:\n${first}`)
+}))
+ok('P2.e 点名第几项：项号用阿拉伯数字写（从 0 数或从 1 数都算）—— 坏在第 1 项时报错里有 0 或 1，坏在第 3 项时有 2 或 3', passes(() => {
+  const bad = { draft: 'Best, Yu', from: 'self', note: '落款' }
+  const first = said(thrown(() => review.writeAgentReviewDocument(tempDir(), withSources(A, noDigits(bad, 0)))))
+  const third = said(thrown(() => review.writeAgentReviewDocument(tempDir(), withSources(A, noDigits(bad, 2)))))
+  must(/[01]/.test(first), `坏在第 1 项的报错里没有 0 或 1:\n${first}`)
+  must(/[23]/.test(third), `坏在第 3 项的报错里没有 2 或 3:\n${third}`)
+}))
+ok('P2.e 多处都报：一条评审里两项各坏一处（第 1 项多键 note、第 3 项 self 写了 quote），报错里 note 与 quote 都点到', passes(() => {
+  const text = said(thrown(() => review.writeAgentReviewDocument(tempDir(), withSources(A, [{ draft: 'Hi Mei,', from: 'self', note: '问候' }, good1, { draft: 'Best, Yu', from: 'self', quote: 'Yu' }]))))
+  has(text, 'note', '报错')
+  has(text.split('draft_sources').join(''), 'quote', '报错')
+}))
+
+ok('P2.e 单条校验函数 draftSourceProblems：合规的五种来处与两种用途各返回空数组', passes(() => {
+  // 搬入时改了接线：函数收的是整串（ADR-249），每项各包成一串的一项传
+  same(ALL_KINDS.map((s) => ds.draftSourceProblems([s], 'reviews.tiktok:alice.draft_sources')), [[], [], [], [], [], [], []])
+}))
+ok('P2.e 单条校验函数 draftSourceProblems：self 写了 quote 时返回的问题不为空，文字里带上传进去的位置与 quote', passes(() => {
+  const problems: string[] = ds.draftSourceProblems([{ draft: 'Hi Mei,', from: 'self', quote: 'Mei' }], '位置标记-甲')
+  must(Array.isArray(problems) && problems.length > 0, `应有问题，实际: ${show(problems)}`)
+  has(problems.join('\n'), '位置标记-甲', '问题')
+  has(problems.join('\n'), 'quote', '问题')
+}))
+ok('P2.e 单条校验函数 draftSourceProblems：不是对象（字符串、null、数组）时返回的问题不为空', passes(() => {
+  same([ds.draftSourceProblems(['Hi Mei,'], '甲').length > 0, ds.draftSourceProblems([null], '甲').length > 0, ds.draftSourceProblems([[]], '甲').length > 0], [true, true, true])
+}))
+
+// ── 投影 ──
+const projected = (doc: any, creators: any[]): any[] => {
+  const dir = tempDir()
+  review.writeAgentReviewDocument(dir, doc)
+  return projection.projectAgentReviews(review.readAgentReviewDocument(dir).document, creators)
+}
+ok('P2.e 投影：正本带 draft_sources 时，投影出的名单上 alice 那一行原样带着同样七项，草稿也原样', passes(() => {
+  const out = projected(withSources(A, ALL_KINDS), [clone(ALICE), clone(BOB)])
+  const alice = out.find((c: any) => c.handle === 'alice')
+  same(alice.draft_sources, clone(ALL_KINDS))
+  same(alice.outreach_draft, GOOD_DRAFT, '草稿')
+}))
+ok('P2.e 投影：改名单上那份登记（改字、加项）不会反过来改到正本', passes(() => {
+  const dir = tempDir()
+  review.writeAgentReviewDocument(dir, withSources(A, ALL_KINDS))
+  const document = review.readAgentReviewDocument(dir).document
+  const out = projection.projectAgentReviews(document, [clone(ALICE), clone(BOB)])
+  const alice = out.find((c: any) => c.handle === 'alice')
+  alice.draft_sources[0].draft = '被改掉了'
+  alice.draft_sources.push({ draft: '多出来的', from: 'self' })
+  same(document.reviews[A].draft_sources, clone(ALL_KINDS), '正本里的登记')
+}))
+ok('P2.e 投影：正本删掉 draft_sources 之后，旧名单上残留的那份登记不再出现在投影里（草稿还在）', passes(() => {
+  const stale = { ...clone(ALICE), draft_sources: clone(ALL_KINDS) }
+  const out = projected(baseDoc(), [stale, clone(BOB)])
+  const alice = out.find((c: any) => c.handle === 'alice')
+  same(alice.draft_sources, undefined, '投影里的 draft_sources')
+  hasNot(JSON.stringify(out), 'draft_sources', '投影名单的 JSON')
+  same(alice.outreach_draft, GOOD_DRAFT, '草稿')
+}))
+ok('P2.e 投影：正本里根本没有评审的人（dave），旧名单上残留的 draft_sources 也不留在投影里', passes(() => {
+  const stale = { ...clone(DAVE), draft_sources: [{ draft: 'Hi Dave,', from: 'self' }] }
+  const out = projected(baseDoc(), [clone(ALICE), clone(BOB), stale])
+  same(out.find((c: any) => c.handle === 'dave').draft_sources, undefined)
+}))
+
+// ── 旧名单当种子 ──
+ok('P2.e 种子：旧名单当采集原件的种子时，草稿与 draft_sources 一起清掉，账号与昵称留着', passes(() => {
+  const seed = pipeline.rawSeedFromLegacy([{ ...clone(ALICE), draft_sources: clone(ALL_KINDS) }])
+  same(seed.length, 1, '种子人数')
+  same([seed[0].handle, seed[0].nickname], ['alice', 'Mei Lin'], '账号与昵称')
+  same(seed[0].draft_sources, undefined, '种子里的 draft_sources')
+  same(seed[0].outreach_draft, undefined, '种子里的草稿')
+  hasNot(JSON.stringify(seed), 'draft_sources', '种子的 JSON')
+}))
+ok('P2.e 种子：做种子不改传进去的旧名单 —— 传进去的那条记录上草稿与七项登记都还在', passes(() => {
+  const previous = [{ ...clone(ALICE), draft_sources: clone(ALL_KINDS) }]
+  pipeline.rawSeedFromLegacy(previous)
+  same(previous[0].draft_sources, clone(ALL_KINDS))
+  same(previous[0].outreach_draft, GOOD_DRAFT, '草稿')
+}))
+
+// ═════════════════════════════ P2.f：逐行对账（函数层）═════════════════════════════
+const itemsOf = (draft: string, sources: unknown, given: unknown = {}): any[] => {
+  const r = ds.draftSourceItems(draft, sources, given)
+  if (!Array.isArray(r)) throw new Error(`有草稿时应返回数组，实际: ${show(r)}`)
+  return r
+}
+const tag = (i: any) => `${i.status}|${i.draft}`
+const LOOK = ['quote_missing', 'not_queried', 'partial', 'unregistered', 'not_in_draft']
+/** 「要看」那一段的几条，按返回的先后 */
+const look = (list: any[]) => list.filter((i) => LOOK.includes(i.status)).map(tag)
+const lineOf = (draft: string, sources: unknown, given: unknown = {}): string => {
+  const r = ds.draftSourceLine(draft, sources, given)
+  if (typeof r !== 'string') throw new Error(`有草稿时应返回字符串，实际: ${show(r)}`)
+  return r
+}
+
+// ── 对账：一句信、一条登记，看结果是哪一种 ──
+const HALF_KANA = 'ｶﾞｼﾞｪｯﾄ' // ｶﾞｼﾞｪｯﾄ（半角假名 + 半角浊点）
+const FULL_KANA = 'ガジェット好き' // ガジェット好き
+const MATCH: Array<[string, string, Record<string, unknown>, string, string]> = [
+  ['简介里逐字有这段', 'bio', { bio: BIO }, 'recipes for busy mornings', 'matched'],
+  ['不分大小写', 'bio', { bio: 'Busy Mornings Club' }, 'busy mornings club', 'matched'],
+  ['空白合并：原文里多空格、换行、制表符', 'bio', { bio: 'busy   mornings\n\there' }, 'busy mornings here', 'matched'],
+  ['空白合并：登记里多空格', 'bio', { bio: 'busy mornings here' }, 'busy    mornings  here', 'matched'],
+  ['弯双引号与直双引号算同一个（登记写弯的）', 'bio', { bio: 'I say "hello" daily' }, 'I say “hello” daily', 'matched'],
+  ['弯双引号与直双引号算同一个（原文写弯的）', 'bio', { bio: 'I say “hello” daily' }, 'I say "hello" daily', 'matched'],
+  ['弯单引号与直撇号算同一个', 'bio', { bio: "I don't run marathons" }, 'I don’t run marathons', 'matched'],
+  ['短破折号算连字符', 'bio', { bio: 'smoothies - daily' }, 'smoothies – daily', 'matched'],
+  ['长破折号算连字符', 'bio', { bio: 'smoothies - daily' }, 'smoothies — daily', 'matched'],
+  ['全角字母按 NFKC 统一', 'bio', { bio: 'ABC smoothies' }, 'ＡＢＣ smoothies', 'matched'],
+  ['半角假名加半角浊点与全角浊音假名算同一个字', 'bio', { bio: FULL_KANA }, HALF_KANA, 'matched'],
+  ['字母加附加符号与合成好的字算同一个字', 'bio', { bio: 'café mornings' }, 'café mornings', 'matched'],
+  ['换了一个词就对不上', 'bio', { bio: 'recipes for busy mornings' }, 'recipes for busy evenings', 'quote_missing'],
+  ['要逐字连着出现：原文里隔开的两个词拼不成一段', 'bio', { bio: '3-ingredient recipes for busy mornings' }, 'busy recipes', 'quote_missing'],
+  ['简介缺席（没查过）是对不了，不说成没有', 'bio', { posts: [POST], nickname: 'Mei Lin' }, 'busy mornings', 'not_queried'],
+  ['简介是 null（查过、他没写）是原文对不上', 'bio', { bio: null }, 'busy mornings', 'quote_missing'],
+  ['简介是空串（查过、是空的）是原文对不上', 'bio', { bio: '' }, 'busy mornings', 'quote_missing'],
+  ['作品文案：不在第一条、在第二条里也算对得上', 'post', { posts: ['Morning run vlog', POST] }, 'yes I show the cleanup every time', 'matched'],
+  ['作品文案：两条文案各一半拼起来的不算', 'post', { posts: ['Day 12 of my smoothie', 'series and cleanup'] }, 'smoothie series', 'quote_missing'],
+  ['作品文案查过而没有这段是原文对不上', 'post', { posts: ['Morning run vlog'] }, 'smoothie series', 'quote_missing'],
+  ['作品缺席（没查过）是对不了', 'post', { bio: BIO }, 'smoothie series', 'not_queried'],
+  ['作品是空数组（没查过）是对不了，不说成没有', 'post', { bio: BIO, posts: [] }, 'smoothie series', 'not_queried'],
+  ['昵称里有这段', 'nickname', { nickname: 'Mei Lin 🥤' }, 'mei lin', 'matched'],
+  ['昵称里没有这段是原文对不上', 'nickname', { nickname: 'Mei Lin' }, 'Sarah', 'quote_missing'],
+  ['产品事实：不在第一条、在第二条里也算对得上', 'product', { facts: ['Ships in two colors.', FACT] }, 'Rinses clean in about ten seconds.', 'matched'],
+  ['产品事实：两条事实各一半拼起来的不算', 'product', { facts: ['Portable blender with a 400ml', 'cup that rinses clean'] }, '400ml cup', 'quote_missing'],
+  ['产品事实里没有这段是对不上', 'product', { facts: [FACT] }, '2 year warranty', 'quote_missing'],
+  ['任务里一条已证实的产品事实都没有（缺席）时一律对不上', 'product', { bio: FACT, posts: [FACT], nickname: FACT }, '400ml cup', 'quote_missing'],
+  ['任务里一条已证实的产品事实都没有（空数组）时一律对不上', 'product', { facts: [] }, '400ml cup', 'quote_missing'],
+  ['只认 from 指的那一样：这段在简介里有、登记成作品文案，对不上', 'post', { bio: 'busy mornings', posts: ['Morning run vlog'] }, 'busy mornings', 'quote_missing'],
+  ['只认 from 指的那一样：这段在作品里有、登记成简介，对不上', 'bio', { bio: 'Kitchen gadgets', posts: ['busy mornings'] }, 'busy mornings', 'quote_missing'],
+  ['只认 from 指的那一样：这段在产品事实里有、登记成简介，对不上', 'bio', { bio: 'Kitchen gadgets', facts: [FACT] }, '400ml cup', 'quote_missing'],
+]
+for (const [label, from, given, quote, status] of MATCH) {
+  ok(`P2.f 对账：${label} —— 结果是 ${status}（只这一条，没有别的）`, passes(() => {
+    const list = itemsOf('Line under test.', [{ draft: 'Line under test.', from, quote }], given)
+    same(list.map((i) => i.status), [status])
+  }))
+}
+ok('P2.f 对账：作品查过、唯一一条文案是空串时，登记成作品文案的原文是「原文对不上」（查过，不是没查过）', passes(() => {
+  same(itemsOf('Line under test.', [{ draft: 'Line under test.', from: 'post', quote: 'smoothie series' }], { posts: [''] }).map((i) => i.status), ['quote_missing'])
+}))
+ok('P2.f 对账：对得上的那一条带着信里这段与原文片段两样（draft 与 quote 是登记里写的原样）', passes(() => {
+  same(itemsOf('Line under test.', [{ draft: 'Line under test.', from: 'bio', quote: 'Busy   MORNINGS' }], { bio: BIO }), [{ status: 'matched', draft: 'Line under test.', from: 'bio', quote: 'Busy   MORNINGS' }])
+}))
+
+// ── 一条结果的写法 ──
+ok('P2.f 写法：原文对不上的那一条写着「原文对不上」和信里那段', passes(() => {
+  const t = ds.draftSourceText({ status: 'quote_missing', draft: 'You run ultra marathons daily.', from: 'bio', quote: 'I run ultra marathons' })
+  has(t, '原文对不上')
+  has(t, 'You run ultra marathons daily.')
+}))
+ok('P2.f 写法：没查过的那一条写着「对不了，没查过」和信里那段，不写「原文对不上」', passes(() => {
+  const t = ds.draftSourceText({ status: 'not_queried', draft: 'Your latest post rocks.', from: 'post', quote: 'this post rocks' })
+  has(t, '对不了，没查过')
+  has(t, 'Your latest post rocks.')
+  hasNot(t, '原文对不上')
+}))
+ok('P2.f 写法：产品事实对不上的那一条不把产品资料说成博主的（没有「他的」二字）', passes(() => {
+  const t = ds.draftSourceText({ status: 'quote_missing', draft: 'It has a 2 year warranty.', from: 'product', quote: '2 year warranty' })
+  hasNot(t, '他的')
+  has(t, 'It has a 2 year warranty.')
+}))
+ok('P2.f 写法：产品事实对不上的那一条也带「对不上」三个字', passes(() => {
+  has(ds.draftSourceText({ status: 'quote_missing', draft: 'It has a 2 year warranty.', from: 'product', quote: '2 year warranty' }), '对不上')
+}))
+ok('P2.f 写法：对得上的那一条并排写「信里这段 ← 原文」—— 信里那段在前、箭头居中、原文在后', passes(() => {
+  const t = ds.draftSourceText({ status: 'matched', draft: 'Hi Bob,', from: 'nickname', quote: 'Bob Tan' })
+  inOrder(t, ['Hi Bob,', '←', 'Bob Tan'])
+}))
+ok('P2.f 写法：整行没登记的那一条写着「没登记出处」和那一行', passes(() => {
+  const t = ds.draftSourceText({ status: 'unregistered', draft: 'Totally unregistered line here.' })
+  has(t, '没登记出处')
+  has(t, 'Totally unregistered line here.')
+}))
+ok('P2.f 写法：只登记了一部分的那一条整行印出，并列出没登记的部分', passes(() => {
+  const t = ds.draftSourceText({ status: 'partial', draft: 'We ship fast and cheap.', rest: 'and cheap.' })
+  has(t, 'We ship fast and cheap.')
+  must(count(t, 'and cheap.') >= 2, `整行之外应再列一遍没登记的部分「and cheap.」，实际: ${show(t)}`)
+}))
+ok('P2.f 写法：登记了但信里已没有的那一条写着登记的那段，而且和「没登记出处」的写法不同、不带「没登记出处」', passes(() => {
+  const gone = ds.draftSourceText({ status: 'not_in_draft', draft: 'Old sentence gone.' })
+  has(gone, 'Old sentence gone.')
+  hasNot(gone, '没登记出处')
+  must(gone !== ds.draftSourceText({ status: 'unregistered', draft: 'Old sentence gone.' }), '两种情况写成了一样的字')
+}))
+ok('P2.f 写法：发件人自己的话带 schedule 时注明「约时间」，带 contact 时注明「联系方式」，没带用途的两样都不写', passes(() => {
+  const schedule = ds.draftSourceText({ status: 'self', draft: 'Free on Tuesday?', purpose: 'schedule' })
+  const contact = ds.draftSourceText({ status: 'self', draft: 'Call me maybe.', purpose: 'contact' })
+  const plain = ds.draftSourceText({ status: 'self', draft: 'Hi Mei,' })
+  has(schedule, '约时间')
+  has(schedule, 'Free on Tuesday?')
+  hasNot(schedule, '联系方式')
+  has(contact, '联系方式')
+  hasNot(contact, '约时间')
+  has(plain, 'Hi Mei,')
+  hasNot(plain, '约时间')
+  hasNot(plain, '联系方式')
+}))
+ok('P2.f 写法：名单被手改出认不得的用途（banana）时不照印，也不印出 undefined', passes(() => {
+  const t = ds.draftSourceText({ status: 'self', draft: 'Hi Mei,', purpose: 'banana' })
+  hasNot(t, 'undefined')
+  hasNot(t, 'banana')
+  hasNot(lineOf('Hi Mei,', [{ draft: 'Hi Mei,', from: 'self', purpose: 'banana' }]), 'undefined', '那一行')
+}))
+
+// ── 文档里的整封好例子 ──
+ok('P2.f 好例子（outreach-draft.md）：十条登记全盖住整封信，没有一条要看的；对得上的是主题、第一句、产品那句这三条（按信里先后），其余七条是发件人自己的话', passes(() => {
+  const list = itemsOf(GOOD_DRAFT, GOOD_SOURCES, GOOD_GIVEN)
+  same(look(list), [], '要看的几条')
+  same(list.filter((i) => i.status === 'matched').map((i) => i.quote), ['my 3 ingredient smoothie series', 'my 3 ingredient smoothie series, and yes I show the cleanup every time', 'Portable blender with a 400ml cup. Rinses clean in about ten seconds.'], '对得上的原文')
+  same(list.filter((i) => i.status === 'self').length, 7, '发件人自己的话条数')
+  same(list.length, 10, '总条数')
+}))
+ok('P2.f 好例子：那一行以「要看：无」开头，分成三段，第二段以「对得上：」开头、有三个「←」，第三段以「发件人自己的话」开头、有七条', passes(() => {
+  const segments = lineOf(GOOD_DRAFT, GOOD_SOURCES, GOOD_GIVEN).split(SEG)
+  same(segments.length, 3, '段数')
+  same(segments[0], '要看：无', '第一段')
+  must(segments[1].startsWith('对得上：'), `第二段开头: ${show(segments[1])}`)
+  same(count(segments[1], '←'), 3, '「←」个数')
+  inOrder(segments[1], ['my 3 ingredient smoothie series', 'my 3 ingredient smoothie series, and yes I show the cleanup every time', 'Portable blender with a 400ml cup. Rinses clean in about ten seconds.'], '第二段')
+  must(segments[2].startsWith('发件人自己的话'), `第三段开头: ${show(segments[2])}`)
+  same(entries(segments[2]).length, 7, '第三段条数')
+  inOrder(segments[2], ['Hi Mei,', 'That part stuck with me.', "I'm Yu from Brightly.", 'It felt relevant to that exact point.', 'Happy to send one over', 'Want me to ship one?'], '第三段')
+}))
+
+// ── 排序 ──
+const ORDER_DRAFT = ['Subject: Loved your smoothie series', '', 'Hi Mei,', 'Your bio says busy mornings.', 'We make a 400ml cup.', 'Call me maybe.', 'Best, Yu'].join('\n')
+const ORDER_SOURCES = [
+  { draft: 'Best, Yu', from: 'self' },
+  { draft: 'We make a 400ml cup.', from: 'product', quote: '400ml cup' },
+  { draft: 'Hi Mei,', from: 'self' },
+  { draft: 'Your bio says busy mornings.', from: 'bio', quote: 'busy mornings' },
+  { draft: 'Loved your smoothie series', from: 'post', quote: 'smoothie series' },
+  { draft: 'Call me maybe.', from: 'self', purpose: 'contact' },
+]
+ok('P2.f 排序：逐条结果按在信里出现的先后排，不按登记的先后（登记顺序是打乱的）', passes(() => {
+  same(itemsOf(ORDER_DRAFT, ORDER_SOURCES, GOOD_GIVEN).map(tag), [
+    'matched|Loved your smoothie series',
+    'self|Hi Mei,',
+    'matched|Your bio says busy mornings.',
+    'matched|We make a 400ml cup.',
+    'self|Call me maybe.',
+    'self|Best, Yu',
+  ])
+}))
+ok('P2.f 排序：那一行里「对得上」段内是 主题→简介那句→产品那句，「发件人自己的话」段内是 Hi Mei,→Call me maybe.→Best, Yu；带 contact 的那一条后面注明「联系方式」', passes(() => {
+  const segments = lineOf(ORDER_DRAFT, ORDER_SOURCES, GOOD_GIVEN).split(SEG)
+  same(segments.length, 3, '段数')
+  same(segments[0], '要看：无', '第一段')
+  inOrder(segments[1], ['Loved your smoothie series', 'Your bio says busy mornings.', 'We make a 400ml cup.'], '对得上段')
+  inOrder(segments[2], ['Hi Mei,', 'Call me maybe.', 'Best, Yu'], '发件人自己的话段')
+  has(entryWith(segments[2], 'Call me maybe.'), '联系方式', 'Call me maybe. 那一条')
+  hasNot(entryWith(segments[2], 'Hi Mei,'), '联系方式', 'Hi Mei, 那一条')
+}))
+
+ok('P2.f 要看：原文对不上、没查过、产品对不上、整行没登记、只登记了一部分各列一条，按信里先后；登记了但信里已没有的排在最后（哪怕它登记在最前）', passes(() => {
+  same(look(itemsOf(BOB_DRAFT, BOB_SOURCES, BOB_GIVEN)), [
+    'quote_missing|You run ultra marathons daily.',
+    'not_queried|Your latest post rocks.',
+    'quote_missing|It has a 2 year warranty.',
+    'unregistered|Totally unregistered line here.',
+    'partial|We ship fast and cheap.',
+    'not_in_draft|ZZ-GONE-MARKER sentence.',
+  ])
+}))
+ok('P2.f 要看：原文对不上、没查过的那几行已经被登记盖住，不再另列成「没登记出处」；对得上的两条按信里先后是主题、问候', passes(() => {
+  const list = itemsOf(BOB_DRAFT, BOB_SOURCES, BOB_GIVEN)
+  same(list.filter((i) => i.status === 'unregistered').map((i) => i.draft), ['Totally unregistered line here.'], '没登记出处的行')
+  same(list.filter((i) => i.status === 'matched').map(tag), ['matched|Marathon fuel idea', 'matched|Hi Bob,'], '对得上的')
+}))
+ok('P2.f 发件人自己的话单列：登记成 self 的四条不混进要看的几条里，按信里先后，用途原样带着', passes(() => {
+  const selves = itemsOf(BOB_DRAFT, BOB_SOURCES, BOB_GIVEN).filter((i) => i.status === 'self')
+  same(selves.map((i) => [i.draft, i.purpose]), [
+    ['We ship fast', undefined],
+    ['Call me on 415 555 0199.', 'contact'],
+    ['Free on Tuesday at 3pm EST?', 'schedule'],
+    ['Best, Yu', undefined],
+  ])
+}))
+ok('P2.f 整体先后：把同一位置上的 self「We ship fast」拿掉之后，其余各条的先后就是它们在信里的先后，信里已没有的在最末', passes(() => {
+  same(itemsOf(BOB_DRAFT, BOB_SOURCES, BOB_GIVEN).filter((i) => !(i.status === 'self' && i.draft === 'We ship fast')).map(tag), [
+    'matched|Marathon fuel idea',
+    'matched|Hi Bob,',
+    'quote_missing|You run ultra marathons daily.',
+    'not_queried|Your latest post rocks.',
+    'quote_missing|It has a 2 year warranty.',
+    'unregistered|Totally unregistered line here.',
+    'partial|We ship fast and cheap.',
+    'self|Call me on 415 555 0199.',
+    'self|Free on Tuesday at 3pm EST?',
+    'self|Best, Yu',
+    'not_in_draft|ZZ-GONE-MARKER sentence.',
+  ])
+}))
+ok('P2.f 三段的先后：那一行第一段是「要看：」六条（各带各的说法）、第二段「对得上：」两条、第三段「发件人自己的话」四条', passes(() => {
+  const segments = lineOf(BOB_DRAFT, BOB_SOURCES, BOB_GIVEN).split(SEG)
+  same(segments.length, 3, '段数')
+  must(segments[0].startsWith('要看：'), `第一段开头: ${show(segments[0])}`)
+  must(segments[1].startsWith('对得上：'), `第二段开头: ${show(segments[1])}`)
+  must(segments[2].startsWith('发件人自己的话'), `第三段开头: ${show(segments[2])}`)
+  same(entries(segments[0]).length, 6, '要看条数')
+  inOrder(segments[0], ['You run ultra marathons daily.', 'Your latest post rocks.', 'It has a 2 year warranty.', 'Totally unregistered line here.', 'We ship fast and cheap.', 'ZZ-GONE-MARKER sentence.'], '要看段')
+  has(entryWith(segments[0], 'You run ultra marathons daily.'), '原文对不上')
+  has(entryWith(segments[0], 'Your latest post rocks.'), '对不了，没查过')
+  hasNot(entryWith(segments[0], 'It has a 2 year warranty.'), '他的')
+  has(entryWith(segments[0], 'Totally unregistered line here.'), '没登记出处')
+  must(count(entryWith(segments[0], 'We ship fast and cheap.'), 'and cheap.') >= 2, '只登记了一部分的那一条应整行印出、再列出「and cheap.」')
+  same(count(segments[1], '←'), 2, '对得上段的「←」个数')
+  same(entries(segments[2]).length, 4, '发件人自己的话条数')
+  has(entryWith(segments[2], 'Call me on 415 555 0199.'), '联系方式')
+  has(entryWith(segments[2], 'Free on Tuesday at 3pm EST?'), '约时间')
+}))
+ok('P2.f 空的段不出：只有要看的（一行没登记）时，那一行以「要看：」开头，没有「对得上」「发件人自己的话」，也没有段间隔', passes(() => {
+  const line = lineOf('Totally unregistered line here.', [])
+  must(line.startsWith('要看：'), `开头: ${show(line)}`)
+  has(line, '没登记出处')
+  hasNot(line, '对得上')
+  hasNot(line, '发件人自己的话')
+  hasNot(line, SEG)
+}))
+ok('P2.f 要看段空着、别的段有东西：只有发件人自己的话时，那一行是「要看：无」加一段「发件人自己的话」，没有「对得上」', passes(() => {
+  const segments = lineOf('Hi Mei,\nBest, Yu', [{ draft: 'Hi Mei,', from: 'self' }, { draft: 'Best, Yu', from: 'self' }]).split(SEG)
+  same(segments.length, 2, '段数')
+  same(segments[0], '要看：无', '第一段')
+  must(segments[1].startsWith('发件人自己的话'), `第二段开头: ${show(segments[1])}`)
+}))
+ok('P2.f 三段都空：有草稿、信里只剩标点与破折号、一条登记都没有时，那一行整行就是「无」（不是空的），逐条结果是空数组', passes(() => {
+  same(lineOf('---\n***\n…\n— —', []), '无', '那一行')
+  same(lineOf('---\n***\n…\n— —', undefined), '无', '没传登记时那一行')
+  same(itemsOf('---\n***\n…\n— —', []), [], '逐条结果')
+}))
+
+// ── 覆盖按字算 ──
+ok('P2.f 覆盖：没传登记（undefined）时好例子里十一个非空行各列一条「没登记出处」，空行不列；第 2 到 11 条就是各行原文', passes(() => {
+  const list = itemsOf(GOOD_DRAFT, undefined, GOOD_GIVEN)
+  same(list.map((i) => i.status), Array(11).fill('unregistered'), '各条的种类')
+  same(list.slice(1).map((i) => i.draft), [
+    'Hi Mei,',
+    'Your 3-ingredient smoothie series shows the cleanup every time.',
+    'That part stuck with me.',
+    "I'm Yu from Brightly. We make a portable blender with a 400ml cup",
+    'that rinses clean in about ten seconds. It felt relevant to that exact point.',
+    "Happy to send one over, no strings. If it doesn't fit your kitchen,",
+    "no post needed. If it does, we'd love to talk about a paid piece.",
+    'Want me to ship one? Just need an address.',
+    'Best,',
+    'Yu',
+  ])
+  has(list[0].draft, 'Your 3-ingredient smoothie series', '主题那一条')
+}))
+ok('P2.f 覆盖：主题行没登记时，列出的那一行是去掉「Subject:」标签和它后面空格的「Your 3-ingredient smoothie series」', passes(() => {
+  same(itemsOf(GOOD_DRAFT, undefined, GOOD_GIVEN)[0].draft, 'Your 3-ingredient smoothie series')
+}))
+ok('P2.f 覆盖：整行都登记了的行不列；只登记了一小段的行列成「只登记了一部分」，没登记的部分里有「and cheap.」、没有已登记的「We ship」', passes(() => {
+  const list = itemsOf('Hi Mei,\nWe ship fast and cheap.', [{ draft: 'Hi Mei,', from: 'self' }, { draft: 'We ship fast', from: 'self' }])
+  same(look(list), ['partial|We ship fast and cheap.'])
+  const partial = list.find((i) => i.status === 'partial')
+  has(partial.rest, 'and cheap.', '没登记的部分')
+  hasNot(partial.rest, 'We ship', '没登记的部分')
+}))
+ok('P2.f 覆盖：一行里登记了中间一段，前后两段没登记的都列出来', passes(() => {
+  const partial = itemsOf('Hello there Mei, welcome back', [{ draft: 'there Mei,', from: 'self' }]).find((i) => i.status === 'partial')
+  must(partial !== undefined, '应有一条「只登记了一部分」')
+  same(partial.draft, 'Hello there Mei, welcome back', '整行')
+  inOrder(partial.rest, ['Hello', 'welcome back'], '没登记的部分')
+  hasNot(partial.rest, 'there Mei', '没登记的部分')
+}))
+ok('P2.f 覆盖：没盖住的只剩标点与空白（Hi Mei 后面的 !!!）时不算没登记，这一行不列', passes(() => {
+  same(look(itemsOf('Hi Mei!!!', [{ draft: 'Hi Mei', from: 'self' }])), [])
+}))
+ok('P2.f 覆盖：只有标点、破折号的一行不列；夹在中间的只有空白的行也不列', passes(() => {
+  same(look(itemsOf('Hi Mei,\n---\n   \n\t\n——\nBest, Yu', [{ draft: 'Hi Mei,', from: 'self' }, { draft: 'Best, Yu', from: 'self' }])), [])
+}))
+ok('P2.f 覆盖：没盖住的只剩表情也算 —— 「Your smoothie series 🔥🔥」只登记前半时列成只登记了一部分，没登记的部分里有那两个表情', passes(() => {
+  const list = itemsOf('Your smoothie series 🔥🔥', [{ draft: 'Your smoothie series', from: 'post', quote: 'smoothie series' }], GOOD_GIVEN)
+  same(look(list), ['partial|Your smoothie series 🔥🔥'])
+  has(list.find((i) => i.status === 'partial').rest, '🔥🔥', '没登记的部分')
+}))
+ok('P2.f 覆盖：整行只有表情、没登记时列成「没登记出处」', passes(() => {
+  same(look(itemsOf('Hi Mei,\n🔥🔥', [{ draft: 'Hi Mei,', from: 'self' }])), ['unregistered|🔥🔥'])
+}))
+ok('P2.f 覆盖：整行只有符号（★★★）、没登记时列成「没登记出处」', passes(() => {
+  same(look(itemsOf('Hi Mei,\n★★★', [{ draft: 'Hi Mei,', from: 'self' }])), ['unregistered|★★★'])
+}))
+ok('P2.f 覆盖：没填的占位符 {...} 要登记 —— 主题行只有 {...} 时列成没登记出处，正文一句里夹的 {...} 列成那一句没登记的部分', passes(() => {
+  const list = itemsOf('Subject: {...}\nShip it to {...} soon.', [{ draft: 'Ship it to', from: 'self' }, { draft: 'soon.', from: 'self' }])
+  same(list.filter((i) => LOOK.includes(i.status)).map((i) => i.status), ['unregistered', 'partial'], '要看的两条')
+  has(list.find((i) => i.status === 'unregistered').draft, '{...}', '主题那一条')
+  same(list.find((i) => i.status === 'partial').draft, 'Ship it to {...} soon.', '正文那一行')
+  has(list.find((i) => i.status === 'partial').rest, '{...}', '没登记的部分')
+}))
+ok('P2.f 覆盖：带字的占位符 {your address} 没登记时列出；登记成 self 之后不列', passes(() => {
+  same(look(itemsOf('Hi Mei,\n{your address}', [{ draft: 'Hi Mei,', from: 'self' }])), ['unregistered|{your address}'])
+  same(look(itemsOf('Hi Mei,\n{your address}', [{ draft: 'Hi Mei,', from: 'self' }, { draft: '{your address}', from: 'self' }])), [])
+}))
+ok('P2.f 覆盖：全角花括号写的占位符 ｛...｝ 没登记时也列出（不因原文是标点放过）', passes(() => {
+  same(look(itemsOf('Hi Mei,\n｛...｝', [{ draft: 'Hi Mei,', from: 'self' }])), ['unregistered|｛...｝'])
+}))
+ok('P2.f 覆盖：空占位符 {} 也算占位符，没登记时列成「没登记出处」', passes(() => {
+  same(look(itemsOf('Hi Mei,\n{}', [{ draft: 'Hi Mei,', from: 'self' }])), ['unregistered|{}'])
+}))
+ok('P2.f 覆盖：一条登记在信里出现两处，两处都算盖住 —— 第二处所在的行只列出后面接的「is the best.」，第一处那一行不列', passes(() => {
+  const list = itemsOf('Your smoothie series\nYour smoothie series is the best.', [{ draft: 'Your smoothie series', from: 'post', quote: 'smoothie series' }], GOOD_GIVEN)
+  same(look(list), ['partial|Your smoothie series is the best.'])
+  const rest = list.find((i) => i.status === 'partial').rest
+  has(rest, 'is the best.', '没登记的部分')
+  hasNot(rest, 'smoothie', '没登记的部分')
+}))
+ok('P2.f 覆盖：同一行在信里出现两处、都没登记，就列两处', passes(() => {
+  same(look(itemsOf('Call me.\nHi Mei,\nCall me.', [{ draft: 'Hi Mei,', from: 'self' }])), ['unregistered|Call me.', 'unregistered|Call me.'])
+}))
+ok('P2.f 覆盖：每一行只算它自己的字 —— 只登记了第二行时列出的是第一行（整行没登记），只登记了第一行时列出的是第二行', passes(() => {
+  same(look(itemsOf('Line one here.\nLine two here.', [{ draft: 'Line two here.', from: 'self' }])), ['unregistered|Line one here.'], '只登记第二行')
+  same(look(itemsOf('Line one here.\nLine two here.', [{ draft: 'Line one here.', from: 'self' }])), ['unregistered|Line two here.'], '只登记第一行')
+}))
+ok('P2.f 覆盖：问候、落款、列表编号不放过 —— 问候与落款没登记时各列一条；「1. Quick unboxing」只登记了后半时列成只登记了一部分，没登记的部分里有「1」', passes(() => {
+  const list = itemsOf('Hi Mei,\n1. Quick unboxing\nBest,\nYu', [{ draft: 'Quick unboxing', from: 'self' }])
+  same(look(list), ['unregistered|Hi Mei,', 'partial|1. Quick unboxing', 'unregistered|Best,', 'unregistered|Yu'])
+  has(list.find((i) => i.status === 'partial').rest, '1', '没登记的部分')
+}))
+ok('P2.f 覆盖：编号连同句子一起登记（1. Quick unboxing）时这一行不列', passes(() => {
+  same(look(itemsOf('1. Quick unboxing', [{ draft: '1. Quick unboxing', from: 'self' }])), [])
+}))
+
+// ── 按行、换行、Subject ──
+ok('P2.f 换行：回车、U+2028、U+2029、回车换行、换行都算换行 —— 五种分隔之间没登记的三行各列一条，登记了的两行不列，回车换行之间不多出一行', passes(() => {
+  const draft = 'Hi Mei,\rUnregistered one. Best, Yu Unregistered two.\r\nLast unregistered.\n'
+  same(look(itemsOf(draft, [{ draft: 'Hi Mei,', from: 'self' }, { draft: 'Best, Yu', from: 'self' }])), ['unregistered|Unregistered one.', 'unregistered|Unregistered two.', 'unregistered|Last unregistered.'])
+}))
+ok('P2.f 不切句：一行里两句都没登记时只列一条，就是那一整行', passes(() => {
+  same(look(itemsOf('First sentence here. Second sentence there! Third one?', [])), ['unregistered|First sentence here. Second sentence there! Third one?'])
+}))
+ok('P2.f 主题行：第一个非空行以 Subject: 开头时标签本身不用登记 —— 只登记标签后面的字，主题行不列', passes(() => {
+  same(look(itemsOf('Subject: Hello Mei\nBody line here.', [{ draft: 'Hello Mei', from: 'self' }, { draft: 'Body line here.', from: 'self' }])), [])
+}))
+ok('P2.f 主题行：信开头有空行时，后面第一个非空行的 Subject: 标签照样去掉、不用登记', passes(() => {
+  same(look(itemsOf('\n  \n\nSubject: Hello Mei\nBody line here.', [{ draft: 'Hello Mei', from: 'self' }, { draft: 'Body line here.', from: 'self' }])), [])
+}))
+ok('P2.f 主题行：主题行不是整行放过 —— 主题里的字没登记时照样列出', passes(() => {
+  const list = itemsOf('Subject: You love kale smoothies\nHi Mei,', [{ draft: 'Hi Mei,', from: 'self' }])
+  same(list.filter((i) => LOOK.includes(i.status)).map((i) => i.status), ['unregistered'])
+  has(list.find((i) => i.status === 'unregistered').draft, 'You love kale smoothies', '列出的那一行')
+}))
+ok('P2.f 主题行：后面的行以 Subject: 开头照正文核 —— 标签也要登记，只登记了标签后的字时这一行列成只登记了一部分，没登记的部分里有「Subject:」', passes(() => {
+  const list = itemsOf('Hi Mei,\nSubject: Hello Mei', [{ draft: 'Hi Mei,', from: 'self' }, { draft: 'Hello Mei', from: 'self' }])
+  same(look(list), ['partial|Subject: Hello Mei'])
+  has(list.find((i) => i.status === 'partial').rest, 'Subject:', '没登记的部分')
+}))
+ok('P2.f 主题行：登记的字只在开头那个「Subject」标签里找得到，不算还在信里 —— 列成登记了但信里已没有', passes(() => {
+  same(look(itemsOf('Subject: Hello Mei\nHi there.', [{ draft: 'Subject', from: 'self' }, { draft: 'Hello Mei', from: 'self' }, { draft: 'Hi there.', from: 'self' }])), ['not_in_draft|Subject'])
+}))
+ok('P2.f 信里已没有：对得上原文的登记，那句信里已经没有时也列成「登记了但信里已没有」，不悄悄丢掉、也不算对得上', passes(() => {
+  const list = itemsOf('Hi Mei,', [{ draft: 'Your bio says busy mornings.', from: 'bio', quote: 'busy mornings' }, { draft: 'Hi Mei,', from: 'self' }], GOOD_GIVEN)
+  same(list.map(tag), ['self|Hi Mei,', 'not_in_draft|Your bio says busy mornings.'])
+}))
+ok('P2.f 信里已没有：两条都已不在信里时都列在末尾，排在信里其他要看的之后', passes(() => {
+  const list = itemsOf('Unregistered opener.\nHi Mei,', [{ draft: 'Gone one.', from: 'self' }, { draft: 'Hi Mei,', from: 'self' }, { draft: 'Gone two.', from: 'self' }])
+  same(list[0] && tag(list[0]), 'unregistered|Unregistered opener.', '第一条')
+  same(list.slice(-2).map((i) => i.status), ['not_in_draft', 'not_in_draft'], '最后两条的种类')
+  same(list.slice(-2).map((i) => i.draft).sort(), ['Gone one.', 'Gone two.'], '最后两条')
+}))
+ok('P2.f 信里已没有：几条都不在信里时，彼此按登记的先后排', passes(() => {
+  same(itemsOf('Hi Mei,', [{ draft: 'Gone one.', from: 'self' }, { draft: 'Hi Mei,', from: 'self' }, { draft: 'Gone two.', from: 'self' }]).slice(-2).map((i) => i.draft), ['Gone one.', 'Gone two.'])
+}))
+ok('P2.f 覆盖：登记与信里只差大小写（登记 hi mei, 信里 Hi Mei,）也算盖住，这一行不列', passes(() => {
+  same(look(itemsOf('Hi Mei,', [{ draft: 'hi mei,', from: 'self' }])), [])
+}))
+
+// ═════════════════════════════ P2.g：不出这一行、不因坏字段失败（函数层）═════════════════════════════
+ok('P2.g 不出这一行：没有草稿（undefined）时逐条结果与那一行都是 undefined，哪怕带着登记', passes(() => {
+  same(ds.draftSourceItems(undefined, GOOD_SOURCES, GOOD_GIVEN), undefined, '逐条结果')
+  same(ds.draftSourceLine(undefined, GOOD_SOURCES, GOOD_GIVEN), undefined, '那一行')
+}))
+ok('P2.g 不出这一行：草稿是空串时逐条结果与那一行都是 undefined（不是「无」）', passes(() => {
+  same(ds.draftSourceItems('', GOOD_SOURCES, GOOD_GIVEN), undefined, '逐条结果')
+  same(ds.draftSourceLine('', GOOD_SOURCES, GOOD_GIVEN), undefined, '那一行')
+}))
+ok('P2.g 不出这一行：草稿只有空格、制表符、各种换行时逐条结果与那一行都是 undefined，哪怕带着登记', passes(() => {
+  same(ds.draftSourceItems('  \n\t \r\n   ', GOOD_SOURCES, GOOD_GIVEN), undefined, '逐条结果')
+  same(ds.draftSourceLine('  \n\t \r\n   ', GOOD_SOURCES, GOOD_GIVEN), undefined, '那一行')
+}))
+const BROKEN_SOURCES = [
+  { draft: 'Hi Mei,', from: 'nickname', quote: '12345' },
+  { draft: 'About you.', from: 'bio', quote: '777' },
+  { draft: 'Your post.', from: 'post', quote: '42' },
+  { draft: 'Second post.', from: 'post', quote: 'real caption' },
+]
+const BROKEN_GIVEN = { nickname: 12345, bio: 777, posts: [42, null, { desc: 'real caption' }, undefined, 'a real caption here'] }
+ok('P2.g 坏字段不失败：昵称是数字、简介是数字、作品文案里混着数字、null、对象、undefined 时不抛错，照常出结果与那一行', passes(() => {
+  const list = itemsOf('Hi Mei,\nAbout you.\nYour post.\nSecond post.', BROKEN_SOURCES, BROKEN_GIVEN)
+  same(list.length, 4, '条数')
+  same(typeof lineOf('Hi Mei,\nAbout you.\nYour post.\nSecond post.', BROKEN_SOURCES, BROKEN_GIVEN), 'string', '那一行的类型')
+}))
+ok('P2.g 坏字段当作没有：数字昵称 12345、数字简介 777、数字文案 42 不被当成字符串拿来对 —— 这三条都不是对得上；同一数组里是字符串的那条文案照常对得上', passes(() => {
+  const list = itemsOf('Hi Mei,\nAbout you.\nYour post.\nSecond post.', BROKEN_SOURCES, BROKEN_GIVEN)
+  same(list.map((i) => i.status === 'matched'), [false, false, false, true])
+}))
+ok('P2.g 坏字段当作没有：简介不是字符串时按「没查过」算（对不了，没查过），作品文案全不是字符串时也按「没查过」算', passes(() => {
+  same(itemsOf('About you.', [{ draft: 'About you.', from: 'bio', quote: '777' }], { bio: 777 }).map((i) => i.status), ['not_queried'], '简介')
+  same(itemsOf('Your post.', [{ draft: 'Your post.', from: 'post', quote: '42' }], { posts: [42, null] }).map((i) => i.status), ['not_queried'], '作品')
+}))
+
+// ── CSV、XLSX 不加列（函数层）──
+ok('P2.g 不加列：评审表表头 REVIEW_HEADERS 就是旧 43 列加 U9.k 的 22 列，共 65 列，没有出处那一列', passes(() => {
+  same([...rows.REVIEW_HEADERS], REVIEW_HEADERS_65)
+}))
+ok('P2.g 不加列：带着登记的人的评审行是 65 格，哪一格里都没有只在登记里出现的字（ZZ-GONE-MARKER、I run ultra marathons）', passes(() => {
+  const row: unknown[] = rows.toReviewRow({ ...clone(BOB), tier: 'A', score: 60, draft_sources: clone(BOB_SOURCES) })
+  same(row.length, 65, '格数')
+  const text = row.map((v) => String(v)).join('\u0001')
+  hasNot(text, 'ZZ-GONE-MARKER', '评审行')
+  hasNot(text, 'I run ultra marathons', '评审行')
+}))
+ok('P2.g 不加列：评审模式的三张工作表（A、B、C 层各有人）表头各自都是这 65 列，每一行都是 65 格', passes(() => {
+  const people = [
+    { ...clone(ALICE), tier: 'A', score: 70, draft_sources: clone(GOOD_SOURCES) },
+    { ...clone(BOB), tier: 'B', score: 60, draft_sources: clone(BOB_SOURCES) },
+    { ...clone(DAVE), tier: 'C', score: 10, draft_sources: [{ draft: 'ZZ-GONE-MARKER sentence.', from: 'self' }] },
+  ]
+  const sheets: any[] = rows.buildSheets(people, { mode: 'review' })
+  same(sheets.length, 3, '工作表张数')
+  same(sheets.map((s) => [...s.headers]), [REVIEW_HEADERS_65, REVIEW_HEADERS_65, REVIEW_HEADERS_65], '各表表头')
+  same(sheets.map((s) => s.rows.length), [1, 1, 1], '各表行数')
+  same(sheets.map((s) => s.rows[0].length), [65, 65, 65], '各表第一行格数')
+  hasNot(sheets.map((s) => s.rows.map((r: unknown[]) => r.map((v) => String(v)).join('\u0001')).join('\u0002')).join('\u0003'), 'ZZ-GONE-MARKER', '三张表的全部格子')
+}))
+
+criterion('P2.e', 'P2.f', 'P2.g')
+} finally { for (const d of temps) rmSync(d, { recursive: true, force: true }) }
+})
+await group('p2-sources-isolated-entry', async () => {
+suite('P2', '开发信出处那一行真起 render 看报告与表格（P2.f、P2.g）：没读过实现的会话照准入读物包写的那一份')
+const { passes, readFileSync, show, must, same, has, hasNot, inOrder, count, clone, tempDir, runRender, unzip, rawLines, lineWith, SEG, entries, entryWith, FACT, POST, GOOD_DRAFT, GOOD_SOURCES, BOB_DRAFT, BOB_SOURCES, ALICE, BOB, DAVE, TASK, REVIEW_HEADERS_65, review, report, REVIEW_FILE, A, B, temps } = await p2IsolatedKit()
+try {
+// ═════════════════════════════ 入口层：真跑 render ═════════════════════════════
+const work = tempDir()
+const taskDir = join(work, 'output', 'demo')
+mkdirSync(taskDir, { recursive: true })
+writeFileSync(join(taskDir, 'task.json'), JSON.stringify(TASK, null, 2))
+writeFileSync(join(taskDir, 'creators.json'), JSON.stringify([ALICE, BOB, DAVE], null, 2))
+const at = (name: string) => join(taskDir, name)
+const readJson = (name: string) => JSON.parse(readFileSync(at(name), 'utf8'))
+const person = (list: any[], handle: string) => {
+  const c = list.find((x) => x.handle === handle)
+  if (!c) throw new Error(`名单里找不到 ${handle}：${show(list.map((x) => x.handle))}`)
+  return c
+}
+
+let first: any
+ok('接线前提：照文档的最小任务目录（三个人的旧名单，没有正本）第一次 render 以 0 结束，存下 agent-review.json，里面有 alice 与 bob 两条评审', passes(() => {
+  first = runRender(work, join('output', 'demo'))
+  same(first.status, 0, `退出码（stderr: ${first.stderr}）`)
+  const doc = readJson(REVIEW_FILE)
+  must(doc.reviews[A] && doc.reviews[B], `正本里应有两条评审，实际主键: ${show(Object.keys(doc.reviews))}`)
+}))
+
+// 第二次：往正本里加登记，再 render
+let second: any
+let reviewBytes: Buffer = Buffer.alloc(0)
+let html2 = ''
+let creators2: any[] = []
+let meta2: any
+ok('P2.g 只标不拦（入口）：正本里 alice 全登记、bob 的登记有对不上、没查过、没登记、信里已没有的，render 照常以 0 结束并写出 report.html', passes(() => {
+  const doc = readJson(REVIEW_FILE)
+  doc.reviews[A].draft_sources = clone(GOOD_SOURCES)
+  doc.reviews[B].draft_sources = clone(BOB_SOURCES)
+  writeFileSync(at(REVIEW_FILE), JSON.stringify(doc, null, 2))
+  second = runRender(work, join('output', 'demo'))
+  same(second.status, 0, `退出码（stderr: ${second.stderr}）`)
+  reviewBytes = readFileSync(at(REVIEW_FILE))
+  html2 = readFileSync(at('report.html'), 'utf8')
+  creators2 = readJson('creators.json')
+  meta2 = readJson('meta.json')
+  must(html2.length > 0, 'report.html 是空的')
+}))
+ok('P2.e 投影（入口）：render 交出的 creators.json 里 alice 原样带着正本那十项登记、bob 带着那十项，dave 没有这个键', passes(() => {
+  same(person(creators2, 'alice').draft_sources, clone(GOOD_SOURCES), 'alice')
+  same(person(creators2, 'bob').draft_sources, clone(BOB_SOURCES), 'bob')
+  same('draft_sources' in person(creators2, 'dave'), false, 'dave 带不带 draft_sources')
+}))
+ok('P2.g 草稿一个字节不改（入口）：render 之后 creators.json 与 agent-review.json 里 alice、bob 的草稿与写入的逐字相同', passes(() => {
+  same(person(creators2, 'alice').outreach_draft, GOOD_DRAFT, 'creators.json 里 alice 的草稿')
+  same(person(creators2, 'bob').outreach_draft, BOB_DRAFT, 'creators.json 里 bob 的草稿')
+  const doc = readJson(REVIEW_FILE)
+  same(doc.reviews[A].outreach_draft, GOOD_DRAFT, '正本里 alice 的草稿')
+  same(doc.reviews[B].outreach_draft, BOB_DRAFT, '正本里 bob 的草稿')
+}))
+ok('P2.g 草稿一个字节不改（入口）：kol.csv 里 alice、bob 两封草稿逐字都在（草稿里没有引号，转义只在外面包一层引号）', passes(() => {
+  const csv = readFileSync(at('kol.csv'), 'utf8')
+  has(csv, GOOD_DRAFT, 'kol.csv')
+  has(csv, BOB_DRAFT, 'kol.csv')
+}))
+ok('P2.f 那一行在报告里（入口）：三张卡片里有草稿的两张各出一行「逐行出处」，没草稿的 dave 不出 —— 报告里一共两行', passes(() => {
+  same(rawLines(html2).length, 2)
+}))
+ok('P2.f 好例子（入口）：alice 那一行以「要看：无」开头，分三段，「对得上」里三个「←」（render 把任务里已证实的产品事实交给了报告，产品那句对得上）', passes(() => {
+  const line = lineWith(html2, 'That part stuck with me.')
+  must(line !== undefined, '报告里找不到 alice 那一行')
+  const segments = line!.split(SEG)
+  same(segments.length, 3, '段数')
+  same(segments[0], '要看：无', '第一段')
+  must(segments[1].startsWith('对得上：'), `第二段开头: ${show(segments[1])}`)
+  same(count(segments[1], '←'), 3, '「←」个数')
+  has(segments[1], FACT, '对得上段')
+  must(segments[2].startsWith('发件人自己的话'), `第三段开头: ${show(segments[2])}`)
+  same(entries(segments[2]).length, 7, '发件人自己的话条数')
+}))
+ok('P2.f 要看在前（入口）：bob 那一行第一段「要看：」六条，按信里先后是 原文对不上→对不了，没查过→产品那句→没登记出处→只登记了一部分，信里已没有的那条在段末', passes(() => {
+  const line = lineWith(html2, 'Totally unregistered line here.')
+  must(line !== undefined, '报告里找不到 bob 那一行')
+  const segments = line!.split(SEG)
+  same(segments.length, 3, '段数')
+  must(segments[0].startsWith('要看：'), `第一段开头: ${show(segments[0])}`)
+  same(entries(segments[0]).length, 6, '要看条数')
+  inOrder(segments[0], ['You run ultra marathons daily.', 'Your latest post rocks.', 'It has a 2 year warranty.', 'Totally unregistered line here.', 'We ship fast and cheap.', 'ZZ-GONE-MARKER sentence.'], '要看段')
+  has(entryWith(segments[0], 'You run ultra marathons daily.'), '原文对不上')
+  has(entryWith(segments[0], 'Your latest post rocks.'), '对不了，没查过')
+  hasNot(entryWith(segments[0], 'Your latest post rocks.'), '原文对不上')
+  has(entryWith(segments[0], 'Totally unregistered line here.'), '没登记出处')
+  must(count(entryWith(segments[0], 'We ship fast and cheap.'), 'and cheap.') >= 2, '只登记了一部分的那一条应整行印出、再列出「and cheap.」')
+}))
+ok('P2.f 品牌偏好不算产品事实（入口）：「2 year warranty」只写在 kind=brand_preference 里，登记成 product 的那句列在「要看」里，不在「对得上」里，也不说成「他的」', passes(() => {
+  const segments = lineWith(html2, 'Totally unregistered line here.')!.split(SEG)
+  has(segments[0], 'It has a 2 year warranty.', '要看段')
+  hasNot(segments[1], 'It has a 2 year warranty.', '对得上段')
+  hasNot(entryWith(segments[0], 'It has a 2 year warranty.'), '他的')
+}))
+ok('P2.f 对得上与发件人自己的话（入口）：bob 那一行「对得上」两条（主题←简介、问候←昵称，各一个「←」），「发件人自己的话」四条，电话那句注明「联系方式」、约时间那句注明「约时间」，另两条不注', passes(() => {
+  const segments = lineWith(html2, 'Totally unregistered line here.')!.split(SEG)
+  must(segments[1].startsWith('对得上：'), `第二段开头: ${show(segments[1])}`)
+  same(count(segments[1], '←'), 2, '「←」个数')
+  inOrder(segments[1], ['Marathon fuel idea', '←', 'Hi Bob,', '←'], '对得上段')
+  must(segments[2].startsWith('发件人自己的话'), `第三段开头: ${show(segments[2])}`)
+  same(entries(segments[2]).length, 4, '发件人自己的话条数')
+  inOrder(segments[2].slice(segments[2].indexOf('：') + 1), ['We ship fast', 'Call me on 415 555 0199.', 'Free on Tuesday at 3pm EST?', 'Best, Yu'], '发件人自己的话段')
+  has(entryWith(segments[2], 'Call me on 415 555 0199.'), '联系方式')
+  has(entryWith(segments[2], 'Free on Tuesday at 3pm EST?'), '约时间')
+  hasNot(entryWith(segments[2], 'Best, Yu'), '联系方式')
+  hasNot(entryWith(segments[2], 'Best, Yu'), '约时间')
+}))
+ok('P2.g 不加列（入口）：kol.csv 的表头就是那 65 列，整份 CSV 里没有只在登记里出现的字（ZZ-GONE-MARKER、I run ultra marathons）也没有「逐行出处」', passes(() => {
+  const csv = readFileSync(at('kol.csv'), 'utf8').replace(/^﻿/, '')
+  same(csv.slice(0, csv.indexOf('\n')).replace(/\r$/, '').split(','), REVIEW_HEADERS_65, '表头')
+  hasNot(csv, 'ZZ-GONE-MARKER', 'kol.csv')
+  hasNot(csv, 'I run ultra marathons', 'kol.csv')
+  hasNot(csv, '逐行出处', 'kol.csv')
+  hasNot(csv, 'draft_sources', 'kol.csv')
+}))
+ok('P2.g 不加列（入口）：kol.xlsx 的工作簿关系指向三张各不相同、确实存在的工作表，每一张第一行都是 65 格；整个工作簿里没有只在登记里出现的字', passes(() => {
+  const files = unzip(readFileSync(at('kol.xlsx')))
+  const rels = files.get('xl/_rels/workbook.xml.rels')
+  must(rels !== undefined, `找不到 xl/_rels/workbook.xml.rels，包里有: ${show([...files.keys()])}`)
+  const targets = [...rels!.toString('utf8').matchAll(/<Relationship\b[^>]*>/g)]
+    .map((m) => m[0])
+    .filter((tagText) => /Type="[^"]*\/worksheet"/.test(tagText))
+    .map((tagText) => /Target="([^"]*)"/.exec(tagText)![1])
+    .map((t) => (t.startsWith('/') ? t.slice(1) : `xl/${t}`))
+  same(targets.length, 3, '工作表关系条数')
+  same(new Set(targets).size, 3, '不同的工作表文件数')
+  for (const t of targets) {
+    const sheet = files.get(t)
+    must(sheet !== undefined, `关系指到的 ${t} 不在工作簿里`)
+    const row = /<row\b[^>]*>([\s\S]*?)<\/row>/.exec(sheet!.toString('utf8'))
+    must(row !== null, `${t} 里没有行`)
+    same(count(row![1].replace(/<c>/g, '<c >'), '<c '), 65, `${t} 第一行格数`)
+  }
+  const all = [...files.entries()].filter(([name]) => name.endsWith('.xml') || name.endsWith('.rels')).map(([, data]) => data.toString('utf8')).join('\n')
+  hasNot(all, 'ZZ-GONE-MARKER', 'kol.xlsx 的全部 XML')
+  hasNot(all, 'I run ultra marathons', 'kol.xlsx 的全部 XML')
+  hasNot(all, '逐行出处', 'kol.xlsx 的全部 XML')
+}))
+
+// 第三次：正本写坏
+let third: any
+let reportBefore: Buffer = Buffer.alloc(0)
+// 作者加（CodeRabbit 第一轮）：报告之外的交付物也在第三次之前留底，被拒之后逐份比
+const OTHER_DELIVERABLES = ['kol.csv', 'kol.xlsx', 'meta.json', 'creators.json'] as const
+const othersBefore = new Map<string, Buffer>()
+ok('P2.e 拒绝（入口）：正本里 bob 那条评审的登记有一项多了不认得的键 note 时，render 以 2 结束', passes(() => {
+  reportBefore = readFileSync(at('report.html'))
+  for (const name of OTHER_DELIVERABLES) othersBefore.set(name, readFileSync(at(name)))
+  const doc = readJson(REVIEW_FILE)
+  doc.reviews[B].draft_sources[2].note = '手滑多写的'
+  writeFileSync(at(REVIEW_FILE), JSON.stringify(doc, null, 2))
+  third = runRender(work, join('output', 'demo'))
+  same(third.status, 2, `退出码（stderr: ${third.stderr}）`)
+}))
+ok('P2.e 拒绝（入口）：stderr 写明是 tiktok:bob 那条评审、draft_sources 与键 note，不提 tiktok:alice', passes(() => {
+  has(third.stderr, B, 'stderr')
+  has(third.stderr, 'draft_sources', 'stderr')
+  has(third.stderr, 'note', 'stderr')
+  hasNot(third.stderr, A, 'stderr')
+}))
+ok('P2.e 拒绝（入口）：被拒之后盘上那份写坏的 agent-review.json 一个字节不变（render 不替人改、不清空）', passes(() => {
+  const doc = clone(JSON.parse(reviewBytes.toString('utf8')))
+  doc.reviews[B].draft_sources[2].note = '手滑多写的'
+  same(readFileSync(at(REVIEW_FILE), 'utf8'), JSON.stringify(doc, null, 2))
+}))
+ok('P2.e 拒绝（入口）：拒绝发生在写交付物之前 —— 上一次的 report.html 原字节留着', passes(() => {
+  must(reportBefore.equals(readFileSync(at('report.html'))), 'report.html 的字节变了')
+}))
+ok('P2.e 拒绝（入口）：被拒之后上一次的 kol.csv、kol.xlsx、meta.json、creators.json 也原字节留着（作者加，CodeRabbit 第一轮）', passes(() => {
+  same(othersBefore.size, OTHER_DELIVERABLES.length, '第三次之前留底的交付物份数')
+  for (const name of OTHER_DELIVERABLES) must(othersBefore.get(name)!.equals(readFileSync(at(name))), `${name} 的字节变了`)
+}))
+
+// 第四次：正本删掉 alice 的登记
+let fourth: any
+let html4 = ''
+ok('P2.e 删掉后消失（入口）：把正本恢复合规、删掉 alice 的 draft_sources 再 render，以 0 结束，creators.json 里 alice 不再有这个键，bob 的还在', passes(() => {
+  const doc = JSON.parse(reviewBytes.toString('utf8'))
+  delete doc.reviews[A].draft_sources
+  writeFileSync(at(REVIEW_FILE), JSON.stringify(doc, null, 2))
+  fourth = runRender(work, join('output', 'demo'))
+  same(fourth.status, 0, `退出码（stderr: ${fourth.stderr}）`)
+  html4 = readFileSync(at('report.html'), 'utf8')
+  const list = readJson('creators.json')
+  same('draft_sources' in person(list, 'alice'), false, 'alice 带不带 draft_sources')
+  same(person(list, 'bob').draft_sources, clone(BOB_SOURCES), 'bob')
+}))
+ok('P2.f 没登记（入口）：alice 有草稿而没有任何登记时，那一行照出，只有「要看」一段，十一个非空行各标一次「没登记出处」', passes(() => {
+  const line = lineWith(html4, 'That part stuck with me.')
+  must(line !== undefined, '报告里找不到 alice 那一行')
+  must(line!.startsWith('要看：'), `开头: ${show(line)}`)
+  hasNot(line!, SEG, 'alice 那一行')
+  same(count(line!, '没登记出处'), 11, '「没登记出处」次数')
+}))
+
+// ═════════════════════════════ renderHtml 层（用第二次 render 的 meta.json 与 creators.json）═════════════════════════════
+const FACTS = [FACT]
+const REVIEW = { mode: 'review', filters: 'dual', facts: FACTS }
+const page = (creators: any[], options?: unknown): string => (options === undefined ? report.renderHtml(creators, clone(meta2)) : report.renderHtml(creators, clone(meta2), options))
+const edited = (handle: string, change: (c: any) => void): any[] => {
+  const list = clone(creators2)
+  change(person(list, handle))
+  return list
+}
+
+ok('接线前提：拿入口写出的 meta.json 与 creators.json 直接调 renderHtml（评审模式加双筛选）也出两行，alice 那一行以「要看：无」开头', passes(() => {
+  const html = page(clone(creators2), REVIEW)
+  same(rawLines(html).length, 2, '行数')
+  must(lineWith(html, 'That part stuck with me.')!.startsWith('要看：无'), 'alice 那一行没以「要看：无」开头')
+}))
+ok('P2.g 默认模式不出这一行：不传选项的旧 HTML 里没有 data-draft-sources，也没有「逐行出处」这几个字', passes(() => {
+  const html = page(clone(creators2))
+  hasNot(html, 'data-draft-sources', '默认模式 HTML')
+  hasNot(html, '逐行出处', '默认模式 HTML')
+}))
+ok('P2.g 默认模式不出这一行：传空选项 {} 时同样没有 data-draft-sources 与「逐行出处」', passes(() => {
+  const html = page(clone(creators2), {})
+  hasNot(html, 'data-draft-sources', '空选项 HTML')
+  hasNot(html, '逐行出处', '空选项 HTML')
+}))
+ok('P2.g 默认模式不出这一行：只开双筛选、没开评审模式（filters: dual）时也没有 data-draft-sources 与「逐行出处」', passes(() => {
+  const html = page(clone(creators2), { filters: 'dual', facts: FACTS })
+  hasNot(html, 'data-draft-sources', '只开双筛选的 HTML')
+  hasNot(html, '逐行出处', '只开双筛选的 HTML')
+}))
+ok('P2.f 只开评审模式（mode: review，不开双筛选）也出这一行：两张有草稿的卡片各一行', passes(() => {
+  same(rawLines(page(clone(creators2), { mode: 'review', facts: FACTS })).length, 2)
+}))
+ok('P2.g 没有草稿不出这一行：把 alice 的草稿拿掉（登记还留在名单上）后只剩 bob 那一行，登记里的字不出现在任何一行里', passes(() => {
+  const html = page(edited('alice', (c) => delete c.outreach_draft), REVIEW)
+  same(rawLines(html).length, 1, '行数')
+  same(lineWith(html, 'That part stuck with me.'), undefined, 'alice 那一行')
+  must(lineWith(html, 'Totally unregistered line here.') !== undefined, 'bob 那一行不见了')
+}))
+ok('P2.g 草稿是空串不出这一行：alice 的草稿改成空串后只剩 bob 那一行', passes(() => {
+  const html = page(edited('alice', (c) => (c.outreach_draft = '')), REVIEW)
+  same(rawLines(html).length, 1, '行数')
+  same(lineWith(html, 'That part stuck with me.'), undefined, 'alice 那一行')
+}))
+ok('P2.g 草稿只有空白不出这一行：alice 的草稿改成只有空格、制表符与换行后只剩 bob 那一行（不多出一行「无」）', passes(() => {
+  const html = page(edited('alice', (c) => (c.outreach_draft = '  \n\t \r\n ')), REVIEW)
+  same(rawLines(html).length, 1, '行数')
+  same(lineWith(html, 'That part stuck with me.'), undefined, 'alice 那一行')
+}))
+ok('P2.g 都没草稿：两个人的草稿都拿掉后报告里一行「逐行出处」都没有', passes(() => {
+  const list = clone(creators2)
+  for (const c of list) delete c.outreach_draft
+  same(rawLines(page(list, REVIEW)).length, 0)
+}))
+ok('P2.f 三态（renderHtml）：alice 的作品记录拿掉（没查过）后，登记成作品文案的两句标「对不了，没查过」，那一行不再以「要看：无」开头', passes(() => {
+  const line = lineWith(page(edited('alice', (c) => delete c.recent_posts), REVIEW), 'That part stuck with me.')!
+  const segments = line.split(SEG)
+  must(segments[0].startsWith('要看：') && segments[0] !== '要看：无', `第一段: ${show(segments[0])}`)
+  same(count(segments[0], '对不了，没查过'), 2, '「对不了，没查过」次数')
+  hasNot(segments[0], '原文对不上', '要看段')
+}))
+ok('P2.f 三态（renderHtml）：alice 的作品记录是空数组（没查过）时同样标两次「对不了，没查过」，不说成原文对不上', passes(() => {
+  const segments = lineWith(page(edited('alice', (c) => (c.recent_posts = [])), REVIEW), 'That part stuck with me.')!.split(SEG)
+  same(count(segments[0], '对不了，没查过'), 2, '「对不了，没查过」次数')
+  hasNot(segments[0], '原文对不上', '要看段')
+}))
+ok('P2.f 三态（renderHtml）：alice 的作品查过、文案里没有那两段时标两次「原文对不上」，不说成没查过', passes(() => {
+  const segments = lineWith(page(edited('alice', (c) => (c.recent_posts = [{ desc: 'Morning run vlog' }])), REVIEW), 'That part stuck with me.')!.split(SEG)
+  same(count(segments[0], '原文对不上'), 2, '「原文对不上」次数')
+  hasNot(segments[0], '对不了，没查过', '要看段')
+}))
+ok('P2.f 作品任一条（renderHtml）：原文在 alice 第二条作品文案里时照样对得上，那一行仍以「要看：无」开头', passes(() => {
+  const line = lineWith(page(edited('alice', (c) => (c.recent_posts = [{ desc: 'Morning run vlog' }, { desc: POST }])), REVIEW), 'That part stuck with me.')!
+  must(line.startsWith('要看：无'), `开头: ${show(line)}`)
+}))
+ok('P2.f 三态（renderHtml）：bob 的简介缺席（没查过）时，登记成简介的两句标「对不了，没查过」；简介是 null（查过没写）时标「原文对不上」', passes(() => {
+  const absent = lineWith(page(edited('bob', (c) => delete c.bio), REVIEW), 'Totally unregistered line here.')!.split(SEG)[0]
+  has(entryWith(absent, 'You run ultra marathons daily.'), '对不了，没查过')
+  has(entryWith(absent, 'Marathon fuel idea'), '对不了，没查过')
+  const empty = lineWith(page(edited('bob', (c) => (c.bio = null)), REVIEW), 'Totally unregistered line here.')!.split(SEG)[0]
+  has(entryWith(empty, 'You run ultra marathons daily.'), '原文对不上')
+  has(entryWith(empty, 'Marathon fuel idea'), '原文对不上')
+}))
+ok('P2.f 产品事实（renderHtml）：没把已证实的产品事实交给报告（facts 缺席）时，alice 登记成 product 的那句一律对不上，列在「要看」里，不说成「他的」', passes(() => {
+  const segments = lineWith(page(clone(creators2), { mode: 'review', filters: 'dual' }), 'That part stuck with me.')!.split(SEG)
+  must(segments[0].startsWith('要看：') && segments[0] !== '要看：无', `第一段: ${show(segments[0])}`)
+  has(segments[0], 'We make a portable blender with a 400ml cup that rinses clean in about ten seconds.', '要看段')
+  hasNot(segments[0], '他的', '要看段')
+  hasNot(segments[0], '对不了，没查过', '要看段')
+}))
+ok('P2.f 转义（renderHtml）：草稿、登记与简介里的尖括号和 & 在这一行里转义后输出 —— 行内没有 <b>、<i>、<script 这些标签原文，有 &lt;b&gt;Mei&lt;/b&gt; 与 &amp; co', passes(() => {
+  const html = page(
+    edited('alice', (c) => {
+      c.bio = 'I post <i>recipes</i> daily'
+      c.outreach_draft = 'Hi <b>Mei</b> & co,\nSee <script>alert(1)</script> now'
+      c.draft_sources = [{ draft: 'Hi <b>Mei</b> & co,', from: 'bio', quote: '<i>recipes</i>' }]
+    }),
+    REVIEW,
+  )
+  const raw = rawLines(html).find((r) => r.includes('alert(1)'))
+  must(raw !== undefined, '报告里找不到这封信的那一行')
+  hasNot(raw!, '<b>', '那一行的网页原文')
+  hasNot(raw!, '<i>', '那一行的网页原文')
+  hasNot(raw!, '<script', '那一行的网页原文')
+  has(raw!, '&lt;b&gt;Mei&lt;/b&gt;', '那一行的网页原文')
+  has(raw!, '&amp; co', '那一行的网页原文')
+  has(raw!, '&lt;i&gt;recipes&lt;/i&gt;', '那一行的网页原文')
+  has(raw!, '&lt;script&gt;alert(1)&lt;/script&gt;', '那一行的网页原文')
+}))
+ok('P2.f 转义（renderHtml）：转义只做一次 —— 还原之后这一行里是草稿原样的「Hi <b>Mei</b> & co,」与「See <script>alert(1)</script> now」', passes(() => {
+  const html = page(
+    edited('alice', (c) => {
+      c.bio = 'I post <i>recipes</i> daily'
+      c.outreach_draft = 'Hi <b>Mei</b> & co,\nSee <script>alert(1)</script> now'
+      c.draft_sources = [{ draft: 'Hi <b>Mei</b> & co,', from: 'bio', quote: '<i>recipes</i>' }]
+    }),
+    REVIEW,
+  )
+  const line = lineWith(html, 'alert(1)')!
+  has(line, 'Hi <b>Mei</b> & co,')
+  has(line, 'See <script>alert(1)</script> now')
+  has(line, '<i>recipes</i>')
+}))
+ok('P2.g 认不得的用途（renderHtml）：名单被手改出 purpose: banana 时这一行照出，行里没有 undefined，也没有 banana', passes(() => {
+  const line = lineWith(page(edited('bob', (c) => (c.draft_sources[2].purpose = 'banana')), REVIEW), 'Totally unregistered line here.')
+  must(line !== undefined, 'bob 那一行不见了')
+  hasNot(line!, 'undefined', 'bob 那一行')
+  hasNot(line!, 'banana', 'bob 那一行')
+}))
+ok('P2.g 坏字段不失败（renderHtml）：alice 的昵称是数字、简介是数字、作品记录一条文案是数字一条没有文案字段时，renderHtml 不抛错，alice 那一行照出，原先靠作品文案对得上的两句不再对得上', passes(() => {
+  const html = page(
+    edited('alice', (c) => {
+      c.nickname = 12345
+      c.bio = 777
+      c.recent_posts = [{ desc: 42 }, { plays: 5 }]
+    }),
+    REVIEW,
+  )
+  const line = lineWith(html, 'That part stuck with me.')
+  must(line !== undefined, 'alice 那一行不见了')
+  const segments = line!.split(SEG)
+  must(segments[0].startsWith('要看：') && segments[0] !== '要看：无', `第一段: ${show(segments[0])}`)
+  has(segments[0], 'Your 3-ingredient smoothie series shows the cleanup every time.', '要看段')
+}))
+ok('P2.g 草稿一个字节不改（renderHtml）：调完 renderHtml 之后传进去的名单上 alice、bob 的草稿与登记都没被改动', passes(() => {
+  const list = clone(creators2)
+  page(list, REVIEW)
+  same(person(list, 'alice').outreach_draft, GOOD_DRAFT, 'alice 的草稿')
+  same(person(list, 'bob').outreach_draft, BOB_DRAFT, 'bob 的草稿')
+  same(person(list, 'alice').draft_sources, clone(GOOD_SOURCES), 'alice 的登记')
+  same(person(list, 'bob').draft_sources, clone(BOB_SOURCES), 'bob 的登记')
+}))
+criterion('P2.f', 'P2.g')
+} finally { for (const d of temps) rmSync(d, { recursive: true, force: true }) }
 })
 await group('d4-memory', () => {
 suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')

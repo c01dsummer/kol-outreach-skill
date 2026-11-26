@@ -38,9 +38,11 @@ const PURPOSE_LABEL: Record<DraftSourcePurpose, string> = { schedule: '约时间
 
 /**
  * 对账要用到的资料：博主的简介、作品文案、昵称，和任务里已证实的产品事实原文。
- * 博主那几样类型写成 unknown：名单可能被手改坏，这一行只认字符串，别的一律当没有，不让 render 因此失败（P2.g）。
- * 三态照名单原样传（P1）：`bio` 缺席是没查过简介，`null` 是查过、他没写；`posts` 缺席或空数组都是没查过他的作品
- * （名单里 `recent_posts` 缺席或为空数组都是「没问过」，不是他没作品）。
+ * 博主那几样类型写成 unknown：名单可能被手改坏，这一行只认字符串，别的一律当没查过，不让 render 因此失败（P2.g；
+ * 需求所有者 2026-11-25 选「照需求原话改」，简介、作品文案、昵称不是文字时都算没查过，ADR-249）。
+ * 唯一的例外是简介的 `null`：那是 P1 三态里的「查过、他没写」，按原文对不上算；昵称没有这一态，`null` 也算没查过。
+ * 三态照名单原样传（P1）：`bio` 缺席是没查过简介，`null` 是查过、他没写；`posts` 缺席、空数组或没有一条文案是字符串，
+ * 都是没查过他的作品文案（名单里 `recent_posts` 缺席或为空数组都是「没问过」，不是他没作品）。
  * `facts` 缺席或空数组都是「任务里没有已证实的产品事实」：登记成产品事实的原文一律对不上。
  */
 export interface SourceText {
@@ -125,12 +127,15 @@ function lines(draft: string): Line[] {
 function quoteVerdict(source: DraftSource & { from: QuotedKind }, given: SourceText): 'matched' | 'quote_missing' | 'not_queried' {
   let fields: readonly string[]
   if (source.from === 'bio') {
-    if (given.bio === undefined) return 'not_queried'
-    const bio = text(given.bio)
-    fields = bio === undefined ? [] : [bio]
+    if (given.bio === null) fields = []
+    else {
+      const bio = text(given.bio)
+      if (bio === undefined) return 'not_queried'
+      fields = [bio]
+    }
   } else if (source.from === 'post') {
-    if (given.posts === undefined || given.posts.length === 0) return 'not_queried'
-    fields = given.posts.flatMap(post => { const desc = text(post); return desc === undefined ? [] : [desc] })
+    fields = (given.posts ?? []).flatMap(post => { const desc = text(post); return desc === undefined ? [] : [desc] })
+    if (fields.length === 0) return 'not_queried'
   } else if (source.from === 'product') {
     fields = (given.facts ?? []).filter(fact => typeof fact === 'string')
   } else {
@@ -240,7 +245,7 @@ export function draftSourceText(item: DraftSourceItem): string {
     case 'quote_missing': return item.from === 'product'
       ? `「${item.draft}」← 产品事实原文「${item.quote}」（原文对不上：任务里已证实的产品事实没有这段）`
       : `「${item.draft}」← ${KIND_LABEL[item.from]}原文「${item.quote}」（原文对不上：他的${KIND_LABEL[item.from]}里没有这段）`
-    case 'not_queried': return `「${item.draft}」← ${KIND_LABEL[item.from]}原文「${item.quote}」（对不了：他的${KIND_LABEL[item.from]}没查过）`
+    case 'not_queried': return `「${item.draft}」← ${KIND_LABEL[item.from]}原文「${item.quote}」（对不了，没查过：他的${KIND_LABEL[item.from]}没取回来）`
     case 'self': return item.purpose === undefined || !(item.purpose in PURPOSE_LABEL) ? `「${item.draft}」` : `「${item.draft}」（${PURPOSE_LABEL[item.purpose]}）`
     case 'not_in_draft': return `「${item.draft}」（登记了出处，但信里已经没有这段）`
     case 'partial': return `「${item.draft}」（只登记了其中一段，没登记的：「${item.rest}」）`
@@ -250,7 +255,7 @@ export function draftSourceText(item: DraftSourceItem): string {
 
 /**
  * 报告那一行的内容。分三段，要人看的在前：「要看：」原文对不上、没查过、只登记了一部分、没登记、信里已没有的；
- * 「对得上：」并排的信里这段与原文；「发件人自己的话：」登记成 self 的。每段内按在信里出现的先后、用「；」连；
+ * 「对得上：」并排的信里这段与原文；「发件人自己的话（确认没有借它给博主安新说法，也没有夹带产品说法）：」登记成 self 的。每段内按在信里出现的先后、用「；」连；
  * 空的段不出，三段都空写「无」；没草稿返回 undefined。
  */
 export function draftSourceLine(
@@ -287,7 +292,7 @@ export function senderOwnSpans(draft: string, sources: readonly DraftSource[] | 
   return (at, length) => length > 0 && spans.some(([start, end]) => start <= at && at + length <= end)
 }
 
-/** 正本校验用：一条登记的形状问题，没问题返回空数组。`at` 是这条在正本里的位置。 */
+/** 正本校验用：一条评审的整串 `draft_sources`（不是其中一项）的形状问题，没问题返回空数组。`at` 是这一串在正本里的位置，逐项报错时后面接 `[第几项]`（从 0 数）。 */
 export function draftSourceProblems(value: unknown, at: string): string[] {
   if (!Array.isArray(value)) return [`${at} 必须是数组`]
   const problems: string[] = []
