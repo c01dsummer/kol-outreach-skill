@@ -40,7 +40,7 @@ export const ORIGINAL_FREEZES = [
   },
   {
     "path": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json",
-    "sha256": "86d767248a197b76d95054e6f70ab66b5d9412845d7248953a846ceaac6134a4",
+    "sha256": "41b7ffbb4694f16c0f79e061c09e32de2cbd80b5340e9bc2dc430b8d72ec1c19",
     "portableMeaning": "explicit runtime subset; not original full old26/superset qualification",
     "omitted": []
   },
@@ -52,7 +52,7 @@ export const ORIGINAL_FREEZES = [
   },
   {
     "path": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/freeze-manifest.json",
-    "sha256": "3dcc4694d1d47b762aefb003aade396d4c115161a3bd49166c274175b3b1ebbc",
+    "sha256": "47ac6494c403f11f83937193992579c873d24653d4f4fbad1f611c7891f72abd",
     "portableMeaning": "explicit runtime subset; not original full old26/superset qualification",
     "omitted": []
   },
@@ -1752,7 +1752,7 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
   "onlySemanticChange": "Remove N.SIGHUP.PARENT.NO_ORPHANS; retain RAW/CALLER/real entry hooks/LIFECYCLE residual-role equality; all timing/input/other expected unchanged"
 }
 ` },
-  { name: "packet/lifecycle319/freeze-manifest.json", sha256: "86d767248a197b76d95054e6f70ab66b5d9412845d7248953a846ceaac6134a4", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json", rootBindings: [], body: `{
+  { name: "packet/lifecycle319/freeze-manifest.json", sha256: "41b7ffbb4694f16c0f79e061c09e32de2cbd80b5340e9bc2dc430b8d72ec1c19", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json", rootBindings: [], body: `{
   "version": "Node22-v4.2-runtime-members-only",
   "frozenAtUtc": "2026-10-25T09:06:48.669517+00:00",
   "scope": "runtime members only; old full-guard/provenance artifacts not claimed",
@@ -1779,13 +1779,13 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
     },
     {
       "path": "preload/ordinary-preload.mjs",
-      "sha256": "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22",
-      "bytes": 1374
+      "sha256": "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899",
+      "bytes": 1608
     },
     {
       "path": "preload/run.mjs",
-      "sha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
-      "bytes": 9474
+      "sha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
+      "bytes": 9484
     },
     {
       "path": "preload/spec.json",
@@ -1841,12 +1841,33 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
         "bytes": 2509
       }
     ]
+  },
+  "refreeze2": {
+    "id": "preload-ready-snapshot-r1",
+    "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDp2a6QVZPWC8VWHt37HARq (2026-11-26): authorized independent refreeze of the preload tool ready read and process snapshot",
+    "frozenAtUtc": "2026-11-26T23:46:06.075Z",
+    "changed": [
+      {
+        "path": "preload/ordinary-preload.mjs",
+        "previousSha256": "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22",
+        "sha256": "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899",
+        "previousBytes": 1374,
+        "bytes": 1608
+      },
+      {
+        "path": "preload/run.mjs",
+        "previousSha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
+        "sha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
+        "previousBytes": 9474,
+        "bytes": 9484
+      }
+    ]
   }
 }
 ` },
   { name: "packet/lifecycle319/preload/README.md", sha256: "099fb7a365dd7407d77ebd32df8b128a7f59786afc8c9d1352f14f8e6ee5ebf4", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/README.md", rootBindings: [], body: `Actual public factory provider for ordinary4. Original frozen semantic expected/TS/cases unchanged; v3.2 atomic go retained. C tuple is selected only after final child env is assembled. N observer uses actual fixtureLoader output supplied by real preparation, so explicit public tsx in final NODE_OPTIONS correctly returns CLI. Trusted module/cache and toy SHA are recorded before/after actual C execution.
 ` },
-  { name: "packet/lifecycle319/preload/freeze-manifest.json", sha256: "3dcc4694d1d47b762aefb003aade396d4c115161a3bd49166c274175b3b1ebbc", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/freeze-manifest.json", rootBindings: [], body: `{
+  { name: "packet/lifecycle319/preload/freeze-manifest.json", sha256: "47ac6494c403f11f83937193992579c873d24653d4f4fbad1f611c7891f72abd", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/freeze-manifest.json", rootBindings: [], body: `{
   "version": "Node22-v4.2-runtime-members-only",
   "frozenAtUtc": "2026-10-25T09:06:48.668551+00:00",
   "scope": "runtime members only; old full-guard/provenance artifacts not claimed",
@@ -1858,13 +1879,13 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
     },
     {
       "path": "ordinary-preload.mjs",
-      "sha256": "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22",
-      "bytes": 1374
+      "sha256": "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899",
+      "bytes": 1608
     },
     {
       "path": "run.mjs",
-      "sha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
-      "bytes": 9474
+      "sha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
+      "bytes": 9484
     },
     {
       "path": "spec.json",
@@ -1885,10 +1906,31 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
         "bytes": 2509
       }
     ]
+  },
+  "refreeze2": {
+    "id": "preload-ready-snapshot-r1",
+    "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDp2a6QVZPWC8VWHt37HARq (2026-11-26): authorized independent refreeze of the preload tool ready read and process snapshot",
+    "frozenAtUtc": "2026-11-26T23:46:06.075Z",
+    "changed": [
+      {
+        "path": "ordinary-preload.mjs",
+        "previousSha256": "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22",
+        "sha256": "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899",
+        "previousBytes": 1374,
+        "bytes": 1608
+      },
+      {
+        "path": "run.mjs",
+        "previousSha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
+        "sha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
+        "previousBytes": 9474,
+        "bytes": 9484
+      }
+    ]
   }
 }
 ` },
-  { name: "packet/lifecycle319/preload/ordinary-preload.mjs", sha256: "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/ordinary-preload.mjs", rootBindings: [], body: `import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+  { name: "packet/lifecycle319/preload/ordinary-preload.mjs", sha256: "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/ordinary-preload.mjs", rootBindings: [], body: `import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { threadId, isMainThread } from 'node:worker_threads';
 const entry = process.env.V4_PRELOAD_ENTRY;
 const identity = { pid: process.pid, ppid: process.ppid, threadId, isMainThread, argv1: process.argv[1], knownEntry: entry };
@@ -1900,7 +1942,10 @@ if (!actualEntry) {
 } else if (isMainThread) {
   // A synchronous test-only gate permits PGID proof before normal entry evaluation.
   // It creates no live handle and does not change the entry's code or cached payload.
-  writeFileSync(process.env.V4_PRELOAD_READY, JSON.stringify({ ...identity, token: process.env.V4_PRELOAD_TOKEN }) + '\\n');
+  // The ready line is published atomically (temp file + rename): the ready path never exists empty or partial.
+  const readyTemp = process.env.V4_PRELOAD_READY + '.tmp-' + process.pid;
+  writeFileSync(readyTemp, JSON.stringify({ ...identity, token: process.env.V4_PRELOAD_TOKEN }) + '\\n');
+  renameSync(readyTemp, process.env.V4_PRELOAD_READY);
   const cell = new Int32Array(new SharedArrayBuffer(4));
   const started = Date.now();
   while (!existsSync(process.env.V4_PRELOAD_GO)) {
@@ -1910,7 +1955,7 @@ if (!actualEntry) {
   if (JSON.parse(readFileSync(process.env.V4_PRELOAD_GO, 'utf8')).token !== process.env.V4_PRELOAD_TOKEN) throw new Error('V4_PRELOAD_BAD_TOKEN');
 }
 ` },
-  { name: "packet/lifecycle319/preload/run.mjs", sha256: "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/run.mjs", rootBindings: [], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
+  { name: "packet/lifecycle319/preload/run.mjs", sha256: "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/run.mjs", rootBindings: [], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -1951,9 +1996,9 @@ async function run(side, tuple) {
     child.stdout.on('data',b=>record.stdout+=b);child.stderr.on('data',b=>record.stderr+=b);child.once('error',e=>raw={status:null,signal:null,error:e.code});child.once('exit',(status,signal)=>raw={status,signal,error:null});child.once('close',()=>closed=true);
     const at=Date.now();
     while(Date.now()-at<spec.readyTimeoutMs&&!raw){
-      const table=ps(),rootRow=table.find(p=>p.pid===child.pid);
+      const seen=fs.existsSync(readyFile),table=ps(),rootRow=table.find(p=>p.pid===child.pid);
       if(rootRow){if(rootRow.pgid!==child.pid||rootRow.pgid===own)throw new Error('isolated PGID proof failed');isolated=true;}
-      if(fs.existsSync(readyFile)){
+      if(seen){
         const ready=rows(readyFile)[0],entryRow=table.find(p=>p.pid===ready.pid);
         if(!isolated||ready.token!==token||ready.argv1!==spec.entry||ready.threadId!==0||ready.isMainThread!==true||!entryRow||entryRow.pgid!==child.pid||entryRow.ppid!==child.pid)throw new Error('real entry preload/PGID proof failed');
         record.ready=ready;record.proof={runnerPid:process.pid,runnerPgid:own,isolatedPgid:child.pid,entryPid:ready.pid,members:table.filter(p=>p.pgid===child.pid)};
@@ -2596,7 +2641,7 @@ try{
 fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2)+'\\n');
 console.log(JSON.stringify({status:report.status,semanticAssertions:report.semanticAssertions,report:path.join(out,'report.json'),infrastructureError:report.infrastructureError}));process.exitCode=report.status==='PASS'?0:report.status==='INVALID'?2:report.status==='NOT_RUN'?3:1;
 ` },
-  { name: "packet/patch-inventory.json", sha256: "2543f427d704d551de4fd4880bd0538271923f745df7a1db2e17d626b8482f6c", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/patch-inventory.json", rootBindings: [], body: `[
+  { name: "packet/patch-inventory.json", sha256: "3c0d8570c453e3007ea54fe148e243fa9d98097013d22d93bbdebb0969d419ff", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/patch-inventory.json", rootBindings: [], body: `[
   {
     "entry": "lifecycle319/src/run.mjs",
     "sourceOriginalSha256": "33e1eab32217eb1b4a28d4bea5325973cb060a87c5bb6b8f44378651d657c036",
@@ -2624,14 +2669,20 @@ console.log(JSON.stringify({status:report.status,semanticAssertions:report.seman
   {
     "entry": "lifecycle319/preload/run.mjs",
     "sourceOriginalSha256": "0853224a21d845300066150b2f51637c78a1e67c036ff8e430466dfc0f04248e",
-    "executedOverlaySha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
+    "executedOverlaySha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
     "originalSource": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/v4.1/lifecycle319/preload/run.mjs",
     "allowedExecutableChanges": [
       "Node runtime binding import/preflight/receipt",
       "replace only fixed22.22 preflight guard with validated runtime.nodeVersion where present",
       "assert all real R/C/factory carriers use bound same Node; controlled outer ENOENT remains exempt",
       "supply exact Node version/platform/arch metadata"
-    ]
+    ],
+    "refreeze": {
+      "id": "preload-ready-snapshot-r1",
+      "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDp2a6QVZPWC8VWHt37HARq (2026-11-26): authorized independent refreeze of the preload tool ready read and process snapshot",
+      "previousExecutedOverlaySha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
+      "onlyChange": "ready-wait loop checks the ready file before taking the process snapshot of the same iteration, so the snapshot used for the entry PGID/PPID proof is never older than the ready observation; companion lifecycle319/preload/ordinary-preload.mjs now publishes the ready line atomically (temp file + rename); no retry, timeout, label, assertion, qualify or INVALID/FAIL routing change; not a Node-binding overlay change"
+    }
   },
   {
     "entry": "descriptor/prepare.mjs",
