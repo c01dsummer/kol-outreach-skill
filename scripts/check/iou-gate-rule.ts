@@ -34,17 +34,22 @@ export function roundOf(tier: string): number | undefined {
 
 /**
  * 欠条块里的档：只认流程（`process/6-INTEGRATE.md`「登记怎么做」）定死的那一行格式里、紧挨在重启条件前面的那一格
- * —— `… · 档：<档> · 重启条件：<条件>`。不照这个格式写的交回 undefined，不在整行文字里猜哪一处是档
+ * —— `… · 档：<档> · 重启条件：<条件>`。格式里重启条件是最后一格，前面的短名字与说明是随手写的文字，
+ * 所以这样的两格出现几处时取最后一处。不照这个格式写的交回 undefined，不在整行文字里猜哪一处是档
  */
 export function tierOf(line: string): string | undefined {
-  return / · 档[：:]\s*([^·]+?) · 重启条件[：:]/.exec(line)?.[1]
+  const pairs = [...line.matchAll(/ · 档[：:]\s*([^·]+?) · 重启条件[：:]/g)]
+  return pairs.length === 0 ? undefined : pairs[pairs.length - 1][1]
 }
 
-/** 一行是不是新开的、以登记为去向的欠条块；没照固定格式写档的，按需求所有者定的算登记 */
+/** 流程「五档路由」里定的档名；档那一格不是这几个开头的，当成没照格式写 */
+const TIERS = /^(?:登记|本改动|扩范围|既有缺陷|驳回)/
+
+/** 一行是不是新开的、以登记为去向的欠条块；没照固定格式写档的、档名不是流程里那几个的，按需求所有者定的算登记 */
 export function registersIou(line: string): boolean {
   if (!/^\s*>\s*⚠️\s*欠条/.test(line)) return false
   const tier = tierOf(line)
-  if (tier === undefined) return true
+  if (tier === undefined || !TIERS.test(tier)) return true
   if (/^登记/.test(tier)) return true
   if (!/^本改动/.test(tier) || !tier.includes('不阻塞')) return false
   // 第一、二轮里判不阻塞的仍算修在本改动；写了轮次的从第三轮起算登记，轮次核不出的也算
