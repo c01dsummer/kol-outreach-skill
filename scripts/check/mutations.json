@@ -38970,6 +38970,18 @@
       "kills": [
         "入口：不是 git 仓库时说无从比较，以 1 退出"
       ]
+    },
+    {
+      "id": "M-H167-ed",
+      "req": "harness",
+      "why": "不看 CI 给的 base —— 叠在别的 PR 上时，下面那条新登记的也算这条的",
+      "file": "scripts/check/iou-gate.ts",
+      "find": "resolveBaseline(askGit, prBaseFrom(process.env.SIZE_PR_BASE))",
+      "replace": "resolveBaseline(askGit, prBaseFrom(undefined))",
+      "by": "test",
+      "kills": [
+        "入口：叠在别的分支上、给了 base 时从 base 量起，下面那条新登记的不算这条的，以 0 退出"
+      ]
     }
   ],
   "exemptions": [

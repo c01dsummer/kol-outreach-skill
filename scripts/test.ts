@@ -13895,6 +13895,12 @@ await group('h-iou-gate-entry', () => {
       [0, '新登记闸门（只报数）：回访 PR 不拦；这条改动新登记 1 张', 0, '新登记闸门（只报数）：回访 PR 不拦；这条改动新登记 1 张'])
     // 分支长出来之后，需求所有者在主干上判了一张：数的是主干最新那一版，不是共同祖先，9 张放行
     toy.git('add', '-A'); toy.git('commit', '-qm', 'new iou')
+    // 叠在 work 上的一条：CI 给了 base（SIZE_PR_BASE）就从 work 量起，work 新登记的那张不算这条的
+    toy.git('checkout', '-q', '-b', 'stacked')
+    const stacked = run({ SIZE_PR_BASE: 'work' })
+    toy.git('checkout', '-q', 'work')
+    eq('入口：叠在别的分支上、给了 base 时从 base 量起，下面那条新登记的不算这条的，以 0 退出', [stacked.status, stacked.stdout.trim()],
+      [0, '新登记闸门（只报数）：这条改动没有新登记的欠条，不用数列过没判的'])
     toy.git('checkout', '-q', 'main')
     toy.write('docs/adr/ADR-152-回访.md', '# ADR-152 回访\n\n' + row('') + '| 2026-11-24#1 | ADR-1「旧0」 | 还 |\n')
     toy.git('commit', '-qam', 'judged')

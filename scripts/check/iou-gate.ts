@@ -3,7 +3,8 @@
  * 新登记欠条闸门的入口（`npm run iou-gate`，检查链里的一步）：列给需求所有者、他还没判的欠条满了，这条改动又新登记欠条，就红。
  * 判定全在 `iou-gate-rule.ts`（哪些块算新加、哪些算登记、数法、红不红），这里只读文件与 git、打印、设退出码（`docs/CONVENTIONS.md` 第 10 条）。
  *
- * 改动前从哪个提交量起，与体量闸门同一个判定（`size-rule.ts` 的 `resolveBaseline`）：分支上是与主干的共同祖先，主干上是上一版。
+ * 改动前从哪个提交量起，与体量闸门同一个判定（`size-rule.ts` 的 `resolveBaseline`）：分支上是与主干的共同祖先，主干上是上一版；
+ * 叠在别的 PR 上、CI 给了 base（`SIZE_PR_BASE`）时从 base 量起。
  * 改动前读那个提交上 `docs/adr/` 下的全部记录，改动后读工作区（没提交的也算）。
  * HEAD 还在主干上（新开的分支还没提交过）也按主干算、只报数 —— 与体量闸门一样；提交一次之后才按分支量。
  * 列过没判的张数在主干最新那一版上数（不是共同祖先：别人在主干上判完了，这里就该放行），判定要了才数 —— 要几十秒。
@@ -16,10 +17,11 @@ import { askGit } from './git-entry.js'
 import { freshBlocks, iouGate, revisitBranch, waitingOf } from './iou-gate-rule.js'
 import { cliRawGit } from './revisit-raw-rule.js'
 import { beijingDate, cliGit, dueItems } from './revisit-rule.js'
-import { resolveBaseline } from './size-rule.js'
+import { prBaseFrom, resolveBaseline } from './size-rule.js'
 
 function main(): number {
-  const baseline = resolveBaseline(askGit)
+  // 这条 PR 的 base 由 CI 给（`SIZE_PR_BASE`，与体量闸门同一个变量）：叠在别的 PR 上时，下面那条新加的欠条块不算这条的
+  const baseline = resolveBaseline(askGit, prBaseFrom(process.env.SIZE_PR_BASE))
   if (baseline.kind === 'cannot-answer') {
     console.log(`✗ 新登记闸门：无从比较 —— ${baseline.why}`)
     console.log(`  怎么办：${baseline.how}`)
