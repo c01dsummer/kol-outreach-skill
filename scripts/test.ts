@@ -13765,7 +13765,7 @@ await group('h-launch-entry', () => {
 await group('h-iou-gate', () => {
   const REG = '> ⚠️ 欠条「甲」：漏了一处 · 档：登记 · 重启条件：下一条改它的改动'
   const ROUND3 = '> ⚠️ 欠条：措辞 · 档：本改动(第 3 轮,不阻塞) · 重启条件：下次碰到'
-  const NOROUND = '> ⚠️ 欠条：措辞 · 档：本改动(轮次核不出,合并者判不阻塞) · 重启条件：下次碰到'
+  const NOROUND = '> ⚠️ 欠条：措辞 · 档：本改动(轮次核不出,不阻塞) · 重启条件：下次碰到'
   const ROUND2 = '> ⚠️ 欠条：措辞 · 档：本改动(第 2 轮,不阻塞) · 重启条件：下次碰到'
   const FIXED = '> ⚠️ 欠条：措辞 · 档：本改动 · 重启条件：本 PR 已合入'
   const SCOPE = '> ⚠️ 欠条「乙」：另一处 · 档：扩范围 · 重启条件：本 PR 已合入'
@@ -13800,8 +13800,11 @@ await group('h-iou-gate', () => {
       '> ⚠️ 欠条：措辞 · 档：驳回 · 重启条件：下次碰到',
       '> ⚠️ 欠条：措辞 · 档：扩范围外 · 重启条件：下次碰到',
       '> ⚠️ 欠条：措辞 · 档：扩范围  · 重启条件：下次碰到',
-      '> ⚠️ 欠条：措辞 · 档：登记 · 来源：后来改判 · 档：扩范围 · 重启条件：下次碰到'].map(registersIou),
-    [false, false, false, true, true, true, true, true, true, false, true, false, false])
+      '> ⚠️ 欠条：措辞 · 档：登记 · 来源：后来改判 · 档：扩范围 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：本改动（） · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：本改动(第 2 轮,不阻塞,另说) · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：本改动（第 2 轮，不阻塞） · 重启条件：下次碰到'].map(registersIou),
+    [false, false, false, true, true, true, true, true, true, false, true, false, false, true, true, false])
   eq('新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路',
     iouGate({ added: [PROSE, REG, SCOPE, ROUND3], waiting: 10, revisit: false }),
     { red: true, lines: [`✗ 新登记闸门：${HEAD(10)}，这条改动又新登记了 2 张：`, `  ${REG}`, `  ${ROUND3}`, WAYS] })
