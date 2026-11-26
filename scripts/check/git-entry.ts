@@ -22,8 +22,8 @@ export const QUESTIONS: readonly (readonly string[])[] = [
   ['rev-parse', 'HEAD'],
   ['rev-parse', '--is-shallow-repository'],
   ['rev-parse', '--show-toplevel'],
-  // 新登记欠条闸门：本地认当前分支是不是周回访的（分离头指针时答不上来，按不是算）
-  ['symbolic-ref', '-q', '--short', 'HEAD'],
+  // 新登记欠条闸门：本地认当前分支是不是周回访的（分离头指针时答 HEAD，按不是算）
+  ['rev-parse', '--abbrev-ref', 'HEAD'],
   // 变异派工：worker 副本要带哪些文件（与下面列文件那几行一起交给 `workerCopyList`）
   ['rev-parse', '--show-prefix'],
   ['rev-parse', '--verify', REV],

@@ -37,7 +37,7 @@ function main(): number {
     console.log(`✗ 新登记闸门：读不到 ${baseline.base.slice(0, 7)} 上的决策记录，没得比`)
     return 1
   }
-  const branch = process.env.GITHUB_HEAD_REF || (askGit('symbolic-ref', '-q', '--short', 'HEAD') ?? undefined)
+  const branch = process.env.GITHUB_HEAD_REF || (askGit('rev-parse', '--abbrev-ref', 'HEAD') ?? undefined)
   const verdict = iouGate({
     added: freshBlocks(before, adrDocs()),
     waiting: () => {

@@ -38940,7 +38940,7 @@
       "req": "harness",
       "why": "本地不看当前分支 —— 本地跑回访时被拦",
       "file": "scripts/check/iou-gate.ts",
-      "find": "(askGit('symbolic-ref', '-q', '--short', 'HEAD') ?? undefined)",
+      "find": "(askGit('rev-parse', '--abbrev-ref', 'HEAD') ?? undefined)",
       "replace": "undefined",
       "by": "test",
       "kills": [
