@@ -42,14 +42,17 @@ export function tierOf(line: string): string | undefined {
   return pairs.length === 0 ? undefined : pairs[pairs.length - 1][1]
 }
 
-/** 流程「五档路由」里定的档名；档那一格不是这几个开头的，当成没照格式写 */
-const TIERS = /^(?:登记|本改动|扩范围|既有缺陷|驳回)/
+/**
+ * 流程「五档路由」里定的档那一格的全部写法：五个档名之一，或本改动后面跟一对括号写轮次与不阻塞。
+ * 整格比，不认前缀 —— 「扩范围外」这类不在里面的，当成没照格式写
+ */
+const TIERS = /^(?:登记|本改动|扩范围|既有缺陷|驳回|本改动\s*[(（][^()（）]*[)）])$/
 
 /** 一行是不是新开的、以登记为去向的欠条块；没照固定格式写档的、档名不是流程里那几个的，按需求所有者定的算登记 */
 export function registersIou(line: string): boolean {
   if (!/^\s*>\s*⚠️\s*欠条/.test(line)) return false
   const tier = tierOf(line)
-  if (tier === undefined || !TIERS.test(tier)) return true
+  if (tier === undefined || !TIERS.test(tier.trim())) return true
   if (/^登记/.test(tier)) return true
   if (!/^本改动/.test(tier) || !tier.includes('不阻塞')) return false
   // 第一、二轮里判不阻塞的仍算修在本改动；写了轮次的从第三轮起算登记，轮次核不出的也算

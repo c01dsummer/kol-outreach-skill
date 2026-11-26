@@ -38640,8 +38640,8 @@
       "req": "harness",
       "why": "没照固定格式写档的放行",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "  if (tier === undefined || !TIERS.test(tier)) return true",
-      "replace": "  if (tier !== undefined && !TIERS.test(tier)) return true",
+      "find": "  if (tier === undefined || !TIERS.test(tier.trim())) return true",
+      "replace": "  if (tier !== undefined && !TIERS.test(tier.trim())) return true",
       "by": "test",
       "kills": [
         "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
@@ -38676,7 +38676,7 @@
       "req": "harness",
       "why": "档名不在流程里的放行",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "  if (tier === undefined || !TIERS.test(tier)) return true",
+      "find": "  if (tier === undefined || !TIERS.test(tier.trim())) return true",
       "replace": "  if (tier === undefined) return true",
       "by": "test",
       "kills": [
@@ -38688,8 +38688,32 @@
       "req": "harness",
       "why": "驳回不算流程里的档名",
       "file": "scripts/check/iou-gate-rule.ts",
-      "find": "登记|本改动|扩范围|既有缺陷|驳回)/",
-      "replace": "登记|本改动|扩范围|既有缺陷)/",
+      "find": "既有缺陷|驳回|本改动",
+      "replace": "既有缺陷|本改动",
+      "by": "test",
+      "kills": [
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+      ]
+    },
+    {
+      "id": "M-H167-df",
+      "req": "harness",
+      "why": "档名只比前缀，「扩范围外」骗过闸门",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "[)）])$/",
+      "replace": "[)）])/",
+      "by": "test",
+      "kills": [
+        "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"
+      ]
+    },
+    {
+      "id": "M-H167-dg",
+      "req": "harness",
+      "why": "档格前后的空白没去掉，照格式写的被当成没照格式",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "TIERS.test(tier.trim())",
+      "replace": "TIERS.test(tier)",
       "by": "test",
       "kills": [
         "新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记"

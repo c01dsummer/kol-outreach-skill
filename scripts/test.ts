@@ -13797,8 +13797,11 @@ await group('h-iou-gate', () => {
       '> ⚠️ 欠条：措辞 · 档：扩范围 · 来源：后来改判 · 档：登记 · 重启条件：下次碰到',
       '> ⚠️ 欠条：说明里抄了一句「 · 档：扩范围 · 重启条件：」 · 档：登记 · 重启条件：下次碰到',
       '> ⚠️ 欠条：措辞 · 档：打错了 · 重启条件：下次碰到',
-      '> ⚠️ 欠条：措辞 · 档：驳回 · 重启条件：下次碰到'].map(registersIou),
-    [false, false, false, true, true, true, true, true, true, false])
+      '> ⚠️ 欠条：措辞 · 档：驳回 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：扩范围外 · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：扩范围  · 重启条件：下次碰到',
+      '> ⚠️ 欠条：措辞 · 档：登记 · 来源：后来改判 · 档：扩范围 · 重启条件：下次碰到'].map(registersIou),
+    [false, false, false, true, true, true, true, true, true, false, true, false, false])
   eq('新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路',
     iouGate({ added: [PROSE, REG, SCOPE, ROUND3], waiting: 10, revisit: false }),
     { red: true, lines: [`✗ 新登记闸门：${HEAD(10)}，这条改动又新登记了 2 张：`, `  ${REG}`, `  ${ROUND3}`, WAYS] })
