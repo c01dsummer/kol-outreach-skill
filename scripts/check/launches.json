@@ -24,7 +24,7 @@
     {"config":"[\"selfcheck\",[\"empty-platform-still-reported\"]]","launches":3,"maxPaid":{"id":"M-P5-o","paid":2},"running":0,"stopping":1},
     {"config":"[\"selfcheck\",[\"enrich\"]]","launches":8,"maxPaid":{"id":"M-D6-o","paid":6},"running":0,"stopping":1},
     {"config":"[\"selfcheck\",[\"feedback-template\"]]","launches":47,"maxPaid":{"id":"M-D26-m","paid":46},"running":0,"stopping":19},
-    {"config":"[\"selfcheck\",[\"first-page-before-target-stop\"]]","launches":8,"maxPaid":{"id":"M-F9-f","paid":7},"running":0,"stopping":4},
+    {"config":"[\"selfcheck\",[\"first-page-before-target-stop\"]]","launches":8,"maxPaid":{"id":"M-F9-f","paid":7},"running":0,"stopping":5},
     {"config":"[\"selfcheck\",[\"hashtag-route\"]]","launches":11,"maxPaid":{"id":"M-D15-ac","paid":10},"running":0,"stopping":14},
     {"config":"[\"selfcheck\",[\"ig-fallback-budget-keeps-task\"]]","launches":2,"maxPaid":{"id":"M-D6-t","paid":1},"running":0,"stopping":1},
     {"config":"[\"selfcheck\",[\"ig-homepage-mixed\"]]","launches":9,"maxPaid":{"id":"M-D8-p","paid":8},"running":0,"stopping":9},
