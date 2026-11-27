@@ -74,7 +74,8 @@ const DEATH_ITEM = /^>\s*\*\*/
 export const REOPEN_HEADING = /^##\s+什么条件下重开这个讨论\s*$/
 const REOPEN_ITEM = /^-\s+\*\*/
 const HEADING = /^##\s/
-const IOU_HEAD = /^>?\s*\*{0,2}⚠️\s*\*{0,2}欠条/
+/** 欠条块的块头：台账、孤儿闸门与新登记闸门（`iou-gate-rule.ts`）认的是同一个起头 */
+export const IOU_HEAD = /^>?\s*\*{0,2}⚠️\s*\*{0,2}欠条/
 
 /** 去掉引用记号、列表记号与加粗，只留条件本身。 */
 export function plain(line: string): string {
