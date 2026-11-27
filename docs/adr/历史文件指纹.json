@@ -20,8 +20,8 @@
     "sha256": "e29ee42849c992a34ad54c870b044db40a9edbec6adca87dd78bd16bff9b9f3e"
   },
   "ADR-167-欠条台账机制：四句入口规矩还没进-process，台账、回访与闸.md": {
-    "bytes": 115440,
-    "sha256": "059d5f5fb294f31d8283333c0dfec937f285f35c91283c49a9b1c6b6ccb1c31b"
+    "bytes": 115789,
+    "sha256": "6e187005bd69bc870bec8b07084ac0d5a4b099b2d381ee71f834cc5b91a29e30"
   },
   "ADR-198-检查链判定新增的返回字段没有变异守着就红.md": {
     "bytes": 61359,

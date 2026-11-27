@@ -38982,6 +38982,18 @@
       "kills": [
         "入口：叠在别的分支上、给了 base 时从 base 量起，下面那条新登记的不算这条的，以 0 退出"
       ]
+    },
+    {
+      "id": "M-H167-ee",
+      "req": "harness",
+      "why": "两张没隔开的欠条不截开 —— 前一张带上后一张的档，扩范围的也算成登记",
+      "file": "scripts/check/iou-gate-rule.ts",
+      "find": "Math.min(b.end, blocks[k + 1]?.start ?? b.end)",
+      "replace": "b.end",
+      "by": "test",
+      "kills": [
+        "新登记闸门：两张欠条之间没隔开时各算各的 —— 截到下一张的块头，状态行留在前一张里，扩范围、既有缺陷的不算登记"
+      ]
     }
   ],
   "exemptions": [

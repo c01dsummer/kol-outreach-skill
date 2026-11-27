@@ -13823,6 +13823,10 @@ await group('h-iou-gate', () => {
   eq('新登记闸门：新加的块按整段文字比 —— 挪进历史文件的不算、同一块多了一张算一张、围栏与注释里的不算，续行接上、去掉引用号',
     freshBlocks(before, after),
     ['> ⚠️ 欠条「丁」：写到第二行 · 来源：评审 · 档：扩范围 · 重启条件：下次', BARE, REG])
+  const SQUEEZED = new Map([['docs/adr/ADR-2-乙.md', doc('# 乙', '', SCOPE, OLD, '> ⚠️ 已还：ADR-2「乙」 · 还在本改动', '', BARE, REG.slice(2))]])
+  eq('新登记闸门：两张欠条之间没隔开时各算各的 —— 截到下一张的块头，状态行留在前一张里，扩范围、既有缺陷的不算登记',
+    freshBlocks(new Map(), SQUEEZED).map(b => [b, registersIou(b)]),
+    [[SCOPE, false], [`${OLD} ⚠️ 已还：ADR-2「乙」 · 还在本改动`, false], [BARE, true], [REG.slice(2), true]])
   eq('新登记闸门：红时逐块列出新加块的整段文字',
     iouGate({ added: freshBlocks(before, after), waiting: () => 12, revisit: false, trunk: false }).lines,
     [`✗ 新登记闸门：${HEAD(12)}，这条改动又新登记了 2 张：`, `  ${BARE}`, `  ${REG}`, WAYS])

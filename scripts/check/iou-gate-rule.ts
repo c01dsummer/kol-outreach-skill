@@ -70,12 +70,17 @@ function blockText(lines: readonly string[], start: number, end: number): string
   return lines.slice(start, end).map((l, k) => k === 0 ? l : l.replace(/^\s*>?/, '')).join(' ').replace(/\s+/g, ' ').trim()
 }
 
-/** 一份份记录里的欠条块（围栏、注释里的不算），按文件名排好，交回每块的整段文字 */
+/**
+ * 一份份记录里的欠条块（围栏、注释里的不算），按文件名排好，交回每块的整段文字。
+ * 两张欠条之间没隔开时，台账的定界让前一张一直伸到后一张的末尾；这里截到下一张的块头，各算各的档
+ * （台账与孤儿闸门的定界不动）
+ */
 function blocksOf(docs: ReadonlyMap<string, string>): string[] {
   return [...docs.keys()].sort().flatMap(file => {
     const text = docs.get(file) ?? ''
     const lines = text.split('\n')
-    return iouBlocks(lines, quotedMask(text)).map(b => blockText(lines, b.start, b.end))
+    const blocks = iouBlocks(lines, quotedMask(text))
+    return blocks.map((b, k) => blockText(lines, b.start, Math.min(b.end, blocks[k + 1]?.start ?? b.end)))
   })
 }
 
