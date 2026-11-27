@@ -161,9 +161,10 @@ import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import * as reviewRowsApi from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul, renameSync, accessSync, constants as fsConstants } from 'node:fs'
+import { EXIT, isSaveFailure, saving } from './lib/exit-codes.js'
 import { spawnSync, type ChildProcess } from './check/start-process.js'
 import { EventEmitter } from 'node:events'
-import { isDeepStrictEqual, promisify } from 'node:util'
+import { inspect, isDeepStrictEqual, promisify } from 'node:util'
 import { runInNewContext } from 'node:vm'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { request as templateHttpsRequest } from 'node:https'
@@ -312,6 +313,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p3-budget-token', needs: [] },
   { id: 'd13-default-budget-entry', needs: [] },
   { id: 'd14-cost-persistence', needs: [] },
+  { id: 'd14-exit-codes', needs: [] },
   { id: 'p4-render-recheck', needs: [] },
   { id: 'd21-review-document', needs: [] },
   { id: 'd21-agent-projection', needs: [] },
@@ -21469,6 +21471,40 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
 }
 
 })
+await group('d14-exit-codes', () => {
+suite('D14', '入口共用的退出码对照表，与保存失败的记号（ADR-193）')
+// 四个入口的退出码都从 `lib/exit-codes.ts` 取，Agent 照 `skill/SKILL.md` 那张对照表读数：两边得是同一张表。
+// 这里把整张表逐个数钉死 —— 换掉其中一个数，入口照样能跑，可 Agent 会照着表去做另一件事（比如把保存失败读成其他运行错误）。
+eq('退出码对照表：0 干完、1 其他运行错误、2 输入问题、3 钱不够、4 达标、5 供应商 402、6 保存失败、7 记忆读不出',
+   { ...EXIT }, { done: 0, runtime: 1, input: 2, budget: 3, target: 4, provider402: 5, save: 6, memory: 7 })
+{
+  // SKILL.md 那张表的第一列，按行读出来，得正好是 0 到 7 各一次、按数排好 —— 表里漏一个数或多一个数，Agent 就有一种退出没地方查
+  const skill = rf('skill/SKILL.md', 'utf8')
+  const head = skill.indexOf('| 退出码 | 意思 | 你该做什么 |')
+  const rows = head < 0 ? [] : skill.slice(head).split('\n').slice(2)
+  const codes: number[] = []
+  for (const line of rows) { const m = /^\| (\d+) \|/.exec(line); if (!m) break; codes.push(Number(m[1])) }
+  eq('SKILL.md 那张退出码表正好列出 0 到 7 各一次，与代码里的表同一组数',
+     codes, Object.values(EXIT).sort((a, b) => a - b))
+}
+{
+  // 保存失败的记号：入口靠 `isSaveFailure` 把从 `saving` 里抛出来的错误分到 6，别的错误归 1
+  const boom = new Error('写不进去')
+  let thrown: unknown
+  try { saving(() => { throw boom }) } catch (e) { thrown = e }
+  eq('保存里抛出的错误原样抛出（同一个对象），并认得出是保存失败',
+     [thrown === boom, isSaveFailure(thrown)], [true, true])
+  // 入口拿到它就 `console.error(e)`：那一行按 `inspect` 打，可枚举的符号键也会被打出来，所以这里连 `inspect` 一起看
+  eq('打上记号之后，错误的文字与打到 stderr 上的样子一个字不多',
+     [String(thrown), Object.keys(thrown as object), inspect(thrown).includes('kol.save-failed')], ['Error: 写不进去', [], false])
+  eq('没经过保存的错误认不出是保存失败，归其他运行错误', isSaveFailure(new Error('别的错')), false)
+  let raw: unknown
+  try { saving(() => { throw 'not-an-object' }) } catch (e) { raw = e }
+  eq('抛的不是对象时打不上记号，归其他运行错误', [raw, isSaveFailure(raw)], ['not-an-object', false])
+  eq('保存成功时交回保存的返回值', saving(() => 42), 42)
+}
+})
+
 await group('p4-render-recheck', () => {
   suite('P4', '重复交付按当前记忆复核两个平台的身份')
   const script = join(dirname(fileURLToPath(import.meta.url)), 'memory-recheck-test.ts')
