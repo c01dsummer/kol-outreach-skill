@@ -21473,7 +21473,8 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
 })
 await group('d14-exit-codes', () => {
 suite('D14', '入口共用的退出码对照表，与保存失败的记号（ADR-193）')
-// 四个入口的退出码都从 `lib/exit-codes.ts` 取，Agent 照 `skill/SKILL.md` 那张对照表读数：两边得是同一张表。
+// 入口新写、改写的退出都从 `lib/exit-codes.ts` 取数（开跑前那些原有的 `process.exit(2)` 照旧写数字，见那份文件头），
+// Agent 照 `skill/SKILL.md` 那张对照表读数：两边得是同一张表。
 // 这里把整张表逐个数钉死 —— 换掉其中一个数，入口照样能跑，可 Agent 会照着表去做另一件事（比如把保存失败读成其他运行错误）。
 eq('退出码对照表：0 干完、1 其他运行错误、2 输入问题、3 钱不够、4 达标、5 供应商 402、6 保存失败、7 记忆读不出',
    { ...EXIT }, { done: 0, runtime: 1, input: 2, budget: 3, target: 4, provider402: 5, save: 6, memory: 7 })
