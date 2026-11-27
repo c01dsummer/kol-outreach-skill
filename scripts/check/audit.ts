@@ -180,23 +180,11 @@ for (const r of reqs) {
             `引用 ${e.refs} 处`)
 }
 
-// ---- 2. 可执行文件是否都被执行过 ----
-const selfcheck = corpus.get('scripts/check/selfcheck.ts') ?? ''
-const entrypoints = walk('scripts').filter(f =>
-  readFileSync(f, 'utf8').startsWith('#!') && !f.startsWith('scripts/check/'))
-/** 自身就是检查链一环的文件，不需要再被自检执行一遍 */
-const EXEC_EXEMPT: Record<string, string> = {
-  'scripts/test.ts': '它本身就是检查链的一环，由 npm test 与变异测试反复执行',
-}
-const unexecuted = entrypoints.filter(f => {
-  if (f in EXEC_EXEMPT) return false
-  const base = f.split('/').pop()!
-  // 只认 S('xxx.ts') 这个精确形式。早先还 or 了一个 `includes(base)` 兜底，
-  // 结果是 selfcheck.ts 里**任何地方**提到文件名（哪怕注释里）就算「执行过」——
-  // 前面那个精确判据变成死代码，整条检查形同虚设。
-  return !selfcheck.includes(`S('${base}')`)
-})
-for (const f of unexecuted) { hard++; gaps.push(`${f} 是可执行文件但未被自检执行，也未登记豁免`) }
+// ---- 2. （撤了）可执行文件是否都被执行过 ----
+// 原先这里按 `selfcheck.ts` 的源码里有没有那个文件名的调用写法，判一个入口「被自检执行过」——
+// 那是读源码去猜跑没跑。自检自己在跑的时候记下了真走到的每个脚本，跑完对着 `scripts/` 下
+// 全部带 shebang 的文件找孤儿，同一个问题它是跑出来的答案，范围还更大；这一节只是它的弱副本，
+// 撤掉（ADR-251）。节号留着不挪，别处按「第 3 节」「第 4 节」引的仍对得上。
 
 // ---- 3. 检查链自己的判定模块，是否都有变异守着 ----
 /**
@@ -284,9 +272,6 @@ if (deadLines.length) {
 // 一条判据有了负片之后，改了两处忘了第三处的症状是「同一件事，两份报告说两样」（#91）。
 // 这一行怎么拼、拿哪份变异表去问，都在 auditBook 里
 for (const line of book.exemptionLines()) console.log(`  ${line}`)
-for (const [f, why] of Object.entries(EXEC_EXEMPT)) {
-  console.log(`  ⊘ ${f} 免于自检执行：${why}`)
-}
 for (const [f, why] of Object.entries(JUDGMENT_EXEMPT)) {
   console.log(`  ⊘ ${f} 不算判定模块：${why}`)
 }

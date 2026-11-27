@@ -28,7 +28,7 @@
 | **改评分/分层规则** | `scripts/lib/score.ts` · `scripts/lib/pipeline.ts` · `skill/references/semantic-fit.md` · 测试 | 部分 |
 | **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate`（顺序契约表点名的变异在不在、`file` 在不在那一行的位置栏里由它开跑前核，守不守靠人核；ADR-148） |
 | **新增/改名/删除顶层目录或 `docs/` 下的子目录，或者换了运行产物的落点** | `docs/ARCHITECTURE.md`「新东西落在哪个目录」那张表 · `.gitignore`（不进仓库的；变异 worker 的副本清单问 git，跟着它走，ADR-72 第 303 行） · `AGENTS.md`（影响路由时） | ✗ 靠执行（ADR-114） |
-| **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `audit`（锚点表靠人核，ADR-78） |
+| **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `selfcheck`（每个可执行文件都有出处；锚点表靠人核，ADR-78；原先由 `audit` 守的那一节在 ADR-251 撤了） |
 | **改模块之间的依赖方向** | `docs/ARCHITECTURE.md`（含「一件新工作放哪边」那节，如果判据变了） | ✗ 靠执行（ADR-78） |
 | **改入口参数/退出码/产出文件/字段所有权** | `docs/ARCHITECTURE.md` 缝隙契约 · `skill/SKILL.md` · `README.md` 快速开始 | 部分 |
 | **改报错/提示里给用户的一句承诺**（比如「续跑要不要花钱」）| **点名逐个过，不要 grep**：**`docs/requirements.json` 的对应判据（机器可读的真相来源，最不该说错）** → `docs/ARCHITECTURE.md` 缝隙契约 → **`skill/SKILL.md`（Agent 照着转述）** → 对应 `skill/references/*` → `README.md` → **那个脚本自己的文件头与块注释**（代码注释也是副本，而且离实现最近、最容易被当成权威）→ `docs/SPEC.md` 表格外的手写两节 → `docs/adr/` 里说过这句承诺的记录（追加 `⚠️` 更正）。副本的措辞常常不一样（「不产生新请求」vs「不产生新的请求」），按记忆搜必漏。**承诺的「条件」变了也要重走一遍全表**；**给一个已有取值加第二个来源**时同样要过 —— 承诺一个字没改，但可能已经不再为真（ADR-43） | ✗ 靠执行 |
