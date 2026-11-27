@@ -32,6 +32,7 @@
     "due-list": "tsx scripts/check/revisit-due.ts --list",
     "same-spot": "tsx scripts/check/same-spot.ts",
     "debt-touch": "tsx scripts/check/debt-touch.ts",
+    "iou-gate": "tsx scripts/check/iou-gate.ts",
     "jargon": "tsx scripts/check/jargon.ts",
     "admission": "tsx scripts/check/admission.ts",
     "launches": "tsx scripts/check/launches.ts",
@@ -39,7 +40,7 @@
     "data-shapes": "tsx scripts/check/data-shapes.ts",
     "typecheck": "tsc --noEmit",
     "compile": "tsx scripts/check/compile.ts",
-    "check": "npm run anchors && npm run size && npm run shard-load && npm run ticket-refs && npm run child-process-use && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run fields && npm run compile && npm test && npm run mutate && npm run selfcheck && npm run audit && npm run launches"
+    "check": "npm run anchors && npm run size && npm run shard-load && npm run ticket-refs && npm run child-process-use && npm run spec && npm run skill && npm run adr && npm run iou-gate && npm run typecheck && npm run fields && npm run compile && npm test && npm run mutate && npm run selfcheck && npm run audit && npm run launches"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

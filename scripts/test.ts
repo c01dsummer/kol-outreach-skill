@@ -60,7 +60,7 @@ import {
   JUDGMENT_EXEMPT, auditBook, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
   ledger, selfcheckCriterionMutations, unguarded,
 } from './check/audit-rule.js'
-import { GATE_LIMIT, iouGate, registersIou, roundOf } from './check/iou-gate-rule.js'
+import { freshBlocks, GATE_LIMIT, iouGate, registersIou, revisitBranch, revisitLedger, roundOf, waitingOf } from './check/iou-gate-rule.js'
 import {
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitFaults, exitRace,
   judgeRun, killsMatched,
@@ -277,6 +277,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-audit-feed', needs: [] },
   { id: 'h-launch-entry', needs: [] },
   { id: 'h-iou-gate', needs: [] },
+  { id: 'h-iou-gate-entry', needs: [] },
   { id: 'h-launch-preload', needs: [] },
   { id: 'h-launch-preload-edge', needs: [] },
   { id: 'h-prebuilt', needs: [] },
@@ -13774,20 +13775,22 @@ await group('h-iou-gate', () => {
   const CARRY = '> ⚠️ 续挂：ADR-1「甲」 · 在本改动上响了 · 到 2026-12-25 · 因为还不了'
   const PROSE = '散文里引了一句 ⚠️ 欠条：别处的 · 档：登记'
   const INDENT = '   >  ⚠️ 欠条（档：登记）：缩进与括号写法'
+  const BOLD = '> **⚠️ 欠条**「甲」：加粗 · 档：登记 · 重启条件：下次'
+  const BARE = '⚠️ 欠条「甲」：不带引用号 · 档：登记 · 重启条件：下次'
   const HEAD = (n: number) => `列给需求所有者、他还没判的欠条 ${n} 张（满 10 张就不许新登记）`
   const WAYS = '  三条路任选：把这条发现修在本改动；照扩范围或既有缺陷排队；或者等需求所有者判完列给他的那几张、状态行落下之后再登记'
 
   eq('新登记闸门：门槛是 10', GATE_LIMIT, 10)
   eq('新登记闸门：只认以登记为去向的欠条块 —— 档写登记、本改动第三轮起或轮次核不出的不阻塞、没照格式写档的算；第二轮、已修、扩范围、既有缺陷、状态行、散文不算',
-    [REG, ROUND3, NOROUND, ROUND2, FIXED, SCOPE, OLD, PAID, CARRY, PROSE, INDENT].map(registersIou),
-    [true, true, true, false, false, false, false, false, false, false, true])
+    [REG, ROUND3, NOROUND, ROUND2, FIXED, SCOPE, OLD, PAID, CARRY, PROSE, INDENT, BOLD, BARE].map(registersIou),
+    [true, true, true, false, false, false, false, false, false, false, false, true, true])
   eq('新登记闸门：轮次写汉字也认 —— 第二轮不算登记，第三轮、第十二轮算',
     ['（第二轮，不阻塞）', '（第三轮，不阻塞）', '（第十二轮，不阻塞）'].map(t => registersIou(`> ⚠️ 欠条：措辞 · 档：本改动${t} · 重启条件：下次碰到`)),
     [false, true, true])
   eq('新登记闸门：轮次读数 —— 阿拉伯数字照读，汉字认到九十九，写法不成数的认不出',
     ['第 12 轮', '第3轮', '第二轮', '第十轮', '第十二轮', '第二十轮', '第二十三轮', '第十十轮', '第二二十轮', '第二三轮', '第一百轮', '没写'].map(t => String(roundOf(t))),
     ['12', '3', '2', '10', '12', '20', '23', 'undefined', 'undefined', 'undefined', 'undefined', 'undefined'])
-  eq('新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、有几处取最后一处；别处写的不算；没照格式写档、档名不在流程里的算登记',
+  eq('新登记闸门：档只认流程固定格式里紧挨重启条件的那一格、恰好一处；不止一处的、没照格式写档的、档名不在流程里的算登记',
     ['> ⚠️ 欠条（档：登记）后来改了 · 档：扩范围 · 重启条件：本 PR 已合入',
       '> ⚠️ 欠条「重启条件：说明」：问题 · 档：扩范围 · 重启条件：本 PR 已合入',
       '> ⚠️ 欠条「响应格式待补」：说明 · 档：扩范围 · 重启条件：收到（档：登记）响应时',
@@ -13803,25 +13806,122 @@ await group('h-iou-gate', () => {
       '> ⚠️ 欠条：措辞 · 档：登记 · 来源：后来改判 · 档：扩范围 · 重启条件：下次碰到',
       '> ⚠️ 欠条：措辞 · 档：本改动（） · 重启条件：下次碰到',
       '> ⚠️ 欠条：措辞 · 档：本改动(第 2 轮,不阻塞,另说) · 重启条件：下次碰到',
-      '> ⚠️ 欠条：措辞 · 档：本改动（第 2 轮，不阻塞） · 重启条件：下次碰到'].map(registersIou),
-    [false, false, false, true, true, true, true, true, true, false, true, false, false, true, true, false])
+      '> ⚠️ 欠条：措辞 · 档：本改动（第 2 轮，不阻塞） · 重启条件：下次碰到',
+      '> ⚠️ 欠条「甲」：漏了 · 档：扩范围 · 重启条件：下一条把「 · 档：扩范围 · 重启条件：」这种写法改掉的改动',
+      '> ⚠️ 欠条：措辞 · 档: 扩范围 · 重启条件: 下次碰到'].map(registersIou),
+    [false, false, false, true, true, true, true, true, true, false, true, false, false, true, true, false, true, false])
   eq('新登记闸门：满 10 张、新登记两张时红，第一行以 ✗ 起头点数，逐块列出，末行写三条路',
-    iouGate({ added: [PROSE, REG, SCOPE, ROUND3], waiting: 10, revisit: false }),
+    iouGate({ added: [PROSE, REG, SCOPE, ROUND3], waiting: () => 10, revisit: false, trunk: false }),
     { red: true, lines: [`✗ 新登记闸门：${HEAD(10)}，这条改动又新登记了 2 张：`, `  ${REG}`, `  ${ROUND3}`, WAYS] })
-  eq('新登记闸门：列出的块去掉行首空白',
-    iouGate({ added: [INDENT], waiting: 12, revisit: false }).lines,
-    [`✗ 新登记闸门：列给需求所有者、他还没判的欠条 12 张（满 10 张就不许新登记），这条改动又新登记了 1 张：`, '  >  ⚠️ 欠条（档：登记）：缩进与括号写法', WAYS])
+  const doc = (...ls: string[]) => ls.join('\n')
+  const before = new Map([['docs/adr/ADR-1-甲.md', doc('# 甲', '', REG, '', SCOPE)]])
+  const after = new Map([
+    ['docs/adr/历史/ADR-1-甲.md', doc('# 甲', '', REG)],
+    ['docs/adr/ADR-1-甲.md', doc('# 甲', '', SCOPE, '', REG, '', '```', ROUND3, '```', '', '<!--', NOROUND, '-->', '',
+      '> ⚠️ 欠条「丁」：写到第二行 · 来源：评审', '> · 档：扩范围 · 重启条件：下次', '', BARE)],
+  ])
+  eq('新登记闸门：新加的块按整段文字比 —— 挪进历史文件的不算、同一块多了一张算一张、围栏与注释里的不算，续行接上、去掉引用号',
+    freshBlocks(before, after),
+    ['> ⚠️ 欠条「丁」：写到第二行 · 来源：评审 · 档：扩范围 · 重启条件：下次', BARE, REG])
+  const SQUEEZED = new Map([['docs/adr/ADR-2-乙.md', doc('# 乙', '', SCOPE, OLD, '> ⚠️ 已还：ADR-2「乙」 · 还在本改动', '', BARE, REG.slice(2))]])
+  eq('新登记闸门：两张欠条之间没隔开时各算各的 —— 截到下一张的块头，状态行留在前一张里，扩范围、既有缺陷的不算登记',
+    freshBlocks(new Map(), SQUEEZED).map(b => [b, registersIou(b)]),
+    [[SCOPE, false], [`${OLD} ⚠️ 已还：ADR-2「乙」 · 还在本改动`, false], [BARE, true], [REG.slice(2), true]])
+  eq('新登记闸门：红时逐块列出新加块的整段文字',
+    iouGate({ added: freshBlocks(before, after), waiting: () => 12, revisit: false, trunk: false }).lines,
+    [`✗ 新登记闸门：${HEAD(12)}，这条改动又新登记了 2 张：`, `  ${BARE}`, `  ${REG}`, WAYS])
   eq('新登记闸门：9 张时新登记照放行，只报数',
-    iouGate({ added: [PROSE, REG, PAID], waiting: 9, revisit: false }),
+    iouGate({ added: [PROSE, REG, PAID], waiting: () => 9, revisit: false, trunk: false }),
     { red: false, lines: [`新登记闸门（只报数）：${HEAD(9)}；这条改动新登记 1 张，没满，放行`] })
   eq('新登记闸门：满了但这条改动只加了状态行、扩范围、既有缺陷的块，不红',
-    iouGate({ added: [PAID, CARRY, SCOPE, OLD, FIXED], waiting: 10, revisit: false }),
-    { red: false, lines: [`新登记闸门（只报数）：${HEAD(10)}；这条改动没有新登记的欠条`] })
-  eq('新登记闸门：回访 PR 满了、新登记了也不红',
-    iouGate({ added: [REG], waiting: 10, revisit: true }),
-    { red: false, lines: [`新登记闸门（只报数）：${HEAD(10)}；回访 PR 不拦`] })
+    iouGate({ added: [PAID, CARRY, SCOPE, OLD, FIXED], waiting: () => 10, revisit: false, trunk: false }),
+    { red: false, lines: ['新登记闸门（只报数）：这条改动没有新登记的欠条，不用数列过没判的'] })
+  let asked = 0
+  const COUNT = () => { asked++; return 99 }
+  eq('新登记闸门：回访 PR 新登记了也不红，不去数列过没判的',
+    [iouGate({ added: [REG, PROSE], waiting: COUNT, revisit: true, trunk: false }), asked],
+    [{ red: false, lines: ['新登记闸门（只报数）：回访 PR 不拦；这条改动新登记 1 张'] }, 0])
+  eq('新登记闸门：没有新登记的不去数列过没判的',
+    [iouGate({ added: [PAID, SCOPE], waiting: COUNT, revisit: false, trunk: false }).red, asked], [false, 0])
+  eq('新登记闸门：主干上满了、新登记了也不红，只报数',
+    iouGate({ added: [REG, PROSE, ROUND3], waiting: () => 11, revisit: false, trunk: true }),
+    { red: false, lines: [`新登记闸门（只报数）：${HEAD(11)}；主干上不拦，这次合进来新登记 2 张`] })
   eq('新登记闸门：门槛可以另给，满了就红',
-    iouGate({ added: [REG], waiting: 3, revisit: false, limit: 3 }).red, true)
+    iouGate({ added: [REG], waiting: () => 3, revisit: false, trunk: false, limit: 3 }).red, true)
+  eq('新登记闸门：回访 PR 认分支名以 claude/revisit- 起头，取不到分支名的不算',
+    ['claude/revisit-2026-11-30', 'claude/revisit-', 'claude/revisits', 'x/claude/revisit-1', undefined].map(revisitBranch),
+    [true, true, false, false, false])
+  const ledgerDocs = new Map([
+    ['docs/adr/ADR-152-回访.md', '主'], ['docs/adr/ADR-1520-别的.md', '不是'], ['docs/adr/历史/ADR-152-回访.md', '旧'],
+    ['docs/adr/ADR-15-别的.md', '也不是'], ['docs/adr/历史/子/ADR-152-回访.md', '更深的不算'],
+  ])
+  eq('新登记闸门：回访台账先读历史文件、再读主文件，别的记录与更深的目录不读', revisitLedger(ledgerDocs), '旧\n主')
+  const items = ['ADR-1「甲」', 'ADR-1「乙」', 'ADR-1「丙」', 'ADR-1「丁」'].map(key => ({ key, aliases: [], carried: false }))
+  const listedDocs = new Map([
+    ['docs/adr/历史/ADR-152-回访.md', '| 2026-11-16#1 | ADR-1「甲」、ADR-1「乙」 | 还 |'],
+    ['docs/adr/ADR-152-回访.md', '| 2026-11-23#1 | ADR-1「乙」、ADR-1「丙」、ADR-1「丁」 |  |\n| 2026-11-23#2 | ADR-1「丁」 | 收尾 |'],
+  ])
+  eq('新登记闸门：列过没判的照周回访的数法数 —— 最近一次列出没判的算，判过的、后来又列出没判的照算，历史文件里列过的也认',
+    waitingOf(items, listedDocs, '2026-11-26'), 2)
+})
+
+await group('h-iou-gate-entry', () => {
+  harness('新登记欠条闸门的入口：在玩具仓库里真起，满了又新登记以 1 退出，回访 PR、主干上、没满、无从比较各情形照说')
+  const entry = join(process.cwd(), 'scripts/check/iou-gate.ts')
+  withToyRepo(toy => {
+    const run = (extra: Record<string, string> = {}) => cxSpawnSync(...tsxCommand([entry]), { cwd: toy.dir, encoding: 'utf8', timeout: 120_000, env: { ...fixtureEnv({}), GITHUB_ACTIONS: '', GITHUB_HEAD_REF: '', SIZE_PR_BASE: '', ...extra } })
+    const names = Array.from({ length: 10 }, (_, i) => `旧${i}`)
+    toy.git('init', '-q', '-b', 'main')
+    toy.write('docs/adr/ADR-1-甲.md', ['# ADR-1 甲', '', ...names.flatMap(n => [`> ⚠️ 欠条「${n}」：没做完 · 档：登记 · 重启条件：下次`, ''])].join('\n'))
+    toy.git('add', '-A'); toy.git('commit', '-qm', 'base')
+    const lone = run()
+    eq('入口：主干上只有根提交时说没有改动前的记录可比，以 0 退出', [lone.status, lone.stdout.startsWith('新登记闸门（只报数）：HEAD 就是 main 且没有父提交')], [0, true])
+    const row = (verdict: string) => `| 2026-11-23#1 | ${names.map(n => `ADR-1「${n}」`).join('、')} | ${verdict} |\n`
+    toy.write('docs/adr/ADR-152-回访.md', '# ADR-152 回访\n\n' + row(''))
+    toy.git('add', '-A'); toy.git('commit', '-qm', 'listed')
+    toy.git('checkout', '-q', '-b', 'work')
+    const NEW = '> ⚠️ 欠条「新」：又一处 · 档：登记 · 重启条件：下次'
+    const body = rf(join(toy.dir, 'docs/adr/ADR-1-甲.md'), 'utf8')
+    // 分支上先提交一张扩范围的（不算登记），新登记的那张还没提交：量到工作区为止，也算
+    toy.write('docs/adr/ADR-1-甲.md', body + '\n> ⚠️ 欠条「排」：另一处 · 档：扩范围 · 重启条件：下次\n')
+    toy.git('commit', '-qam', 'queued')
+    toy.write('docs/adr/ADR-1-甲.md', body + '\n> ⚠️ 欠条「排」：另一处 · 档：扩范围 · 重启条件：下次\n\n' + NEW + '\n')
+    const red = run()
+    eq('入口：主干上列过没判的满 10 张、这条改动（还没提交）新登记一张，以 1 退出，点名那一块',
+      [red.status, red.stdout.split('\n').slice(0, 2)],
+      [1, ['✗ 新登记闸门：列给需求所有者、他还没判的欠条 10 张（满 10 张就不许新登记），这条改动又新登记了 1 张：', `  ${NEW}`]])
+    const revisitCi = run({ GITHUB_HEAD_REF: 'claude/revisit-2026-11-30' })
+    toy.git('checkout', '-q', '-b', 'claude/revisit-2026-11-30')
+    const revisitLocal = run()
+    toy.git('checkout', '-q', 'work')
+    eq('入口：回访 PR 不拦 —— CI 上认 PR 的分支名，本地认当前分支，都以 0 退出',
+      [revisitCi.status, revisitCi.stdout.trim(), revisitLocal.status, revisitLocal.stdout.trim()],
+      [0, '新登记闸门（只报数）：回访 PR 不拦；这条改动新登记 1 张', 0, '新登记闸门（只报数）：回访 PR 不拦；这条改动新登记 1 张'])
+    // 分支长出来之后，需求所有者在主干上判了一张：数的是主干最新那一版，不是共同祖先，9 张放行
+    toy.git('add', '-A'); toy.git('commit', '-qm', 'new iou')
+    // 叠在 work 上的一条：CI 给了 base（SIZE_PR_BASE）就从 work 量起，work 新登记的那张不算这条的
+    toy.git('checkout', '-q', '-b', 'stacked')
+    const stacked = run({ SIZE_PR_BASE: 'work' })
+    toy.git('checkout', '-q', 'work')
+    eq('入口：叠在别的分支上、给了 base 时从 base 量起，下面那条新登记的不算这条的，以 0 退出', [stacked.status, stacked.stdout.trim()],
+      [0, '新登记闸门（只报数）：这条改动没有新登记的欠条，不用数列过没判的'])
+    toy.git('checkout', '-q', 'main')
+    toy.write('docs/adr/ADR-152-回访.md', '# ADR-152 回访\n\n' + row('') + '| 2026-11-24#1 | ADR-1「旧0」 | 还 |\n')
+    toy.git('commit', '-qam', 'judged')
+    toy.git('checkout', '-q', 'work')
+    const judged = run()
+    eq('入口：分支长出来之后主干上判掉一张，按主干最新那一版数 9 张，放行、以 0 退出',
+      [judged.status, judged.stdout.trim()],
+      [0, '新登记闸门（只报数）：列给需求所有者、他还没判的欠条 9 张（满 10 张就不许新登记）；这条改动新登记 1 张，没满，放行'])
+    toy.git('checkout', '-q', 'main')
+    toy.write('docs/adr/ADR-1-甲.md', rf(join(toy.dir, 'docs/adr/ADR-1-甲.md'), 'utf8') + '\n' + NEW + '\n')
+    toy.git('commit', '-qam', 'on trunk')
+    const trunk = run()
+    eq('入口：在主干上只报数，以 0 退出', [trunk.status, trunk.stdout.includes('主干上不拦，这次合进来新登记 1 张')], [0, true])
+    rmSync(join(toy.dir, '.git'), { recursive: true, force: true })
+    const bare = run()
+    eq('入口：不是 git 仓库时说无从比较，以 1 退出', [bare.status, bare.stdout.startsWith('✗ 新登记闸门：无从比较 —— ')], [1, true])
+  })
 })
 
 const printsOf = (b: BaselineLaunches | undefined) => b?.prints.map(p => [p.body, p.launched])
