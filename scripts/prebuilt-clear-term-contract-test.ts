@@ -145,9 +145,10 @@ export async function runPrebuiltClearTermCases(): Promise<readonly string[]> {
           child.once('exit', (status, signal) => { r.raw = { status, signal, error: null } }); child.once('close', () => { r.close = true })
           const at = Date.now()
           while (!r.raw && Date.now() - at < 5000) {
+            const readySeen = existsSync(readyFile) && readFileSync(readyFile, 'utf8').endsWith('\n')
             const table = ps(), carrier = table.find(p => p.pid === r.pid)
             if (carrier) { if (carrier.pgid !== r.pid || carrier.pgid === runnerPgid) throw new Error('carrier is not isolated'); isolated = true }
-            if (existsSync(readyFile) && readFileSync(readyFile, 'utf8').endsWith('\n')) {
+            if (readySeen) {
               const ready = JSON.parse(readFileSync(readyFile, 'utf8')) as Row, actual = table.find(p => p.pid === ready.pid)
               r.ready = ready
               const parent = ready.pid === r.pid ? process.pid : r.pid

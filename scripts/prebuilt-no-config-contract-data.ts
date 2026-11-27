@@ -40,19 +40,19 @@ export const ORIGINAL_FREEZES = [
   },
   {
     "path": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json",
-    "sha256": "86d767248a197b76d95054e6f70ab66b5d9412845d7248953a846ceaac6134a4",
+    "sha256": "dbf56a86c865cf58b27ba6ea18a34efbcbf0f25a470ab7ea018132f9a4f1bb06",
     "portableMeaning": "explicit runtime subset; not original full old26/superset qualification",
     "omitted": []
   },
   {
     "path": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/sync/freeze-manifest.json",
-    "sha256": "856dfbffee67edeea75b009270ba09b45be4bdfd4cd726b4a588a64b2991ae70",
+    "sha256": "fae956d2b3d7cec3c15660ac4ae15526a47bff8b7e916ff1aaf88367058930a7",
     "portableMeaning": "explicit runtime subset; not original full old26/superset qualification",
     "omitted": []
   },
   {
     "path": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/freeze-manifest.json",
-    "sha256": "3dcc4694d1d47b762aefb003aade396d4c115161a3bd49166c274175b3b1ebbc",
+    "sha256": "cdb6622c0e55a3c4982de891f7b1f11c63a409412f5a5dab4a7a77700554f430",
     "portableMeaning": "explicit runtime subset; not original full old26/superset qualification",
     "omitted": []
   },
@@ -1752,7 +1752,7 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
   "onlySemanticChange": "Remove N.SIGHUP.PARENT.NO_ORPHANS; retain RAW/CALLER/real entry hooks/LIFECYCLE residual-role equality; all timing/input/other expected unchanged"
 }
 ` },
-  { name: "packet/lifecycle319/freeze-manifest.json", sha256: "86d767248a197b76d95054e6f70ab66b5d9412845d7248953a846ceaac6134a4", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json", rootBindings: [], body: `{
+  { name: "packet/lifecycle319/freeze-manifest.json", sha256: "dbf56a86c865cf58b27ba6ea18a34efbcbf0f25a470ab7ea018132f9a4f1bb06", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json", rootBindings: [], body: `{
   "version": "Node22-v4.2-runtime-members-only",
   "frozenAtUtc": "2026-10-25T09:06:48.669517+00:00",
   "scope": "runtime members only; old full-guard/provenance artifacts not claimed",
@@ -1779,13 +1779,13 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
     },
     {
       "path": "preload/ordinary-preload.mjs",
-      "sha256": "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22",
-      "bytes": 1374
+      "sha256": "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899",
+      "bytes": 1608
     },
     {
       "path": "preload/run.mjs",
-      "sha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
-      "bytes": 9474
+      "sha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
+      "bytes": 9484
     },
     {
       "path": "preload/spec.json",
@@ -1809,8 +1809,8 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
     },
     {
       "path": "src/run.mjs",
-      "sha256": "de1a73c9a40eb3523d9a1e14bc4c682d3b6ed5910de4a6b1cce143f6b06bf9c5",
-      "bytes": 29754
+      "sha256": "7093094904a9c2cabab4cf04a0ea193d896a1f356da8f2850ae170930ae68285",
+      "bytes": 30004
     },
     {
       "path": "sync/README.md",
@@ -1824,7 +1824,7 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
     },
     {
       "path": "sync/run.mjs",
-      "sha256": "474c874be95192e403bf037d253b22ac2c61f159444096ffd444a53d4b76ec8f",
+      "sha256": "48b9aeb213bf8a56c4ac4933f797303f9790f568c90458247a445cd925739c8a",
       "bytes": 12022
     }
   ],
@@ -1841,12 +1841,55 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
         "bytes": 2509
       }
     ]
+  },
+  "refreeze2": {
+    "id": "preload-ready-snapshot-r1",
+    "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDijsasTKDgdPfXV4D8QoMC (2026-11-27): authorized independent refreeze of the ready-read / process-snapshot order in the five lifecycle test tools",
+    "frozenAtUtc": "2026-11-26T23:46:06.075Z",
+    "changed": [
+      {
+        "path": "preload/ordinary-preload.mjs",
+        "previousSha256": "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22",
+        "sha256": "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899",
+        "previousBytes": 1374,
+        "bytes": 1608
+      },
+      {
+        "path": "preload/run.mjs",
+        "previousSha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
+        "sha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
+        "previousBytes": 9474,
+        "bytes": 9484
+      }
+    ]
+  },
+  "refreeze3": {
+    "id": "ready-before-snapshot-r1",
+    "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDijsasTKDgdPfXV4D8QoMC (2026-11-27): authorized independent refreeze of the ready-read / process-snapshot order in the five lifecycle test tools",
+    "frozenAtUtc": "2026-11-27T01:32:04.894Z",
+    "changed": [
+      {
+        "path": "src/run.mjs",
+        "previousSha256": "de1a73c9a40eb3523d9a1e14bc4c682d3b6ed5910de4a6b1cce143f6b06bf9c5",
+        "sha256": "7093094904a9c2cabab4cf04a0ea193d896a1f356da8f2850ae170930ae68285",
+        "previousBytes": 29754,
+        "bytes": 30004
+      },
+      {
+        "path": "sync/run.mjs",
+        "previousSha256": "474c874be95192e403bf037d253b22ac2c61f159444096ffd444a53d4b76ec8f",
+        "sha256": "48b9aeb213bf8a56c4ac4933f797303f9790f568c90458247a445cd925739c8a",
+        "previousBytes": 12022,
+        "bytes": 12022
+      }
+    ],
+    "authoritySupplement": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgL68hAzqNikFEibL7bigoaqC (2026-11-27 07:44 UTC): additionally authorized, within this same refreeze, the reader-side fix in lifecycle319/src/run.mjs that treats the synchronous-block helper record as acknowledged only when the block file exists and is newline-terminated"
   }
 }
 ` },
   { name: "packet/lifecycle319/preload/README.md", sha256: "099fb7a365dd7407d77ebd32df8b128a7f59786afc8c9d1352f14f8e6ee5ebf4", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/README.md", rootBindings: [], body: `Actual public factory provider for ordinary4. Original frozen semantic expected/TS/cases unchanged; v3.2 atomic go retained. C tuple is selected only after final child env is assembled. N observer uses actual fixtureLoader output supplied by real preparation, so explicit public tsx in final NODE_OPTIONS correctly returns CLI. Trusted module/cache and toy SHA are recorded before/after actual C execution.
 ` },
-  { name: "packet/lifecycle319/preload/freeze-manifest.json", sha256: "3dcc4694d1d47b762aefb003aade396d4c115161a3bd49166c274175b3b1ebbc", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/freeze-manifest.json", rootBindings: [], body: `{
+  { name: "packet/lifecycle319/preload/freeze-manifest.json", sha256: "cdb6622c0e55a3c4982de891f7b1f11c63a409412f5a5dab4a7a77700554f430", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/freeze-manifest.json", rootBindings: [], body: `{
   "version": "Node22-v4.2-runtime-members-only",
   "frozenAtUtc": "2026-10-25T09:06:48.668551+00:00",
   "scope": "runtime members only; old full-guard/provenance artifacts not claimed",
@@ -1858,13 +1901,13 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
     },
     {
       "path": "ordinary-preload.mjs",
-      "sha256": "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22",
-      "bytes": 1374
+      "sha256": "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899",
+      "bytes": 1608
     },
     {
       "path": "run.mjs",
-      "sha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
-      "bytes": 9474
+      "sha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
+      "bytes": 9484
     },
     {
       "path": "spec.json",
@@ -1885,10 +1928,31 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
         "bytes": 2509
       }
     ]
+  },
+  "refreeze2": {
+    "id": "preload-ready-snapshot-r1",
+    "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDijsasTKDgdPfXV4D8QoMC (2026-11-27): authorized independent refreeze of the ready-read / process-snapshot order in the five lifecycle test tools",
+    "frozenAtUtc": "2026-11-26T23:46:06.075Z",
+    "changed": [
+      {
+        "path": "ordinary-preload.mjs",
+        "previousSha256": "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22",
+        "sha256": "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899",
+        "previousBytes": 1374,
+        "bytes": 1608
+      },
+      {
+        "path": "run.mjs",
+        "previousSha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
+        "sha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
+        "previousBytes": 9474,
+        "bytes": 9484
+      }
+    ]
   }
 }
 ` },
-  { name: "packet/lifecycle319/preload/ordinary-preload.mjs", sha256: "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/ordinary-preload.mjs", rootBindings: [], body: `import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+  { name: "packet/lifecycle319/preload/ordinary-preload.mjs", sha256: "38ee1e2507af6e4f7852546b1c9b5be65073e5995d0ab78c3ed2216139c58899", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/ordinary-preload.mjs", rootBindings: [], body: `import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { threadId, isMainThread } from 'node:worker_threads';
 const entry = process.env.V4_PRELOAD_ENTRY;
 const identity = { pid: process.pid, ppid: process.ppid, threadId, isMainThread, argv1: process.argv[1], knownEntry: entry };
@@ -1900,7 +1964,10 @@ if (!actualEntry) {
 } else if (isMainThread) {
   // A synchronous test-only gate permits PGID proof before normal entry evaluation.
   // It creates no live handle and does not change the entry's code or cached payload.
-  writeFileSync(process.env.V4_PRELOAD_READY, JSON.stringify({ ...identity, token: process.env.V4_PRELOAD_TOKEN }) + '\\n');
+  // The ready line is published atomically (temp file + rename): the ready path never exists empty or partial.
+  const readyTemp = process.env.V4_PRELOAD_READY + '.tmp-' + process.pid;
+  writeFileSync(readyTemp, JSON.stringify({ ...identity, token: process.env.V4_PRELOAD_TOKEN }) + '\\n');
+  renameSync(readyTemp, process.env.V4_PRELOAD_READY);
   const cell = new Int32Array(new SharedArrayBuffer(4));
   const started = Date.now();
   while (!existsSync(process.env.V4_PRELOAD_GO)) {
@@ -1910,7 +1977,7 @@ if (!actualEntry) {
   if (JSON.parse(readFileSync(process.env.V4_PRELOAD_GO, 'utf8')).token !== process.env.V4_PRELOAD_TOKEN) throw new Error('V4_PRELOAD_BAD_TOKEN');
 }
 ` },
-  { name: "packet/lifecycle319/preload/run.mjs", sha256: "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/run.mjs", rootBindings: [], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
+  { name: "packet/lifecycle319/preload/run.mjs", sha256: "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/run.mjs", rootBindings: [], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -1951,9 +2018,9 @@ async function run(side, tuple) {
     child.stdout.on('data',b=>record.stdout+=b);child.stderr.on('data',b=>record.stderr+=b);child.once('error',e=>raw={status:null,signal:null,error:e.code});child.once('exit',(status,signal)=>raw={status,signal,error:null});child.once('close',()=>closed=true);
     const at=Date.now();
     while(Date.now()-at<spec.readyTimeoutMs&&!raw){
-      const table=ps(),rootRow=table.find(p=>p.pid===child.pid);
+      const seen=fs.existsSync(readyFile),table=ps(),rootRow=table.find(p=>p.pid===child.pid);
       if(rootRow){if(rootRow.pgid!==child.pid||rootRow.pgid===own)throw new Error('isolated PGID proof failed');isolated=true;}
-      if(fs.existsSync(readyFile)){
+      if(seen){
         const ready=rows(readyFile)[0],entryRow=table.find(p=>p.pid===ready.pid);
         if(!isolated||ready.token!==token||ready.argv1!==spec.entry||ready.threadId!==0||ready.isMainThread!==true||!entryRow||entryRow.pgid!==child.pid||entryRow.ppid!==child.pid)throw new Error('real entry preload/PGID proof failed');
         record.ready=ready;record.proof={runnerPid:process.pid,runnerPgid:own,isolatedPgid:child.pid,entryPid:ready.pid,members:table.filter(p=>p.pgid===child.pid)};
@@ -2085,7 +2152,7 @@ if (isMainThread) {
   appendFileSync(process.env.CONTRACT_OBSERVER_LOG, JSON.stringify({ kind: 'observer-positive', fingerprint, stateFingerprint: state.fingerprint, token: state.box.value, pid: process.pid, threadId, isMainThread, stateURL: process.env.CONTRACT_STATE_URL }) + '\\n');
 }
 ` },
-  { name: "packet/lifecycle319/src/run.mjs", sha256: "de1a73c9a40eb3523d9a1e14bc4c682d3b6ed5910de4a6b1cce143f6b06bf9c5", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/src/run.mjs", rootBindings: ["original"], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
+  { name: "packet/lifecycle319/src/run.mjs", sha256: "7093094904a9c2cabab4cf04a0ea193d896a1f356da8f2850ae170930ae68285", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/src/run.mjs", rootBindings: ["original"], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
 // Independent black-box runner. It never imports or reads a candidate module.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -2215,6 +2282,7 @@ async function execute(caseDef, side, command, envBase) {
     const started = Date.now();
     // Prove the process-group boundary even for non-signal runs before any cleanup.
     while (Date.now() - started < spec.readyTimeoutMs) {
+      const readySeen = caseDef.signal && fs.existsSync(files.ready);
       const table = ps();
       const rootRow = table.find(row => row.pid === child.pid);
       if (rootRow) {
@@ -2223,7 +2291,7 @@ async function execute(caseDef, side, command, envBase) {
         state.initialGroup = { runnerPid: process.pid, runnerPgid: ownPgid, rootPid: child.pid, pgid: rootRow.pgid };
       }
       if (!caseDef.signal && state.raw) break;
-      if (caseDef.signal && fs.existsSync(files.ready)) {
+      if (readySeen) {
         const records = rows(files.ready);
         if (records.length !== 1) throw new Error('ready file multiplicity invalid');
         state.ready = records[0];
@@ -2251,8 +2319,10 @@ async function execute(caseDef, side, command, envBase) {
     if (caseDef.signal && state.ready) {
       if (caseDef.mode === 'blocked') {
         const waitAt = Date.now();
-        while (!fs.existsSync(files.block) && Date.now() - waitAt < spec.readyTimeoutMs) await sleep(5);
-        if (!fs.existsSync(files.block)) productPrecondition('synchronous-block helper did not acknowledge');
+        // The helper's record counts as acknowledged only once it is complete (file present and newline-terminated).
+        const blockComplete = () => fs.existsSync(files.block) && fs.readFileSync(files.block, 'utf8').endsWith('\\n');
+        while (!blockComplete() && Date.now() - waitAt < spec.readyTimeoutMs) await sleep(5);
+        if (!blockComplete()) productPrecondition('synchronous-block helper did not acknowledge');
         state.block = rows(files.block)[0];
         const helperRow = ps().find(row => row.pid === state.block.pid);
         if (!helperRow || helperRow.ppid !== state.ready.pid || helperRow.pgid !== child.pid) productPrecondition('synchronous-block helper topology differs from frozen input');
@@ -2461,7 +2531,7 @@ process.exitCode = report.status === 'PASS' ? 0 : report.status === 'INVALID' ? 
   "finiteBoundary": "A synchronous go handshake keeps module evaluation on the same stack before process.kill; public R/R must qualify this preserved shape before any C use."
 }
 ` },
-  { name: "packet/lifecycle319/sync/freeze-manifest.json", sha256: "856dfbffee67edeea75b009270ba09b45be4bdfd4cd726b4a588a64b2991ae70", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/sync/freeze-manifest.json", rootBindings: [], body: `{
+  { name: "packet/lifecycle319/sync/freeze-manifest.json", sha256: "fae956d2b3d7cec3c15660ac4ae15526a47bff8b7e916ff1aaf88367058930a7", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/sync/freeze-manifest.json", rootBindings: [], body: `{
   "version": "Node22-v4.2-runtime-members-only",
   "frozenAtUtc": "2026-10-25T09:06:48.668115+00:00",
   "scope": "runtime members only; old full-guard/provenance artifacts not claimed",
@@ -2478,13 +2548,27 @@ process.exitCode = report.status === 'PASS' ? 0 : report.status === 'INVALID' ? 
     },
     {
       "path": "run.mjs",
-      "sha256": "474c874be95192e403bf037d253b22ac2c61f159444096ffd444a53d4b76ec8f",
+      "sha256": "48b9aeb213bf8a56c4ac4933f797303f9790f568c90458247a445cd925739c8a",
       "bytes": 12022
     }
-  ]
+  ],
+  "refreeze": {
+    "id": "ready-before-snapshot-r1",
+    "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDijsasTKDgdPfXV4D8QoMC (2026-11-27): authorized independent refreeze of the ready-read / process-snapshot order in the five lifecycle test tools",
+    "frozenAtUtc": "2026-11-27T01:32:04.894Z",
+    "changed": [
+      {
+        "path": "run.mjs",
+        "previousSha256": "474c874be95192e403bf037d253b22ac2c61f159444096ffd444a53d4b76ec8f",
+        "sha256": "48b9aeb213bf8a56c4ac4933f797303f9790f568c90458247a445cd925739c8a",
+        "previousBytes": 12022,
+        "bytes": 12022
+      }
+    ]
+  }
 }
 ` },
-  { name: "packet/lifecycle319/sync/run.mjs", sha256: "474c874be95192e403bf037d253b22ac2c61f159444096ffd444a53d4b76ec8f", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/sync/run.mjs", rootBindings: ["original"], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
+  { name: "packet/lifecycle319/sync/run.mjs", sha256: "48b9aeb213bf8a56c4ac4933f797303f9790f568c90458247a445cd925739c8a", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/sync/run.mjs", rootBindings: ["original"], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
 // One supplemental case, independent of candidate implementation and the frozen 27-case runner.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -2535,9 +2619,9 @@ async function run(side, command) {
     child.once('error',e=>record.raw={status:null,signal:null,error:e.code}); child.once('exit',(status,signal)=>record.raw={status,signal,error:null}); child.once('close',()=>close=true);
     const at=Date.now();
     while(Date.now()-at<5000 && !record.raw){
+      const ready=readRows(files.ready)[0];
       const table=ps(), rootRow=table.find(p=>p.pid===child.pid);
       if(rootRow){ if(rootRow.pgid!==child.pid || rootRow.pgid===ownPgid) throw new Error('isolated PGID proof failed'); isolated=true; }
-      const ready=readRows(files.ready)[0];
       if(ready){
         const entry=table.find(p=>p.pid===ready.pid);
         if(ready.token!==token || ready.fingerprint!==expected.entryFingerprint || ready.sourceFingerprint!==expected.sourceFingerprint || ready.threadId!==0 || ready.isMainThread!==true || !entry || entry.pgid!==child.pid || ready.pid===child.pid || entry.ppid!==child.pid){record.productPrecondition='actual entry ready identity/topology invalid';break;}
@@ -2596,42 +2680,61 @@ try{
 fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2)+'\\n');
 console.log(JSON.stringify({status:report.status,semanticAssertions:report.semanticAssertions,report:path.join(out,'report.json'),infrastructureError:report.infrastructureError}));process.exitCode=report.status==='PASS'?0:report.status==='INVALID'?2:report.status==='NOT_RUN'?3:1;
 ` },
-  { name: "packet/patch-inventory.json", sha256: "2543f427d704d551de4fd4880bd0538271923f745df7a1db2e17d626b8482f6c", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/patch-inventory.json", rootBindings: [], body: `[
+  { name: "packet/patch-inventory.json", sha256: "f6b69c6ca60ea893b5c617fbf9d6b97d7f08332f3d266056e1ad4d24434b0ab5", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/patch-inventory.json", rootBindings: [], body: `[
   {
     "entry": "lifecycle319/src/run.mjs",
     "sourceOriginalSha256": "33e1eab32217eb1b4a28d4bea5325973cb060a87c5bb6b8f44378651d657c036",
-    "executedOverlaySha256": "de1a73c9a40eb3523d9a1e14bc4c682d3b6ed5910de4a6b1cce143f6b06bf9c5",
+    "executedOverlaySha256": "7093094904a9c2cabab4cf04a0ea193d896a1f356da8f2850ae170930ae68285",
     "originalSource": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/v4.1/lifecycle319/src/run.mjs",
     "allowedExecutableChanges": [
       "Node runtime binding import/preflight/receipt",
       "replace only fixed22.22 preflight guard with validated runtime.nodeVersion where present",
       "assert all real R/C/factory carriers use bound same Node; controlled outer ENOENT remains exempt",
       "supply exact Node version/platform/arch metadata"
-    ]
+    ],
+    "refreeze": {
+      "id": "ready-before-snapshot-r1",
+      "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDijsasTKDgdPfXV4D8QoMC (2026-11-27): authorized independent refreeze of the ready-read / process-snapshot order in the five lifecycle test tools",
+      "previousExecutedOverlaySha256": "de1a73c9a40eb3523d9a1e14bc4c682d3b6ed5910de4a6b1cce143f6b06bf9c5",
+      "onlyChange": "ready-wait loop reads the ready file before taking the process snapshot of the same iteration, so the snapshot used for the entry topology check is never older than the ready observation; no retry, timeout, label, assertion, precondition or INVALID/FAIL routing change; not a Node-binding overlay change; additionally (see authoritySupplement) the synchronous-block wait and its not-acknowledged check require the block file to exist and be newline-terminated instead of merely existing, with the same timeout and the same productPrecondition routing",
+      "authoritySupplement": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgL68hAzqNikFEibL7bigoaqC (2026-11-27 07:44 UTC): additionally authorized, within this same refreeze, the reader-side fix in lifecycle319/src/run.mjs that treats the synchronous-block helper record as acknowledged only when the block file exists and is newline-terminated"
+    }
   },
   {
     "entry": "lifecycle319/sync/run.mjs",
     "sourceOriginalSha256": "3a3e462e190da75653b947c12616fd4f58ea6b3b7eeb5ab18ebfb0c082c1acd8",
-    "executedOverlaySha256": "474c874be95192e403bf037d253b22ac2c61f159444096ffd444a53d4b76ec8f",
+    "executedOverlaySha256": "48b9aeb213bf8a56c4ac4933f797303f9790f568c90458247a445cd925739c8a",
     "originalSource": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/v4.1/lifecycle319/sync/run.mjs",
     "allowedExecutableChanges": [
       "Node runtime binding import/preflight/receipt",
       "replace only fixed22.22 preflight guard with validated runtime.nodeVersion where present",
       "assert all real R/C/factory carriers use bound same Node; controlled outer ENOENT remains exempt",
       "supply exact Node version/platform/arch metadata"
-    ]
+    ],
+    "refreeze": {
+      "id": "ready-before-snapshot-r1",
+      "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDijsasTKDgdPfXV4D8QoMC (2026-11-27): authorized independent refreeze of the ready-read / process-snapshot order in the five lifecycle test tools",
+      "previousExecutedOverlaySha256": "474c874be95192e403bf037d253b22ac2c61f159444096ffd444a53d4b76ec8f",
+      "onlyChange": "ready-wait loop reads the ready file before taking the process snapshot of the same iteration, so the snapshot used for the entry topology check is never older than the ready observation; no retry, timeout, label, assertion, precondition or INVALID/FAIL routing change; not a Node-binding overlay change"
+    }
   },
   {
     "entry": "lifecycle319/preload/run.mjs",
     "sourceOriginalSha256": "0853224a21d845300066150b2f51637c78a1e67c036ff8e430466dfc0f04248e",
-    "executedOverlaySha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
+    "executedOverlaySha256": "dc080e6b5b13b86c186a733fc1b4c4d0c4b00681147a985d830ba662498e3b5a",
     "originalSource": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/v4.1/lifecycle319/preload/run.mjs",
     "allowedExecutableChanges": [
       "Node runtime binding import/preflight/receipt",
       "replace only fixed22.22 preflight guard with validated runtime.nodeVersion where present",
       "assert all real R/C/factory carriers use bound same Node; controlled outer ENOENT remains exempt",
       "supply exact Node version/platform/arch metadata"
-    ]
+    ],
+    "refreeze": {
+      "id": "preload-ready-snapshot-r1",
+      "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDijsasTKDgdPfXV4D8QoMC (2026-11-27): authorized independent refreeze of the ready-read / process-snapshot order in the five lifecycle test tools",
+      "previousExecutedOverlaySha256": "bcde72029a299beabb6b913fcfa5e520f2ffe69eb8ab74d409fdcba62ed604c6",
+      "onlyChange": "ready-wait loop checks the ready file before taking the process snapshot of the same iteration, so the snapshot used for the entry PGID/PPID proof is never older than the ready observation; companion lifecycle319/preload/ordinary-preload.mjs now publishes the ready line atomically (temp file + rename); no retry, timeout, label, assertion, qualify or INVALID/FAIL routing change; not a Node-binding overlay change"
+    }
   },
   {
     "entry": "descriptor/prepare.mjs",
@@ -4085,7 +4188,7 @@ if(process.argv[1]&&new URL(import.meta.url).pathname===process.argv[1])report(c
 ]
 
 // New standalone sync43 closure; old76 members/portable scopes above unchanged.
-export const SYNC43_FREEZE_SHA256 = "3547b3c29ea76c03a4030101ab318d6fbdd7818e0cbf4769ca61a8471bd2bbff"
+export const SYNC43_FREEZE_SHA256 = "b0e87d99b41c61f7ccea34a7569f648abe6537796c20d52ebbca0d289b7de0c4"
 export const SYNC43_NORMAL_LABELS = {
   "linux": [
     "N.SYNC_SELF_TERM.PUBLIC_REFERENCE_QUALIFIED",
@@ -5252,7 +5355,7 @@ export const SYNC43_FILES: readonly FrozenContractFile[] = [
     ].join(''),
     // SYNC43-BODY-END
   },
-  { name: "packet/sync43/src/qualify.mjs", sha256: "85e2b09ea66cf568c42a4692fbf688cc797ae5e6298baa7d49d960ffb28c6d2b", source: "/private/tmp/kc-20261024/ci-recovery-linux-sync-term-contract-artifacts/frozen-v4.3.1/src/qualify.mjs", rootBindings: [],
+  { name: "packet/sync43/src/qualify.mjs", sha256: "958430779c3e860218dd22d76f54c795f42bc52befb63a0776241d1ec658db54", source: "/private/tmp/kc-20261024/ci-recovery-linux-sync-term-contract-artifacts/frozen-v4.3.1/src/qualify.mjs", rootBindings: [],
     // SYNC43-BODY-BEGIN "packet/sync43/src/qualify.mjs"
     body: [
       "// R-only qualification plus the finite sync measurement shared by the same-slot runner.\n",
@@ -5305,9 +5408,10 @@ export const SYNC43_FILES: readonly FrozenContractFile[] = [
       "      if(actualFactory){const preEnv=JSON.stringify(stableObject(env));command=await actualFactory(env,r);if(preEnv!==JSON.stringify(stableObject(env)))throw new Error('factory mutated final R/C environment');r.command=command;if(!Array.isArray(command)||command[0]!==runtime.node||!Array.isArray(command[1])||!eq(command[1].slice(-identity.args.length-1),[entry,...identity.args]))throw new Error('actual final factory tuple/node/suffix invalid');}\n",
       "      child=spawn(command[0],command[1],{cwd,env,detached:true,stdio:['ignore','pipe','pipe']});r.carrierPid=child.pid;\n",
       "      child.stdout.on('data',b=>stdout.push(b));child.stderr.on('data',b=>stderr.push(b));child.once('error',e=>r.raw={status:null,signal:null,error:e.code});child.once('exit',(status,signal)=>r.raw={status,signal,error:null});child.once('close',()=>close=true);\n",
-      "      const at=Date.now();while(Date.now()-at<5000&&!r.raw){const table=ps(),carrier=table.find(p=>p.pid===child.pid);if(carrier){if(carrier.pgid!==child.pid||carrier.pgid===ownPgid)throw new Error('isolation proof failed');isolated=true;}if(mode==='term'){\n",
-      "        // Incomplete append is not final corruption while the writer is live.\n",
-      "        let ready=[];if(fs.existsSync(logs.ready)){const text=fs.readFileSync(logs.ready,'utf8');if(text.endsWith('\\n'))ready=text.split('\\n').filter(Boolean).map(JSON.parse);}if(ready.length>1)throw new Error('duplicate ready');if(ready[0]){const q=ready[0],entryRow=table.find(p=>p.pid===q.pid);if(q.token!==token||q.fingerprint!==expected.entryFingerprint||q.sourceFingerprint!==expected.sourceFingerprint||q.threadId!==0||q.isMainThread!==true||!entryRow||entryRow.pgid!==child.pid||q.pid===child.pid||entryRow.ppid!==child.pid){r.productPrecondition='actual entry ready identity/topology invalid';break;}r.ready=q;const fresh=ps();if(!isolated||fresh.find(p=>p.pid===process.pid)?.pgid!==ownPgid||child.pid===ownPgid||!fresh.some(p=>p.pid===q.pid&&p.pgid===child.pid&&active(p)))throw new Error('self-signal safety proof failed');r.proof={runnerPid:process.pid,runnerPgid:ownPgid,isolatedPgid:child.pid,entryPid:q.pid,signal:'SIGTERM',dispatch:'synchronous entry module evaluation after go',members:fresh.filter(p=>p.pgid===child.pid)};const temp=logs.go+'.tmp';fs.writeFileSync(temp,JSON.stringify({token})+'\\n');fs.renameSync(temp,logs.go);break;}}\n",
+      "      const at=Date.now();while(Date.now()-at<5000&&!r.raw){\n",
+      "        // Incomplete append is not final corruption while the writer is live. Ready is read before the process snapshot.\n",
+      "        let ready=[];if(mode==='term'&&fs.existsSync(logs.ready)){const text=fs.readFileSync(logs.ready,'utf8');if(text.endsWith('\\n'))ready=text.split('\\n').filter(Boolean).map(JSON.parse);}\n",
+      "        const table=ps(),carrier=table.find(p=>p.pid===child.pid);if(carrier){if(carrier.pgid!==child.pid||carrier.pgid===ownPgid)throw new Error('isolation proof failed');isolated=true;}if(mode==='term'){if(ready.length>1)throw new Error('duplicate ready');if(ready[0]){const q=ready[0],entryRow=table.find(p=>p.pid===q.pid);if(q.token!==token||q.fingerprint!==expected.entryFingerprint||q.sourceFingerprint!==expected.sourceFingerprint||q.threadId!==0||q.isMainThread!==true||!entryRow||entryRow.pgid!==child.pid||q.pid===child.pid||entryRow.ppid!==child.pid){r.productPrecondition='actual entry ready identity/topology invalid';break;}r.ready=q;const fresh=ps();if(!isolated||fresh.find(p=>p.pid===process.pid)?.pgid!==ownPgid||child.pid===ownPgid||!fresh.some(p=>p.pid===q.pid&&p.pgid===child.pid&&active(p)))throw new Error('self-signal safety proof failed');r.proof={runnerPid:process.pid,runnerPgid:ownPgid,isolatedPgid:child.pid,entryPid:q.pid,signal:'SIGTERM',dispatch:'synchronous entry module evaluation after go',members:fresh.filter(p=>p.pgid===child.pid)};const temp=logs.go+'.tmp';fs.writeFileSync(temp,JSON.stringify({token})+'\\n');fs.renameSync(temp,logs.go);break;}}\n",
       "        await sleep(5);\n",
       "      }\n",
       "      if(mode==='term'&&!r.ready)r.productPrecondition||='no qualified ready before self signal';const settled=Date.now();while(Date.now()-settled<5000){if(r.raw&&close&&!ps().some(p=>p.pgid===child.pid&&active(p)))break;await sleep(5);}r.residual=ps().filter(p=>p.pgid===child.pid&&active(p));r.closeBeforeCleanup=close;\n",
@@ -5462,7 +5566,7 @@ export const SYNC43_FILES: readonly FrozenContractFile[] = [
     ].join(''),
     // SYNC43-BODY-END
   },
-  { name: "packet/sync43/freeze-manifest.json", sha256: "3547b3c29ea76c03a4030101ab318d6fbdd7818e0cbf4769ca61a8471bd2bbff", source: "/private/tmp/kc-20261024/ci-recovery-linux-sync-term-contract-artifacts/frozen-v4.3.1/freeze-manifest.json", rootBindings: [],
+  { name: "packet/sync43/freeze-manifest.json", sha256: "b0e87d99b41c61f7ccea34a7569f648abe6537796c20d52ebbca0d289b7de0c4", source: "/private/tmp/kc-20261024/ci-recovery-linux-sync-term-contract-artifacts/frozen-v4.3.1/freeze-manifest.json", rootBindings: [],
     // SYNC43-BODY-BEGIN "packet/sync43/freeze-manifest.json"
     body: [
       "{\n",
@@ -5573,8 +5677,8 @@ export const SYNC43_FILES: readonly FrozenContractFile[] = [
       "    },\n",
       "    {\n",
       "      \"path\": \"src/qualify.mjs\",\n",
-      "      \"sha256\": \"85e2b09ea66cf568c42a4692fbf688cc797ae5e6298baa7d49d960ffb28c6d2b\",\n",
-      "      \"bytes\": 14087\n",
+      "      \"sha256\": \"958430779c3e860218dd22d76f54c795f42bc52befb63a0776241d1ec658db54\",\n",
+      "      \"bytes\": 14154\n",
       "    },\n",
       "    {\n",
       "      \"path\": \"src/run.mjs\",\n",
@@ -5591,7 +5695,21 @@ export const SYNC43_FILES: readonly FrozenContractFile[] = [
       "      \"sha256\": \"df875dd9f8e4a5c9dcbb4fed8e2856a10942315c129933c03d1a089317457d56\",\n",
       "      \"bytes\": 652\n",
       "    }\n",
-      "  ]\n",
+      "  ],\n",
+      "  \"refreeze\": {\n",
+      "    \"id\": \"ready-before-snapshot-r1\",\n",
+      "    \"authority\": \"requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDijsasTKDgdPfXV4D8QoMC (2026-11-27): authorized independent refreeze of the ready-read / process-snapshot order in the five lifecycle test tools\",\n",
+      "    \"frozenAtUtc\": \"2026-11-27T01:32:04.894Z\",\n",
+      "    \"changed\": [\n",
+      "      {\n",
+      "        \"path\": \"src/qualify.mjs\",\n",
+      "        \"previousSha256\": \"85e2b09ea66cf568c42a4692fbf688cc797ae5e6298baa7d49d960ffb28c6d2b\",\n",
+      "        \"sha256\": \"958430779c3e860218dd22d76f54c795f42bc52befb63a0776241d1ec658db54\",\n",
+      "        \"previousBytes\": 14087,\n",
+      "        \"bytes\": 14154\n",
+      "      }\n",
+      "    ]\n",
+      "  }\n",
       "}\n",
     ].join(''),
     // SYNC43-BODY-END
