@@ -40,7 +40,7 @@ export const ORIGINAL_FREEZES = [
   },
   {
     "path": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json",
-    "sha256": "f48d3f7140d7490282382b2b4f3866c5d6f00d3e42f16fed009533c8b932c001",
+    "sha256": "dbf56a86c865cf58b27ba6ea18a34efbcbf0f25a470ab7ea018132f9a4f1bb06",
     "portableMeaning": "explicit runtime subset; not original full old26/superset qualification",
     "omitted": []
   },
@@ -1752,7 +1752,7 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
   "onlySemanticChange": "Remove N.SIGHUP.PARENT.NO_ORPHANS; retain RAW/CALLER/real entry hooks/LIFECYCLE residual-role equality; all timing/input/other expected unchanged"
 }
 ` },
-  { name: "packet/lifecycle319/freeze-manifest.json", sha256: "f48d3f7140d7490282382b2b4f3866c5d6f00d3e42f16fed009533c8b932c001", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json", rootBindings: [], body: `{
+  { name: "packet/lifecycle319/freeze-manifest.json", sha256: "dbf56a86c865cf58b27ba6ea18a34efbcbf0f25a470ab7ea018132f9a4f1bb06", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json", rootBindings: [], body: `{
   "version": "Node22-v4.2-runtime-members-only",
   "frozenAtUtc": "2026-10-25T09:06:48.669517+00:00",
   "scope": "runtime members only; old full-guard/provenance artifacts not claimed",
@@ -1809,8 +1809,8 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
     },
     {
       "path": "src/run.mjs",
-      "sha256": "b1cadca61fd8d56cc93a71ce72dfcd7299f71e9e37f96f8335881ffcfe49b3ae",
-      "bytes": 29789
+      "sha256": "7093094904a9c2cabab4cf04a0ea193d896a1f356da8f2850ae170930ae68285",
+      "bytes": 30004
     },
     {
       "path": "sync/README.md",
@@ -1871,9 +1871,9 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
       {
         "path": "src/run.mjs",
         "previousSha256": "de1a73c9a40eb3523d9a1e14bc4c682d3b6ed5910de4a6b1cce143f6b06bf9c5",
-        "sha256": "b1cadca61fd8d56cc93a71ce72dfcd7299f71e9e37f96f8335881ffcfe49b3ae",
+        "sha256": "7093094904a9c2cabab4cf04a0ea193d896a1f356da8f2850ae170930ae68285",
         "previousBytes": 29754,
-        "bytes": 29789
+        "bytes": 30004
       },
       {
         "path": "sync/run.mjs",
@@ -1882,7 +1882,8 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
         "previousBytes": 12022,
         "bytes": 12022
       }
-    ]
+    ],
+    "authoritySupplement": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgL68hAzqNikFEibL7bigoaqC (2026-11-27 07:44 UTC): additionally authorized, within this same refreeze, the reader-side fix in lifecycle319/src/run.mjs that treats the synchronous-block helper record as acknowledged only when the block file exists and is newline-terminated"
   }
 }
 ` },
@@ -2151,7 +2152,7 @@ if (isMainThread) {
   appendFileSync(process.env.CONTRACT_OBSERVER_LOG, JSON.stringify({ kind: 'observer-positive', fingerprint, stateFingerprint: state.fingerprint, token: state.box.value, pid: process.pid, threadId, isMainThread, stateURL: process.env.CONTRACT_STATE_URL }) + '\\n');
 }
 ` },
-  { name: "packet/lifecycle319/src/run.mjs", sha256: "b1cadca61fd8d56cc93a71ce72dfcd7299f71e9e37f96f8335881ffcfe49b3ae", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/src/run.mjs", rootBindings: ["original"], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
+  { name: "packet/lifecycle319/src/run.mjs", sha256: "7093094904a9c2cabab4cf04a0ea193d896a1f356da8f2850ae170930ae68285", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/src/run.mjs", rootBindings: ["original"], body: `import { bindNode22, assertBoundCarrier } from '../../binding/node-binding.mjs';
 // Independent black-box runner. It never imports or reads a candidate module.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -2318,8 +2319,10 @@ async function execute(caseDef, side, command, envBase) {
     if (caseDef.signal && state.ready) {
       if (caseDef.mode === 'blocked') {
         const waitAt = Date.now();
-        while (!fs.existsSync(files.block) && Date.now() - waitAt < spec.readyTimeoutMs) await sleep(5);
-        if (!fs.existsSync(files.block)) productPrecondition('synchronous-block helper did not acknowledge');
+        // The helper's record counts as acknowledged only once it is complete (file present and newline-terminated).
+        const blockComplete = () => fs.existsSync(files.block) && fs.readFileSync(files.block, 'utf8').endsWith('\\n');
+        while (!blockComplete() && Date.now() - waitAt < spec.readyTimeoutMs) await sleep(5);
+        if (!blockComplete()) productPrecondition('synchronous-block helper did not acknowledge');
         state.block = rows(files.block)[0];
         const helperRow = ps().find(row => row.pid === state.block.pid);
         if (!helperRow || helperRow.ppid !== state.ready.pid || helperRow.pgid !== child.pid) productPrecondition('synchronous-block helper topology differs from frozen input');
@@ -2677,11 +2680,11 @@ try{
 fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2)+'\\n');
 console.log(JSON.stringify({status:report.status,semanticAssertions:report.semanticAssertions,report:path.join(out,'report.json'),infrastructureError:report.infrastructureError}));process.exitCode=report.status==='PASS'?0:report.status==='INVALID'?2:report.status==='NOT_RUN'?3:1;
 ` },
-  { name: "packet/patch-inventory.json", sha256: "84d46a428d128d330176659fde7a42c74bd3b0c646b9a343d66ccb502157914f", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/patch-inventory.json", rootBindings: [], body: `[
+  { name: "packet/patch-inventory.json", sha256: "f6b69c6ca60ea893b5c617fbf9d6b97d7f08332f3d266056e1ad4d24434b0ab5", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/patch-inventory.json", rootBindings: [], body: `[
   {
     "entry": "lifecycle319/src/run.mjs",
     "sourceOriginalSha256": "33e1eab32217eb1b4a28d4bea5325973cb060a87c5bb6b8f44378651d657c036",
-    "executedOverlaySha256": "b1cadca61fd8d56cc93a71ce72dfcd7299f71e9e37f96f8335881ffcfe49b3ae",
+    "executedOverlaySha256": "7093094904a9c2cabab4cf04a0ea193d896a1f356da8f2850ae170930ae68285",
     "originalSource": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/v4.1/lifecycle319/src/run.mjs",
     "allowedExecutableChanges": [
       "Node runtime binding import/preflight/receipt",
@@ -2693,7 +2696,8 @@ console.log(JSON.stringify({status:report.status,semanticAssertions:report.seman
       "id": "ready-before-snapshot-r1",
       "authority": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgLDijsasTKDgdPfXV4D8QoMC (2026-11-27): authorized independent refreeze of the ready-read / process-snapshot order in the five lifecycle test tools",
       "previousExecutedOverlaySha256": "de1a73c9a40eb3523d9a1e14bc4c682d3b6ed5910de4a6b1cce143f6b06bf9c5",
-      "onlyChange": "ready-wait loop reads the ready file before taking the process snapshot of the same iteration, so the snapshot used for the entry topology check is never older than the ready observation; no retry, timeout, label, assertion, precondition or INVALID/FAIL routing change; not a Node-binding overlay change"
+      "onlyChange": "ready-wait loop reads the ready file before taking the process snapshot of the same iteration, so the snapshot used for the entry topology check is never older than the ready observation; no retry, timeout, label, assertion, precondition or INVALID/FAIL routing change; not a Node-binding overlay change; additionally (see authoritySupplement) the synchronous-block wait and its not-acknowledged check require the block file to exist and be newline-terminated instead of merely existing, with the same timeout and the same productPrecondition routing",
+      "authoritySupplement": "requirement owner decision card cmsg_01V8CPC1XJhsKFwyzKEPWVgL68hAzqNikFEibL7bigoaqC (2026-11-27 07:44 UTC): additionally authorized, within this same refreeze, the reader-side fix in lifecycle319/src/run.mjs that treats the synchronous-block helper record as acknowledged only when the block file exists and is newline-terminated"
     }
   },
   {
