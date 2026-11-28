@@ -40028,6 +40028,524 @@
       "kills": [
         "回访那一段：判过又续挂到更晚的，先不列那一行说的是续挂那天；续挂早于 28 天满的，说 28 天满那天"
       ]
+    },
+    {
+      "id": "M-H252-ca",
+      "req": "harness",
+      "file": "scripts/check/adr-sync.ts",
+      "why": "交给同步判定的真 git 删掉 —— 拿主干指纹表比的那一道静默不比，删了主干钉过的历史文件也绿（ADR-220 那张欠条）",
+      "find": "adrSync('.', process.argv.includes('--write'), askGit)",
+      "replace": "adrSync('.', process.argv.includes('--write'))",
+      "by": "test",
+      "kills": [
+        "决策记录同步的入口交给它真 git：分支删了主干钉过的历史文件、本树指纹表那一行也删了，比主干报红、以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cb",
+      "req": "harness",
+      "file": "scripts/check/adr-sync.ts",
+      "why": "登记表核不过不改退出码 —— 只打到标准错误，检查链照样绿",
+      "find": "r.ok && faults.length === 0 ? 0 : 1",
+      "replace": "r.ok ? 0 : 1",
+      "by": "test",
+      "kills": [
+        "决策记录同步的入口：回写成功、打出回写了，以 0 退出；换的登记表绑了台账里没有的记法、量的文件不在，报到标准错误、以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cc",
+      "req": "harness",
+      "file": "scripts/check/adr-sync.ts",
+      "why": "核的不是交进来的那份登记表 —— 一行都不核，绑错了也绿",
+      "find": "conditionFaults(registry.table,",
+      "replace": "conditionFaults([],",
+      "by": "test",
+      "kills": [
+        "决策记录同步的入口：回写成功、打出回写了，以 0 退出；换的登记表绑了台账里没有的记法、量的文件不在，报到标准错误、以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cd",
+      "req": "harness",
+      "file": "scripts/check/adr-sync.ts",
+      "why": "不问树里有没有那个文件 —— 量一个不在的文件也核得过",
+      "find": "adrDocs(), pathKind)",
+      "replace": "adrDocs(), () => 'file')",
+      "by": "test",
+      "kills": [
+        "决策记录同步的入口：回写成功、打出回写了，以 0 退出；换的登记表绑了台账里没有的记法、量的文件不在，报到标准错误、以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H252-ce",
+      "req": "harness",
+      "file": "scripts/check/adr-sync.ts",
+      "why": "回写的结果不打 —— 跑完一句话都没有",
+      "find": "for (const line of r.out) console.log(line)",
+      "replace": "void r.out",
+      "by": "test",
+      "kills": [
+        "决策记录同步的入口：回写成功、打出回写了，以 0 退出；换的登记表绑了台账里没有的记法、量的文件不在，报到标准错误、以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cf",
+      "req": "harness",
+      "file": "scripts/check/adr-sync.ts",
+      "why": "换过登记表不说 —— 谁在哪一跑换过看不出来",
+      "find": "  if (registry.note !== undefined) console.error(registry.note)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "决策记录同步的入口：回写成功、打出回写了，以 0 退出；换的登记表绑了台账里没有的记法、量的文件不在，报到标准错误、以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cg",
+      "req": "harness",
+      "file": "scripts/check/adr-sync.ts",
+      "why": "换的登记表读不出也以 0 退出 —— 什么都没比却说过了",
+      "find": "  process.exitCode = 2\n} else {",
+      "replace": "  process.exitCode = 0\n} else {",
+      "by": "test",
+      "kills": [
+        "决策记录同步的入口：换的登记表读不出，以 2 退出、什么都不比"
+      ]
+    },
+    {
+      "id": "M-H252-ch",
+      "req": "harness",
+      "file": "scripts/check/conditions.ts",
+      "why": "算完不打出来 —— 越线的那几条回访看不见",
+      "find": "carriedUntil(docs))) console.log(l)",
+      "replace": "carriedUntil(docs))) void l",
+      "by": "test",
+      "kills": [
+        "条件探针的入口照换过的登记表算：问 --run 给的提交、读树里的文件，越线的各打一行，续挂没到那天的打成先不列，标准错误说用的是换过的登记表，以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H252-ci",
+      "req": "harness",
+      "file": "scripts/check/conditions.ts",
+      "why": "算的不是交进来的那份登记表 —— 一条都不算",
+      "find": "evaluate(table, conditionRaw(",
+      "replace": "evaluate([], conditionRaw(",
+      "by": "test",
+      "kills": [
+        "条件探针的入口照换过的登记表算：问 --run 给的提交、读树里的文件，越线的各打一行，续挂没到那天的打成先不列，标准错误说用的是换过的登记表，以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cj",
+      "req": "harness",
+      "file": "scripts/check/conditions.ts",
+      "why": "不问 --run 给的那个提交 —— 补跑前几周的回访，PR 合没合按别的提交算",
+      "find": "conditionRaw(docs, cliConditionGit(), run, readTreeFile)",
+      "replace": "conditionRaw(docs, cliConditionGit(), 'origin/main', readTreeFile)",
+      "by": "test",
+      "kills": [
+        "条件探针的入口照换过的登记表算：问 --run 给的提交、读树里的文件，越线的各打一行，续挂没到那天的打成先不列，标准错误说用的是换过的登记表，以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H252-ck",
+      "req": "harness",
+      "file": "scripts/check/conditions.ts",
+      "why": "不认续挂写的日子 —— 续挂没到那天的也列出来",
+      "find": "carriedUntil(docs))) console.log(l)",
+      "replace": "new Map())) console.log(l)",
+      "by": "test",
+      "kills": [
+        "条件探针的入口照换过的登记表算：问 --run 给的提交、读树里的文件，越线的各打一行，续挂没到那天的打成先不列，标准错误说用的是换过的登记表，以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cl",
+      "req": "harness",
+      "file": "scripts/check/conditions.ts",
+      "why": "换过登记表不说 —— 谁在哪一跑换过看不出来",
+      "find": "if (registry.note !== undefined) console.error(registry.note)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "条件探针的入口照换过的登记表算：问 --run 给的提交、读树里的文件，越线的各打一行，续挂没到那天的打成先不列，标准错误说用的是换过的登记表，以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cm",
+      "req": "harness",
+      "file": "scripts/check/conditions.ts",
+      "why": "不问树里有没有那个文件 —— 量一个不在的文件也核得过",
+      "find": "conditionFaults(table, docs, pathKind)",
+      "replace": "conditionFaults(table, docs, () => 'file')",
+      "by": "test",
+      "kills": [
+        "入口：登记表核不过，每一行都报到标准错误、什么都不算，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cn",
+      "req": "harness",
+      "file": "scripts/check/conditions.ts",
+      "why": "换的登记表不对也往下走 —— 退出码不是说参数写错的那个",
+      "find": "console.error(registry.error); process.exit(2)",
+      "replace": "console.error(registry.error)",
+      "by": "test",
+      "kills": [
+        "条件探针的入口：换的登记表不是一份登记表，以 2 退出、什么都不打"
+      ]
+    },
+    {
+      "id": "M-H252-co",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "轮值不拿掉越线的 —— 同一条死亡条件在候选表最前面和轮值里各列一次",
+      "find": "today, undefined, fired(docs))",
+      "replace": "today, undefined, new Set())",
+      "by": "test",
+      "kills": [
+        "死亡条件轮值的入口先拿掉条件探针越线的那条：轮到的那条越线了，这一周一条都不列"
+      ]
+    },
+    {
+      "id": "M-H252-cp",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "到期清单不拿掉越线的 —— 同一张欠条在候选表最前面和到期清单里各列一次",
+      "find": "undefined, undefined, fired(docs))",
+      "replace": "undefined, undefined, new Set())",
+      "by": "test",
+      "kills": [
+        "到期清单的入口先拿掉条件探针越线的那张：只列没越线的那张，第一行说拿掉了几张"
+      ]
+    },
+    {
+      "id": "M-H252-cq",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "拿掉的不按交进来的那份登记表算 —— 一张都不拿掉",
+      "find": "firedSet(evaluate(table,",
+      "replace": "firedSet(evaluate([],",
+      "by": "test",
+      "kills": [
+        "到期清单的入口先拿掉条件探针越线的那张：只列没越线的那张，第一行说拿掉了几张",
+        "死亡条件轮值的入口先拿掉条件探针越线的那条：轮到的那条越线了，这一周一条都不列"
+      ]
+    },
+    {
+      "id": "M-H252-cr",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "不问 --run 给的那个提交 —— PR 合没合按别的提交算，该拿掉的没拿掉",
+      "find": "conditionRaw(docs, cliConditionGit(), run, readTreeFile)",
+      "replace": "conditionRaw(docs, cliConditionGit(), 'origin/main', readTreeFile)",
+      "by": "test",
+      "kills": [
+        "到期清单的入口先拿掉条件探针越线的那张：只列没越线的那张，第一行说拿掉了几张"
+      ]
+    },
+    {
+      "id": "M-H252-cs",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "核的不是交进来的那份登记表 —— 核不过也照样拿掉，那几条这一周哪儿都不列",
+      "find": "conditionFaults(table, docs, pathKind).length",
+      "replace": "conditionFaults([], docs, pathKind).length",
+      "by": "test",
+      "kills": [
+        "到期清单的入口：换的登记表核不过（量的文件不在），一张都不拿掉，标准错误说这一次不拿掉越线的"
+      ]
+    },
+    {
+      "id": "M-H252-ct",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "不问树里有没有那个文件 —— 量一个不在的文件也核得过，照样拿掉",
+      "find": "conditionFaults(table, docs, pathKind).length",
+      "replace": "conditionFaults(table, docs, () => 'file').length",
+      "by": "test",
+      "kills": [
+        "到期清单的入口：换的登记表核不过（量的文件不在），一张都不拿掉，标准错误说这一次不拿掉越线的"
+      ]
+    },
+    {
+      "id": "M-H252-cu",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "登记表核不过时不说 —— 没拿掉的原因看不出来",
+      "find": "console.error('条件探针的登记表核不过：这一次不拿掉越线的'); return new Set()",
+      "replace": "return new Set()",
+      "by": "test",
+      "kills": [
+        "到期清单的入口：换的登记表核不过（量的文件不在），一张都不拿掉，标准错误说这一次不拿掉越线的"
+      ]
+    },
+    {
+      "id": "M-H252-cv",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "换过登记表不说 —— 谁在哪一跑换过看不出来",
+      "find": "if (registry.note !== undefined) console.error(registry.note)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "到期清单的入口先拿掉条件探针越线的那张：只列没越线的那张，第一行说拿掉了几张"
+      ]
+    },
+    {
+      "id": "M-H252-cw",
+      "req": "harness",
+      "file": "scripts/check/revisit-due.ts",
+      "why": "换的登记表不对也往下走 —— 退出码不是说参数写错的那个",
+      "find": "console.error(registry.error); process.exit(2)",
+      "replace": "console.error(registry.error)",
+      "by": "test",
+      "kills": [
+        "到期清单的入口：换的登记表不是一份登记表，以 2 退出、什么都不打"
+      ]
+    },
+    {
+      "id": "M-H252-cx",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "没写 --conditions 时用空登记表 —— 检查链与回访一条都不核、不算",
+      "find": "if (i < 0) return { table: CONDITIONS }",
+      "replace": "if (i < 0) return { table: [] }",
+      "by": "test",
+      "kills": [
+        "换登记表：没写 --conditions 用 CONDITIONS、不说话；写了就读那个文件，原样交回那一组行，另交一句「用的是换过的登记表」",
+        "入口：登记表核不过，每一行都报到标准错误、什么都不算，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H252-cy",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "写了 --conditions 也用默认那份 —— 换了等于没换",
+      "find": "return { table: parsed as Condition[],",
+      "replace": "return { table: CONDITIONS,",
+      "by": "test",
+      "kills": [
+        "换登记表：没写 --conditions 用 CONDITIONS、不说话；写了就读那个文件，原样交回那一组行，另交一句「用的是换过的登记表」"
+      ]
+    },
+    {
+      "id": "M-H252-cz",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "换过登记表时那句话是空的 —— 入口打一个空行，看不出换过",
+      "find": "note: `用的是换过的登记表 ${path}（--conditions 只给入口测试用）`",
+      "replace": "note: ''",
+      "by": "test",
+      "kills": [
+        "换登记表：没写 --conditions 用 CONDITIONS、不说话；写了就读那个文件，原样交回那一组行，另交一句「用的是换过的登记表」"
+      ]
+    },
+    {
+      "id": "M-H252-da",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "选项后面紧跟另一个选项时把它当文件名 —— 报的是读不出，不是没跟值",
+      "find": "path === undefined || path.startsWith('--')",
+      "replace": "path === undefined",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-db",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "用不了时说的话是空的 —— 入口以 2 退出却不说为什么",
+      "find": "return { error: '--conditions 后面要跟一个文件' }",
+      "replace": "return { error: '' }",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-dc",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "只看是不是数组，不看每一行 —— 缺字段的行往下走，在别处撞出看不懂的错",
+      "find": "!Array.isArray(parsed) || !parsed.every(rowOk)",
+      "replace": "!Array.isArray(parsed)",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-dd",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "种类只看是不是字符串 —— 写错种类的行也收",
+      "find": "(r.kind === '欠条' || r.kind === '死亡条件')",
+      "replace": "isText(r.kind)",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-de",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "pin 不看类型 —— 写成数字的也收",
+      "find": "(r.pin === undefined || isText(r.pin))",
+      "replace": "true",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-df",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "判法不认得也收 —— 算的时候撞出看不懂的错",
+      "find": "        : false)",
+      "replace": "        : true)",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-dg",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "PR 号不看类型 —— 写成字符串的也收",
+      "find": "p.judge === 'pr-merged' ? typeof p.pr === 'number'",
+      "replace": "p.judge === 'pr-merged' ? true",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-dh",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "等另一张欠条的不看写了等哪张 —— 缺了也收",
+      "find": "isText(p.waits) && p.status === '已还'",
+      "replace": "p.status === '已还'",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-di",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "等另一张欠条的不看等的是什么状态 —— 写成别的也收",
+      "find": "isText(p.waits) && p.status === '已还'",
+      "replace": "isText(p.waits)",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-dj",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "比较符不认得也收 —— 算的时候按别的比",
+      "find": "(p.op === '>' || p.op === '>=' || p.op === '=')",
+      "replace": "true",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-dk",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "认得的比较符少了一种 —— 写对了的行也被说成不是登记表",
+      "find": "(p.op === '>' || p.op === '>=' || p.op === '=')",
+      "replace": "(p.op === '>' || p.op === '=')",
+      "by": "test",
+      "kills": [
+        "换登记表：三种判法、五种量法、三种比较符带齐参数都认"
+      ]
+    },
+    {
+      "id": "M-H252-dl",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "线不看类型 —— 写成字符串的也收",
+      "find": "&& typeof p.line === 'number'",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-dm",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "量法不认得也收 —— 算的时候撞出看不懂的错",
+      "find": "      : m.kind === 'catalog-exemptions')",
+      "replace": "      : true)",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-dn",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "量文件的不看写了哪个文件 —— 缺了也收",
+      "find": "m.kind === 'exists' ? isText(m.path)",
+      "replace": "m.kind === 'exists' ? true",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-do",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "数份数的不看后缀 —— 缺了也收",
+      "find": "m.dirs.every(isText) && isText(m.suffix)",
+      "replace": "m.dirs.every(isText)",
+      "by": "test",
+      "kills": [
+        "换登记表：选项没跟值、文件读不出、不是 JSON、不是一组行、某一行缺字段或种类不对、判法或量法不认得、判法或量法缺参数，各说一句为什么用不了"
+      ]
+    },
+    {
+      "id": "M-H252-dp",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "认得的量法少了一种 —— 写对了的行也被说成不是登记表",
+      "find": "m.kind === 'bytes' || m.kind === 'lines' || m.kind === 'exists'",
+      "replace": "m.kind === 'bytes' || m.kind === 'exists'",
+      "by": "test",
+      "kills": [
+        "换登记表：三种判法、五种量法、三种比较符带齐参数都认"
+      ]
+    },
+    {
+      "id": "M-H252-dq",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "树里的数不认量法 —— 写对了的行也被说成不是登记表",
+      "find": "p.judge === 'tree-number' ? measureOk(p.measure) &&",
+      "replace": "p.judge === 'tree-number' ? false &&",
+      "by": "test",
+      "kills": [
+        "换登记表：三种判法、五种量法、三种比较符带齐参数都认"
+      ]
     }
   ],
   "exemptions": [

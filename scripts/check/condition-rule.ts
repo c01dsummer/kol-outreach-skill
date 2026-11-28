@@ -382,6 +382,42 @@ export function conditionFaults(table: readonly Condition[], docs: Map<string, s
   return out
 }
 
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const isText = (v: unknown): v is string => typeof v === 'string'
+/** 量法认得的写法：每一种带齐它要的参数（`Measure` 那几种） */
+const measureOk = (m: unknown): boolean => isObject(m) && (
+  m.kind === 'bytes' || m.kind === 'lines' || m.kind === 'exists' ? isText(m.path)
+    : m.kind === 'tracked-suffix' ? Array.isArray(m.dirs) && m.dirs.every(isText) && isText(m.suffix)
+      : m.kind === 'catalog-exemptions')
+/** 判法认得的写法：每一种带齐它要的参数（`Probe` 那几种）；值对不对（PR 号是不是正整数、路径在不在）由 `conditionFaults` 核 */
+const probeOk = (p: unknown): boolean => isObject(p) && (
+  p.judge === 'pr-merged' ? typeof p.pr === 'number'
+    : p.judge === 'ledger-status' ? isText(p.waits) && p.status === '已还'
+      : p.judge === 'tree-number' ? measureOk(p.measure) && (p.op === '>' || p.op === '>=' || p.op === '=') && typeof p.line === 'number'
+        : false)
+
+/**
+ * 三个入口用哪一份登记表：缺省 `CONDITIONS`；`--conditions <文件>` 换成那个文件里的 JSON 数组。
+ * 只给入口测试用：玩具仓库里没有登记表绑的那些真记录，不换一份就只测得到「核不过以 1 退出」（ADR-252 欠条「三处入口接线没有测试」）。
+ * 检查链与每周回访都不传它；传了，`note` 是一句「用的是换过的登记表」，入口打到标准错误，谁在哪一跑换过一看就知道。
+ *
+ * 交回登记表，或一句为什么用不了（入口打到标准错误、以 2 退出）：写了选项没跟值、文件读不出、不是 JSON、
+ * 不是一组「binds、name 是字符串，kind 是欠条或死亡条件，pin 没写或是字符串，probe 是认得的判法、带齐那种判法与量法要的参数」的行。
+ * 参数的值对不对（PR 号是不是正整数、路径在不在、绑的条目在不在）照旧由 `conditionFaults` 核，与真登记表同一道。
+ */
+export function registryArg(args: readonly string[], read: (path: string) => string = p => readFileSync(p, 'utf8')): { table: readonly Condition[]; note?: string } | { error: string } {
+  const i = args.indexOf('--conditions')
+  if (i < 0) return { table: CONDITIONS }
+  const path = args[i + 1]
+  if (path === undefined || path.startsWith('--')) return { error: '--conditions 后面要跟一个文件' }
+  let parsed: unknown
+  try { parsed = JSON.parse(read(path)) } catch (e) { return { error: `--conditions 给的 ${path} 读不出或不是 JSON：${(e as Error).message}` } }
+  const rowOk = (r: unknown): boolean => isObject(r) && isText(r.binds) && isText(r.name)
+    && (r.kind === '欠条' || r.kind === '死亡条件') && (r.pin === undefined || isText(r.pin)) && probeOk(r.probe)
+  if (!Array.isArray(parsed) || !parsed.every(rowOk)) return { error: `--conditions 给的 ${path} 不是一份登记表（一组行，每行有 binds、kind、name、probe，判法与量法是认得的那几种、带齐它们的参数）` }
+  return { table: parsed as Condition[], note: `用的是换过的登记表 ${path}（--conditions 只给入口测试用）` }
+}
+
 /* ───────────── 每周回访那一段 ───────────── */
 
 /** 人判栏算「判了」的词：欠条照到期清单那三个，死亡条件认接受、拒绝 */

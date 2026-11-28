@@ -10,11 +10,12 @@
  *     这一周轮到的死亡条件（四周轮完一遍）：第一行是几个数，后面每行是记法与条件原文。
  *
  * `--list`、`--deaths` 先拿掉条件探针越线的那几条（`npm run conditions` 已把它们排在候选表最前面，ADR-252）。
+ * `--conditions <文件>` 换一份登记表，只给入口测试用（`registryArg`）；写错以 2 退出。
  *
  * `--run` 缺省 `origin/main`。欠条正文读工作区里的文件（回访在主干的检出上跑）。只读，不写任何文件。
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, evaluate, firedSet, pathKind, readTreeFile } from './condition-rule.js'
+import { RawShapeError, cliConditionGit, conditionFaults, conditionRaw, evaluate, firedSet, pathKind, readTreeFile, registryArg } from './condition-rule.js'
 import { adrDocs } from './debt-rule.js'
 import { beijingDate, bornReport, cliGit, deathRota, dueItems, dueList, listings, movesUnread } from './revisit-rule.js'
 
@@ -38,10 +39,14 @@ if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== today) {
 }
 // 条件探针越线的记法：与 `conditions.ts` 同一份登记表、同一份原料。登记表核不过或原料形状不对时那一步没列出任何越线的，
 // 这里就一条都不拿掉（照旧列），在标准错误说一声 —— 不然那几条这一周哪儿都不列
+const registry = registryArg(args)
+if ('error' in registry) { console.error(registry.error); process.exit(2) }
+if (registry.note !== undefined) console.error(registry.note)
+const table = registry.table
 const fired = (docs: Map<string, string>): Set<string> => {
-  if (conditionFaults(CONDITIONS, docs, pathKind).length) { console.error('条件探针的登记表核不过：这一次不拿掉越线的'); return new Set() }
+  if (conditionFaults(table, docs, pathKind).length) { console.error('条件探针的登记表核不过：这一次不拿掉越线的'); return new Set() }
   try {
-    return firedSet(evaluate(CONDITIONS, conditionRaw(docs, cliConditionGit(), run, readTreeFile)))
+    return firedSet(evaluate(table, conditionRaw(docs, cliConditionGit(), run, readTreeFile)))
   } catch (e) {
     if (!(e instanceof RawShapeError)) throw e
     console.error(`条件探针的原料形状不对（${e.message}）：这一次不拿掉越线的`)
