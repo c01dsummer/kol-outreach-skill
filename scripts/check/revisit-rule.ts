@@ -9,7 +9,7 @@
  */
 import { basename } from 'node:path'
 import { cellsOf } from './adr-fact-table.js'
-import { CONDITION, IOU_NAME, entries, entryKey, isHistory, iouBlocks, iouName, blockAt, ledgerStatus, nameKey, recordNum, splitRecords, statusLines, type Row } from './debt-rule.js'
+import { CONDITION, IOU_NAME, entries, entryKey, isHistory, iouBlocks, iouName, blockAt, ledgerStatus, nameKey, recordNum, splitRecords, statusLines, type Notation, type Row, type StatusLine } from './debt-rule.js'
 import { gitText } from './git-entry.js'
 import { quotedMask } from './quoted.js'
 
@@ -52,6 +52,22 @@ export function adrId(file: string): string {
 }
 
 const HISTORY_DIR = 'docs/adr/历史/'
+
+/**
+ * 台账一行在回访里的记法。到期清单、死亡条件轮值、条件探针三处共用这一个，不问 git（ADR-252）：
+ * - 欠条（重启条件）：所在欠条块头写了短名字的按 `<编号>「<短名字>」`，没写的按 `<编号> 第 <行> 行`；
+ * - 死亡条件（与重开讨论）：`<编号> 第 <行> 行`；拆过的记录，这个记法指历史文件那一行，主文件里的写 `<编号> 主文件第 <行> 行`（ADR-211）。
+ * 编号照文件名原样（`ADR-09` 就是 `ADR-09`），与 ADR-152 里列过的写法一致。
+ */
+export function notationOf(e: { file: string; line: number; notation: Notation }, text: string, split: ReadonlySet<number>): string {
+  const id = adrId(e.file)
+  if (e.notation === '重启条件') {
+    const name = iouNameAt(text, e.line)
+    return name ? `${id}「${name}」` : `${id} 第 ${e.line} 行`
+  }
+  const num = recordNum(e.file) ?? -1, hist = isHistory(e.file)
+  return `${id} ${!hist && split.has(num) ? '主文件' : ''}第 ${e.line} 行`
+}
 
 /** 同 `wc -l`：数换行，末尾没有换行的那一行不算 */
 function lineCount(text: string): number {
@@ -160,7 +176,7 @@ export function dueRow(git: Git, run: string, file: string, line: number, text: 
   const { time, oldLines, oldNames } = bornOf(git, run, file, line, name)
   return {
     date: time === undefined ? undefined : beijingDate(time),
-    key: name ? `${id}「${name}」` : `${id} 第 ${line} 行`,
+    key: notationOf({ file, line, notation: '重启条件' }, text, new Set()),
     aliases: [...oldLines.map(n => `${id} 第 ${n} 行`), ...oldNames.map(n => `${id}「${n}」`)],
   }
 }
@@ -258,8 +274,11 @@ const later = (a: string | undefined, b: string | undefined): string | undefined
  *
  * 次序：列过没判的在前，其余在后；两段各按登记日从早到晚（`rowCompare`）。
  * 续挂过（自己或改挂过来之前那几张）、或哪一次列出判过留的，行尾标「续挂过，只能还或收尾」（「留」只许一次，ADR-167 第三节）。
+ *
+ * `exclude` 里的记法先拿掉、再截 `limit` 张：条件探针越线的那几张已排在候选表最前面（ADR-252），这里不重列、也不占名额。
+ * 新登记欠条的闸门数「列过没判」时不给 `exclude`：越线的列过没判照数（需求所有者 2026-11-28 定的）。
  */
-export function dueList(items: DueItem[], today: string, listed: Map<string, Listing>, days = DUE_DAYS, limit = DUE_LIMIT): {
+export function dueList(items: DueItem[], today: string, listed: Map<string, Listing>, days = DUE_DAYS, limit = DUE_LIMIT, exclude: ReadonlySet<string> = new Set()): {
   lines: string[] // 字段不入断言：到期清单那一组按全文比这几行
   again: number // 字段不入断言：同上，数在第一行里
   due: number // 字段不入断言：同上
@@ -267,8 +286,9 @@ export function dueList(items: DueItem[], today: string, listed: Map<string, Lis
 } {
   type Pick = { date?: string; key: string; tag: string }
   const again: Pick[] = [], due: Pick[] = []
-  let undated = 0
+  let undated = 0, moved = 0
   for (const it of items) {
+    if (exclude.has(it.key)) { moved++; continue }
     const ls = [it.key, ...it.aliases].map(k => listed.get(k)).filter((l): l is Listing => l !== undefined)
     const last = ls.reduce<Listing | undefined>((a, b) => a === undefined || a.day < b.day || (a.day === b.day && a.at <= b.at) ? b : a, undefined)
     const judged = last !== undefined && VERDICTS.has(last.verdict.trim())
@@ -283,7 +303,7 @@ export function dueList(items: DueItem[], today: string, listed: Map<string, Lis
   const line = (p: Pick) => `${p.date ?? ''} ${p.key}${p.tag}`
   const picked = [...again.sort(rowCompare), ...due.sort(rowCompare)].slice(0, limit)
   return {
-    lines: [`到期 ${due.length} 张、列过没判 ${again.length} 张、取不到登记日 ${undated} 张；这次列 ${picked.length} 张（最多 ${limit} 张）`, ...picked.map(line)],
+    lines: [`到期 ${due.length} 张、列过没判 ${again.length} 张、取不到登记日 ${undated} 张；这次列 ${picked.length} 张（最多 ${limit} 张）${moved ? `；条件探针越线、已排在最前面的 ${moved} 张不在这里列` : ''}`, ...picked.map(line)],
     again: again.length, due: due.length, undated,
   }
 }
@@ -329,6 +349,32 @@ const listingKey = (k: string): string => k.replace(/^(ADR-\d+):(\d+)$/, '$1 第
 
 const UNTIL = /到\s*(\d{4}-\d{2}-\d{2})/
 
+/** 一行台账能被状态行指到的键：行号键与名字键（有哪个给哪个），与 `ledgerStatus` 配状态行同一个拼法 */
+function keysOf(r: Row, docs: Map<string, string>, split: ReadonlySet<number>): string[] {
+  const text = docs.get(r.entry.file) ?? ''
+  const lines = text.split('\n')
+  const block = blockAt(iouBlocks(lines, quotedMask(text)), r.entry.line - 1)
+  return [entryKey(r.entry, split), nameKey(r.entry.file, block ? iouName(lines[block.start]) : null)].filter((k): k is string => k !== null)
+}
+
+/** 指着这几个键的续挂行里写的那天，取最晚的；没有给 undefined */
+function untilOf(all: StatusLine[], keys: string[]): string | undefined {
+  return all.filter(s => s.kind === '续挂' && keys.includes(s.key))
+    .map(s => UNTIL.exec(s.text)?.[1]).reduce(later, undefined)
+}
+
+/** 续挂着的欠条（按 `notationOf` 的记法）各续挂到哪天：条件探针越线了，续挂写的那天之前也不列（ADR-252）。只看它自己的续挂行 */
+export function carriedUntil(docs: Map<string, string>): Map<string, string> {
+  const split = splitRecords(docs), all = statusLines(docs)
+  const out = new Map<string, string>()
+  for (const r of ledgerStatus(docs).rows) {
+    if (r.status !== '续挂') continue
+    const until = untilOf(all, keysOf(r, docs, split))
+    if (until !== undefined) out.set(notationOf(r.entry, docs.get(r.entry.file) ?? '', split), until)
+  }
+  return out
+}
+
 /**
  * 台账里开着的每张欠条（只有续挂行的也算开着）在到期清单里要的几样。
  *
@@ -340,25 +386,17 @@ export function dueItems(git: Git, run: string, docs: Map<string, string>): DueI
   const ledger = ledgerStatus(docs)
   const split = splitRecords(docs)
   const all = statusLines(docs)
-  const keysOf = (r: Row): string[] => {
-    const text = docs.get(r.entry.file) ?? ''
-    const lines = text.split('\n')
-    const block = blockAt(iouBlocks(lines, quotedMask(text)), r.entry.line - 1)
-    return [entryKey(r.entry, split), nameKey(r.entry.file, block ? iouName(lines[block.start]) : null)].filter((k): k is string => k !== null)
-  }
   const restart = ledger.rows.filter(r => r.status !== null)
   const byKey = new Map<string, Row>()
-  for (const r of restart) for (const k of keysOf(r)) byKey.set(k, r)
+  for (const r of restart) for (const k of keysOf(r, docs, split)) byKey.set(k, r)
   const rows = new Map<Row, DueRow>()
   const rowOf = (r: Row): DueRow => {
     let d = rows.get(r)
     if (!d) { d = dueRow(git, run, r.entry.file, r.entry.line, docs.get(r.entry.file) ?? ''); rows.set(r, d) }
     return d
   }
-  const untilOf = (keys: string[]): string | undefined => all.filter(s => s.kind === '续挂' && keys.includes(s.key))
-    .map(s => UNTIL.exec(s.text)?.[1]).reduce(later, undefined)
   return restart.filter(r => r.status === '开着' || r.status === '续挂').map((r): DueItem => {
-    const keys = keysOf(r)
+    const keys = keysOf(r, docs, split)
     const own = rowOf(r)
     const aliases = [...own.aliases]
     let date = own.date, carried = all.some(x => x.kind === '续挂' && keys.includes(x.key))
@@ -369,7 +407,7 @@ export function dueItems(git: Git, run: string, docs: Map<string, string>): DueI
         const src = byKey.get(s.key)
         if (!src || seen.has(src)) continue
         seen.add(src)
-        const d = rowOf(src), srcKeys = keysOf(src)
+        const d = rowOf(src), srcKeys = keysOf(src, docs, split)
         if (d.date !== undefined && (date === undefined || d.date < date)) date = d.date
         aliases.push(d.key, ...d.aliases, ...srcKeys.map(listingKey))
         if (all.some(x => x.kind === '续挂' && srcKeys.includes(x.key))) carried = true
@@ -381,7 +419,7 @@ export function dueItems(git: Git, run: string, docs: Map<string, string>): DueI
       key: own.key,
       aliases: [...new Set(aliases)].filter(a => a !== own.key),
       date,
-      until: untilOf(keys),
+      until: untilOf(all, keys),
       carried,
     }
   })
@@ -406,8 +444,10 @@ export function weekIndex(day: string): number {
  * 不让同一句列两遍。记法同回访：`<编号> 第 <行> 行`；拆过的记录，这个记法指历史文件那一行（ADR-211），
  * 主文件里的写 `<编号> 主文件第 <行> 行`。按编号、再按行号排；同一条记录先列主文件。
  * 第一行是几个数，后面每行是记法、两个空格、条件原文。
+ *
+ * `exclude` 里的记法不在这里列：条件探针越线的那几条已排在候选表最前面（ADR-252）。
  */
-export function deathRota(docs: Map<string, string>, today: string, weeks = ROTA_WEEKS): string[] {
+export function deathRota(docs: Map<string, string>, today: string, weeks = ROTA_WEEKS, exclude: ReadonlySet<string> = new Set()): string[] {
   const split = splitRecords(docs)
   const turn = weekIndex(today) % weeks
   const flat = (t: string) => t.replace(/\s+/g, '')
@@ -420,10 +460,12 @@ export function deathRota(docs: Map<string, string>, today: string, weeks = ROTA
   const all = entries(docs).filter(e => e.notation === '死亡条件' && recordNum(e.file) !== null)
   const inMain = new Set(all.filter(e => !isHistory(e.file)).map(e => `${recordNum(e.file)} ${whole(e)}`))
   const kept = all.filter(e => !isHistory(e.file) || !inMain.has(`${recordNum(e.file)} ${whole(e)}`))
-  const picked = kept.filter(e => recordNum(e.file)! % weeks === turn).map(e => {
-    const num = recordNum(e.file)!, hist = isHistory(e.file)
-    return { num, hist, line: e.line, text: `${adrId(e.file)} ${!hist && split.has(num) ? '主文件' : ''}第 ${e.line} 行  ${e.text}` }
+  const turned = kept.filter(e => recordNum(e.file)! % weeks === turn).map(e => {
+    const num = recordNum(e.file)!, hist = isHistory(e.file), at = notationOf(e, docs.get(e.file) ?? '', split)
+    return { num, hist, line: e.line, at, text: `${at}  ${e.text}` }
   }).sort((a, b) => a.num - b.num || Number(a.hist) - Number(b.hist) || a.line - b.line)
-  return [`死亡条件 ${kept.length} 条（历史文件里与主文件整句相同的 ${all.length - kept.length} 条不重复算）；这一周轮到编号除以 ${weeks} 余 ${turn} 的 ${picked.length} 条`,
+  const picked = turned.filter(p => !exclude.has(p.at))
+  const moved = turned.length - picked.length
+  return [`死亡条件 ${kept.length} 条（历史文件里与主文件整句相同的 ${all.length - kept.length} 条不重复算）；这一周轮到编号除以 ${weeks} 余 ${turn} 的 ${picked.length} 条${moved ? `（条件探针越线、已排在最前面的 ${moved} 条不在这里列）` : ''}`,
     ...picked.map(p => p.text)]
 }

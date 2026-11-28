@@ -10,12 +10,20 @@
  *
  * 读、判、比、回写全在 `adr-rule.ts` 的 `adrSync`，需求测试在玩具目录上直接调它；这里只剩打印、退出码，
  * 和把真 git 交给它（拿主干上的指纹表再比一遍）。
+ *
+ * 另核一遍条件探针的登记表（`condition-rule.ts` 的 `conditionFaults`，ADR-252）：绑的台账条目还在、种类对、欠条还开着。
+ * 不放进 `adrSync`：需求测试在玩具目录上调 `adrSync`，那里没有登记表绑的那些真记录；核对的判定在玩具台账上另有一组测试直接调。
  */
+import { existsSync } from 'node:fs'
 import { adrSync } from './adr-rule.js'
+import { CONDITIONS, conditionFaults } from './condition-rule.js'
+import { adrDocs } from './debt-rule.js'
 import { askGit } from './git-entry.js'
 
 const r = adrSync('.', process.argv.includes('--write'), askGit)
 for (const line of r.out) console.log(line)
 for (const line of r.err) console.error(line)
+const faults = conditionFaults(CONDITIONS, adrDocs(), existsSync)
+for (const line of faults) console.error(line)
 // 设退出码、自然退出：硬退出会掐掉管道里还没写完的诊断（ADR-70 那张「硬退出收口只到 mutate.ts」）
-process.exitCode = r.ok ? 0 : 1
+process.exitCode = r.ok && faults.length === 0 ? 0 : 1

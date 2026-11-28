@@ -30,6 +30,7 @@
     "audit": "tsx scripts/check/audit.ts",
     "adr-ledger": "tsx scripts/check/adr-ledger.ts",
     "due-list": "tsx scripts/check/revisit-due.ts --list",
+    "conditions": "tsx scripts/check/conditions.ts",
     "same-spot": "tsx scripts/check/same-spot.ts",
     "debt-touch": "tsx scripts/check/debt-touch.ts",
     "iou-gate": "tsx scripts/check/iou-gate.ts",
