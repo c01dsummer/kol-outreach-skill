@@ -27246,24 +27246,42 @@ await group('h-lazy-typescript-contract', async () => {
 
 await group('h-test-startup-loads', async () => {
   // 只看启动：子进程里只选这一组跑，进组那一刻模块缓存里已有的，就是需求测试的静态引入一路装进来的。
-  // 变异一步每启动一次需求测试都要付这一笔，所以大库只许在用到它的那一组里按需加载（ADR-246 第七节）
-  const HEAVY = ['typescript', 'ts-json-schema-generator']
-  const fromRepo = createRequire(join(process.cwd(), 'package.json'))
-  const roots = HEAVY.map(name => `${dirname(fromRepo.resolve(`${name}/package.json`))}/`)
-  const loaded = (): string[] => HEAVY.filter((_, i) => Object.keys(fromRepo.cache).some(path => path.startsWith(roots[i]!)))
+  // 变异一步每启动一次需求测试都要付这一笔，所以开发时才用的依赖（编译器、生成格式说明的库这一类）
+  // 只许在用到它的那一组里按需加载；哪些包算开发用，照锁文件里的标记，不另列名单（ADR-246 第七节）
+  const root = scRealpathSync(process.cwd())
+  type Locked = { dev?: boolean; dependencies?: Record<string, string>; optionalDependencies?: Record<string, string> }
+  const locked = (JSON.parse(rf(join(root, 'package-lock.json'), 'utf8')) as { packages: Record<string, Locked> }).packages
+  // 起需求测试的启动器（tsx）连同它自己的依赖：走 tsx 那条路时它们本来就在缓存里，不算需求测试装的
+  const launcher = new Set<string>()
+  const reach = (key: string): void => {
+    if (launcher.has(key) || locked[key] === undefined) return
+    launcher.add(key)
+    for (const name of Object.keys({ ...locked[key]!.dependencies, ...locked[key]!.optionalDependencies })) {
+      reach(locked[`${key}/node_modules/${name}`] !== undefined ? `${key}/node_modules/${name}` : `node_modules/${name}`)
+    }
+  }
+  reach('node_modules/tsx')
+  const devLoaded = (): string[] => {
+    const keys = new Set<string>()
+    for (const path of Object.keys(createRequire(join(root, 'package.json')).cache)) {
+      const key = /^((?:node_modules\/(?:@[^/]+\/)?[^/]+\/)+)/.exec(cxRelative(root, path))?.[1]?.slice(0, -1)
+      if (key !== undefined && locked[key]?.dev === true && !launcher.has(key)) keys.add(key.replace(/^.*node_modules\//, ''))
+    }
+    return [...keys].sort()
+  }
   const PREFIX = 'STARTUP_LOADS_JSON '
   if (process.env.KOL_TEST_STARTUP_PROBE === '1') {
-    const atStart = loaded()
-    fromRepo('typescript')
-    const afterRequire = loaded()
+    const atStart = devLoaded()
+    createRequire(join(root, 'package.json'))('typescript')
+    const afterRequire = devLoaded()
     console.log(PREFIX + JSON.stringify({ atStart, afterRequire }))
-    ok('启动探针：显式取一次 TypeScript 之后模块缓存里看得见它（阳性对照）', afterRequire.includes('typescript'))
+    ok('启动探针：显式取一次 TypeScript 之后看得见它是开发用依赖（阳性对照）', afterRequire.includes('typescript'))
     return
   }
-  harness('需求测试启动时不装 TypeScript 编译器与生成格式说明的库')
+  harness('需求测试启动时不装开发时才用的依赖')
   const env = { ...process.env, KOL_TEST_STARTUP_PROBE: '1' }
-  const r = spawnSync(...prebuiltCommand(['scripts/test.ts', '--only=h-test-startup-loads'], process.cwd(), env),
-    { cwd: process.cwd(), env, encoding: 'utf8', timeout: 90_000, maxBuffer: 4 * 1024 * 1024 })
+  const r = spawnSync(...prebuiltCommand(['scripts/test.ts', '--only=h-test-startup-loads'], root, env),
+    { cwd: root, env, encoding: 'utf8', timeout: 90_000, maxBuffer: 4 * 1024 * 1024 })
   const lines = (r.stdout ?? '').split('\n').filter(line => line.startsWith(PREFIX))
   let receipt: { atStart?: unknown; afterRequire?: unknown } | undefined
   try { receipt = lines.length === 1 ? JSON.parse(lines[0]!.slice(PREFIX.length)) as typeof receipt : undefined } catch { receipt = undefined }
@@ -27271,7 +27289,7 @@ await group('h-test-startup-loads', async () => {
     || !Array.isArray(receipt.afterRequire) || !receipt.afterRequire.includes('typescript')) {
     throw new Error(`${SELFCHECK_FIXTURE_MARK} 启动探针没取得有效回执：${r.error?.message ?? r.signal ?? r.status}\n${r.stdout}\n${r.stderr}`)
   }
-  eq('需求测试一启动就装进来的大库：一个都没有', receipt.atStart, [])
+  eq('需求测试一启动就装进来的开发用依赖（锁文件里标着只在开发时用的包）：一个都没有', receipt.atStart, [])
 })
 
 await group('h-worker-output-contract', async () => {

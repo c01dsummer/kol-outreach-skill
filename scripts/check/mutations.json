@@ -36334,7 +36334,7 @@
       "replace": "import { createRequire } from 'node:module'\nimport './data-shapes-rule.js'\n",
       "by": "test",
       "kills": [
-        "需求测试一启动就装进来的大库：一个都没有"
+        "需求测试一启动就装进来的开发用依赖（锁文件里标着只在开发时用的包）：一个都没有"
       ]
     },
     {
@@ -36346,7 +36346,7 @@
       "replace": "let LITERALS: Set<Ts.SyntaxKind>\nts = createRequire(import.meta.url)('typescript') as typeof Ts\n",
       "by": "test",
       "kills": [
-        "需求测试一启动就装进来的大库：一个都没有"
+        "需求测试一启动就装进来的开发用依赖（锁文件里标着只在开发时用的包）：一个都没有"
       ]
     },
     {
