@@ -30205,8 +30205,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "整张改挂过来的不接原来那张的登记日 —— 改挂一次就从头算 28 天",
-      "find": "        if (d.date !== undefined && (date === undefined || d.date < date)) date = d.date",
-      "replace": "        if (false) date = d.date",
+      "find": "      if (d.date !== undefined && (date === undefined || d.date < date)) date = d.date",
+      "replace": "      if (false) date = d.date",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
     },
@@ -30215,7 +30215,7 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "只往回找一层 —— 改挂过两次的，取到的是中间那张的登记日",
-      "find": "        walk(srcKeys)\n",
+      "find": "      walk(keysOf(src, docs, split))\n",
       "replace": "",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
@@ -30225,8 +30225,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "改挂过来之前续挂过不标 —— 续挂只许一次绕得过去",
-      "find": "        if (all.some(x => x.kind === '续挂' && srcKeys.includes(x.key))) carried = true",
-      "replace": "        if (false) carried = true",
+      "find": "      if (all.some(x => x.kind === '续挂' && srcKeys.includes(x.key))) carried = true",
+      "replace": "      if (false) carried = true",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
     },
@@ -30335,7 +30335,7 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "续挂写的那天丢了 —— 续挂过的满 28 天就又列",
-      "find": "      until: untilOf(all, keys),",
+      "find": "      until: untilOf(all, chain),",
       "replace": "      until: undefined,",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
@@ -39182,7 +39182,7 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "问到主干链头以后整份当取不到 —— 每一条「某 PR 合入」都永远无从确认",
-      "find": "if (head.at(-1) === 'missing') return subjects",
+      "find": "if (head.at(-1) === 'missing') return subjects.length > 0 ? subjects : undefined",
       "replace": "if (head.at(-1) === 'missing') return undefined",
       "by": "test",
       "kills": [
@@ -39338,8 +39338,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "变异目录不在就当成没有豁免 —— 原料没取到被说成死亡条件成立",
-      "find": "    if (buf === undefined) return undefined\n    const r = readCatalog",
-      "replace": "    if (buf === undefined) return 0\n    const r = readCatalog",
+      "find": "    if (buf === undefined) return undefined // 不在、读不到：这一行无从确认，别的照算\n    const r = readCatalog",
+      "replace": "    if (buf === undefined) return 0 // 不在、读不到：这一行无从确认，别的照算\n    const r = readCatalog",
       "by": "test",
       "kills": [
         "树里的数：变异目录经它的读口读，读不出、豁免不是数组是原料形状不对，抛出来（整跑以 1 退出）；目录不在才算取不到"
@@ -39446,8 +39446,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "量「在不在」的文件已经不在时检查变红 —— 条件刚成立就逼着把探针撤掉",
-      "find": "else if (m.kind !== 'exists' && m.kind !== 'catalog-exemptions' && !exists(m.path))",
-      "replace": "else if (m.kind !== 'catalog-exemptions' && !exists(m.path))",
+      "find": "} else if (m.kind !== 'exists' && m.kind !== 'catalog-exemptions') {",
+      "replace": "} else if (m.kind !== 'catalog-exemptions') {",
       "by": "test",
       "kills": [
         "核对：PR 号不是正整数、等的那张不是欠条、量的文件不在、数份数的目录不在，各报一行；量「在不在」的文件不在不报"
@@ -39458,8 +39458,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "数份数的目录写错也过检查 —— 永远数到 0，永远不越线",
-      "find": "for (const d of m.dirs) if (!exists(d))",
-      "replace": "for (const d of m.dirs) if (false)",
+      "find": "const k = kindOf(d); if (k !== 'dir')",
+      "replace": "const k = kindOf(d); if (false)",
       "by": "test",
       "kills": [
         "核对：PR 号不是正整数、等的那张不是欠条、量的文件不在、数份数的目录不在，各报一行；量「在不在」的文件不在不报"
@@ -39578,7 +39578,7 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "越线、已排在最前面的死亡条件在轮值里又列一次",
-      "find": "turned.filter(p => !exclude.has(p.at))",
+      "find": "turned.filter(p => !gone.has(p.same))",
       "replace": "turned",
       "by": "test",
       "kills": [
@@ -39787,6 +39787,90 @@
       "by": "test",
       "kills": [
         "核对：续挂到哪天按记法交回，只有续挂行指着的才有"
+      ]
+    },
+    {
+      "id": "M-H252-bc",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "头一问就 missing（修订写成了 A..B）当成链是空的 —— 每条「某 PR 合入」都被说成没合入",
+      "find": "return subjects.length > 0 ? subjects : undefined",
+      "replace": "return subjects",
+      "by": "test",
+      "kills": [
+        "切提交标题：头一问就答 missing（给的修订不是一个提交，例如 A..B）交回取不到，不当成一个都没合入"
+      ]
+    },
+    {
+      "id": "M-H252-bd",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "数份数的路径是个普通文件也过检查 —— 永远数到 0，永远不越线",
+      "find": "if (k !== 'dir')",
+      "replace": "if (k === undefined)",
+      "by": "test",
+      "kills": [
+        "核对：数份数的写成了普通文件、量字节的写成了目录，各报一行（路径在，种类不对）"
+      ]
+    },
+    {
+      "id": "M-H252-be",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "量字节、行数的路径是个目录也过检查 —— 读出来无从确认，检查却说登记表没问题",
+      "find": "if (k !== 'file')",
+      "replace": "if (k === undefined)",
+      "by": "test",
+      "kills": [
+        "核对：数份数的写成了普通文件、量字节的写成了目录，各报一行（路径在，种类不对）"
+      ]
+    },
+    {
+      "id": "M-H252-bf",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "按行号绑、主文件与历史文件同一行各有一张开着的欠条也过 —— 不知道管的是哪一张",
+      "find": "else if (hits.length > 1 && !c.binds.includes('「'))",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "核对：拆过的记录主文件与历史文件同一行各有一张没名字的欠条、都开着，按行号绑认不出是哪张，报；有名字的同名同状态算一条"
+      ]
+    },
+    {
+      "id": "M-H252-bg",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "只按记法拿掉 —— 探针绑历史文件那一份时，轮值里主文件那一份照样列，同一条列两遍",
+      "find": "const gone = new Set(all.filter(e =>",
+      "replace": "const gone = new Set(kept.filter(e =>",
+      "by": "test",
+      "kills": [
+        "轮值：探针绑的是历史文件那一份、轮值只留主文件那一份的，按整条认作同一条，也拿掉"
+      ]
+    },
+    {
+      "id": "M-H252-bh",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "续挂日期不接改挂过来之前那几张 —— 旧的续挂到某天、改挂过来，新的那张没到那天就列",
+      "find": "    const until = untilOf(all, [r, ...movedInto(r, all, byKey, docs, split)].flatMap(x => keysOf(x, docs, split)))",
+      "replace": "    const until = untilOf(all, [r].flatMap(x => keysOf(x, docs, split)))",
+      "by": "test",
+      "kills": [
+        "续挂到哪天（条件探针用）：整张改挂过来的接着旧的那张续挂写的那天，与到期清单同一个日子"
+      ]
+    },
+    {
+      "id": "M-H252-bi",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "到期清单的续挂日期不接改挂过来之前那几张 —— 旧的续挂到某天、改挂过来，新的那张按登记日加 28 天就到期",
+      "find": "      chain.push(...srcKeys)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"
       ]
     }
   ],

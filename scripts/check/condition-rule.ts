@@ -14,6 +14,7 @@
  */
 import { ledgerStatus, splitRecords, type RowStatus } from './debt-rule.js'
 import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
+import { readFileSync, statSync } from 'node:fs'
 import { gitText, runGit } from './git-entry.js'
 import { addDays, notationOf, type Listing } from './revisit-rule.js'
 
@@ -147,6 +148,7 @@ export interface ConditionGit {
  * `cat-file --batch` 按 `<修订>~0`、`<修订>~1`……一路问下去的回答，切成每个提交的标题。
  * 每一段是「`<对象> commit <字节数>`」一行、正文、一个换行；问过了链头，git 答「`<问的> missing`」，到这里为止。
  * 正文里头几行是提交的头，空一行之后是消息，标题取消息的第一行。形状不对（不是 commit、字节数不够）交回 undefined。
+ * 头一问就答 missing（给的修订不是一个提交，例如写成了 `A..B`）也交回 undefined：链头之前至少有它自己，空链只能是问错了，不是「一个都没合入」。
  */
 export function parseSubjects(out: Buffer): string[] | undefined {
   const subjects: string[] = []
@@ -155,7 +157,7 @@ export function parseSubjects(out: Buffer): string[] | undefined {
     const nl = out.indexOf(0x0a, at)
     if (nl < 0) return undefined
     const head = out.subarray(at, nl).toString('utf8').split(' ')
-    if (head.at(-1) === 'missing') return subjects
+    if (head.at(-1) === 'missing') return subjects.length > 0 ? subjects : undefined
     const size = Number(head[2])
     if (head.length !== 3 || head[1] !== 'commit' || !Number.isInteger(size) || nl + 1 + size > out.length) return undefined
     const body = out.subarray(nl + 1, nl + 1 + size).toString('utf8')
@@ -181,6 +183,16 @@ export function cliConditionGit(cwd = '.', env: NodeJS.ProcessEnv = process.env)
     },
     tracked: () => gitText(['ls-files', '-z'], { cwd, env })?.split('\0').filter(Boolean) ?? undefined,
   }
+}
+
+/** 树里一个路径是普通文件、目录，还是不在（取不到属性的也算不在）：三个入口核登记表用同一份 */
+export function pathKind(path: string): 'file' | 'dir' | undefined {
+  try { const s = statSync(path); return s.isFile() ? 'file' : s.isDirectory() ? 'dir' : undefined } catch { return undefined }
+}
+
+/** 读树里的一个普通文件；不在、不是普通文件、读不到（例如没有读权限）都交回 undefined：那一行无从确认，别的照算 */
+export function readTreeFile(path: string): Buffer | undefined {
+  try { return statSync(path).isFile() ? readFileSync(path) : undefined } catch { return undefined }
 }
 
 /** 入口交给判法的整份原料：git 那两件、台账、读树里文件的口子 */
@@ -225,7 +237,7 @@ function measured(raw: ConditionRaw, m: Measure): number | undefined {
   }
   if (m.kind === 'catalog-exemptions') {
     const buf = raw.read(MUTATION_CATALOG)
-    if (buf === undefined) return undefined
+    if (buf === undefined) return undefined // 不在、读不到：这一行无从确认，别的照算
     const r = readCatalog(buf.toString('utf8'))
     if (!r.ok) throw new RawShapeError(catalogFaultText(r.fault))
     return r.exemptions.length
@@ -242,7 +254,7 @@ const MEASURE_WORD: Record<Measure['kind'], string> = { bytes: '字节数', line
 function treeNumber(raw: ConditionRaw, m: Measure, op: Op, line: number): Verdict {
   const n = measured(raw, m)
   const what = m.kind === 'tracked-suffix' ? `${m.dirs.join('、')} 下受跟踪的 ${m.suffix}` : m.kind === 'catalog-exemptions' ? '变异目录' : m.path
-  if (n === undefined) return { state: '无从确认', value: m.kind === 'tracked-suffix' ? '取不到受跟踪的路径' : m.kind === 'catalog-exemptions' ? '变异目录不在' : `${m.path} 不在` }
+  if (n === undefined) return { state: '无从确认', value: m.kind === 'tracked-suffix' ? '取不到受跟踪的路径' : m.kind === 'catalog-exemptions' ? '变异目录不在或读不到' : `${m.path} 不在或读不到` }
   const over = op === '>' ? n > line : op === '>=' ? n >= line : n === line
   return { state: over ? '越线' : '没越线', value: `${what} ${MEASURE_WORD[m.kind]} ${n}（线：${op} ${line}）` }
 }
@@ -258,12 +270,14 @@ export function judge(raw: ConditionRaw, p: Probe): Verdict {
 
 /**
  * 登记表核不过的地方，一处一行；空数组就是过。由 `adr-sync.ts` 调，进检查链：
- * 1. 绑的记法在台账里恰好对上一条（拆过的记录主文件与历史文件同名的那张，状态相同算一条），种类与登记的同；
+ * 1. 绑的记法在台账里恰好对上一条（拆过的记录主文件与历史文件同名的那张，状态相同算一条；没名字、按行号对上两条的，不知道是哪一张，报），种类与登记的同；
  * 2. 欠条要开着或续挂：已还、收尾、已重挂了，这个探针管的那条已经关了或改挂了，要撤掉或改绑；死亡条件没有状态，只核在不在；
  * 3. 一条至多一个探针；
- * 4. 参数：PR 号是正整数；`ledger-status` 等的那张在台账里是一张欠条；量的文件在（量「在不在」与变异目录豁免条数的除外）、数份数的目录在。
+ * 4. 参数：PR 号是正整数；`ledger-status` 等的那张在台账里是一张欠条；量的是普通文件（量「在不在」与变异目录豁免条数的除外）、数份数的是目录。
+ *
+ * `kindOf` 答一个路径在树里是普通文件、目录，还是不在（或别的）。
  */
-export function conditionFaults(table: readonly Condition[], docs: Map<string, string>, exists: (path: string) => boolean): string[] {
+export function conditionFaults(table: readonly Condition[], docs: Map<string, string>, kindOf: (path: string) => 'file' | 'dir' | undefined): string[] {
   const ledger = ledgerIndex(docs)
   const out: string[] = []
   const seen = new Set<string>()
@@ -275,6 +289,7 @@ export function conditionFaults(table: readonly Condition[], docs: Map<string, s
     const states = new Set(hits.map(h => `${h.kind}${h.status}`))
     if (hits.length === 0) out.push(`${at}：台账里没有这个记法（行号挪了、名字改了，或那一条删了）`)
     else if (states.size > 1) out.push(`${at}：这个记法在台账里对上不止一条、种类或状态不同`)
+    else if (hits.length > 1 && !c.binds.includes('「')) out.push(`${at}：这个行号在台账里对上不止一条（拆过的记录主文件与历史文件同一行各有一张），不知道绑的是哪一张`)
     else if (hits[0].kind !== c.kind) out.push(`${at}：台账里它是${hits[0].kind}，登记的是${c.kind}`)
     else if (c.kind === '欠条' && hits[0].status !== '开着' && hits[0].status !== '续挂') {
       out.push(`${at}：这个探针管的那条已经${hits[0].status === '已重挂' ? '改挂' : hits[0].status === '已还' ? '还了' : '收尾'}，撤掉这一行或改绑到现行那一张`)
@@ -284,8 +299,12 @@ export function conditionFaults(table: readonly Condition[], docs: Map<string, s
     if (p.judge === 'ledger-status' && !(ledger.get(p.waits) ?? []).some(h => h.kind === '欠条')) out.push(`${at}：等的那张 ${p.waits} 在台账里不是一张欠条`)
     if (p.judge === 'tree-number') {
       const m = p.measure
-      if (m.kind === 'tracked-suffix') { for (const d of m.dirs) if (!exists(d)) out.push(`${at}：目录 ${d} 不在`) }
-      else if (m.kind !== 'exists' && m.kind !== 'catalog-exemptions' && !exists(m.path)) out.push(`${at}：文件 ${m.path} 不在`)
+      if (m.kind === 'tracked-suffix') {
+        for (const d of m.dirs) { const k = kindOf(d); if (k !== 'dir') out.push(`${at}：${k === undefined ? `目录 ${d} 不在` : `${d} 不是目录`}`) }
+      } else if (m.kind !== 'exists' && m.kind !== 'catalog-exemptions') {
+        const k = kindOf(m.path)
+        if (k !== 'file') out.push(`${at}：${k === undefined ? `文件 ${m.path} 不在` : `${m.path} 不是普通文件`}`)
+      }
     }
   }
   return out

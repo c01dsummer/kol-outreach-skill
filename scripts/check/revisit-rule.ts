@@ -363,13 +363,46 @@ function untilOf(all: StatusLine[], keys: string[]): string | undefined {
     .map(s => UNTIL.exec(s.text)?.[1]).reduce(later, undefined)
 }
 
-/** 续挂着的欠条（按 `notationOf` 的记法）各续挂到哪天：条件探针越线了，续挂写的那天之前也不列（ADR-252）。只看它自己的续挂行 */
+/** 有状态的台账行按它能被指到的每个键找回来 */
+function rowsByKey(rows: Row[], docs: Map<string, string>, split: ReadonlySet<number>): Map<string, Row> {
+  const byKey = new Map<string, Row>()
+  for (const r of rows) for (const k of keysOf(r, docs, split)) byKey.set(k, r)
+  return byKey
+}
+
+/**
+ * 整张改挂到 `r` 的那几张（别处一行「已重挂：<旧的> · …现行的是 <这一张>」），旧的又是从更早那张改挂过来的一路往回找；
+ * 按找到的先后，不含 `r` 自己。到期清单与续挂日期两处共用。
+ */
+function movedInto(r: Row, all: StatusLine[], byKey: ReadonlyMap<string, Row>, docs: Map<string, string>, split: ReadonlySet<number>): Row[] {
+  const out: Row[] = []
+  const seen = new Set<Row>([r])
+  const walk = (targets: string[]): void => {
+    for (const s of all) {
+      if (s.kind !== '已重挂' || !targets.includes(currentOf(s.text, recordNum(s.file)) ?? '')) continue
+      const src = byKey.get(s.key)
+      if (!src || seen.has(src)) continue
+      seen.add(src)
+      out.push(src)
+      walk(keysOf(src, docs, split))
+    }
+  }
+  walk(keysOf(r, docs, split))
+  return out
+}
+
+/**
+ * 开着的欠条（按 `notationOf` 的记法）各续挂到哪天：条件探针越线了，续挂写的那天之前也不列（ADR-252）。
+ * 看它自己的续挂行，也看整张改挂过来之前那几张的（改挂不清零，`process/6-INTEGRATE.md`「登记怎么做」第 5 条），取最晚的那天。
+ */
 export function carriedUntil(docs: Map<string, string>): Map<string, string> {
   const split = splitRecords(docs), all = statusLines(docs)
+  const rows = ledgerStatus(docs).rows.filter(r => r.status !== null)
+  const byKey = rowsByKey(rows, docs, split)
   const out = new Map<string, string>()
-  for (const r of ledgerStatus(docs).rows) {
-    if (r.status !== '续挂') continue
-    const until = untilOf(all, keysOf(r, docs, split))
+  for (const r of rows) {
+    if (r.status !== '开着' && r.status !== '续挂') continue
+    const until = untilOf(all, [r, ...movedInto(r, all, byKey, docs, split)].flatMap(x => keysOf(x, docs, split)))
     if (until !== undefined) out.set(notationOf(r.entry, docs.get(r.entry.file) ?? '', split), until)
   }
   return out
@@ -387,8 +420,7 @@ export function dueItems(git: Git, run: string, docs: Map<string, string>): DueI
   const split = splitRecords(docs)
   const all = statusLines(docs)
   const restart = ledger.rows.filter(r => r.status !== null)
-  const byKey = new Map<string, Row>()
-  for (const r of restart) for (const k of keysOf(r, docs, split)) byKey.set(k, r)
+  const byKey = rowsByKey(restart, docs, split)
   const rows = new Map<Row, DueRow>()
   const rowOf = (r: Row): DueRow => {
     let d = rows.get(r)
@@ -400,26 +432,20 @@ export function dueItems(git: Git, run: string, docs: Map<string, string>): DueI
     const own = rowOf(r)
     const aliases = [...own.aliases]
     let date = own.date, carried = all.some(x => x.kind === '续挂' && keys.includes(x.key))
-    const seen = new Set<Row>([r])
-    const walk = (targets: string[]): void => {
-      for (const s of all) {
-        if (s.kind !== '已重挂' || !targets.includes(currentOf(s.text, recordNum(s.file)) ?? '')) continue
-        const src = byKey.get(s.key)
-        if (!src || seen.has(src)) continue
-        seen.add(src)
-        const d = rowOf(src), srcKeys = keysOf(src, docs, split)
-        if (d.date !== undefined && (date === undefined || d.date < date)) date = d.date
-        aliases.push(d.key, ...d.aliases, ...srcKeys.map(listingKey))
-        if (all.some(x => x.kind === '续挂' && srcKeys.includes(x.key))) carried = true
-        walk(srcKeys)
-      }
+    // 续挂写的那天也接着旧的那几张算：旧的续挂到某天、改挂过来，新的这张在那天之前同样不到期
+    const chain = [...keys]
+    for (const src of movedInto(r, all, byKey, docs, split)) {
+      const d = rowOf(src), srcKeys = keysOf(src, docs, split)
+      if (d.date !== undefined && (date === undefined || d.date < date)) date = d.date
+      aliases.push(d.key, ...d.aliases, ...srcKeys.map(listingKey))
+      if (all.some(x => x.kind === '续挂' && srcKeys.includes(x.key))) carried = true
+      chain.push(...srcKeys)
     }
-    walk(keys)
     return {
       key: own.key,
       aliases: [...new Set(aliases)].filter(a => a !== own.key),
       date,
-      until: untilOf(all, keys),
+      until: untilOf(all, chain),
       carried,
     }
   })
@@ -460,11 +486,13 @@ export function deathRota(docs: Map<string, string>, today: string, weeks = ROTA
   const all = entries(docs).filter(e => e.notation === '死亡条件' && recordNum(e.file) !== null)
   const inMain = new Set(all.filter(e => !isHistory(e.file)).map(e => `${recordNum(e.file)} ${whole(e)}`))
   const kept = all.filter(e => !isHistory(e.file) || !inMain.has(`${recordNum(e.file)} ${whole(e)}`))
+  // 探针绑的是历史文件那一份、轮值留的是主文件那一份时，按整条认作同一条一起拿掉
+  const gone = new Set(all.filter(e => exclude.has(notationOf(e, docs.get(e.file) ?? '', split))).map(e => `${recordNum(e.file)} ${whole(e)}`))
   const turned = kept.filter(e => recordNum(e.file)! % weeks === turn).map(e => {
     const num = recordNum(e.file)!, hist = isHistory(e.file), at = notationOf(e, docs.get(e.file) ?? '', split)
-    return { num, hist, line: e.line, at, text: `${at}  ${e.text}` }
+    return { num, hist, line: e.line, at, same: `${num} ${whole(e)}`, text: `${at}  ${e.text}` }
   }).sort((a, b) => a.num - b.num || Number(a.hist) - Number(b.hist) || a.line - b.line)
-  const picked = turned.filter(p => !exclude.has(p.at))
+  const picked = turned.filter(p => !gone.has(p.same))
   const moved = turned.length - picked.length
   return [`死亡条件 ${kept.length} 条（历史文件里与主文件整句相同的 ${all.length - kept.length} 条不重复算）；这一周轮到编号除以 ${weeks} 余 ${turn} 的 ${picked.length} 条${moved ? `（条件探针越线、已排在最前面的 ${moved} 条不在这里列）` : ''}`,
     ...picked.map(p => p.text)]

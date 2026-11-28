@@ -8,14 +8,20 @@
  * `--today` 缺省是今天（北京时间），`--run` 缺省 `origin/main`。树里的文件与决策记录读工作区（回访在主干的检出上跑）。
  * 退出码：全算完 0（某条原料取不到算那一行无从确认，仍 0）；登记表核不过、原料形状不对 1；参数写错 2。只读，不写任何文件。
  */
-import { existsSync, readFileSync, statSync } from 'node:fs'
-import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, conditionReport, evaluate } from './condition-rule.js'
+import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, conditionReport, evaluate, pathKind, readTreeFile } from './condition-rule.js'
 import { adrDocs } from './debt-rule.js'
 import { revisitLedger } from './iou-gate-rule.js'
 import { beijingDate, carriedUntil, listings } from './revisit-rule.js'
 
 const args = process.argv.slice(2)
-const opt = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1] }
+// 写了选项没跟值（`--today` 在最后，或后面紧跟另一个选项）是参数写错，以 2 退出；没写才用缺省
+const opt = (name: string): string | undefined => {
+  const i = args.indexOf(name)
+  if (i < 0) return undefined
+  const v = args[i + 1]
+  if (v === undefined || v.startsWith('--')) { console.error(`${name} 后面要跟一个值`); process.exit(2) }
+  return v
+}
 const run = opt('--run') ?? 'origin/main'
 const today = opt('--today') ?? beijingDate(Date.now() / 1000)
 const ms = Date.parse(`${today}T00:00:00Z`)
@@ -25,14 +31,13 @@ if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== today) {
 }
 
 const docs = adrDocs()
-const faults = conditionFaults(CONDITIONS, docs, existsSync)
+const faults = conditionFaults(CONDITIONS, docs, pathKind)
 if (faults.length) {
   for (const f of faults) console.error(f)
   process.exitCode = 1
 } else {
-  const read = (p: string) => existsSync(p) && statSync(p).isFile() ? readFileSync(p) : undefined
   try {
-    const outcomes = evaluate(CONDITIONS, conditionRaw(docs, cliConditionGit(), run, read))
+    const outcomes = evaluate(CONDITIONS, conditionRaw(docs, cliConditionGit(), run, readTreeFile))
     for (const l of conditionReport(outcomes, today, listings(revisitLedger(docs)), carriedUntil(docs))) console.log(l)
   } catch (e) {
     if (!(e instanceof RawShapeError)) throw e
