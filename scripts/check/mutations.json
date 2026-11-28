@@ -27466,6 +27466,91 @@
       ]
     },
     {
+      "id": "M-D14-p",
+      "req": "D14.n",
+      "why": "保存失败的退出码从 6 变成 1：入口照样能跑，可 Agent 照对照表把它读成「其他运行错误、有汇总时断点已保存，可以续跑」，于是对用户说已保存、能续跑，而断点或费用其实没写进去",
+      "file": "scripts/lib/exit-codes.ts",
+      "find": "  save: 6,",
+      "replace": "  save: 1,",
+      "by": "test",
+      "kills": [
+        "退出码对照表：0 干完、1 其他运行错误、2 输入问题、3 钱不够、4 达标、5 供应商 402、6 保存失败、7 记忆读不出"
+      ]
+    },
+    {
+      "id": "M-D14-q",
+      "req": "D14.n",
+      "why": "保存失败时打在错误上的内部标记会跟着报错一起打出来：用户看到的报错里夹着一行与问题无关的字",
+      "file": "scripts/lib/exit-codes.ts",
+      "find": "{ value: true, enumerable: false }",
+      "replace": "{ value: true, enumerable: true }",
+      "by": "test",
+      "kills": [
+        "打上记号之后，错误的文字与打到 stderr 上的样子一个字不多"
+      ]
+    },
+    {
+      "id": "M-D14-r",
+      "req": "D14.n",
+      "why": "认不出保存失败：每一处保存失败都落到退出码 1，Agent 照对照表说「有汇总时断点已保存，可以续跑」，而断点、费用或名单其实没写进去",
+      "file": "scripts/lib/exit-codes.ts",
+      "find": "  return typeof e === 'object' && e !== null && Object.hasOwn(e, SAVE_FAILED)",
+      "replace": "  return false",
+      "by": "test",
+      "kills": [
+        "保存里抛出的错误原样抛出（同一个对象），并认得出是保存失败"
+      ]
+    },
+    {
+      "id": "M-D14-s",
+      "req": "D14.n",
+      "why": "保存失败时换成一个新错误抛出：原错误上的系统错误码与原文丢了，记号也没跟过去，入口分不出是保存失败，用户看到的是一句被改写过的报错",
+      "file": "scripts/lib/exit-codes.ts",
+      "find": "    throw e\n  }\n}",
+      "replace": "    throw new Error(String(e))\n  }\n}",
+      "by": "test",
+      "kills": [
+        "保存里抛出的错误原样抛出（同一个对象），并认得出是保存失败"
+      ]
+    },
+    {
+      "id": "M-D14-t",
+      "req": "D14.n",
+      "why": "什么错误都认成保存失败：一次普通的运行错误也退 6，Agent 照对照表说「不得说已保存」，而断点其实存好了、本可以续跑",
+      "file": "scripts/lib/exit-codes.ts",
+      "find": "  return typeof e === 'object' && e !== null && Object.hasOwn(e, SAVE_FAILED)",
+      "replace": "  return true",
+      "by": "test",
+      "kills": [
+        "没经过保存的错误认不出是保存失败，归其他运行错误",
+        "抛的不是对象时打不上记号，归其他运行错误"
+      ]
+    },
+    {
+      "id": "M-D14-u",
+      "req": "D14.n",
+      "why": "保存成功之后交回的值丢了：靠保存结果往下走的那几处拿到的是空，照空往下判",
+      "file": "scripts/lib/exit-codes.ts",
+      "find": "  try { return save() }",
+      "replace": "  try { save(); return undefined as T }",
+      "by": "test",
+      "kills": [
+        "保存成功时交回保存的返回值"
+      ]
+    },
+    {
+      "id": "M-D14-v",
+      "req": "D14.n",
+      "why": "SKILL.md 的退出码表少了 7 那一行：记忆文件读不出来时 Agent 查不到该做什么，照着别的行去猜",
+      "file": "skill/SKILL.md",
+      "find": "| 7 | 跨任务记忆 `memory/creators.json` 读不出来 | 停下，请用户修那个文件（见下「跨任务记忆」） |\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "SKILL.md 那张退出码表正好列出 0 到 7 各一次，与代码里的表同一组数"
+      ]
+    },
+    {
       "id": "M-F3-e",
       "req": "F3.f",
       "why": "probe 遇供应商 402 中途停下，照出部分结果却以 0 退出：调用方当成全部任务跑完了",
@@ -27523,6 +27608,55 @@
       "by": "selfcheck",
       "kills": [
         "render 交付物写不进去以退出码 6 结束，stdout 不出交付 JSON"
+      ]
+    },
+    {
+      "id": "M-D4-be",
+      "req": "D4.u",
+      "why": "名单写不进去时不再归到保存失败，退的是 1：Agent 照对照表读不到 6 那一行「不得说已保存或已交付」，而这一次名单没换上、任务状态停在「不担保」，交付物还是上一次的",
+      "file": "scripts/render.ts",
+      "find": "persistListAndStatus(dir, state, creators, memoryStatus)\n} catch (e) { saveFailed(e) }",
+      "replace": "persistListAndStatus(dir, state, creators, memoryStatus)\n} catch (e) { throw e }",
+      "by": "selfcheck",
+      "kills": [
+        "render 名单写不进去以退出码 6 结束，stdout 不出交付 JSON"
+      ]
+    },
+    {
+      "id": "M-D4-bf",
+      "req": "D4.u",
+      "why": "只这一处（CSV）写不进去时不再归到保存失败，退的是 1：Agent 照对照表读不到 6 那一行「不得说已交付」，用户拿到的 CSV 是上一次的或根本没有。与改坏共用退出那一条不同，这一条只拿掉 CSV 这一处的接法",
+      "file": "scripts/render.ts",
+      "find": "writeCsv(csvPath, [...REVIEW_HEADERS], creators.map(toReviewRow))\n} catch (e) { saveFailed(e) }",
+      "replace": "writeCsv(csvPath, [...REVIEW_HEADERS], creators.map(toReviewRow))\n} catch (e) { throw e }",
+      "by": "selfcheck",
+      "kills": [
+        "render 交付物写不进去以退出码 6 结束，stdout 不出交付 JSON"
+      ]
+    },
+    {
+      "id": "M-D4-bg",
+      "req": "D4.u",
+      "why": "xlsx 写不进去时不再归到保存失败，退的是 1：Agent 照对照表读不到 6 那一行「不得说已交付」，用户打开的表格是上一次的或根本没有",
+      "file": "scripts/render.ts",
+      "find": "writeXlsx(xlsxPath, buildSheets(creators, { mode: 'review' }) as Sheet[])\n} catch (e) { saveFailed(e) }",
+      "replace": "writeXlsx(xlsxPath, buildSheets(creators, { mode: 'review' }) as Sheet[])\n} catch (e) { throw e }",
+      "by": "selfcheck",
+      "kills": [
+        "render xlsx 写不进去以退出码 6 结束，stdout 不出交付 JSON"
+      ]
+    },
+    {
+      "id": "M-D4-bh",
+      "req": "D4.u",
+      "why": "meta 或报告页写不进去时不再归到保存失败，退的是 1：Agent 照对照表读不到 6 那一行「不得说已交付」，报告页还是上一次的",
+      "file": "scripts/render.ts",
+      "find": "writeFileAtomic(join(dir, 'report.html'), page)\n} catch (e) { saveFailed(e) }",
+      "replace": "writeFileAtomic(join(dir, 'report.html'), page)\n} catch (e) { throw e }",
+      "by": "selfcheck",
+      "kills": [
+        "render meta 写不进去以退出码 6 结束，stdout 不出交付 JSON",
+        "render 报告页写不进去以退出码 6 结束，stdout 不出交付 JSON"
       ]
     },
     {

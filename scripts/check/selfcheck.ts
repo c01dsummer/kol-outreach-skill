@@ -3488,6 +3488,37 @@ group('memory', ['collect', 'render'], () => {
       // D4.u 的三半：读不出记忆退 7（上面那条）、交付物保存失败退 6（这条）、写回失败照常退 0（上面「显式忽略坏记忆」那跑）
       criterion('D4.u')
     }
+    // render 写盘的另几处（名单、xlsx、meta、报告页）各自包着保存失败那一路，上面那条只走到 CSV 那一处：
+    // 每一处各弄坏一次，看它各自以 6 结束、stdout 不出交付 JSON、stderr 点名那个文件。排在前面的那几处照常写成功，
+    // 所以每一次红的只会是弄坏的那一处。弄法两种：render 开头要读的名单不能换成目录 —— 换了就在读那一步
+    // 以 2 拒绝、走不到写 —— 改成只读：整体替换遇到不可写的目标不替换、直接抛（root 跑也一样，先看权限位），读照常；
+    // 只写不读的（xlsx、meta、报告页）把那个位置换成目录。跑完原样换回，内容与权限位都换回
+    const unsavedAt = (name: string, how: 'readonly' | 'dir'): ReturnType<typeof runBoth> => {
+      const at = join(pipeCwd, dir, name), text = readFileSync(at), mode = statSync(at).mode & 0o777
+      if (how === 'readonly') chmodSync(at, 0o444)
+      else { rmSync(at, { force: true }); mkdirSync(join(at, 'held'), { recursive: true }) }
+      try { return runBoth(`render ${name} 写不进去`, [S('render.ts'), '--dir', dir, '--ignore-memory'], pipeCwd, { status: 6, soft: [0, 1, 2, 7] }) }
+      finally {
+        if (how === 'dir') { rmSync(at, { recursive: true, force: true }); writeFileSync(at, text) }
+        chmodSync(at, mode)
+      }
+    }
+    const unsavedOk = (r: ReturnType<typeof runBoth>, name: string): boolean =>
+      r.status === 6 && r.stdout.trim() === '' && r.stderr.includes(name)
+    const unsavedWhy = (r: ReturnType<typeof runBoth>): string =>
+      `退出=${r.status}，stdout=${r.stdout.slice(0, 200)}，stderr=${stderrTail(r.stderr)}`
+    const listUnsaved = unsavedAt('creators.json', 'readonly')
+    if (listUnsaved.ok) named('render 名单写不进去以退出码 6 结束，stdout 不出交付 JSON',
+      unsavedOk(listUnsaved, 'creators.json'), unsavedWhy(listUnsaved))
+    const xlsxUnsaved = unsavedAt('kol.xlsx', 'dir')
+    if (xlsxUnsaved.ok) named('render xlsx 写不进去以退出码 6 结束，stdout 不出交付 JSON',
+      unsavedOk(xlsxUnsaved, 'kol.xlsx'), unsavedWhy(xlsxUnsaved))
+    const metaUnsaved = unsavedAt('meta.json', 'dir')
+    if (metaUnsaved.ok) named('render meta 写不进去以退出码 6 结束，stdout 不出交付 JSON',
+      unsavedOk(metaUnsaved, 'meta.json'), unsavedWhy(metaUnsaved))
+    const pageUnsaved = unsavedAt('report.html', 'dir')
+    if (pageUnsaved.ok) named('render 报告页写不进去以退出码 6 结束，stdout 不出交付 JSON',
+      unsavedOk(pageUnsaved, 'report.html'), unsavedWhy(pageUnsaved))
 
     // 旧任务目录：task.json 里根本没有这个字段。**不能读成「去重跑过了」** ——
     // 产出它的那一版遇到读不出来的记忆会静默当成空记忆（ADR-18）。
