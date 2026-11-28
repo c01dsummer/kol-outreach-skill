@@ -19969,25 +19969,37 @@
     {
       "id": "M-H254-zo",
       "req": "harness",
-      "why": "取日志时不带令牌：私有仓库的日志取不到",
+      "why": "问 GitHub 时不带令牌：私有仓库什么都取不到",
       "file": "scripts/check/main-costs.sh",
       "find": "-H \"Authorization: Bearer ${GH_TOKEN:-}\" ",
       "replace": "",
       "by": "test",
       "kills": [
-        "取数：日志正文带着令牌经 curl 取，三份各取一次"
+        "取数：日志正文带着令牌取，三份各取一次"
       ]
     },
     {
       "id": "M-H254-zp",
       "req": "harness",
-      "why": "取日志不限时：卡住的那一份等到整个 job 超时被杀，下游全跳过",
+      "why": "每一问不封顶 30 秒：卡住的一问能把剩下的时限全用掉",
       "file": "scripts/check/main-costs.sh",
-      "find": "curl -fsSL --max-time 60 -H",
-      "replace": "curl -fsSL -H",
+      "find": "[ \"$left\" -le 30 ] || left=30",
+      "replace": ":",
       "by": "test",
       "kills": [
-        "取数：取日志每份限 60 秒，卡住的走到取不到、不等 job 超时"
+        "取数：有一问卡过 30 秒，写取不到与为什么、不等 job 超时，仍以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H254-zq",
+      "req": "harness",
+      "why": "过了总限时照样问：一跑一跑问下去，等到 job 超时被杀",
+      "file": "scripts/check/main-costs.sh",
+      "find": "[ \"$left\" -gt 0 ] || {",
+      "replace": "true || {",
+      "by": "test",
+      "kills": [
+        "取数：过了总限时就一问也不再问，写取不到，仍以 0 退出"
       ]
     },
     {

@@ -2,7 +2,7 @@
 # 取主干上一跑各份变异的成本报告（ADR-254）：CI 上变异分份与变异负载闸门都按它称每一摞有多重。
 #
 # 用法：bash scripts/check/main-costs.sh <输出文件> <份数>
-# 要 GITHUB_REPOSITORY 与 GH_TOKEN（gh 与 curl 用）；GITHUB_RUN_ID 是这一跑，跳过它自己。
+# 要 GITHUB_REPOSITORY 与 GH_TOKEN；GITHUB_RUN_ID 是这一跑，跳过它自己。GITHUB_API_URL 不设就是 https://api.github.com。
 #
 # 挑哪一跑：主干上 push 触发、已经跑完的 check.yml 运行记录，从新到旧最多看 20 跑，取第一跑「名字以『变异（第』起头、
 # 结论是 success 的 job 恰好 <份数> 个」的。从那几个 job 的日志里摘出带 `MUTATION_COST_JSON ` 的行，原样写在输出文件第一行之后；
@@ -12,7 +12,7 @@
 # {"schema":"main-mutation-costs/v1","unavailable":"<为什么>"}，后面什么都不写，照样以 0 退出 ——
 # 取不到算不算红、分份怎么办，由读它的 `shard-load-rule.ts` 的 `mainCostWeights` 与两个入口定，这里不判。
 # 这里只挑、只摘：报告的形状、几份是不是同一个提交、份与份有没有重叠，都由 `mainCostWeights` 核。
-# 用法错（少参数、缺环境变量、没有 jq 或 gh）以 2 退出，这一跑红在这一步。
+# 用法错（少参数、缺环境变量、没有 curl 或 jq）以 2 退出，这一跑红在这一步。
 set -uo pipefail
 
 out=${1:-}
@@ -21,12 +21,20 @@ if [ -z "$out" ] || ! [[ $shards =~ ^[1-9][0-9]*$ ]]; then
   echo "用法：bash scripts/check/main-costs.sh <输出文件> <份数>" >&2; exit 2
 fi
 if [ -z "${GITHUB_REPOSITORY:-}" ]; then echo "要 GITHUB_REPOSITORY（形如 owner/name）" >&2; exit 2; fi
-for tool in gh curl jq grep; do command -v "$tool" > /dev/null || { echo "找不到 $tool" >&2; exit 2; }; done
+for tool in curl jq grep; do command -v "$tool" > /dev/null || { echo "找不到 $tool" >&2; exit 2; }; done
 repo=$GITHUB_REPOSITORY
 self=${GITHUB_RUN_ID:-}
-# 日志正文用 curl 取（跟着跳到存储那边；跳过去时 curl 不带令牌）：日志里有终端控制字符，新版 gh 见了就不吐、以 1 退出。
-# 每份限 60 秒：卡住的那一份照样走到「取不到」，不等 job 的 5 分钟超时把整个 job 杀掉（那样下游全跳过，连按条数分都没有）
 api=${GITHUB_API_URL:-https://api.github.com}
+# 问 GitHub 一律经 ask：curl 带令牌（跳到存储那边取日志时 curl 不带过去）。不用 gh：日志里有终端控制字符，新版 gh 见了就不吐、以 1 退出。
+# 限时：从开跑起一共 MAIN_COSTS_BUDGET 秒（默认 200，job 的超时是 5 分钟），每一问最多 30 秒、且不超过剩下的；
+# 到点了或卡住的那一问照样走到「取不到」、写出文件 —— 等 job 超时被杀就什么都不写，下游全跳过，连按条数分都没有
+deadline=$((SECONDS + ${MAIN_COSTS_BUDGET:-200}))
+ask() {
+  local left=$((deadline - SECONDS))
+  [ "$left" -gt 0 ] || { echo "过了 ${MAIN_COSTS_BUDGET:-200} 秒的限时，不再问" >&2; return 1; }
+  [ "$left" -le 30 ] || left=30
+  curl -fsSL --max-time "$left" -H "Authorization: Bearer ${GH_TOKEN:-}" -H 'Accept: application/vnd.github+json' "$api/$1"
+}
 mkdir -p "$(dirname "$out")" || exit 2
 
 none() {
@@ -35,19 +43,19 @@ none() {
   exit 0
 }
 
-runs=$(gh api "repos/$repo/actions/workflows/check.yml/runs?branch=main&event=push&status=completed&per_page=20" \
-         --jq '.workflow_runs[] | "\(.id) \(.head_sha)"') || none "列不出主干上的运行记录"
+runs=$(ask "repos/$repo/actions/workflows/check.yml/runs?branch=main&event=push&status=completed&per_page=20" \
+         | jq -r '.workflow_runs[] | "\(.id) \(.head_sha)"') || none "列不出主干上的运行记录"
 body=$(mktemp) || exit 2
 while read -r id sha; do
   [ -n "$id" ] && [ "$id" != "$self" ] || continue
-  jobs=$(gh api "repos/$repo/actions/runs/$id/jobs?per_page=100" \
-           --jq '[.jobs[] | select(.name | startswith("变异（第")) | select(.conclusion == "success") | .id | tostring] | join(" ")') \
+  jobs=$(ask "repos/$repo/actions/runs/$id/jobs?per_page=100" \
+           | jq -r '[.jobs[] | select(.name | startswith("变异（第")) | select(.conclusion == "success") | .id | tostring] | join(" ")') \
     || none "读不出 run $id 的 job 列表"
   read -r -a ids <<< "$jobs"
   [ "${#ids[@]}" = "$shards" ] || continue
   : > "$body"
   for job in "${ids[@]}"; do
-    curl -fsSL --max-time 60 -H "Authorization: Bearer ${GH_TOKEN:-}" "$api/repos/$repo/actions/jobs/$job/logs" | grep -aF 'MUTATION_COST_JSON ' >> "$body" \
+    ask "repos/$repo/actions/jobs/$job/logs" | grep -aF 'MUTATION_COST_JSON ' >> "$body" \
       || none "run $id 的 job $job：日志取不下来，或里面没有成本报告那一行"
   done
   { jq -nc --argjson run "$id" --arg sha "$sha" '{schema: "main-mutation-costs/v1", run: $run, headSha: $sha}' && cat "$body"; } > "$out" || exit 2
