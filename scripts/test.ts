@@ -28248,6 +28248,9 @@ await group('h-conditions', () => {
     eq('问 git：分支上的「(#9)」不在第一亲代链上，判没合入', pr(git.subjects('HEAD'), 9).state, '没越线')
     const whole = conditionRaw(new Map(), git, 'HEAD', () => undefined)
     eq('整份原料：提交标题与受跟踪的路径都从交进来的 git 问来', [whole.subjects, whole.tracked?.length], [['Merge pull request #5 from o/side', '初始'], 2])
+    // 浅克隆：git 认 .git/shallow 里列的提交为边界，链到那里就断
+    writeFileSync(join(toy.dir, '.git', 'shallow'), `${toy.read('rev-parse', 'HEAD^1').trim()}\n`)
+    eq('问 git：浅克隆的链在边界上断了，标题算取不到（不说成没合入）', git.subjects('HEAD'), undefined)
   })
 
   // 等另一张欠条的状态
@@ -28311,6 +28314,13 @@ await group('h-conditions', () => {
       '条件探针「某条」（绑 ADR-1「续了」）：等的那张 ADR-1 第 13 行 在台账里不是一张欠条',
       '条件探针「某条」（绑 ADR-1 第 13 行）：文件 x.md 不在',
       '条件探针「某条」（绑 ADR-1「开着」）：目录 d 不在'])
+  const tdocs = new Map([['docs/adr/ADR-1-一.md', `# ADR-1\n\n${iou('收了')}\n> ⚠️ 收尾：ADR-1「收了」 · 不做了\n\n${iou('挪了')}\n> ⚠️ 已重挂：ADR-1「挪了」 · 现行的是 ADR-1「收了」\n`],
+    ['docs/adr/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}`], ['docs/adr/历史/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}\n> ⚠️ 已还：ADR-9 第 3 行 · 还在 #9\n`]])
+  eq('核对：管的那条收尾了、改挂了各说一句；拆过的记录主文件与历史文件同名的那张状态不同，对上不止一条也报',
+    conditionFaults([C('ADR-1「收了」', '欠条', merged), C('ADR-1「挪了」', '欠条', merged), C('ADR-9「甲」', '欠条', merged)], tdocs, () => true), [
+      '条件探针「某条」（绑 ADR-1「收了」）：这个探针管的那条已经收尾，撤掉这一行或改绑到现行那一张',
+      '条件探针「某条」（绑 ADR-1「挪了」）：这个探针管的那条已经改挂，撤掉这一行或改绑到现行那一张',
+      '条件探针「某条」（绑 ADR-9「甲」）：这个记法在台账里对上不止一条、种类或状态不同'])
   eq('核对：续挂到哪天按记法交回，只有续挂行指着的才有', [...carriedUntil(cdocs)], [['ADR-1「续了」', '2026-12-21']])
 
   // 回访那一段
@@ -28324,7 +28334,10 @@ await group('h-conditions', () => {
       '条件探针 9 条：越线 7、没越线 1、无从确认 1；这次列 4 条（判过、28 天内不再列的 2 条，续挂没到那天的 1 条）',
       '甲 · 欠条 · 甲 · 越线：值 · 列过没判', '丙 · 欠条 · 丙 · 越线：值', '戊 · 死亡条件 · 戊 · 越线：值 · 列过没判', '壬 · 死亡条件 · 壬 · 越线：值',
       '无从确认：辛 · 辛 · 取不到'])
-  eq('回访那一段：续挂写的那天到了就列', conditionReport([out('己', '欠条', '越线')], '2026-12-01', new Map(), new Map([['己', '2026-12-01']])).slice(1), ['己 · 欠条 · 己 · 越线：值'])
+  eq('回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角',
+    [conditionReport([out('己', '欠条', '越线')], '2026-12-01', new Map(), new Map([['己', '2026-12-01']])).slice(1),
+      conditionReport([out('庚', '欠条', '越线', 'a|b')], '2026-12-01', new Map([['庚', { day: '2026-11-01', verdict: '', at: 0, kept: true }]]), new Map()).slice(1)],
+    [['己 · 欠条 · 己 · 越线：值 · 续挂过，只能还或收尾'], ['庚 · 欠条 · 庚 · 越线：a｜b · 列过没判 · 续挂过，只能还或收尾']])
   eq('照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表',
     evaluateConditions([C('乙', '欠条', { judge: 'pr-merged', pr: 2 }), C('甲', '欠条', merged)], raw({ subjects: ['一 (#1)'] })).map(o => [o.binds, o.verdict.state]), [['乙', '没越线'], ['甲', '越线']])
   eq('越线的记法含先不列的，没越线、无从确认的不算', [...firedSet(outcomes)], ['甲', '乙', '丙', '丁', '戊', '己', '壬'])

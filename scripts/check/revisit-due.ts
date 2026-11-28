@@ -14,7 +14,7 @@
  * `--run` 缺省 `origin/main`。欠条正文读工作区里的文件（回访在主干的检出上跑）。只读，不写任何文件。
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { CONDITIONS, cliConditionGit, conditionRaw, evaluate, firedSet } from './condition-rule.js'
+import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, evaluate, firedSet } from './condition-rule.js'
 import { adrDocs } from './debt-rule.js'
 import { beijingDate, bornReport, cliGit, deathRota, dueItems, dueList, listings, movesUnread } from './revisit-rule.js'
 
@@ -36,9 +36,18 @@ if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== today) {
   console.error(`--today 要写成成立的日子 YYYY-MM-DD，收到的是 ${today}`)
   process.exit(2)
 }
-// 条件探针越线的记法：与 `conditions.ts` 同一份登记表、同一份原料
-const fired = (docs: Map<string, string>) => firedSet(evaluate(CONDITIONS, conditionRaw(docs, cliConditionGit(), run,
-  p => existsSync(p) && statSync(p).isFile() ? readFileSync(p) : undefined)))
+// 条件探针越线的记法：与 `conditions.ts` 同一份登记表、同一份原料。登记表核不过或原料形状不对时那一步没列出任何越线的，
+// 这里就一条都不拿掉（照旧列），在标准错误说一声 —— 不然那几条这一周哪儿都不列
+const fired = (docs: Map<string, string>): Set<string> => {
+  if (conditionFaults(CONDITIONS, docs, existsSync).length) { console.error('条件探针的登记表核不过：这一次不拿掉越线的'); return new Set() }
+  try {
+    return firedSet(evaluate(CONDITIONS, conditionRaw(docs, cliConditionGit(), run, p => existsSync(p) && statSync(p).isFile() ? readFileSync(p) : undefined)))
+  } catch (e) {
+    if (!(e instanceof RawShapeError)) throw e
+    console.error(`条件探针的原料形状不对（${e.message}）：这一次不拿掉越线的`)
+    return new Set()
+  }
+}
 if (args.includes('--deaths')) {
   const docs = adrDocs()
   for (const l of deathRota(docs, today, undefined, fired(docs))) console.log(l)

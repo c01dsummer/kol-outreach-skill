@@ -39498,7 +39498,7 @@
       "replace": "if (u !== undefined && today <= u)",
       "by": "test",
       "kills": [
-        "回访那一段：续挂写的那天到了就列"
+        "回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角"
       ]
     },
     {
@@ -39691,6 +39691,102 @@
       "by": "test",
       "kills": [
         "整份原料：提交标题与受跟踪的路径都从交进来的 git 问来"
+      ]
+    },
+    {
+      "id": "M-H252-au",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "续挂过的欠条越线时不标「只能还或收尾」—— 需求所有者可以第二次判留",
+      "find": "c.kind === '欠条' && (u !== undefined || l?.kept === true)",
+      "replace": "c.kind === '欠条' && l?.kept === true",
+      "by": "test",
+      "kills": [
+        "回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角"
+      ]
+    },
+    {
+      "id": "M-H252-av",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "判过留的欠条越线再列时不标「只能还或收尾」",
+      "find": "(u !== undefined || l?.kept === true)",
+      "replace": "(u !== undefined)",
+      "by": "test",
+      "kills": [
+        "回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角"
+      ]
+    },
+    {
+      "id": "M-H252-aw",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "提交标题里的竖线原样抄进候选表 —— 表格被切开，人判栏读错",
+      "find": "s.replace(/\\|/g, '｜')",
+      "replace": "s",
+      "by": "test",
+      "kills": [
+        "回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角"
+      ]
+    },
+    {
+      "id": "M-H252-ax",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "浅克隆上照样一路问下去 —— 早先合入的 PR 被说成没合入",
+      "find": "?.trim() !== 'false') return undefined",
+      "replace": "?.trim() === '从不') return undefined",
+      "by": "test",
+      "kills": [
+        "问 git：浅克隆的链在边界上断了，标题算取不到（不说成没合入）"
+      ]
+    },
+    {
+      "id": "M-H252-ay",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "同一个记法对上主文件与历史文件里状态不同的两张也不报 —— 按其中一张判开着，另一张已经还了",
+      "find": "else if (states.size > 1)",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "核对：管的那条收尾了、改挂了各说一句；拆过的记录主文件与历史文件同名的那张状态不同，对上不止一条也报"
+      ]
+    },
+    {
+      "id": "M-H252-az",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "管的那条改挂了说成收尾 —— 该改绑到现行那一张，读的人以为不做了",
+      "find": "hits[0].status === '已重挂' ? '改挂' : hits[0].status === '已还' ? '还了' : '收尾'",
+      "replace": "hits[0].status === '已还' ? '还了' : '收尾'",
+      "by": "test",
+      "kills": [
+        "核对：管的那条收尾了、改挂了各说一句；拆过的记录主文件与历史文件同名的那张状态不同，对上不止一条也报"
+      ]
+    },
+    {
+      "id": "M-H252-ba",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "判过的满 28 天那天仍不列 —— 晚一周才再报",
+      "find": "today < addDays(l.day, QUIET_DAYS)",
+      "replace": "today <= addDays(l.day, QUIET_DAYS)",
+      "by": "test",
+      "kills": [
+        "回访那一段：越线的列出来（列过没判的标上）；判过的 28 天内不列、满 28 天照列；死亡条件只认接受、拒绝（判「留」算没判）；续挂没到那天的不列；无从确认的每条点名"
+      ]
+    },
+    {
+      "id": "M-H252-bb",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "续挂到哪天读错 —— 越线的欠条续挂期满了也一直不列",
+      "find": "if (until !== undefined) out.set(notationOf(r.entry, docs.get(r.entry.file) ?? '', split), until)",
+      "replace": "if (until !== undefined) out.set(notationOf(r.entry, docs.get(r.entry.file) ?? '', split), '2099-12-31')",
+      "by": "test",
+      "kills": [
+        "核对：续挂到哪天按记法交回，只有续挂行指着的才有"
       ]
     }
   ],

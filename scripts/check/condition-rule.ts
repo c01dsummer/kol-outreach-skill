@@ -92,7 +92,7 @@ export const CONDITIONS: readonly Condition[] = [
   { binds: 'ADR-156 第 210 行', kind: '死亡条件', name: 'skill/SKILL.md 不在了',
     probe: { judge: 'tree-number', measure: { kind: 'exists', path: 'skill/SKILL.md' }, op: '=', line: 0 } },
   // 原文：「`scripts/lib` 或 `scripts/providers` 里出现第一份手写的 `.d.ts` 时」：手写的就是进了仓库的
-  { binds: 'ADR-202 第 473 行', kind: '欠条', name: 'scripts/lib、scripts/providers 里出现手写的 .d.ts',
+  { binds: 'ADR-202 第 473 行', kind: '欠条', name: 'scripts/lib、scripts/providers 里出现手写的 .d.ts（只算前一腿）',
     probe: { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['scripts/lib', 'scripts/providers'], suffix: '.d.ts' }, op: '>=', line: 1 } },
   // 原文：「`--brief` 不再打豁免（或不再有豁免）……」：只算「不再有豁免」那一腿
   { binds: 'ADR-70 主文件第 273 行', kind: '死亡条件', name: '变异目录里不再有豁免（只算这一腿）',
@@ -171,6 +171,8 @@ export function cliConditionGit(cwd = '.', env: NodeJS.ProcessEnv = process.env)
   return {
     subjects: rev => {
       // 链有多长先用全部可达提交的个数封顶（第一亲代链只会更短），一次问完；问过链头的那几问 git 答 missing
+      // 浅克隆的链在边界上就断了，早先合入的 PR 会被说成没合入：不是完整历史就算取不到
+      if (gitText(['rev-parse', '--is-shallow-repository'], { cwd, env })?.trim() !== 'false') return undefined
       const all = gitText(['rev-list', rev], { cwd, env })
       if (all === null) return undefined
       const n = all.split('\n').filter(Boolean).length
@@ -259,7 +261,7 @@ export function judge(raw: ConditionRaw, p: Probe): Verdict {
  * 1. 绑的记法在台账里恰好对上一条（拆过的记录主文件与历史文件同名的那张，状态相同算一条），种类与登记的同；
  * 2. 欠条要开着或续挂：已还、收尾、已重挂了，这个探针管的那条已经关了或改挂了，要撤掉或改绑；死亡条件没有状态，只核在不在；
  * 3. 一条至多一个探针；
- * 4. 参数：PR 号是正整数；`ledger-status` 等的那张在台账里是一张欠条；量的文件在（量「在不在」的除外）、数份数的目录下有受跟踪的文件。
+ * 4. 参数：PR 号是正整数；`ledger-status` 等的那张在台账里是一张欠条；量的文件在（量「在不在」与变异目录豁免条数的除外）、数份数的目录在。
  */
 export function conditionFaults(table: readonly Condition[], docs: Map<string, string>, exists: (path: string) => boolean): string[] {
   const ledger = ledgerIndex(docs)
@@ -314,6 +316,9 @@ export function evaluate(table: readonly Condition[], raw: ConditionRaw): Outcom
   return table.map(({ binds, kind, name, probe }) => ({ binds, kind, name, verdict: judge(raw, probe) }))
 }
 
+/** 算出来的那一段要抄进候选表的「值」栏：提交标题里的竖线换成全角，不把表格切开 */
+const cell = (s: string): string => s.replace(/\|/g, '｜')
+
 /** 越线的记法（含先不列的）：到期清单与死亡条件轮值先拿掉它们 */
 export function firedSet(outcomes: Outcome[]): Set<string> {
   return new Set(outcomes.filter(o => o.verdict.state === '越线').map(o => o.binds))
@@ -339,9 +344,11 @@ export function conditionReport(outcomes: Outcome[], today: string, listed: Map<
     if (judged && today < addDays(l.day, QUIET_DAYS)) { quiet++; continue }
     const u = c.kind === '欠条' ? until.get(c.binds) : undefined
     if (u !== undefined && today < u) { carried++; continue }
-    shown.push(`${c.binds} · ${c.kind} · ${c.name} · 越线：${v.value}${l !== undefined && !judged ? ' · 列过没判' : ''}`)
+    // 续挂过（续挂行写了日子）或哪一次判过留的欠条，与到期清单同一个标记：「留」只许一次
+    const again = c.kind === '欠条' && (u !== undefined || l?.kept === true) ? ' · 续挂过，只能还或收尾' : ''
+    shown.push(`${c.binds} · ${c.kind} · ${c.name} · 越线：${cell(v.value)}${l !== undefined && !judged ? ' · 列过没判' : ''}${again}`)
   }
-  const unknown = outcomes.filter(o => o.verdict.state === '无从确认').map(o => `无从确认：${o.binds} · ${o.name} · ${o.verdict.value}`)
+  const unknown = outcomes.filter(o => o.verdict.state === '无从确认').map(o => `无从确认：${o.binds} · ${o.name} · ${cell(o.verdict.value)}`)
   return [`条件探针 ${outcomes.length} 条：越线 ${fired.length}、没越线 ${n('没越线')}、无从确认 ${n('无从确认')}；这次列 ${shown.length} 条（判过、${QUIET_DAYS} 天内不再列的 ${quiet} 条，续挂没到那天的 ${carried} 条）`,
     ...shown, ...unknown]
 }
