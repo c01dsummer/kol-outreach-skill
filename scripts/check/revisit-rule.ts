@@ -465,17 +465,11 @@ export function weekIndex(day: string): number {
 }
 
 /**
- * 这一周轮到的死亡条件：记录编号除以 `weeks` 的余数，等于这一周的序号除以 `weeks` 的余数。
- * 主文件与历史文件里的都算（台账两处都抽），只是拆的时候原样抄进主文件的那几条（从条件那一行到空行为止、去掉空白后整条相同）只列主文件那一份，
- * 不让同一句列两遍。记法同回访：`<编号> 第 <行> 行`；拆过的记录，这个记法指历史文件那一行（ADR-211），
- * 主文件里的写 `<编号> 主文件第 <行> 行`。按编号、再按行号排；同一条记录先列主文件。
- * 第一行是几个数，后面每行是记法、两个空格、条件原文。
- *
- * `exclude` 里的记法不在这里列：条件探针越线的那几条已排在候选表最前面（ADR-252）。
+ * 轮值里会列出的死亡条件（历史文件里与主文件整条相同的那份去掉）与总条数，各带它的记法。
+ * 「这一条是哪一条」只按这里的记法认：拿掉越线的按它，条件探针的登记表核对绑死亡条件的也只认它（ADR-252）。
  */
-export function deathRota(docs: Map<string, string>, today: string, weeks = ROTA_WEEKS, exclude: ReadonlySet<string> = new Set()): string[] {
+function rotaKept(docs: Map<string, string>): { all: number; kept: { e: ReturnType<typeof entries>[number]; at: string }[] } {
   const split = splitRecords(docs)
-  const turn = weekIndex(today) % weeks
   const flat = (t: string) => t.replace(/\s+/g, '')
   // 整条：从条件那一行起，到空行（或只有 `>` 的行）为止 —— 第一行相同、续行不同的不算同一条
   const whole = (e: { file: string; line: number }): string => {
@@ -486,14 +480,32 @@ export function deathRota(docs: Map<string, string>, today: string, weeks = ROTA
   const all = entries(docs).filter(e => e.notation === '死亡条件' && recordNum(e.file) !== null)
   const inMain = new Set(all.filter(e => !isHistory(e.file)).map(e => `${recordNum(e.file)} ${whole(e)}`))
   const kept = all.filter(e => !isHistory(e.file) || !inMain.has(`${recordNum(e.file)} ${whole(e)}`))
-  // 探针绑的是历史文件那一份、轮值留的是主文件那一份时，按整条认作同一条一起拿掉
-  const gone = new Set(all.filter(e => exclude.has(notationOf(e, docs.get(e.file) ?? '', split))).map(e => `${recordNum(e.file)} ${whole(e)}`))
-  const turned = kept.filter(e => recordNum(e.file)! % weeks === turn).map(e => {
-    const num = recordNum(e.file)!, hist = isHistory(e.file), at = notationOf(e, docs.get(e.file) ?? '', split)
-    return { num, hist, line: e.line, at, same: `${num} ${whole(e)}`, text: `${at}  ${e.text}` }
+  return { all: all.length, kept: kept.map(e => ({ e, at: notationOf(e, docs.get(e.file) ?? '', split) })) }
+}
+
+/** 轮值里会列出的死亡条件的记法 */
+export function rotaNotations(docs: Map<string, string>): Set<string> {
+  return new Set(rotaKept(docs).kept.map(k => k.at))
+}
+
+/**
+ * 这一周轮到的死亡条件：记录编号除以 `weeks` 的余数，等于这一周的序号除以 `weeks` 的余数。
+ * 主文件与历史文件里的都算（台账两处都抽），只是拆的时候原样抄进主文件的那几条（从条件那一行到空行为止、去掉空白后整条相同）只列主文件那一份，
+ * 不让同一句列两遍。记法同回访：`<编号> 第 <行> 行`；拆过的记录，这个记法指历史文件那一行（ADR-211），
+ * 主文件里的写 `<编号> 主文件第 <行> 行`。按编号、再按行号排；同一条记录先列主文件。
+ * 第一行是几个数，后面每行是记法、两个空格、条件原文。
+ *
+ * `exclude` 里的记法不在这里列：条件探针越线的那几条已排在候选表最前面（ADR-252）。
+ */
+export function deathRota(docs: Map<string, string>, today: string, weeks = ROTA_WEEKS, exclude: ReadonlySet<string> = new Set()): string[] {
+  const turn = weekIndex(today) % weeks
+  const { all, kept } = rotaKept(docs)
+  const turned = kept.filter(({ e }) => recordNum(e.file)! % weeks === turn).map(({ e, at }) => {
+    const num = recordNum(e.file)!, hist = isHistory(e.file)
+    return { num, hist, line: e.line, at, text: `${at}  ${e.text}` }
   }).sort((a, b) => a.num - b.num || Number(a.hist) - Number(b.hist) || a.line - b.line)
-  const picked = turned.filter(p => !gone.has(p.same))
+  const picked = turned.filter(p => !exclude.has(p.at))
   const moved = turned.length - picked.length
-  return [`死亡条件 ${kept.length} 条（历史文件里与主文件整句相同的 ${all.length - kept.length} 条不重复算）；这一周轮到编号除以 ${weeks} 余 ${turn} 的 ${picked.length} 条${moved ? `（条件探针越线、已排在最前面的 ${moved} 条不在这里列）` : ''}`,
+  return [`死亡条件 ${kept.length} 条（历史文件里与主文件整句相同的 ${all - kept.length} 条不重复算）；这一周轮到编号除以 ${weeks} 余 ${turn} 的 ${picked.length} 条${moved ? `（条件探针越线、已排在最前面的 ${moved} 条不在这里列）` : ''}`,
     ...picked.map(p => p.text)]
 }

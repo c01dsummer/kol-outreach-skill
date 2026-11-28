@@ -45,7 +45,7 @@ import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
 import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, ledgerDiff as rawLedgerDiff, NEVER_RED_RUNS, neverRedLines, neverRedStop, optValue, parseJobs, parseRuns, pickNeverRed, type RawGit, rawLine, readNeverRed, slowRuns, topTen } from './check/revisit-raw-rule.js'
 import { addDays, beijingDate, bornReport, carriedUntil, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex, type Listing } from './check/revisit-rule.js'
-import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, conditionReport, evaluate as evaluateConditions, firedSet, judge as judgeCondition, ledgerIndex, mergedBy, parseSubjects, type Condition, type ConditionRaw, type Measure, type Op, type Outcome as ConditionOutcome, type Probe, type Verdict } from './check/condition-rule.js'
+import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, conditionReport, evaluate as evaluateConditions, firedSet, judge as judgeCondition, ledgerIndex, mergedBy, parseSubjects, readTreeFile, type Condition, type ConditionRaw, type Measure, type Op, type Outcome as ConditionOutcome, type Probe, type TreeFile, type Verdict } from './check/condition-rule.js'
 import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
@@ -28216,7 +28216,7 @@ await group('h-revisit-raw-log-entry', () => {
 })
 await group('h-conditions', () => {
   harness('条件探针：三种判法、登记表核对、回访那一段，判定直接调；问 git 的两件在玩具仓库里真问')
-  const raw = (over: Partial<ConditionRaw> = {}): ConditionRaw => ({ subjects: [], ledger: new Map(), read: () => undefined, tracked: [], ...over })
+  const raw = (over: Partial<ConditionRaw> = {}): ConditionRaw => ({ subjects: [], ledger: new Map(), read: () => ({ kind: '不在' }), tracked: [], ...over })
   const pr = (subjects: string[] | undefined, n: number) => judgeCondition(raw({ subjects }), { judge: 'pr-merged', pr: n })
 
   // PR 合没合：只认 GitHub 的两种定死写法
@@ -28250,7 +28250,7 @@ await group('h-conditions', () => {
       [git.subjects('HEAD'), git.tracked()?.sort(), git.subjects('nope')],
       [['Merge pull request #5 from o/side', '初始'], ['a.txt', 'scripts/lib/x.d.ts'], undefined])
     eq('问 git：分支上的「(#9)」不在第一亲代链上，判没合入', pr(git.subjects('HEAD'), 9).state, '没越线')
-    const whole = conditionRaw(new Map(), git, 'HEAD', () => undefined)
+    const whole = conditionRaw(new Map(), git, 'HEAD', () => ({ kind: '不在' }))
     eq('整份原料：提交标题与受跟踪的路径都从交进来的 git 问来', [whole.subjects, whole.tracked?.length], [['Merge pull request #5 from o/side', '初始'], 2])
     // 浅克隆：git 认 .git/shallow 里列的提交为边界，链到那里就断
     writeFileSync(join(toy.dir, '.git', 'shallow'), `${toy.read('rev-parse', 'HEAD^1').trim()}\n`)
@@ -28270,7 +28270,8 @@ await group('h-conditions', () => {
   // 树里的数
   const catalog = (text: string | undefined) => new Map<string, string>([['a.md', '一\n二\n三'], ...(text === undefined ? [] : [[MUTATION_CATALOG, text] as [string, string]])])
   let files = catalog('{"mutations":[],"exemptions":[1,2]}')
-  const tree = (measure: Measure, op: Op, line: number, tracked: string[] | undefined = []) => judgeCondition(raw({ read: p => files.has(p) ? Buffer.from(files.get(p)!) : undefined, tracked }),
+  const odd = new Map<string, TreeFile>([['锁着.md', { kind: '读不到' }], ['目录', { kind: '不是普通文件' }]])
+  const tree = (measure: Measure, op: Op, line: number, tracked: string[] | undefined = []) => judgeCondition(raw({ read: p => files.has(p) ? { kind: 'file', bytes: Buffer.from(files.get(p)!) } : odd.get(p) ?? { kind: '不在' }, tracked }),
     { judge: 'tree-number', measure, op, line }).state
   eq('树里的数：字节数按字节（中文三字节）、正好等于线不算过 >；行数数换行（末行没换行不算）；>= 正好等于算过',
     [tree({ kind: 'bytes', path: 'a.md' }, '>', 10), tree({ kind: 'bytes', path: 'a.md' }, '>', 11), tree({ kind: 'lines', path: 'a.md' }, '>=', 2), tree({ kind: 'lines', path: 'a.md' }, '>=', 3)],
@@ -28279,6 +28280,17 @@ await group('h-conditions', () => {
     [tree({ kind: 'catalog-exemptions' }, '=', 2), tree({ kind: 'catalog-exemptions' }, '=', 0),
       tree({ kind: 'exists', path: '没有.md' }, '=', 0), tree({ kind: 'exists', path: 'a.md' }, '=', 0), tree({ kind: 'bytes', path: '没有.md' }, '>', 1)],
     ['越线', '没越线', '越线', '没越线', '无从确认'])
+  const why = (measure: Measure) => judgeCondition(raw({ read: p => odd.get(p) ?? { kind: '不在' } }), { judge: 'tree-number', measure, op: '=', line: 0 })
+  eq('树里的数：在、却读不到或不是普通文件的，量「在不在」不算不在、判无从确认；量字节的写明是读不到还是不是普通文件',
+    [why({ kind: 'exists', path: '锁着.md' }), why({ kind: 'exists', path: '目录' }), why({ kind: 'bytes', path: '锁着.md' }), why({ kind: 'lines', path: '目录' }), why({ kind: 'catalog-exemptions' })], [
+      { state: '无从确认', value: '锁着.md 读不到' }, { state: '无从确认', value: '目录 不是普通文件' }, { state: '无从确认', value: '锁着.md 读不到' },
+      { state: '无从确认', value: '目录 不是普通文件' }, { state: '无从确认', value: '变异目录不在' }])
+  withToyRepo(toy => {
+    toy.write('a.txt', '一\n')
+    const at = (p: string) => { const f = readTreeFile(join(toy.dir, p)); return f.kind === 'file' ? f.bytes.toString('utf8') : f.kind }
+    eq('读树里的文件：读到了给全文；没有这个文件、路径中间一段是文件，都算不在；目录算不是普通文件',
+      [at('a.txt'), at('没有.txt'), at('a.txt/下面'), at('.')], ['一\n', '不在', '不在', '不是普通文件'])
+  })
   const shape = (text: string | undefined) => { files = catalog(text); try { return tree({ kind: 'catalog-exemptions' }, '=', 0) } catch (e) { return e instanceof RawShapeError ? e.message : '别的错' } }
   eq('树里的数：变异目录经它的读口读，读不出、豁免不是数组是原料形状不对，抛出来（整跑以 1 退出）；目录不在才算取不到',
     [shape('不是'), shape('{"mutations":[],"exemptions":3}'), shape('{"mutations":[]}'), shape(undefined)],
@@ -28370,8 +28382,13 @@ await group('h-conditions', () => {
   eq('轮值：越线的那条这一周不在这里列，第一行说拿掉了几条', deathRota(rdocs, '2026-11-30', 4, new Set(['ADR-1 第 3 行'])),
     ['死亡条件 2 条（历史文件里与主文件整句相同的 0 条不重复算）；这一周轮到编号除以 4 余 1 的 1 条（条件探针越线、已排在最前面的 1 条不在这里列）', 'ADR-1 第 5 行  什么条件下退：二'])
   const hdocs = new Map([['docs/adr/ADR-1-一.md', '# ADR-1\n\n> **什么条件下撤**：一\n'], ['docs/adr/历史/ADR-1-一.md', '# ADR-1\n\n> **什么条件下撤**：一\n']])
-  eq('轮值：探针绑的是历史文件那一份、轮值只留主文件那一份的，按整条认作同一条，也拿掉', deathRota(hdocs, '2026-11-30', 4, new Set(['ADR-1 第 3 行'])),
-    ['死亡条件 1 条（历史文件里与主文件整句相同的 1 条不重复算）；这一周轮到编号除以 4 余 1 的 0 条（条件探针越线、已排在最前面的 1 条不在这里列）'])
+  const twin = new Map([['docs/adr/ADR-1-一.md', '# ADR-1\n\n> **什么条件下撤**：一\n\n## 另一节\n\n> **什么条件下撤**：一\n']])
+  eq('轮值：只按记法拿掉 —— 同一份主文件两节写了一模一样的死亡条件，越线的是哪一条就只拿掉那一条', deathRota(twin, '2026-11-30', 4, new Set(['ADR-1 第 3 行'])),
+    ['死亡条件 2 条（历史文件里与主文件整句相同的 0 条不重复算）；这一周轮到编号除以 4 余 1 的 1 条（条件探针越线、已排在最前面的 1 条不在这里列）', 'ADR-1 第 7 行  什么条件下撤：一'])
+  eq('核对：绑死亡条件的只认轮值里会列出的那一份 —— 绑了历史文件里与主文件整句相同的那份，报；绑主文件那一行过',
+    [conditionFaults([{ binds: 'ADR-1 第 3 行', kind: '死亡条件', name: '某条', says: '一', probe: { judge: 'pr-merged', pr: 1 } }], hdocs, () => 'file'),
+      conditionFaults([{ binds: 'ADR-1 主文件第 3 行', kind: '死亡条件', name: '某条', says: '一', probe: { judge: 'pr-merged', pr: 1 } }], hdocs, () => 'file')],
+    [['条件探针「某条」（绑 ADR-1 第 3 行）：轮值里不列这一份（历史文件里与主文件整句相同，只列主文件那一份），改绑主文件那一行'], []])
 })
 await group('h-conditions-entry', () => {
   harness('条件探针的入口：在玩具仓库里真起；登记表绑的真记录这里没有，核不过以 1 退出')

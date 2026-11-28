@@ -16,7 +16,7 @@ import { ledgerStatus, splitRecords, type RowStatus } from './debt-rule.js'
 import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
 import { readFileSync, statSync } from 'node:fs'
 import { gitText, runGit } from './git-entry.js'
-import { addDays, notationOf, type Listing } from './revisit-rule.js'
+import { addDays, notationOf, rotaNotations, type Listing } from './revisit-rule.js'
 
 /* ───────────── 登记表 ───────────── */
 
@@ -112,9 +112,9 @@ export interface ConditionRaw {
   /** 台账：记法 → 这一记法对上的那几行的种类与状态（`ledgerIndex`） */
   // 字段不入断言：交给判法的原料口子，判法用例各自喂一份、按结果比
   ledger: Map<string, LedgerHit[]>
-  /** 树里一个文件的全文；不在给 undefined */
+  /** 树里一个文件：读到了的全文，或为什么没读到（`readTreeFile`） */
   // 字段不入断言：交给判法的原料口子，判法用例各自喂一份、按结果比
-  read(path: string): Buffer | undefined
+  read(path: string): TreeFile
   /** 受跟踪的全部路径 */
   tracked: string[] | undefined
 }
@@ -200,13 +200,32 @@ export function pathKind(path: string): 'file' | 'dir' | undefined {
   try { const s = statSync(path); return s.isFile() ? 'file' : s.isDirectory() ? 'dir' : undefined } catch { return undefined }
 }
 
-/** 读树里的一个普通文件；不在、不是普通文件、读不到（例如没有读权限）都交回 undefined：那一行无从确认，别的照算 */
-export function readTreeFile(path: string): Buffer | undefined {
-  try { return statSync(path).isFile() ? readFileSync(path) : undefined } catch { return undefined }
+/**
+ * 读树里一个文件的回答，分四种：读到了；确实不在；在、但不是普通文件；在、但读不到。
+ * 「确实不在」只认系统答的「没有这个文件」（ENOENT，或路径中间一段是文件的 ENOTDIR），别的错一律算读不到 ——
+ * 读不到不等于不在：量「在不在」的把读不到当不在，条件就被说成成立了。
+ */
+export type TreeFile = { kind: 'file'; bytes: Buffer } | TreeFileMissing
+
+/** 没读到，为什么 */
+export interface TreeFileMissing {
+  // 字段不入断言：「读不到」只在没有读权限时出，需求测试以 root 跑时造不出来；判法那一侧的用例直接喂「读不到」、按结果比
+  kind: '不在' | '不是普通文件' | '读不到'
+}
+
+/** 照 `TreeFile` 的四种读一个路径 */
+export function readTreeFile(path: string): TreeFile {
+  let st
+  try { st = statSync(path) } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    return code === 'ENOENT' || code === 'ENOTDIR' ? { kind: '不在' } : { kind: '读不到' }
+  }
+  if (!st.isFile()) return { kind: '不是普通文件' }
+  try { return { kind: 'file', bytes: readFileSync(path) } } catch { return { kind: '读不到' } }
 }
 
 /** 入口交给判法的整份原料：git 那两件、台账、读树里文件的口子 */
-export function conditionRaw(docs: Map<string, string>, git: ConditionGit, run: string, read: (path: string) => Buffer | undefined): ConditionRaw {
+export function conditionRaw(docs: Map<string, string>, git: ConditionGit, run: string, read: (path: string) => TreeFile): ConditionRaw {
   return { subjects: git.subjects(run), ledger: ledgerIndex(docs), read, tracked: git.tracked() }
 }
 
@@ -240,23 +259,24 @@ function ledgerWait(raw: ConditionRaw, waits: string, status: '已还'): Verdict
   return { state: '没越线', value: `${waits} ${st.join('、')}` }
 }
 
-/** 量出来的数；原料取不到给 undefined */
-function measured(raw: ConditionRaw, m: Measure): number | undefined {
+/** 量出来的数；原料取不到给一句为什么（这一行无从确认，别的照算） */
+function measured(raw: ConditionRaw, m: Measure): number | string {
   if (m.kind === 'tracked-suffix') {
-    return raw.tracked?.filter(p => p.endsWith(m.suffix) && m.dirs.some(d => p.startsWith(`${d}/`))).length
+    return raw.tracked?.filter(p => p.endsWith(m.suffix) && m.dirs.some(d => p.startsWith(`${d}/`))).length ?? '取不到受跟踪的路径'
   }
   if (m.kind === 'catalog-exemptions') {
-    const buf = raw.read(MUTATION_CATALOG)
-    if (buf === undefined) return undefined // 不在、读不到：这一行无从确认，别的照算
-    const r = readCatalog(buf.toString('utf8'))
+    const f = raw.read(MUTATION_CATALOG)
+    if (f.kind !== 'file') return `变异目录${f.kind}`
+    const r = readCatalog(f.bytes.toString('utf8'))
     if (!r.ok) throw new RawShapeError(catalogFaultText(r.fault))
     return r.exemptions.length
   }
-  const buf = raw.read(m.path)
-  if (m.kind === 'exists') return buf === undefined ? 0 : 1
-  if (buf === undefined) return undefined
-  if (m.kind === 'lines') { let n = 0; for (const b of buf) if (b === 0x0a) n++; return n }
-  return buf.length
+  const f = raw.read(m.path)
+  // 「在不在」只有确实不在才算 0；在、却读不到或不是普通文件，说不清，无从确认
+  if (m.kind === 'exists') return f.kind === '不在' ? 0 : f.kind === 'file' ? 1 : `${m.path} ${f.kind}`
+  if (f.kind !== 'file') return `${m.path} ${f.kind}`
+  if (m.kind === 'lines') { let n = 0; for (const b of f.bytes) if (b === 0x0a) n++; return n }
+  return f.bytes.length
 }
 
 const MEASURE_WORD: Record<Measure['kind'], string> = { bytes: '字节数', lines: '行数', 'catalog-exemptions': '豁免条数', exists: '在不在（在 1，不在 0）', 'tracked-suffix': '份数' }
@@ -264,7 +284,7 @@ const MEASURE_WORD: Record<Measure['kind'], string> = { bytes: '字节数', line
 function treeNumber(raw: ConditionRaw, m: Measure, op: Op, line: number): Verdict {
   const n = measured(raw, m)
   const what = m.kind === 'tracked-suffix' ? `${m.dirs.join('、')} 下受跟踪的 ${m.suffix}` : m.kind === 'catalog-exemptions' ? '变异目录' : m.path
-  if (n === undefined) return { state: '无从确认', value: m.kind === 'tracked-suffix' ? '取不到受跟踪的路径' : m.kind === 'catalog-exemptions' ? '变异目录不在或读不到' : `${m.path} 不在或读不到` }
+  if (typeof n === 'string') return { state: '无从确认', value: n }
   const over = op === '>' ? n > line : op === '>=' ? n >= line : n === line
   return { state: over ? '越线' : '没越线', value: `${what} ${MEASURE_WORD[m.kind]} ${n}（线：${op} ${line}）` }
 }
@@ -284,7 +304,8 @@ const flat = (t: string): string => t.replace(/\s+/g, '')
 /**
  * 登记表核不过的地方，一处一行；空数组就是过。由 `adr-sync.ts` 调，进检查链：
  * 1. 绑的记法在台账里恰好对上一条（拆过的记录主文件与历史文件同名的那张，状态相同算一条；没名字、按行号对上两条的，不知道是哪一张，报），种类与登记的同；
- * 2. 欠条要开着或续挂：已还、收尾、已重挂了，这个探针管的那条已经关了或改挂了，要撤掉或改绑；死亡条件没有状态，只核在不在；
+ * 2. 欠条要开着或续挂：已还、收尾、已重挂了，这个探针管的那条已经关了或改挂了，要撤掉或改绑；死亡条件没有状态，
+ *    只核它是轮值里会列出的那一份（拆过的记录，历史文件里与主文件整句相同的那份不列，绑它就红）—— 拿掉越线的只按这个记法；
  * 3. 一条至多一个探针；按行号绑的，登记时写下的那一段（`says`）要还在那一行的原文里 —— 行号挪了、同一行换成了另一条，都在这里红；
  * 4. 参数：PR 号是正整数；`ledger-status` 等的那张在台账里是一张欠条；量的是普通文件（量「在不在」与变异目录豁免条数的除外）、数份数的是目录。
  *
@@ -292,6 +313,7 @@ const flat = (t: string): string => t.replace(/\s+/g, '')
  */
 export function conditionFaults(table: readonly Condition[], docs: Map<string, string>, kindOf: (path: string) => 'file' | 'dir' | undefined): string[] {
   const ledger = ledgerIndex(docs)
+  const rota = rotaNotations(docs)
   const out: string[] = []
   const seen = new Set<string>()
   for (const c of table) {
@@ -304,6 +326,7 @@ export function conditionFaults(table: readonly Condition[], docs: Map<string, s
     else if (states.size > 1) out.push(`${at}：这个记法在台账里对上不止一条、种类或状态不同`)
     else if (hits.length > 1 && !c.binds.includes('「')) out.push(`${at}：这个行号在台账里对上不止一条（拆过的记录主文件与历史文件同一行各有一张），不知道绑的是哪一张`)
     else if (hits[0].kind !== c.kind) out.push(`${at}：台账里它是${hits[0].kind}，登记的是${c.kind}`)
+    else if (c.kind === '死亡条件' && !rota.has(c.binds)) out.push(`${at}：轮值里不列这一份（历史文件里与主文件整句相同，只列主文件那一份），改绑主文件那一行`)
     else if (c.kind === '欠条' && hits[0].status !== '开着' && hits[0].status !== '续挂') {
       out.push(`${at}：这个探针管的那条已经${hits[0].status === '已重挂' ? '改挂' : hits[0].status === '已还' ? '还了' : '收尾'}，撤掉这一行或改绑到现行那一张`)
     }

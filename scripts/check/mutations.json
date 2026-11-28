@@ -39278,8 +39278,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "字节数按字符数量 —— 中文文件过了字节线却说没过",
-      "find": "  return buf.length\n}",
-      "replace": "  return buf.toString('utf8').length\n}",
+      "find": "  return f.bytes.length\n}",
+      "replace": "  return f.bytes.toString('utf8').length\n}",
       "by": "test",
       "kills": [
         "树里的数：字节数按字节（中文三字节）、正好等于线不算过 >；行数数换行（末行没换行不算）；>= 正好等于算过"
@@ -39314,8 +39314,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "文件在不在反过来 —— 文件还在就说它没了",
-      "find": "if (m.kind === 'exists') return buf === undefined ? 0 : 1",
-      "replace": "if (m.kind === 'exists') return buf === undefined ? 1 : 0",
+      "find": "if (m.kind === 'exists') return f.kind === '不在' ? 0 : f.kind === 'file' ? 1 :",
+      "replace": "if (m.kind === 'exists') return f.kind === '不在' ? 1 : f.kind === 'file' ? 0 :",
       "by": "test",
       "kills": [
         "树里的数：= 只认相等；文件在不在（不在是 0）；要量的文件不在就无从确认，量「在不在」的不算取不到"
@@ -39338,8 +39338,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "变异目录不在就当成没有豁免 —— 原料没取到被说成死亡条件成立",
-      "find": "    if (buf === undefined) return undefined // 不在、读不到：这一行无从确认，别的照算\n    const r = readCatalog",
-      "replace": "    if (buf === undefined) return 0 // 不在、读不到：这一行无从确认，别的照算\n    const r = readCatalog",
+      "find": "    if (f.kind !== 'file') return `变异目录${f.kind}`",
+      "replace": "    if (f.kind !== 'file') return 0",
       "by": "test",
       "kills": [
         "树里的数：变异目录经它的读口读，读不出、豁免不是数组是原料形状不对，抛出来（整跑以 1 退出）；目录不在才算取不到"
@@ -39350,8 +39350,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "要量的文件不在就当成 0 —— 原料没取到被说成「没越线」",
-      "find": "  if (buf === undefined) return undefined\n  if (m.kind === 'lines')",
-      "replace": "  if (buf === undefined) return 0\n  if (m.kind === 'lines')",
+      "find": "  if (f.kind !== 'file') return `${m.path} ${f.kind}`\n  if (m.kind === 'lines')",
+      "replace": "  if (f.kind !== 'file') return 0\n  if (m.kind === 'lines')",
       "by": "test",
       "kills": [
         "树里的数：= 只认相等；文件在不在（不在是 0）；要量的文件不在就无从确认，量「在不在」的不算取不到"
@@ -39578,7 +39578,7 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "越线、已排在最前面的死亡条件在轮值里又列一次",
-      "find": "turned.filter(p => !gone.has(p.same))",
+      "find": "turned.filter(p => !exclude.has(p.at))",
       "replace": "turned",
       "by": "test",
       "kills": [
@@ -39838,18 +39838,6 @@
       ]
     },
     {
-      "id": "M-H252-bg",
-      "req": "harness",
-      "file": "scripts/check/revisit-rule.ts",
-      "why": "只按记法拿掉 —— 探针绑历史文件那一份时，轮值里主文件那一份照样列，同一条列两遍",
-      "find": "const gone = new Set(all.filter(e =>",
-      "replace": "const gone = new Set(kept.filter(e =>",
-      "by": "test",
-      "kills": [
-        "轮值：探针绑的是历史文件那一份、轮值只留主文件那一份的，按整条认作同一条，也拿掉"
-      ]
-    },
-    {
       "id": "M-H252-bh",
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
@@ -39895,6 +39883,78 @@
       "by": "test",
       "kills": [
         "核对：按行号绑的，没写原文那一段、写了空白的、写的那一段不在那一行原文里（行号挪了或换了一条），各报一行"
+      ]
+    },
+    {
+      "id": "M-H252-bl",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "在、却读不到的也当不在 —— skill/SKILL.md 只是没有读权限，死亡条件就被说成成立",
+      "find": "return f.kind === '不在' ? 0 : f.kind === 'file' ? 1 : `${m.path} ${f.kind}`",
+      "replace": "return f.kind === 'file' ? 1 : 0",
+      "by": "test",
+      "kills": [
+        "树里的数：在、却读不到或不是普通文件的，量「在不在」不算不在、判无从确认；量字节的写明是读不到还是不是普通文件"
+      ]
+    },
+    {
+      "id": "M-H252-bm",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "路径中间一段是文件（ENOTDIR）不算不在 —— 量「在不在」的判无从确认，条件永远不成立",
+      "find": "code === 'ENOENT' || code === 'ENOTDIR'",
+      "replace": "code === 'ENOENT'",
+      "by": "test",
+      "kills": [
+        "读树里的文件：读到了给全文；没有这个文件、路径中间一段是文件，都算不在；目录算不是普通文件"
+      ]
+    },
+    {
+      "id": "M-H252-bn",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "目录也当文件读 —— 读出来抛错，算成读不到，说不出是路径写成了目录",
+      "find": "  if (!st.isFile()) return { kind: '不是普通文件' }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读树里的文件：读到了给全文；没有这个文件、路径中间一段是文件，都算不在；目录算不是普通文件"
+      ]
+    },
+    {
+      "id": "M-H252-bo",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "绑死亡条件的不核是不是轮值里列的那一份 —— 绑了历史文件里的重复那份，越线时轮值里主文件那一份照样列",
+      "find": "else if (c.kind === '死亡条件' && !rota.has(c.binds))",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "核对：绑死亡条件的只认轮值里会列出的那一份 —— 绑了历史文件里与主文件整句相同的那份，报；绑主文件那一行过"
+      ]
+    },
+    {
+      "id": "M-H252-bp",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "轮值按整条原文拿掉 —— 同一份主文件两节写了同一句，越线一条两条都不列",
+      "find": "turned.filter(p => !exclude.has(p.at))",
+      "replace": "turned.filter(p => !turned.some(q => exclude.has(q.at) && q.text.slice(q.at.length) === p.text.slice(p.at.length)))",
+      "by": "test",
+      "kills": [
+        "轮值：只按记法拿掉 —— 同一份主文件两节写了一模一样的死亡条件，越线的是哪一条就只拿掉那一条"
+      ]
+    },
+    {
+      "id": "M-H252-bq",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "读到了也说读不到 —— 每条量文件的都无从确认",
+      "find": "try { return { kind: 'file', bytes: readFileSync(path) } }",
+      "replace": "try { return { kind: '读不到' } as TreeFile }",
+      "by": "test",
+      "kills": [
+        "读树里的文件：读到了给全文；没有这个文件、路径中间一段是文件，都算不在；目录算不是普通文件"
       ]
     }
   ],
