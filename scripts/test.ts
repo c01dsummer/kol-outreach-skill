@@ -29872,11 +29872,18 @@ await group('h-main-costs-entry', () => {
     const fake = ['#!/usr/bin/env bash', 'url=$2; expr=; [ "${3:-}" = --jq ] && expr=$4', 'echo "$url" >> "$FAKE_GH_DIR/calls.txt"', 'case $url in',
       '  */actions/workflows/check.yml/runs\\?*) f=runs.json ;;',
       '  */actions/runs/*/jobs\\?*) id=${url#*/actions/runs/}; f=jobs-${id%%/*}.json ;;',
-      '  */actions/jobs/*/logs) id=${url#*/actions/jobs/}; f=log-${id%%/*}.txt ;;', '  *) exit 9 ;;', 'esac',
+      '  *) exit 9 ;;', 'esac',
       '[ -f "$FAKE_GH_DIR/$f" ] || { echo "gh: HTTP 404" >&2; exit 1; }',
       'if [ -n "$expr" ]; then jq -r "$expr" "$FAKE_GH_DIR/$f"; else cat "$FAKE_GH_DIR/$f"; fi', ''].join('\n')
     toy.write('bin/gh', fake)
     chmodSync(join(toy.dir, 'bin/gh'), 0o755)
+    // 日志正文脚本经 curl 取（新版 gh 见了日志里的终端控制字符就不吐）：假 curl 只认带令牌、取 job 日志的那一种，答案取自 log-<job>.txt
+    const fakeCurl = ['#!/usr/bin/env bash', 'url=${@: -1}', 'echo "curl $* " >> "$FAKE_GH_DIR/calls.txt"',
+      'case "$*" in *"Authorization: Bearer tok"*) ;; *) echo "curl: (22) HTTP 401" >&2; exit 22 ;; esac',
+      'case $url in https://api.github.test/repos/o/r/actions/jobs/*/logs) id=${url#*/actions/jobs/}; f=log-${id%%/*}.txt ;; *) exit 9 ;; esac',
+      '[ -f "$FAKE_GH_DIR/$f" ] || { echo "curl: (22) HTTP 404" >&2; exit 22; }', 'cat "$FAKE_GH_DIR/$f"', ''].join('\n')
+    toy.write('bin/curl', fakeCurl)
+    chmodSync(join(toy.dir, 'bin/curl'), 0o755)
     const sha = (c: string) => c.repeat(40)
     const job = (id: number, name: string, conclusion: string) => ({ id, name, conclusion })
     const mutateJobs = (base: number, conclusions: string[]) => ({ jobs: [job(base, '检查链（变异以外各步）', 'success'),
@@ -29896,7 +29903,7 @@ await group('h-main-costs-entry', () => {
     }
     const run = (dir: string, args: string[] = ['out/main-costs.txt', '3']) => {
       const r = cxSpawnSync('bash', [script, ...args], { cwd: toy.dir, encoding: 'utf8', timeout: 60_000,
-        env: { ...fixtureEnv({}), PATH: `${join(toy.dir, 'bin')}:${process.env.PATH ?? ''}`, FAKE_GH_DIR: dir, GITHUB_REPOSITORY: 'o/r', GITHUB_RUN_ID: '500' } })
+        env: { ...fixtureEnv({}), PATH: `${join(toy.dir, 'bin')}:${process.env.PATH ?? ''}`, FAKE_GH_DIR: dir, GITHUB_REPOSITORY: 'o/r', GITHUB_RUN_ID: '500', GH_TOKEN: 'tok', GITHUB_API_URL: 'https://api.github.test' } })
       const out = (() => { try { return rf(join(toy.dir, 'out/main-costs.txt'), 'utf8') } catch { return '' } })()
       const calls = (() => { try { return rf(join(dir, 'calls.txt'), 'utf8').split('\n').filter(Boolean) } catch { return [] } })()
       rmSync(join(toy.dir, 'out'), { recursive: true, force: true })
@@ -29909,6 +29916,7 @@ await group('h-main-costs-entry', () => {
     eq('取数：只摘带 MUTATION_COST_JSON 的那几行，三份各一行，照原样', good.out.split('\n').slice(1), [mark(301), mark(302), mark(303), ''])
     eq('取数：挑中之后不再问更旧的那一跑，这一跑自己的 job 也不问', [good.calls.some(c => c.includes('/runs/200/') || c.includes('/jobs/20')), good.calls.some(c => c.includes('/runs/500/'))], [false, false])
     ok('取数：只问主干上 push 触发、已经跑完的 check.yml', good.calls[0]?.includes('actions/workflows/check.yml/runs?branch=main&event=push&status=completed&per_page=20') === true)
+    eq('取数：日志正文带着令牌经 curl 取，三份各取一次', good.calls.filter(c => c.startsWith('curl ')).map(c => /\/actions\/jobs\/(\d+)\/logs/.exec(c)?.[1]), ['301', '302', '303'])
     ok('取数：说出取自哪一跑', good.stdout.includes('取自 run 300（提交 3333333）的 3 份变异'))
     const dropped = run(lay('dropped', { drop: 302 }))
     eq('取数：挑中那一跑有一份日志里没有成本报告，写取不到与为什么，不改挑更旧的，仍以 0 退出',

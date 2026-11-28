@@ -539,7 +539,7 @@ export function shardLoadGate(input: ShardLoadInput): ShardLoadGate {
   }
   if ('unavailable' in measured) {
     if (onTrunk) lines.push(`变异负载：取不到主干上一跑的实测（${measured.unavailable}），三道线没法判 —— 主干上只报数`)
-    else lines.push(`✗ 变异负载：取不到主干上一跑的实测（${measured.unavailable}），三道线没法判，不当成没越线 —— 重跑这一跑；还取不到就看「取主干上一跑的变异实测」那个 job`)
+    else lines.push(`✗ 变异负载：取不到主干上一跑的实测（${measured.unavailable}），三道线没法判，不当成没越线 —— 重跑这一跑的全部 job（只重跑失败的，取数那一步不重跑）；还取不到就看「取主干上一跑的变异实测」那个 job`)
     return { red: fault || !onTrunk, lines }
   }
   const total = loads.reduce((a, b) => a + b, 0)

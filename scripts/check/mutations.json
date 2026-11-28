@@ -19967,6 +19967,18 @@
       ]
     },
     {
+      "id": "M-H254-zo",
+      "req": "harness",
+      "why": "取日志时不带令牌：私有仓库的日志取不到",
+      "file": "scripts/check/main-costs.sh",
+      "find": "curl -fsSL -H \"Authorization: Bearer ${GH_TOKEN:-}\" ",
+      "replace": "curl -fsSL ",
+      "by": "test",
+      "kills": [
+        "取数：日志正文带着令牌经 curl 取，三份各取一次"
+      ]
+    },
+    {
       "id": "M-H254-x",
       "req": "harness",
       "why": "挑中之后不停，接着往更旧的挑、把文件盖掉",

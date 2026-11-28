@@ -2,7 +2,7 @@
 # 取主干上一跑各份变异的成本报告（ADR-254）：CI 上变异分份与变异负载闸门都按它称每一摞有多重。
 #
 # 用法：bash scripts/check/main-costs.sh <输出文件> <份数>
-# 要 GITHUB_REPOSITORY 与 GH_TOKEN（gh 用）；GITHUB_RUN_ID 是这一跑，跳过它自己。
+# 要 GITHUB_REPOSITORY 与 GH_TOKEN（gh 与 curl 用）；GITHUB_RUN_ID 是这一跑，跳过它自己。
 #
 # 挑哪一跑：主干上 push 触发、已经跑完的 check.yml 运行记录，从新到旧最多看 20 跑，取第一跑「名字以『变异（第』起头、
 # 结论是 success 的 job 恰好 <份数> 个」的。从那几个 job 的日志里摘出带 `MUTATION_COST_JSON ` 的行，原样写在输出文件第一行之后；
@@ -21,9 +21,11 @@ if [ -z "$out" ] || ! [[ $shards =~ ^[1-9][0-9]*$ ]]; then
   echo "用法：bash scripts/check/main-costs.sh <输出文件> <份数>" >&2; exit 2
 fi
 if [ -z "${GITHUB_REPOSITORY:-}" ]; then echo "要 GITHUB_REPOSITORY（形如 owner/name）" >&2; exit 2; fi
-for tool in gh jq grep; do command -v "$tool" > /dev/null || { echo "找不到 $tool" >&2; exit 2; }; done
+for tool in gh curl jq grep; do command -v "$tool" > /dev/null || { echo "找不到 $tool" >&2; exit 2; }; done
 repo=$GITHUB_REPOSITORY
 self=${GITHUB_RUN_ID:-}
+# 日志正文用 curl 取（跟着跳到存储那边；跳过去时 curl 不带令牌）：日志里有终端控制字符，新版 gh 见了就不吐、以 1 退出
+api=${GITHUB_API_URL:-https://api.github.com}
 mkdir -p "$(dirname "$out")" || exit 2
 
 none() {
@@ -44,7 +46,7 @@ while read -r id sha; do
   [ "${#ids[@]}" = "$shards" ] || continue
   : > "$body"
   for job in "${ids[@]}"; do
-    gh api "repos/$repo/actions/jobs/$job/logs" | grep -aF 'MUTATION_COST_JSON ' >> "$body" \
+    curl -fsSL -H "Authorization: Bearer ${GH_TOKEN:-}" "$api/repos/$repo/actions/jobs/$job/logs" | grep -aF 'MUTATION_COST_JSON ' >> "$body" \
       || none "run $id 的 job $job：日志取不下来，或里面没有成本报告那一行"
   done
   { jq -nc --argjson run "$id" --arg sha "$sha" '{schema: "main-mutation-costs/v1", run: $run, headSha: $sha}' && cat "$body"; } > "$out" || exit 2
