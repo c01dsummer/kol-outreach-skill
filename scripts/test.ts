@@ -27260,17 +27260,23 @@ await group('h-test-startup-loads', async () => {
       reach(locked[`${key}/node_modules/${name}`] !== undefined ? `${key}/node_modules/${name}` : `node_modules/${name}`)
     }
   }
-  reach('node_modules/tsx')
-  const devLoaded = (): string[] => {
+  // 变异一步的工作副本里 node_modules 是指回原仓库的符号链接，缓存里记的是解开链接后的真路径，所以按真路径比
+  const modules = scRealpathSync(join(root, 'node_modules'))
+  const keysLoaded = (): Set<string> => {
     const keys = new Set<string>()
     for (const path of Object.keys(createRequire(join(root, 'package.json')).cache)) {
-      const key = /^((?:node_modules\/(?:@[^/]+\/)?[^/]+\/)+)/.exec(cxRelative(root, path))?.[1]?.slice(0, -1)
-      if (key !== undefined && locked[key]?.dev === true && !launcher.has(key)) keys.add(key.replace(/^.*node_modules\//, ''))
+      const key = /^((?:node_modules\/(?:@[^/]+\/)?[^/]+\/)+)/.exec(`node_modules/${cxRelative(modules, path)}`)?.[1]?.slice(0, -1)
+      if (key !== undefined && !key.includes('/../')) keys.add(key)
     }
-    return [...keys].sort()
+    return keys
   }
+  // 只在这一次真是 tsx 起的时候才排除它那一串：裸 node 那条路上 tsx 不在，它的依赖（比如 esbuild）被需求测试装进来照样红
+  if (keysLoaded().has('node_modules/tsx')) reach('node_modules/tsx')
+  const devLoaded = (): string[] =>
+    [...keysLoaded()].filter(key => locked[key]?.dev === true && !launcher.has(key)).map(key => key.replace(/^.*node_modules\//, '')).sort()
   const PREFIX = 'STARTUP_LOADS_JSON '
-  if (process.env.KOL_TEST_STARTUP_PROBE === '1') {
+  // 只认父进程那种起法（只选这一组）：外面环境里漏进来这个开关时，整跑仍走下面的父进程那一支
+  if (process.env.KOL_TEST_STARTUP_PROBE === '1' && onlyIds?.length === 1) {
     const atStart = devLoaded()
     createRequire(join(root, 'package.json'))('typescript')
     const afterRequire = devLoaded()
