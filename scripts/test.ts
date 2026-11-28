@@ -27919,7 +27919,7 @@ await group('h-revisit-entry', () => {
   rmSync(repo, { recursive: true, force: true })
 })
 await group('h-data-shapes', async () => {
-  // 用到时才加载：那个模块一加载就装进 TypeScript 编译器与生成格式说明的库，放在文件开头会让每一次跑需求测试都多付一秒多
+  // 用到时才加载：那个模块一加载就装进 TypeScript 编译器与生成格式说明的库，放在文件开头会让每一次启动需求测试都先装一遍（ADR-246 第六节）
   const { generateShapes, SHAPES_SNAPSHOT_PATH, shapeChanges } = await import('./check/data-shapes-rule.js')
   harness('存下来的数据的形状快照：按类型现生成的与入库那份比，哪一类变了点名（ADR-246）')
   eq('形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写',
