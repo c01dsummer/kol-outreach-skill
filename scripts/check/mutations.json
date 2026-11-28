@@ -39542,8 +39542,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "无从确认的也从到期清单里拿掉 —— 这几条哪儿都不列",
-      "find": "o.verdict.state === '越线').map(o => o.condition.binds)",
-      "replace": "o.verdict.state !== '没越线').map(o => o.condition.binds)",
+      "find": "o.verdict.state === '越线').map(o => o.binds)",
+      "replace": "o.verdict.state !== '没越线').map(o => o.binds)",
       "by": "test",
       "kills": [
         "越线的记法含先不列的，没越线、无从确认的不算"
@@ -39662,8 +39662,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "每一行的结果都挂在登记表第一行名下 —— 越线的报成别的条目",
-      "find": "condition: c,",
-      "replace": "condition: table[0],",
+      "find": "({ binds, kind, name, verdict: judge(raw, probe) })",
+      "replace": "({ binds: table[0].binds, kind, name, verdict: judge(raw, probe) })",
       "by": "test",
       "kills": [
         "照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表"
@@ -39674,8 +39674,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "每一行都按登记表第一行的判法算",
-      "find": "verdict: judge(raw, c.probe) })",
-      "replace": "verdict: judge(raw, table[0].probe) })",
+      "find": "=> ({ binds, kind, name, verdict: judge(raw, probe) }))",
+      "replace": "=> ({ binds, kind, name, verdict: judge(raw, table[0].probe) }))",
       "by": "test",
       "kills": [
         "照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表"

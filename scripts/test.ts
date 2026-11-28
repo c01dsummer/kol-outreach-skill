@@ -28311,7 +28311,7 @@ await group('h-conditions', () => {
   eq('核对：续挂到哪天按记法交回，只有续挂行指着的才有', [...carriedUntil(cdocs)], [['ADR-1「续了」', '2026-12-21']])
 
   // 回访那一段
-  const out = (binds: string, kind: Condition['kind'], state: Verdict['state'], value = '值'): ConditionOutcome => ({ condition: { binds, kind, name: binds, probe: merged }, verdict: { state, value } })
+  const out = (binds: string, kind: Condition['kind'], state: Verdict['state'], value = '值'): ConditionOutcome => ({ binds, kind, name: binds, verdict: { state, value } })
   const L = (day: string, verdict: string): Listing => ({ day, verdict, at: 0, kept: false })
   const outcomes = [out('甲', '欠条', '越线'), out('乙', '欠条', '越线'), out('丙', '欠条', '越线'), out('丁', '死亡条件', '越线'), out('戊', '死亡条件', '越线'),
     out('己', '欠条', '越线'), out('庚', '欠条', '没越线'), out('辛', '欠条', '无从确认', '取不到'), out('壬', '死亡条件', '越线')]
@@ -28323,7 +28323,7 @@ await group('h-conditions', () => {
       '无从确认：辛 · 辛 · 取不到'])
   eq('回访那一段：续挂写的那天到了就列', conditionReport([out('己', '欠条', '越线')], '2026-12-01', new Map(), new Map([['己', '2026-12-01']])).slice(1), ['己 · 欠条 · 己 · 越线：值'])
   eq('照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表',
-    evaluateConditions([C('乙', '欠条', { judge: 'pr-merged', pr: 2 }), C('甲', '欠条', merged)], raw({ subjects: ['一 (#1)'] })).map(o => [o.condition.binds, o.verdict.state]), [['乙', '没越线'], ['甲', '越线']])
+    evaluateConditions([C('乙', '欠条', { judge: 'pr-merged', pr: 2 }), C('甲', '欠条', merged)], raw({ subjects: ['一 (#1)'] })).map(o => [o.binds, o.verdict.state]), [['乙', '没越线'], ['甲', '越线']])
   eq('越线的记法含先不列的，没越线、无从确认的不算', [...firedSet(outcomes)], ['甲', '乙', '丙', '丁', '戊', '己', '壬'])
 
   // 到期清单与轮值先拿掉越线的

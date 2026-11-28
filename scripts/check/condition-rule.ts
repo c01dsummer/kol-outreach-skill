@@ -45,11 +45,15 @@ export type Op = '>' | '>=' | '='
 /** 登记表的一行 */
 export interface Condition {
   /** 绑的台账条目，按 `notationOf` 的记法 */
+ 
   binds: string
   /** 它在台账里是哪一种：欠条（重启条件）或死亡条件 */
+ 
   kind: '欠条' | '死亡条件'
   /** 一句白话：这一行算的是什么 */
+ 
   name: string
+ 
   probe: Probe
 }
 
@@ -99,10 +103,13 @@ export const CONDITIONS: readonly Condition[] = [
 /** 判法要的原料。取不到的给 undefined，那一行判「无从确认」 */
 export interface ConditionRaw {
   /** 主干第一亲代链上每个提交的标题（消息第一行），从新到旧 */
+  // 字段不入断言：交给判法的原料口子，判法用例各自喂一份、按结果比
   subjects: string[] | undefined
   /** 台账：记法 → 这一记法对上的那几行的种类与状态（`ledgerIndex`） */
+  // 字段不入断言：交给判法的原料口子，判法用例各自喂一份、按结果比
   ledger: Map<string, LedgerHit[]>
   /** 树里一个文件的全文；不在给 undefined */
+  // 字段不入断言：交给判法的原料口子，判法用例各自喂一份、按结果比
   read(path: string): Buffer | undefined
   /** 受跟踪的全部路径 */
   tracked: string[] | undefined
@@ -288,16 +295,25 @@ const JUDGED: Record<Condition['kind'], ReadonlySet<string>> = { 欠条: new Set
 export const QUIET_DAYS = 28
 
 /** 一行算完的结果 */
-export interface Outcome { condition: Condition; verdict: Verdict }
+export interface Outcome {
+  // 字段不入断言：逐行算那一例按每一行的记法与状态比，变异改坏挂到哪一行
+  binds: string
+  // 字段不入断言：同上，回访那一段按它挑判词
+  kind: Condition['kind']
+  // 字段不入断言：同上，回访那一段原样打出来
+  name: string
+  // 字段不入断言：同上，变异改坏按哪一行的判法算
+  verdict: Verdict
+}
 
 /** 照登记表逐行算。判法抛的错（原料形状不对）不接，由入口以 1 退出 */
 export function evaluate(table: readonly Condition[], raw: ConditionRaw): Outcome[] {
-  return table.map(c => ({ condition: c, verdict: judge(raw, c.probe) }))
+  return table.map(({ binds, kind, name, probe }) => ({ binds, kind, name, verdict: judge(raw, probe) }))
 }
 
 /** 越线的记法（含先不列的）：到期清单与死亡条件轮值先拿掉它们 */
 export function firedSet(outcomes: Outcome[]): Set<string> {
-  return new Set(outcomes.filter(o => o.verdict.state === '越线').map(o => o.condition.binds))
+  return new Set(outcomes.filter(o => o.verdict.state === '越线').map(o => o.binds))
 }
 
 /**
@@ -314,7 +330,7 @@ export function conditionReport(outcomes: Outcome[], today: string, listed: Map<
   const fired = outcomes.filter(o => o.verdict.state === '越线')
   let quiet = 0, carried = 0
   const shown: string[] = []
-  for (const { condition: c, verdict: v } of fired) {
+  for (const { verdict: v, ...c } of fired) {
     const l = listed.get(c.binds)
     const judged = l !== undefined && JUDGED[c.kind].has(l.verdict.trim())
     if (judged && today < addDays(l.day, QUIET_DAYS)) { quiet++; continue }
@@ -322,7 +338,7 @@ export function conditionReport(outcomes: Outcome[], today: string, listed: Map<
     if (u !== undefined && today < u) { carried++; continue }
     shown.push(`${c.binds} · ${c.kind} · ${c.name} · 越线：${v.value}${l !== undefined && !judged ? ' · 列过没判' : ''}`)
   }
-  const unknown = outcomes.filter(o => o.verdict.state === '无从确认').map(o => `无从确认：${o.condition.binds} · ${o.condition.name} · ${o.verdict.value}`)
+  const unknown = outcomes.filter(o => o.verdict.state === '无从确认').map(o => `无从确认：${o.binds} · ${o.name} · ${o.verdict.value}`)
   return [`条件探针 ${outcomes.length} 条：越线 ${fired.length}、没越线 ${n('没越线')}、无从确认 ${n('无从确认')}；这次列 ${shown.length} 条（判过、${QUIET_DAYS} 天内不再列的 ${quiet} 条，续挂没到那天的 ${carried} 条）`,
     ...shown, ...unknown]
 }
