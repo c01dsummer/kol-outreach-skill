@@ -306,6 +306,16 @@ const GROUPS: readonly Group[] = [
   { id: 'h-selfcheck-shard-entry', needs: [] },
   { id: 'h-selfcheck-shard-open', needs: [] },
   { id: 'h-check-rules', needs: [] },
+  { id: 'h-check-rules-adr', needs: [] },
+  { id: 'h-check-rules-size', needs: [] },
+  { id: 'h-check-rules-size-base', needs: [] },
+  { id: 'h-check-rules-quoted-blockquote', needs: [] },
+  { id: 'h-check-rules-iou-ledger', needs: [] },
+  { id: 'h-check-rules-cites', needs: [] },
+  { id: 'h-check-rules-field-use', needs: [] },
+  { id: 'h-check-rules-revisit', needs: [] },
+  { id: 'h-check-rules-death', needs: [] },
+  { id: 'h-check-rules-due', needs: [] },
   { id: 'p1-provider', needs: [] },
   { id: 'p1-search-counts', needs: [] },
   { id: 'd6-provider', needs: [] },
@@ -383,6 +393,15 @@ const GROUPS: readonly Group[] = [
   { id: 'h-iou-file-reminder', needs: [] },
   { id: 'h-revisit-entry', needs: [] },
   { id: 'h-data-shapes', needs: [] },
+  { id: 'h-data-shapes-compare', needs: [] },
+  { id: 'h-data-shapes-type-change', needs: [] },
+  { id: 'h-data-shapes-comment', needs: [] },
+  { id: 'h-data-shapes-deprecated', needs: [] },
+  { id: 'h-data-shapes-columns', needs: [] },
+  { id: 'h-data-shapes-columns-literal', needs: [] },
+  { id: 'h-data-shapes-duplicate-type', needs: [] },
+  { id: 'h-data-shapes-typecheck', needs: [] },
+  { id: 'h-data-shapes-literal-path', needs: [] },
   { id: 'h-revisit-raw', needs: [] },
   { id: 'h-revisit-raw-entry', needs: [] },
   { id: 'h-revisit-raw-log-entry', needs: [] },
@@ -18182,6 +18201,7 @@ harness('拆进程跑打不开某一族的日志：那一族报成没起来，�
 }
 })
 
+// 检查链各道判定的测试按判定拆成几组：原先装在一组里，每条变异都要把整组跑一遍（ADR-246 第八节）
 await group('h-check-rules', () => {
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
 {
@@ -18276,6 +18296,9 @@ harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
   ok('都关上了 → 不是残段', !endsOpen(['## ADR-01 甲', '```', 'x', '```'].join('\n')))
 }
 
+})
+
+await group('h-check-rules-adr', () => {
 harness('决策记录：编号唯一、文件名与正文一致、索引按数字排序')
 {
   eq('文件名由编号与标题生成，个位数补零',
@@ -18518,6 +18541,9 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
     order, ['09', '10', '58'])
 }
 
+})
+
+await group('h-check-rules-size', () => {
 harness('体量闸门的判定：四类分开算，豁免必须指名类别且写明理由')
 {
   eq('源码预算仍按已合入改动校准为 350 行', BUDGET.源码, 350)
@@ -18767,6 +18793,9 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   ok('写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里', !bad.ok)
 }
 
+})
+
+await group('h-check-rules-size-base', () => {
 // 独立上下文先于实现写成：期望只出自接口提交里 TRUNK_CANDIDATES／GitAsk／Baseline／resolveBaseline
 // 的契约说明（下文「第 N 步」就是 resolveBaseline 说明里的编号），外加 CONVENTIONS 第十节与 ADR-98
 // 末两节；没读入口 size.ts 里现有的那段实现。写下时函数体只会抛「尚未实现」。
@@ -19202,6 +19231,9 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
   }
 }
 
+})
+
+await group('h-check-rules-quoted-blockquote', () => {
 harness('引文遮罩：引用块里的围栏也要盖住')
 {
   const m = (t: string) => quotedMask(t).map(b => b ? '1' : '0').join('')
@@ -19221,6 +19253,9 @@ harness('引文遮罩：引用块里的围栏也要盖住')
   eq('正常信息串照旧开', m('```ts\nx\n```'), '111')
 }
 
+})
+
+await group('h-check-rules-iou-ledger', () => {
 harness('欠条台账：三套写法怎么认，以及写了欠条不写重启条件')
 {
   const doc = (text: string) => new Map([['docs/adr/X.md', text]])
@@ -19419,6 +19454,9 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   eq('不给目录时读的就是 docs/adr/ 下那一批', [...adrDocs().keys()].sort(), [...realAdr.keys()].sort())
 }
 
+})
+
+await group('h-check-rules-cites', () => {
 harness('被引表：每条记录被几条别的记录引过、有没有教训栏')
 {
   // ADR-151 第二节第 2 条问的就是「数得对不对」：按引用方的记录编号去重（主文件与历史文件算同一条）、排自引、过引文遮罩、欠条块里的单列。
@@ -19504,6 +19542,9 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
     readdirSync('docs/adr').filter(f => FILE_RE.test(f)).map(f => `docs/adr/${f}`).sort())
 }
 
+})
+
+await group('h-check-rules-field-use', () => {
 harness('字段断言闸门：检查链判定新增的返回字段，没有登记被测试打红的变异就红（ADR-198）')
 {
   // 玩具仓库：几份判定文件、一份不归它管的 lib、一份验证者。期望值按 field-use-rule.ts 文件头的三条规则手推，不从运行结果抄
@@ -19726,6 +19767,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有登�
     [true, false, false, false])
 }
 
+})
+
+await group('h-check-rules-revisit', () => {
 harness('周回访：欠条哪天登记、按什么名字认（拆过的记录取拆之前那一行）')
 {
   // 一张欠条三种处境各钉一次：没拆过、拆过且条件没再改、拆过以后条件又改了。日期按提交时间钉死，北京时间不跨日
@@ -19795,6 +19839,9 @@ harness('周回访：欠条哪天登记、按什么名字认（拆过的记录�
     ['ADR-9 第 1 行', 'ADR-1 第 2 行', 'ADR-1 第 1 行'])
 }
 
+})
+
+await group('h-check-rules-death', () => {
 harness('死亡条件四周轮一遍：按记录编号分四组，每周列一组；拆时原样抄进主文件的只列一份')
 {
   eq('第几周：1970-01-05 那个星期一起算，同一周七天同一个数', [weekIndex('1970-01-05'), weekIndex('1970-01-11'), weekIndex('1970-01-12'), weekIndex('2026-11-30'), weekIndex('2026-12-06')],
@@ -19821,6 +19868,9 @@ harness('死亡条件四周轮一遍：按记录编号分四组，每周列一�
   eq('余 0 那一周只列 8 号', deathRota(deathDocs, '2026-12-21').slice(1), ['ADR-8 第 3 行  什么条件下撤：八号'])
 }
 
+})
+
+await group('h-check-rules-due', () => {
 harness('到期清单：开着、到期或列过没判的，最老先列，最多 10 张；整张改挂过来的接着算原来那张的登记日')
 {
   eq('到期日：登记日加天数，跨月跨年照算', [addDays('2026-01-31', 28), addDays('2026-12-20', 28)], ['2026-02-28', '2027-01-17'])
@@ -27979,13 +28029,19 @@ await group('h-revisit-entry', () => {
     [0, '到期 1 张、列过没判 0 张、取不到登记日 0 张；这次列 1 张（最多 10 张）\n2026-01-02 ADR-9 第 3 行\n已重挂行里认不出现行那张的 0 行：它们的接手者按自己的登记日算\n'])
   rmSync(repo, { recursive: true, force: true })
 })
+// 形状快照拆成几组：每真生成一次都要现建一遍 TypeScript 程序，一组装得多了，变异一步里点到其中一条的变异都要把整组跑一遍（ADR-246 第八节）
 await group('h-data-shapes', async () => {
   // 用到时才加载：那个模块一加载就装进 TypeScript 编译器与生成格式说明的库，放在文件开头会让每一次启动需求测试都先装一遍（ADR-246 第六节）
   const { generateShapes, SHAPES_SNAPSHOT_PATH, shapeChanges } = await import('./check/data-shapes-rule.js')
   harness('存下来的数据的形状快照：按类型现生成的与入库那份比，哪一类变了点名（ADR-246）')
   eq('形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写',
     shapeChanges((() => { try { return rf(SHAPES_SNAPSHOT_PATH, 'utf8') } catch { return undefined } })(), generateShapes(process.cwd())), [])
-  // 比：一类一句，变了、新登记的、登记里没了各说各的；快照读不出说为什么
+})
+
+await group('h-data-shapes-compare', async () => {
+  // 用到时才加载：那个模块一加载就装进 TypeScript 编译器与生成格式说明的库，放在文件开头会让每一次启动需求测试都先装一遍（ADR-246 第六节）
+  const { SHAPES_SNAPSHOT_PATH, shapeChanges } = await import('./check/data-shapes-rule.js')
+  harness('形状快照的比较：一类一句，变了、新登记的、登记里没了各说各的；快照读不出说为什么（ADR-246）')
   const snap = (shapes: Record<string, unknown>) => JSON.stringify({ $comment: 'x', shapes })
   // 比的时候抛出来也落在断言里，不让整组半途停下
   const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
@@ -27995,20 +28051,68 @@ await group('h-data-shapes', async () => {
   eq('形状快照：快照不在、不是 JSON、没有 shapes 都说为什么',
     [changes(undefined, snap({})), String(changes('{', snap({}))).replace(/：.*/s, ''), changes('{"x":1}', snap({}))],
     [[`快照 ${SHAPES_SNAPSHOT_PATH} 不在`], '快照不是 JSON', ['快照里没有 shapes']])
-  // 真生成：玩具目录里一个类型，加一个可选字段、改一个字段的类型，快照都认得出来
+})
+
+await group('h-data-shapes-type-change', async () => {
+  harness('形状快照真生成：类型加字段、改字段类型算变了（ADR-246）')
+  const { generateShapes, shapeChanges } = await import('./check/data-shapes-rule.js')
   const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
   try {
     cxWriteFileSync(cxJoin(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
     const shapes = [{ name: '玩具', stored: 'toy.json', source: 'toy.ts', type: 'Toy' }]
+    const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
     const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
+    const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
+    // 真生成：玩具目录里一个类型，加一个可选字段、改一个字段的类型，快照都认得出来
     const base = gen('  version: 1\n  name: string')
     eq('形状快照：类型加了一个可选字段、改了一个字段的类型都算形状变了，原样不算',
       [changes(base, gen('  version: 1\n  name: string\n  note?: string')), changes(base, gen('  version: 1\n  name: number')), changes(base, gen('  version: 1\n  name: string'))],
       [['玩具：形状变了'], ['玩具：形状变了'], []])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-data-shapes-comment', async () => {
+  harness('形状快照真生成：只改注释不算变了（ADR-246）')
+  const { generateShapes, shapeChanges } = await import('./check/data-shapes-rule.js')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
+  try {
+    cxWriteFileSync(cxJoin(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
+    const shapes = [{ name: '玩具', stored: 'toy.json', source: 'toy.ts', type: 'Toy' }]
+    const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
+    const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
+    const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
+    const base = gen('  version: 1\n  name: string')
     eq('形状快照：只改一句注释不算形状变了', changes(base, gen('  version: 1\n  /** 名字，写盘时原样 */\n  name: string')), [])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-data-shapes-deprecated', async () => {
+  harness('形状快照真生成：标成弃用算变了，弃用说明改了不算（ADR-246）')
+  const { generateShapes, shapeChanges } = await import('./check/data-shapes-rule.js')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
+  try {
+    cxWriteFileSync(cxJoin(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
+    const shapes = [{ name: '玩具', stored: 'toy.json', source: 'toy.ts', type: 'Toy' }]
+    const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
+    const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
+    const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
+    const base = gen('  version: 1\n  name: string')
     eq('形状快照：@deprecated 后面的说明改了不算形状变了，标成弃用算',
       [changes(base, gen('  version: 1\n  /** @deprecated 旧说法 */\n  name: string')), changes(gen('  version: 1\n  /** @deprecated 旧说法 */\n  name: string'), gen('  version: 1\n  /** @deprecated 换了一句说明 */\n  name: string'))],
       [['玩具：形状变了'], []])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-data-shapes-columns', async () => {
+  harness('形状快照真生成：盘上表格的表头改名、换顺序算变了（ADR-246）')
+  const { generateShapes, shapeChanges } = await import('./check/data-shapes-rule.js')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
+  try {
+    cxWriteFileSync(cxJoin(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
+    const shapes = [{ name: '玩具', stored: 'toy.json', source: 'toy.ts', type: 'Toy' }]
+    const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
+    const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
+    const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
     // 表头从被检查的那份仓库里的常量读，不是从检查器自己那份
     const withCols = (decl: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `${decl}\nexport interface Toy {\n  name: string\n}\n`); return generateShapes(root, [{ ...shapes[0], columnsFrom: 'COLS' }]) }
     const cols = (list: string) => withCols(`export const COLS = [${list}] as const`)
@@ -28016,15 +28120,69 @@ await group('h-data-shapes', async () => {
       [changes(cols("'a', 'b'"), cols("'a', 'c'")), changes(cols("'a', 'b'"), cols("'b', 'a'")), changes(cols("'a', 'b'"), cols("'a', 'b'")),
         (JSON.parse(cols("'a', 'b'")) as { shapes: Record<string, { columns: unknown }> }).shapes.玩具.columns],
       [['玩具：形状变了'], ['玩具：形状变了'], [], ['a', 'b']])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-data-shapes-columns-literal', async () => {
+  harness('形状快照真生成：表头常量不是写死的一串字符串就不生成（ADR-246）')
+  const { generateShapes, shapeChanges } = await import('./check/data-shapes-rule.js')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
+  try {
+    cxWriteFileSync(cxJoin(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
+    const shapes = [{ name: '玩具', stored: 'toy.json', source: 'toy.ts', type: 'Toy' }]
+    const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
+    const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
     const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
+    // 表头从被检查的那份仓库里的常量读，不是从检查器自己那份
+    const withCols = (decl: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `${decl}\nexport interface Toy {\n  name: string\n}\n`); return generateShapes(root, [{ ...shapes[0], columnsFrom: 'COLS' }]) }
+    const cols = (list: string) => withCols(`export const COLS = [${list}] as const`)
     eq('形状快照：表头常量不是写死的一串字符串、或者没有这个常量，就不生成，说为什么',
       [thrown(() => withCols("export const COLS: string[] = ['a', 'b']")), thrown(() => withCols("export const COLS = ['a', String(1)] as const")), thrown(() => withCols("export const OTHER = ['a'] as const"))],
       ['形状快照：toy.ts 里的 COLS 要是写死的一串字符串（as const）', '形状快照：toy.ts 里的 COLS 要是写死的一串字符串（as const）', '形状快照：toy.ts 里没有常量 COLS'])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-data-shapes-duplicate-type', async () => {
+  harness('形状快照真生成：两类登记同一个类型名就不生成（ADR-246）')
+  const { generateShapes, shapeChanges } = await import('./check/data-shapes-rule.js')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
+  try {
+    cxWriteFileSync(cxJoin(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
+    const shapes = [{ name: '玩具', stored: 'toy.json', source: 'toy.ts', type: 'Toy' }]
+    const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
+    const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
+    const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
     eq('形状快照：两类登记了同一个类型名就不生成，点名两类',
       thrown(() => generateShapes(root, [shapes[0], { name: '玩具二', stored: 'toy2.json', source: 'toy2.ts', type: 'Toy' }])),
       '形状快照：「玩具」（toy.ts）与「玩具二」（toy2.ts）登记了同一个类型名 Toy')
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-data-shapes-typecheck', async () => {
+  harness('形状快照真生成：类型检查不过就不生成（ADR-246）')
+  const { generateShapes, shapeChanges } = await import('./check/data-shapes-rule.js')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
+  try {
+    cxWriteFileSync(cxJoin(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
+    const shapes = [{ name: '玩具', stored: 'toy.json', source: 'toy.ts', type: 'Toy' }]
+    const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
+    const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
+    const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
     cxWriteFileSync(cxJoin(root, 'toy.ts'), 'export interface Toy {\n  version: 1\n  name: string = 1\n}\n')
     eq('形状快照：类型检查不过就不生成，说为什么', thrown(() => generateShapes(root, shapes)).startsWith('形状快照：类型检查不过：'), true)
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-data-shapes-literal-path', async () => {
+  harness('形状快照真生成：目录名里带方括号也按字面路径读（ADR-246）')
+  const { generateShapes, shapeChanges } = await import('./check/data-shapes-rule.js')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-data-shapes-'))
+  try {
+    cxWriteFileSync(cxJoin(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true, "target": "ES2022", "module": "NodeNext" } }\n')
+    const shapes = [{ name: '玩具', stored: 'toy.json', source: 'toy.ts', type: 'Toy' }]
+    const changes = (onDisk: string | undefined, fresh: string): string[] | string => { try { return shapeChanges(onDisk, fresh) } catch (e) { return `抛了：${(e as Error).message}` } }
+    const gen = (body: string) => { cxWriteFileSync(cxJoin(root, 'toy.ts'), `export interface Toy {\n${body}\n}\n`); return generateShapes(root, shapes) }
+    const thrown = (f: () => unknown): string => { try { f(); return '没抛' } catch (e) { return (e as Error).message } }
     // 仓库所在目录名里带 [1]，旁边又有一个 1：只认自己目录下那份，不被当成 glob 匹配到旁边的
     for (const [dir, t] of [['w[1]', 'string'], ['w1', 'number']]) {
       cxMkdirSync(cxJoin(root, dir))
