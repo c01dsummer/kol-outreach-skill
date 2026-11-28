@@ -45,7 +45,7 @@ import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
 import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, ledgerDiff as rawLedgerDiff, NEVER_RED_RUNS, neverRedLines, neverRedStop, optValue, parseJobs, parseRuns, pickNeverRed, type RawGit, rawLine, readNeverRed, slowRuns, topTen } from './check/revisit-raw-rule.js'
 import { addDays, beijingDate, bornReport, carriedUntil, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex, type Listing } from './check/revisit-rule.js'
-import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionReport, evaluate as evaluateConditions, firedSet, judge as judgeCondition, ledgerIndex, mergedBy, parseSubjects, type Condition, type ConditionRaw, type Measure, type Op, type Outcome as ConditionOutcome, type Probe, type Verdict } from './check/condition-rule.js'
+import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, conditionReport, evaluate as evaluateConditions, firedSet, judge as judgeCondition, ledgerIndex, mergedBy, parseSubjects, type Condition, type ConditionRaw, type Measure, type Op, type Outcome as ConditionOutcome, type Probe, type Verdict } from './check/condition-rule.js'
 import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
@@ -28246,6 +28246,8 @@ await group('h-conditions', () => {
       [git.subjects('HEAD'), git.tracked()?.sort(), git.subjects('nope')],
       [['Merge pull request #5 from o/side', '初始'], ['a.txt', 'scripts/lib/x.d.ts'], undefined])
     eq('问 git：分支上的「(#9)」不在第一亲代链上，判没合入', pr(git.subjects('HEAD'), 9).state, '没越线')
+    const whole = conditionRaw(new Map(), git, 'HEAD', () => undefined)
+    eq('整份原料：提交标题与受跟踪的路径都从交进来的 git 问来', [whole.subjects, whole.tracked?.length], [['Merge pull request #5 from o/side', '初始'], 2])
   })
 
   // 等另一张欠条的状态

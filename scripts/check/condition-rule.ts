@@ -292,7 +292,7 @@ export interface Outcome { condition: Condition; verdict: Verdict }
 
 /** 照登记表逐行算。判法抛的错（原料形状不对）不接，由入口以 1 退出 */
 export function evaluate(table: readonly Condition[], raw: ConditionRaw): Outcome[] {
-  return table.map(condition => ({ condition, verdict: judge(raw, condition.probe) }))
+  return table.map(c => ({ condition: c, verdict: judge(raw, c.probe) }))
 }
 
 /** 越线的记法（含先不列的）：到期清单与死亡条件轮值先拿掉它们 */
