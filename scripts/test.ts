@@ -367,6 +367,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-prebuilt-no-config-lifecycle-contract', needs: [] },
   { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
   { id: 'h-lazy-typescript-contract', needs: [] },
+  { id: 'h-test-startup-loads', needs: [] },
   { id: 'h-worker-output-contract', needs: [] },
   { id: 'h-worker-output-guardian', needs: [] },
   { id: 'h-worker-output-cleanup', needs: [] },
@@ -27241,6 +27242,36 @@ await group('h-lazy-typescript-contract', async () => {
   harness('纯判定按需初始化TypeScript编译器')
   const { runLazyTypescriptContracts } = await import('./lazy-typescript-contract-test.js')
   eq('纯判定不预载TypeScript且AST调用保持同步', runLazyTypescriptContracts(), [])
+})
+
+await group('h-test-startup-loads', async () => {
+  // 只看启动：子进程里只选这一组跑，进组那一刻模块缓存里已有的，就是需求测试的静态引入一路装进来的。
+  // 变异一步每启动一次需求测试都要付这一笔，所以大库只许在用到它的那一组里按需加载（ADR-246 第七节）
+  const HEAVY = ['typescript', 'ts-json-schema-generator']
+  const fromRepo = createRequire(join(process.cwd(), 'package.json'))
+  const roots = HEAVY.map(name => `${dirname(fromRepo.resolve(`${name}/package.json`))}/`)
+  const loaded = (): string[] => HEAVY.filter((_, i) => Object.keys(fromRepo.cache).some(path => path.startsWith(roots[i]!)))
+  const PREFIX = 'STARTUP_LOADS_JSON '
+  if (process.env.KOL_TEST_STARTUP_PROBE === '1') {
+    const atStart = loaded()
+    fromRepo('typescript')
+    const afterRequire = loaded()
+    console.log(PREFIX + JSON.stringify({ atStart, afterRequire }))
+    ok('启动探针：显式取一次 TypeScript 之后模块缓存里看得见它（阳性对照）', afterRequire.includes('typescript'))
+    return
+  }
+  harness('需求测试启动时不装 TypeScript 编译器与生成格式说明的库')
+  const env = { ...process.env, KOL_TEST_STARTUP_PROBE: '1' }
+  const r = spawnSync(...prebuiltCommand(['scripts/test.ts', '--only=h-test-startup-loads'], process.cwd(), env),
+    { cwd: process.cwd(), env, encoding: 'utf8', timeout: 90_000, maxBuffer: 4 * 1024 * 1024 })
+  const lines = (r.stdout ?? '').split('\n').filter(line => line.startsWith(PREFIX))
+  let receipt: { atStart?: unknown; afterRequire?: unknown } | undefined
+  try { receipt = lines.length === 1 ? JSON.parse(lines[0]!.slice(PREFIX.length)) as typeof receipt : undefined } catch { receipt = undefined }
+  if (r.error || r.signal !== null || r.status !== 0 || receipt === undefined || !Array.isArray(receipt.atStart)
+    || !Array.isArray(receipt.afterRequire) || !receipt.afterRequire.includes('typescript')) {
+    throw new Error(`${SELFCHECK_FIXTURE_MARK} 启动探针没取得有效回执：${r.error?.message ?? r.signal ?? r.status}\n${r.stdout}\n${r.stderr}`)
+  }
+  eq('需求测试一启动就装进来的大库：一个都没有', receipt.atStart, [])
 })
 
 await group('h-worker-output-contract', async () => {
