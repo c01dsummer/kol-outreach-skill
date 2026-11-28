@@ -30275,8 +30275,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-due.ts",
       "why": "入口不读 ADR-152 的人判 —— 判过的照样再列",
-      "find": "dueList(dueItems(realGit, run, docs), today, listings(adr152()))",
-      "replace": "dueList(dueItems(realGit, run, docs), today, new Map())",
+      "find": "dueList(dueItems(realGit, run, docs), today, listings(adr152()),",
+      "replace": "dueList(dueItems(realGit, run, docs), today, new Map(),",
       "by": "test",
       "kills": ["入口 --list：读整份决策记录与 ADR-152 的人判，按给的那天判到期，最老先列，第一行是几个数；只读，工作区一个字没动"]
     },
@@ -30335,7 +30335,7 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "续挂写的那天丢了 —— 续挂过的满 28 天就又列",
-      "find": "      until: untilOf(keys),",
+      "find": "      until: untilOf(all, keys),",
       "replace": "      until: undefined,",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
@@ -30615,8 +30615,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-due.ts",
       "why": "入口不认给的日子 —— 补跑前几周的回访，轮到的组是错的",
-      "find": "deathRota(adrDocs(), today)",
-      "replace": "deathRota(adrDocs(), '2026-11-30')",
+      "find": "deathRota(docs, today, undefined, fired(docs))",
+      "replace": "deathRota(docs, '2026-11-30', undefined, fired(docs))",
       "by": "test",
       "kills": ["入口 --deaths：按给的那天定轮到哪一组，第一行是几个数，后面是记法与条件原文"]
     },
@@ -39618,7 +39618,67 @@
       "replace": "  process.exit(0)\n}",
       "by": "test",
       "kills": [
-        "入口 --today 写的不是成立的日子：以 2 退出、什么都不打"
+        "条件探针的入口 --today 写的不是成立的日子：以 2 退出、什么都不打"
+      ]
+    },
+    {
+      "id": "M-H252-ao",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "台账里每一条都当成开着 —— 探针管的欠条还了，检查链也不红",
+      "find": "'死亡条件', status: r.status }",
+      "replace": "'死亡条件', status: '开着' as RowStatus }",
+      "by": "test",
+      "kills": [
+        "核对：记法不在台账里、种类不对、管的那条已经还了、同一条绑两个，各报一行"
+      ]
+    },
+    {
+      "id": "M-H252-ap",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "受跟踪的路径里混进一个空名字",
+      "find": "?.split('\\0').filter(Boolean) ?? undefined",
+      "replace": "?.split('\\0') ?? undefined",
+      "by": "test",
+      "kills": [
+        "问 git：标题只取第一亲代链（分支上那一条不算），从新到旧；受跟踪的路径全列；修订不在就取不到"
+      ]
+    },
+    {
+      "id": "M-H252-aq",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "越线时不说是哪一个提交合入的 —— 判的人核不了",
+      "find": "{ state: '越线', value: `#${pr} 已合入：${hit}` }",
+      "replace": "{ state: '越线', value: `#${pr} 已合入` }",
+      "by": "test",
+      "kills": [
+        "合入判法：标题里有就越线、说是哪一条；没有就没越线；取不到标题就无从确认"
+      ]
+    },
+    {
+      "id": "M-H252-ar",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "每一行的结果都挂在登记表第一行名下 —— 越线的报成别的条目",
+      "find": "({ condition, verdict: judge(raw, condition.probe) })",
+      "replace": "({ condition: table[0], verdict: judge(raw, condition.probe) })",
+      "by": "test",
+      "kills": [
+        "照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表"
+      ]
+    },
+    {
+      "id": "M-H252-as",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "每一行都按登记表第一行的判法算",
+      "find": "verdict: judge(raw, condition.probe) })",
+      "replace": "verdict: judge(raw, table[0].probe) })",
+      "by": "test",
+      "kills": [
+        "照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表"
       ]
     }
   ],

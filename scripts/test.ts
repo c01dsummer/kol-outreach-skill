@@ -45,7 +45,7 @@ import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
 import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, ledgerDiff as rawLedgerDiff, NEVER_RED_RUNS, neverRedLines, neverRedStop, optValue, parseJobs, parseRuns, pickNeverRed, type RawGit, rawLine, readNeverRed, slowRuns, topTen } from './check/revisit-raw-rule.js'
 import { addDays, beijingDate, bornReport, carriedUntil, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex, type Listing } from './check/revisit-rule.js'
-import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionReport, firedSet, judge as judgeCondition, ledgerIndex, mergedBy, parseSubjects, type Condition, type ConditionRaw, type Measure, type Op, type Outcome as ConditionOutcome, type Probe, type Verdict } from './check/condition-rule.js'
+import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionReport, evaluate as evaluateConditions, firedSet, judge as judgeCondition, ledgerIndex, mergedBy, parseSubjects, type Condition, type ConditionRaw, type Measure, type Op, type Outcome as ConditionOutcome, type Probe, type Verdict } from './check/condition-rule.js'
 import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
@@ -28320,6 +28320,8 @@ await group('h-conditions', () => {
       '甲 · 欠条 · 甲 · 越线：值 · 列过没判', '丙 · 欠条 · 丙 · 越线：值', '戊 · 死亡条件 · 戊 · 越线：值 · 列过没判', '壬 · 死亡条件 · 壬 · 越线：值',
       '无从确认：辛 · 辛 · 取不到'])
   eq('回访那一段：续挂写的那天到了就列', conditionReport([out('己', '欠条', '越线')], '2026-12-01', new Map(), new Map([['己', '2026-12-01']])).slice(1), ['己 · 欠条 · 己 · 越线：值'])
+  eq('照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表',
+    evaluateConditions([C('乙', '欠条', { judge: 'pr-merged', pr: 2 }), C('甲', '欠条', merged)], raw({ subjects: ['一 (#1)'] })).map(o => [o.condition.binds, o.verdict.state]), [['乙', '没越线'], ['甲', '越线']])
   eq('越线的记法含先不列的，没越线、无从确认的不算', [...firedSet(outcomes)], ['甲', '乙', '丙', '丁', '戊', '己', '壬'])
 
   // 到期清单与轮值先拿掉越线的
@@ -28344,7 +28346,7 @@ await group('h-conditions-entry', () => {
     eq('入口：登记表核不过，每一行都报到标准错误、什么都不算，以 1 退出',
       [none.status, none.stdout, none.stderr.split('\n').filter(l => l.includes('台账里没有这个记法')).length, none.stderr.includes('条件探针「PR #73 合入」（绑 ADR-69 第 20 行）：台账里没有这个记法')], [1, '', CONDITIONS.length, true])
     const bad = entry('--today', '2026-02-30')
-    eq('入口 --today 写的不是成立的日子：以 2 退出、什么都不打', [bad.status, bad.stdout], [2, ''])
+    eq('条件探针的入口 --today 写的不是成立的日子：以 2 退出、什么都不打', [bad.status, bad.stdout], [2, ''])
   })
 })
 await group('h-iou-file-reminder-entry', () => {
