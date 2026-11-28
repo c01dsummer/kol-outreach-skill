@@ -13,6 +13,7 @@
  * 只读，不写任何文件。git 由调用方传进来（`ConditionGit`），测试与入口用同一份判定。
  */
 import { ledgerStatus, splitRecords, type RowStatus } from './debt-rule.js'
+import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
 import { gitText, runGit } from './git-entry.js'
 import { addDays, notationOf, type Listing } from './revisit-rule.js'
 
@@ -33,8 +34,8 @@ export type Measure =
   | { kind: 'bytes'; path: string }
   /** 文件的行数：数换行字节，同 `wc -l` */
   | { kind: 'lines'; path: string }
-  /** JSON 文件顶层一个键下数组的长度 */
-  | { kind: 'json-array'; path: string; key: string }
+  /** 变异目录里豁免的条数：经变异目录的读口读（`catalog-rule.ts`），不自己解析 */
+  | { kind: 'catalog-exemptions' }
   /** 文件在不在：在是 1，不在是 0 */
   | { kind: 'exists'; path: string }
   /** 这几个目录下（含子目录）受跟踪、以 `suffix` 结尾的文件份数，按 `git ls-files` 列出的路径数 */
@@ -95,7 +96,7 @@ export const CONDITIONS: readonly Condition[] = [
     probe: { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['scripts/lib', 'scripts/providers'], suffix: '.d.ts' }, op: '>=', line: 1 } },
   // 原文：「`--brief` 不再打豁免（或不再有豁免）……」：只算「不再有豁免」那一腿
   { binds: 'ADR-70 主文件第 273 行', kind: '死亡条件', name: '变异目录里不再有豁免（只算这一腿）',
-    probe: { judge: 'tree-number', measure: { kind: 'json-array', path: 'scripts/check/mutations.json', key: 'exemptions' }, op: '=', line: 0 } },
+    probe: { judge: 'tree-number', measure: { kind: 'catalog-exemptions' }, op: '=', line: 0 } },
 ]
 
 /* ───────────── 原料 ───────────── */
@@ -220,24 +221,26 @@ function measured(raw: ConditionRaw, m: Measure): number | undefined {
   if (m.kind === 'tracked-suffix') {
     return raw.tracked?.filter(p => p.endsWith(m.suffix) && m.dirs.some(d => p.startsWith(`${d}/`))).length
   }
+  if (m.kind === 'catalog-exemptions') {
+    const buf = raw.read(MUTATION_CATALOG)
+    if (buf === undefined) return undefined
+    const r = readCatalog(buf.toString('utf8'))
+    if (!r.ok) throw new RawShapeError(catalogFaultText(r.fault))
+    return r.exemptions.length
+  }
   const buf = raw.read(m.path)
   if (m.kind === 'exists') return buf === undefined ? 0 : 1
   if (buf === undefined) return undefined
-  if (m.kind === 'bytes') return buf.length
   if (m.kind === 'lines') { let n = 0; for (const b of buf) if (b === 0x0a) n++; return n }
-  let data: unknown
-  try { data = JSON.parse(buf.toString('utf8')) } catch { throw new RawShapeError(`${m.path} 不是 JSON`) }
-  const list = data !== null && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>)[m.key] : undefined
-  if (!Array.isArray(list)) throw new RawShapeError(`${m.path} 顶层的 ${m.key} 不是数组`)
-  return list.length
+  return buf.length
 }
 
-const MEASURE_WORD: Record<Measure['kind'], string> = { bytes: '字节数', lines: '行数', 'json-array': '条数', exists: '在不在（在 1，不在 0）', 'tracked-suffix': '份数' }
+const MEASURE_WORD: Record<Measure['kind'], string> = { bytes: '字节数', lines: '行数', 'catalog-exemptions': '豁免条数', exists: '在不在（在 1，不在 0）', 'tracked-suffix': '份数' }
 
 function treeNumber(raw: ConditionRaw, m: Measure, op: Op, line: number): Verdict {
   const n = measured(raw, m)
-  const what = m.kind === 'tracked-suffix' ? `${m.dirs.join('、')} 下受跟踪的 ${m.suffix}` : m.kind === 'json-array' ? `${m.path} 的 ${m.key}` : m.path
-  if (n === undefined) return { state: '无从确认', value: m.kind === 'tracked-suffix' ? '取不到受跟踪的路径' : `${m.path} 不在` }
+  const what = m.kind === 'tracked-suffix' ? `${m.dirs.join('、')} 下受跟踪的 ${m.suffix}` : m.kind === 'catalog-exemptions' ? '变异目录' : m.path
+  if (n === undefined) return { state: '无从确认', value: m.kind === 'tracked-suffix' ? '取不到受跟踪的路径' : m.kind === 'catalog-exemptions' ? '变异目录不在' : `${m.path} 不在` }
   const over = op === '>' ? n > line : op === '>=' ? n >= line : n === line
   return { state: over ? '越线' : '没越线', value: `${what} ${MEASURE_WORD[m.kind]} ${n}（线：${op} ${line}）` }
 }
@@ -280,7 +283,7 @@ export function conditionFaults(table: readonly Condition[], docs: Map<string, s
     if (p.judge === 'tree-number') {
       const m = p.measure
       if (m.kind === 'tracked-suffix') { for (const d of m.dirs) if (!exists(d)) out.push(`${at}：目录 ${d} 不在`) }
-      else if (m.kind !== 'exists' && !exists(m.path)) out.push(`${at}：文件 ${m.path} 不在`)
+      else if (m.kind !== 'exists' && m.kind !== 'catalog-exemptions' && !exists(m.path)) out.push(`${at}：文件 ${m.path} 不在`)
     }
   }
   return out

@@ -39278,8 +39278,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "字节数按字符数量 —— 中文文件过了字节线却说没过",
-      "find": "if (m.kind === 'bytes') return buf.length",
-      "replace": "if (m.kind === 'bytes') return buf.toString('utf8').length",
+      "find": "  return buf.length\n}",
+      "replace": "  return buf.toString('utf8').length\n}",
       "by": "test",
       "kills": [
         "树里的数：字节数按字节（中文三字节）、正好等于线不算过 >；行数数换行（末行没换行不算）；>= 正好等于算过"
@@ -39325,24 +39325,24 @@
       "id": "M-H252-p",
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
-      "why": "JSON 里那个键不是数组也不报形状不对 —— 文件改坏了只算成「无从确认」，整跑照样过",
-      "find": "if (!Array.isArray(list)) throw",
-      "replace": "if (false) throw",
+      "why": "变异目录读不出也不报形状不对 —— 文件改坏了整跑照样过",
+      "find": "if (!r.ok) throw new RawShapeError",
+      "replace": "if (false) throw new RawShapeError",
       "by": "test",
       "kills": [
-        "树里的数：JSON 读不出、那个键不是数组，是原料形状不对，抛出来（整跑以 1 退出），不当成取不到"
+        "树里的数：变异目录经它的读口读，读不出、豁免不是数组是原料形状不对，抛出来（整跑以 1 退出）；目录不在才算取不到"
       ]
     },
     {
       "id": "M-H252-q",
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
-      "why": "文件读出来不是 JSON 也不报形状不对 —— 改坏了的文件只算成「无从确认」",
-      "find": "catch { throw new RawShapeError(`${m.path} 不是 JSON`) }",
-      "replace": "catch { return undefined }",
+      "why": "变异目录不在就当成没有豁免 —— 原料没取到被说成死亡条件成立",
+      "find": "    if (buf === undefined) return undefined\n    const r = readCatalog",
+      "replace": "    if (buf === undefined) return 0\n    const r = readCatalog",
       "by": "test",
       "kills": [
-        "树里的数：JSON 读不出、那个键不是数组，是原料形状不对，抛出来（整跑以 1 退出），不当成取不到"
+        "树里的数：变异目录经它的读口读，读不出、豁免不是数组是原料形状不对，抛出来（整跑以 1 退出）；目录不在才算取不到"
       ]
     },
     {
@@ -39350,8 +39350,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "要量的文件不在就当成 0 —— 原料没取到被说成「没越线」",
-      "find": "if (buf === undefined) return undefined",
-      "replace": "if (buf === undefined) return 0",
+      "find": "  if (buf === undefined) return undefined\n  if (m.kind === 'lines')",
+      "replace": "  if (buf === undefined) return 0\n  if (m.kind === 'lines')",
       "by": "test",
       "kills": [
         "树里的数：= 只认相等；文件在不在（不在是 0）；要量的文件不在就无从确认，量「在不在」的不算取不到"
@@ -39446,8 +39446,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "量「在不在」的文件已经不在时检查变红 —— 条件刚成立就逼着把探针撤掉",
-      "find": "else if (m.kind !== 'exists' && !exists(m.path))",
-      "replace": "else if (!exists(m.path))",
+      "find": "else if (m.kind !== 'exists' && m.kind !== 'catalog-exemptions' && !exists(m.path))",
+      "replace": "else if (m.kind !== 'catalog-exemptions' && !exists(m.path))",
       "by": "test",
       "kills": [
         "核对：PR 号不是正整数、等的那张不是欠条、量的文件不在、数份数的目录不在，各报一行；量「在不在」的文件不在不报"

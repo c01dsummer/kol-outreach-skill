@@ -28261,18 +28261,21 @@ await group('h-conditions', () => {
       { state: '无从确认', value: '等的那张 ADR-1「没有」 在台账里找不到' }])
 
   // 树里的数
-  const files = new Map<string, string>([['a.md', '一\n二\n三'], ['m.json', '{"exemptions":[1,2]}'], ['bad.json', '{"exemptions":3}'], ['nojson', '不是']])
+  const catalog = (text: string | undefined) => new Map<string, string>([['a.md', '一\n二\n三'], ...(text === undefined ? [] : [[MUTATION_CATALOG, text] as [string, string]])])
+  let files = catalog('{"mutations":[],"exemptions":[1,2]}')
   const tree = (measure: Measure, op: Op, line: number, tracked: string[] | undefined = []) => judgeCondition(raw({ read: p => files.has(p) ? Buffer.from(files.get(p)!) : undefined, tracked }),
     { judge: 'tree-number', measure, op, line }).state
   eq('树里的数：字节数按字节（中文三字节）、正好等于线不算过 >；行数数换行（末行没换行不算）；>= 正好等于算过',
     [tree({ kind: 'bytes', path: 'a.md' }, '>', 10), tree({ kind: 'bytes', path: 'a.md' }, '>', 11), tree({ kind: 'lines', path: 'a.md' }, '>=', 2), tree({ kind: 'lines', path: 'a.md' }, '>=', 3)],
     ['越线', '没越线', '越线', '没越线'])
   eq('树里的数：= 只认相等；文件在不在（不在是 0）；要量的文件不在就无从确认，量「在不在」的不算取不到',
-    [tree({ kind: 'json-array', path: 'm.json', key: 'exemptions' }, '=', 2), tree({ kind: 'json-array', path: 'm.json', key: 'exemptions' }, '=', 0),
+    [tree({ kind: 'catalog-exemptions' }, '=', 2), tree({ kind: 'catalog-exemptions' }, '=', 0),
       tree({ kind: 'exists', path: '没有.md' }, '=', 0), tree({ kind: 'exists', path: 'a.md' }, '=', 0), tree({ kind: 'bytes', path: '没有.md' }, '>', 1)],
     ['越线', '没越线', '越线', '没越线', '无从确认'])
-  const shape = (path: string) => { try { tree({ kind: 'json-array', path, key: 'exemptions' }, '=', 0); return '没抛' } catch (e) { return e instanceof RawShapeError ? e.message : '别的错' } }
-  eq('树里的数：JSON 读不出、那个键不是数组，是原料形状不对，抛出来（整跑以 1 退出），不当成取不到', [shape('nojson'), shape('bad.json')], ['nojson 不是 JSON', 'bad.json 顶层的 exemptions 不是数组'])
+  const shape = (text: string | undefined) => { files = catalog(text); try { return tree({ kind: 'catalog-exemptions' }, '=', 0) } catch (e) { return e instanceof RawShapeError ? e.message : '别的错' } }
+  eq('树里的数：变异目录经它的读口读，读不出、豁免不是数组是原料形状不对，抛出来（整跑以 1 退出）；目录不在才算取不到',
+    [shape('不是'), shape('{"mutations":[],"exemptions":3}'), shape('{"mutations":[]}'), shape(undefined)],
+    ['变异目录读不出：不是 JSON（Unexpected token \'不\', "不是" is not valid JSON）', '变异目录形状不对：exemptions 不是数组', '越线', '无从确认'])
   const dts = (tracked: string[] | undefined) => judgeCondition(raw({ tracked }), { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['scripts/lib', 'scripts/providers'], suffix: '.d.ts' }, op: '>=', line: 1 })
   eq('树里的数：受跟踪的后缀文件只数给的目录（含子目录），名字相近的目录、别处的不算；取不到受跟踪的路径就无从确认',
     [dts(['scripts/lib/deep/a.d.ts', 'scripts/libx/b.d.ts', 'skill/c.d.ts', 'scripts/lib/d.ts']), dts(['scripts/libx/b.d.ts', 'scripts/lib/a.ts']), dts(undefined).state],
