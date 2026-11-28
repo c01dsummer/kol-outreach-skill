@@ -54,14 +54,14 @@ import {
   type Ran, type CostBaseline, type CostCombination, type CostIdentity, type CostMutation,
   BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines,
   configurationCost, configurationCostLines, configurationKey, costObservation,
-  groupShot, handNext, hardStopPlan, jobsRunDir, jobsWanted, missingVerdicts, shardKey, shardOf, shardWanted,
+  groupShot, handNext, hardStopPlan, jobsRunDir, jobsWanted, missingVerdicts, shardKey, shardPlan, shardWanted,
   noStdio, ownGroup, reportLine, staleRunDirs, verifierBill, workerCopyList, workerLine,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
-import { SHARD_WEIGHTS_FILE, pileWeigher, readWeights, type ShardWeights } from './shard-load-rule.js'
+import { MAIN_COSTS_ENV, mainCostWeights, pileWeigher, type ShardWeights } from './shard-load-rule.js'
 import { asTsx, prebuildOne, prebuiltCommand } from './prebuilt.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import {
@@ -536,8 +536,8 @@ const forgetVerifier = (): void => {
 // 正常基线那一跑注入的计数预加载（ADR-145 第十三节）；按本文件的位置找，玩具树里起的 mutate 也找得到
 const launchPreload = new URL(`../${LAUNCH_PRELOAD}`, import.meta.url).href
 const verifierEnv = (verifier: Verifier, cwd: string | undefined, countLog: string | undefined): NodeJS.ProcessEnv => {
-  // 分份只管这一跑自己发哪几条（ADR-197）：验证者里再起的 mutate（玩具树）一律整份，不带它
-  const { MUTATE_SHARD: _shard, ...inherited } = process.env
+  // 分份只管这一跑自己发哪几条（ADR-197）：验证者里再起的 mutate（玩具树）一律整份，不带它；主干实测（ADR-254）同样只给这一跑
+  const { MUTATE_SHARD: _shard, [MAIN_COSTS_ENV]: _costs, ...inherited } = process.env
   const env = { ...inherited, MUTATING: '1', NODE_COMPILE_CACHE }
   return countLog === undefined ? env
     : countingEnv(env, { log: countLog, target: resolve(cwd ?? '.', verifier.script), preload: launchPreload })
@@ -1047,18 +1047,30 @@ if (shard === undefined) {
     '  跑整份请把它去掉，不要写一个读不出来的值；未施加任何变异。')
 }
 // 同一种子集配置的整摞落在同一份里（ADR-200），这一份只跑自己那几种配置的基线；整跑的没有子集基线，各自成一摞
-// 按实测秒数分（ADR-203）：每摞的秒数取 `shard-weights.json`，与负载闸门（`npm run shard-load`）量的是同一个分法。
-// 只分一份时用不着秒数，也就不读那个文件；要分时读不出来就不跑 —— 不拿一个猜的数分
+// 按主干上一跑的实测秒数分（ADR-254）：每摞的秒数取 `MAIN_COSTS_ENV` 指着的那份成本报告（`mainCostWeights` 认），
+// 与负载闸门（`npm run shard-load`）读同一份文件、用同一个函数，各份与闸门的分法处处一样。
+// 只分一份时用不着秒数，也就不读；要分却没设那个变量是接线错了，不跑。设了但取不到（主干上没有能用的一跑、文件认不得）就按条数分：
+// 每一条照样有一份跑它，只是分得不平 —— 各份读的是同一个文件，退回按条数时也一起退，不会一份按秒数、一份按条数
 const sharded = shard.count > 1
 let weights: ShardWeights | undefined
+let measuredFrom: string | undefined
 if (sharded) {
-  let read: ReturnType<typeof readWeights>
-  try { read = readWeights(JSON.parse(readFileSync(SHARD_WEIGHTS_FILE, 'utf8'))) } catch (e) { read = { fault: e instanceof Error ? e.message : String(e) } }
-  if ('fault' in read) exitWith(1, `✗ 变异测试：要分份却读不出 ${SHARD_WEIGHTS_FILE}（${read.fault}）\n`, '  未施加任何变异。')
-  else weights = read.weights
+  const costsPath = process.env[MAIN_COSTS_ENV]
+  if (costsPath === undefined) exitWith(1, `✗ 变异测试：要分份却没设 ${MAIN_COSTS_ENV}（主干上一跑的成本报告在哪）\n`, '  未施加任何变异。')
+  else {
+    let got: ReturnType<typeof mainCostWeights>
+    try { got = mainCostWeights(readFileSync(costsPath, 'utf8')) } catch (e) { got = { unavailable: `读不到 ${costsPath}（${e instanceof Error ? e.message : String(e)}）` } }
+    if ('unavailable' in got) console.log(`⚠ 变异测试：取不到主干上一跑的实测（${got.unavailable}），这一跑按条数分份`)
+    else { weights = got.weights; measuredFrom = `主干 run ${got.run}、提交 ${got.headSha.slice(0, 7)}` }
+  }
 }
-const mine = shardOf(muts, m => shardKey(m.by, onlyFor(m)),
-  weights === undefined ? (_key, pile) => pile.length : pileWeigher(weights), shard.index, shard.count)
+// 分法与称出来的每份重量出自同一次 `shardPlan`：按秒数分时把每份多重打出来，与负载闸门那一行、与这一份的实际墙钟对得上
+const plan = shardPlan(muts, m => shardKey(m.by, onlyFor(m)),
+  weights === undefined ? (_key, pile) => pile.length : pileWeigher(weights), shard.count)
+const mine = muts.filter((_unused, i) => plan.shardAt[i] === shard.index - 1)
+if (measuredFrom !== undefined) {
+  console.log(`变异测试：按${measuredFrom} 的实测秒数分份：这一份约 ${Math.round(plan.loads[shard.index - 1])} 验证者秒（各份 ${plan.loads.map(Math.round).join(' / ')}）`)
+}
 const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), mine.length)
 if (jobs === undefined) {
   exitWith(1, '✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n',

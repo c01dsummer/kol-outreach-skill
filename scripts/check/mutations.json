@@ -18812,78 +18812,6 @@
       ]
     },
     {
-      "id": "M-H203-d",
-      "req": "harness",
-      "why": "一条变异负几秒也收 —— 手改坏的秒数文件能把一摞算轻，三道线都量错",
-      "file": "scripts/check/shard-load-rule.ts",
-      "find": "  && typeof v.each === 'number' && Number.isFinite(v.each) && v.each >= 0",
-      "replace": "  && typeof v.each === 'number' && Number.isFinite(v.each)",
-      "by": "test",
-      "kills": [
-        "权重文件：某种配置的 each 是负数，说不对"
-      ]
-    },
-    {
-      "id": "M-H203-e",
-      "req": "harness",
-      "why": "基线无穷大也收 —— 最重一份算成无穷，比例与涨幅全成了 NaN",
-      "file": "scripts/check/shard-load-rule.ts",
-      "find": "  && typeof v.base === 'number' && Number.isFinite(v.base) && v.base >= 0",
-      "replace": "  && typeof v.base === 'number' && v.base >= 0",
-      "by": "test",
-      "kills": [
-        "权重文件：defaults 的 base 是无穷大，说不对"
-      ]
-    },
-    {
-      "id": "M-H203-f",
-      "req": "harness",
-      "why": "不核 schema —— 另一种格式的文件照 v1 的读法读",
-      "file": "scripts/check/shard-load-rule.ts",
-      "find": "  if (!isObject(json) || json.schema !== SHARD_WEIGHTS_SCHEMA) return",
-      "replace": "  if (!isObject(json)) return",
-      "by": "test",
-      "kills": [
-        "权重文件：schema 不是 v1，说不对"
-      ]
-    },
-    {
-      "id": "M-H203-g",
-      "req": "harness",
-      "why": "runs 里每一项不核是不是字符串 —— 说不清取自哪几跑的文件也收",
-      "file": "scripts/check/shard-load-rule.ts",
-      "find": "  if (!Array.isArray(json.runs) || json.runs.some(r => typeof r !== 'string')) return",
-      "replace": "  if (!Array.isArray(json.runs)) return",
-      "by": "test",
-      "kills": [
-        "权重文件：runs 里混了个数，说不对"
-      ]
-    },
-    {
-      "id": "M-H203-h",
-      "req": "harness",
-      "why": "只核需求测试的默认值 —— 缺了自检的默认，新加的自检配置一算就抛",
-      "file": "scripts/check/shard-load-rule.ts",
-      "find": "  for (const by of VERIFIER_NAMES) if (!isCost(json.defaults[by]))",
-      "replace": "  for (const by of VERIFIER_NAMES.slice(0, 1)) if (!isCost(json.defaults[by]))",
-      "by": "test",
-      "kills": [
-        "权重文件：defaults 缺 selfcheck，说不对"
-      ]
-    },
-    {
-      "id": "M-H203-i",
-      "req": "harness",
-      "why": "各配置的那一对不核 —— 写成字符串的秒数拿去相加，成了拼接",
-      "file": "scripts/check/shard-load-rule.ts",
-      "find": "  for (const [key, cost] of Object.entries(json.configs)) if (!isCost(cost))",
-      "replace": "  for (const [key, cost] of Object.entries(json.configs)) if (!isCost(cost) && key === '')",
-      "by": "test",
-      "kills": [
-        "权重文件：某种配置的 base 是字符串，说不对"
-      ]
-    },
-    {
       "id": "M-H203-j",
       "req": "harness",
       "why": "偶数跑取较大的那个当中位数 —— 与文件上写的取法不一样，回写出来的数对不上",
@@ -18922,10 +18850,10 @@
     {
       "id": "M-H203-m",
       "req": "harness",
-      "why": "runs 照日志读进来的先后写 —— 同几跑换个顺序给就回写出不一样的文件",
+      "why": "runs 照报告读进来的先后写 —— 同几跑换个顺序给就算出不一样的秒数",
       "file": "scripts/check/shard-load-rule.ts",
-      "find": "  return { weights: { schema: SHARD_WEIGHTS_SCHEMA, runs: [...perRun.keys()].sort(), defaults, configs } }",
-      "replace": "  return { weights: { schema: SHARD_WEIGHTS_SCHEMA, runs: [...perRun.keys()], defaults, configs } }",
+      "find": "  return { weights: { runs: [...perRun.keys()].sort(), defaults, configs } }",
+      "replace": "  return { weights: { runs: [...perRun.keys()], defaults, configs } }",
       "by": "test",
       "kills": [
         "算权重：同一个 headSha 的几份算一跑，runs 去重按字典序"
@@ -19270,7 +19198,7 @@
     {
       "id": "M-H203-bd",
       "req": "harness",
-      "why": "选组不排序就当键 —— 同样几组写的先后不同就成了两摞，同一种基线跑两遍，也查不到秒数文件里那一行",
+      "why": "选组不排序就当键 —— 同样几组写的先后不同就成了两摞，同一种基线跑两遍，也查不到主干实测里那一行",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return only === undefined ? undefined : JSON.stringify([by === undefined ? 'test' : by, [...only].sort()])",
       "replace": "  return only === undefined ? undefined : JSON.stringify([by === undefined ? 'test' : by, [...only]])",
@@ -19294,7 +19222,7 @@
     {
       "id": "M-H203-bf",
       "req": "harness",
-      "why": "称重时不给这一摞的键 —— 每摞都按验证者的默认值算，秒数文件白写",
+      "why": "称重时不给这一摞的键 —— 每摞都按验证者的默认值算，主干实测白取",
       "file": "scripts/check/jobs-rule.ts",
       "find": "weight: weigh(key, pile.map(i => items[i])) }))",
       "replace": "weight: weigh(undefined, pile.map(i => items[i])) }))",
@@ -19616,6 +19544,522 @@
       "by": "test",
       "kills": [
         "接线：续行后的注释报它自己的行号"
+      ]
+    },
+    {
+      "id": "M-H254-a",
+      "req": "harness",
+      "why": "文件第一行写着取不到时不认，往下当成取到了去读",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  if (typeof head.unavailable === 'string') return { unavailable: head.unavailable }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "主干实测：文件第一行写着取不到，原样交回为什么"
+      ]
+    },
+    {
+      "id": "M-H254-b",
+      "req": "harness",
+      "why": "第一行的 schema 不核，别的文件也当成主干实测",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "!isObject(head) || head.schema !== MAIN_COSTS_SCHEMA",
+      "replace": "!isObject(head)",
+      "by": "test",
+      "kills": [
+        "主干实测：第一行的 schema 不对，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-c",
+      "req": "harness",
+      "why": "run 是 0 也收",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "run <= 0) return { unavailable: '第一行没说取自哪一跑",
+      "replace": "run < 0) return { unavailable: '第一行没说取自哪一跑",
+      "by": "test",
+      "kills": [
+        "主干实测：run 不是正整数，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-d",
+      "req": "harness",
+      "why": "第一行说的提交号少一位也收",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "!/^[0-9a-f]{40}$/.test(headSha)",
+      "replace": "!/^[0-9a-f]+$/.test(headSha)",
+      "by": "test",
+      "kills": [
+        "主干实测：headSha 不是 40 位十六进制，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-e",
+      "req": "harness",
+      "why": "不是 summary 的那几段也当一份成本报告",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (!isObject(seg) || seg.kind !== 'summary') continue\n",
+      "replace": "    if (!isObject(seg)) continue\n",
+      "by": "test",
+      "kills": [
+        "主干实测：不是 summary 的那几段与别的行不算"
+      ]
+    },
+    {
+      "id": "M-H254-f",
+      "req": "harness",
+      "why": "多一份成本报告也收（几跑混在一起）",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "if (reports.length !== SHARD_COUNT) return",
+      "replace": "if (reports.length < SHARD_COUNT) return",
+      "by": "test",
+      "kills": [
+        "主干实测：多一份成本报告，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-g",
+      "req": "harness",
+      "why": "份与份是不是同一个提交不核",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    if (id.headSha !== headSha) return",
+      "replace": "    if (false) return",
+      "by": "test",
+      "kills": [
+        "主干实测：有一份是别的提交的，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-h",
+      "req": "harness",
+      "why": "没跑完的那一份也收",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "id.state !== 'succeeded' || !costsWhole(r)",
+      "replace": "id.state !== 'succeeded'",
+      "by": "test",
+      "kills": [
+        "主干实测：有一份没跑完（complete 不是 true），取不到"
+      ]
+    },
+    {
+      "id": "M-H254-i",
+      "req": "harness",
+      "why": "跑失败的那一份也收",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "id.state !== 'succeeded' || !costsWhole(r)",
+      "replace": "!costsWhole(r)",
+      "by": "test",
+      "kills": [
+        "主干实测：有一份 state 不是 succeeded，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-zc",
+      "req": "harness",
+      "why": "只认完整那一个标记：清单里一有整跑的变异就永远取不到",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "r.complete === true || (Array.isArray(r.issues)",
+      "replace": "r.complete === true || (false",
+      "by": "test",
+      "kills": [
+        "主干实测：整跑的行只缺正常基线（complete 因此不是 true）、散在两份里，照样取到"
+      ]
+    },
+    {
+      "id": "M-H254-zg",
+      "req": "harness",
+      "why": "整跑的配置散在几份里也当成重叠",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "isObject(row) && row.outsideBaseline !== true ? row.key : undefined",
+      "replace": "isObject(row) ? row.key : undefined",
+      "by": "test",
+      "kills": [
+        "主干实测：整跑的行只缺正常基线（complete 因此不是 true）、散在两份里，照样取到"
+      ]
+    },
+    {
+      "id": "M-H254-zd",
+      "req": "harness",
+      "why": "不是整跑的行也放过一条问题",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "row.issues.length === (row.outsideBaseline === true ? 1 : 0)",
+      "replace": "row.issues.length <= 1",
+      "by": "test",
+      "kills": [
+        "主干实测：不是整跑的一行记了一条问题，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-ze",
+      "req": "harness",
+      "why": "整跑的行记了几条问题都放过",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "row.outsideBaseline === true ? 1 : 0)",
+      "replace": "row.outsideBaseline === true ? row.issues.length : 0)",
+      "by": "test",
+      "kills": [
+        "主干实测：整跑那一行除了缺正常基线还缺别的，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-zf",
+      "req": "harness",
+      "why": "报告本身记了问题也放过",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "Array.isArray(r.issues) && r.issues.length === 0 &&",
+      "replace": "Array.isArray(r.issues) &&",
+      "by": "test",
+      "kills": [
+        "主干实测：报告本身记了问题，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-j",
+      "req": "harness",
+      "why": "同一种配置在两份里也收（同一份日志摘了两遍）",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "      if (seen.has(key)) return",
+      "replace": "      if (false) return",
+      "by": "test",
+      "kills": [
+        "主干实测：同一种配置出现在两份里，取不到"
+      ]
+    },
+    {
+      "id": "M-H254-k",
+      "req": "harness",
+      "why": "只看基线是不是 0：一条变异的秒数不是 0 的也当成计时坏了",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "all.every(c => c.base === 0 && c.each === 0)",
+      "replace": "all.every(c => c.base === 0)",
+      "by": "test",
+      "kills": [
+        "主干实测：只有一种配置不是 0 秒，照样取到"
+      ]
+    },
+    {
+      "id": "M-H254-zb",
+      "req": "harness",
+      "why": "不再查每种配置是不是都是 0 秒：计时坏了也照样当实测用",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "if (all.every(c => c.base === 0 && c.each === 0)) return",
+      "replace": "if (all.length < 0) return",
+      "by": "test",
+      "kills": [
+        "主干实测：每种配置都是 0 秒（计时坏了），取不到"
+      ]
+    },
+    {
+      "id": "M-H254-l",
+      "req": "harness",
+      "why": "交回的不是第一行说的那一跑",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  return { weights: got.weights, run, headSha }",
+      "replace": "  return { weights: got.weights, ...{ run: 1 }, headSha }",
+      "by": "test",
+      "kills": [
+        "主干实测：三份对得上，交回取自哪一跑与算好的秒数"
+      ]
+    },
+    {
+      "id": "M-H254-m",
+      "req": "harness",
+      "why": "读不出的那一行报错了行号",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "`第 ${i + 2} 行的成本报告读不出来`",
+      "replace": "`第 ${i + 1} 行的成本报告读不出来`",
+      "by": "test",
+      "kills": [
+        "主干实测：成本报告那一行读不出来，取不到，说是第几行"
+      ]
+    },
+    {
+      "id": "M-H254-n",
+      "req": "harness",
+      "why": "本地没有主干实测时连接线不对也放行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "三道线只在 CI 上判；这里只核了接线`)\n    return { red: fault, lines }",
+      "replace": "三道线只在 CI 上判；这里只核了接线`)\n    return { red: false, lines }",
+      "by": "test",
+      "kills": [
+        "闸：本地没有主干实测，接线不对照样红"
+      ]
+    },
+    {
+      "id": "M-H254-o",
+      "req": "harness",
+      "why": "取不到主干实测时主干上连接线不对也放行",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    return { red: fault || !onTrunk, lines }",
+      "replace": "    return { red: !onTrunk, lines }",
+      "by": "test",
+      "kills": [
+        "闸：主干上取不到主干实测，接线不对照样红"
+      ]
+    },
+    {
+      "id": "M-H254-p",
+      "req": "harness",
+      "why": "PR 上取不到主干实测也不红",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "    return { red: fault || !onTrunk, lines }",
+      "replace": "    return { red: fault, lines }",
+      "by": "test",
+      "kills": [
+        "闸：PR 上取不到主干实测，红"
+      ]
+    },
+    {
+      "id": "M-H254-r",
+      "req": "harness",
+      "why": "报数行不说秒数取自主干哪一跑",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "按主干 run ${measured.run}、提交 ${measured.headSha.slice(0, 7)} 的实测",
+      "replace": "按主干实测",
+      "by": "test",
+      "kills": [
+        "闸：报数行说秒数取自主干哪一跑"
+      ]
+    },
+    {
+      "id": "M-H254-s",
+      "req": "harness",
+      "why": "把这一跑自己也当成主干上一跑",
+      "file": "scripts/check/main-costs.sh",
+      "find": "  [ -n \"$id\" ] && [ \"$id\" != \"$self\" ] || continue",
+      "replace": "  [ -n \"$id\" ] || continue",
+      "by": "test",
+      "kills": [
+        "取数：挑中之后不再问更旧的那一跑，这一跑自己的 job 也不问"
+      ]
+    },
+    {
+      "id": "M-H254-t",
+      "req": "harness",
+      "why": "只要有两份绿就挑它，各份不齐",
+      "file": "scripts/check/main-costs.sh",
+      "find": "  [ \"${#ids[@]}\" = \"$shards\" ] || continue",
+      "replace": "  [ \"${#ids[@]}\" -ge 2 ] || continue",
+      "by": "test",
+      "kills": [
+        "取数：跳过这一跑自己与只有两份绿的那一跑，挑最新一跑三份变异都绿的，第一行写它的编号与提交"
+      ]
+    },
+    {
+      "id": "M-H254-u",
+      "req": "harness",
+      "why": "没绿的那一份也算进去",
+      "file": "scripts/check/main-costs.sh",
+      "find": "select(.conclusion == \"success\") | ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "取数：跳过这一跑自己与只有两份绿的那一跑，挑最新一跑三份变异都绿的，第一行写它的编号与提交"
+      ]
+    },
+    {
+      "id": "M-H254-v",
+      "req": "harness",
+      "why": "还在跑的主干那一跑也拿来挑",
+      "file": "scripts/check/main-costs.sh",
+      "find": "&event=push&status=completed&per_page=20",
+      "replace": "&event=push&per_page=20",
+      "by": "test",
+      "kills": [
+        "取数：只问主干上 push 触发、已经跑完的 check.yml"
+      ]
+    },
+    {
+      "id": "M-H254-w",
+      "req": "harness",
+      "why": "别的机器段（启动数那几行）也摘进来",
+      "file": "scripts/check/main-costs.sh",
+      "find": "grep -aF 'MUTATION_COST_JSON '",
+      "replace": "grep -aF 'MUTATION_'",
+      "by": "test",
+      "kills": [
+        "取数：只摘带 MUTATION_COST_JSON 的那几行，三份各一行，照原样"
+      ]
+    },
+    {
+      "id": "M-H254-zh",
+      "req": "harness",
+      "why": "日志按二进制文件摘：夹一个 NUL 字节就摘不出原行，却照样说取到了",
+      "file": "scripts/check/main-costs.sh",
+      "find": "grep -aF 'MUTATION_COST_JSON '",
+      "replace": "grep -F 'MUTATION_COST_JSON '",
+      "by": "test",
+      "kills": [
+        "取数：日志里夹着 NUL 字节也照文本摘，三份各一行"
+      ]
+    },
+    {
+      "id": "M-H254-zi",
+      "req": "harness",
+      "why": "某一跑的 job 列表读不出来时跳过它，去挑更旧的一跑",
+      "file": "scripts/check/main-costs.sh",
+      "find": "|| none \"读不出 run $id 的 job 列表\"",
+      "replace": "|| continue",
+      "by": "test",
+      "kills": [
+        "取数：有一跑的 job 列表读不出来，写取不到与为什么，不跳过它去挑更旧的，仍以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H254-zj",
+      "req": "harness",
+      "why": "读成这个 shell 自己的时间，子进程花的一概不算",
+      "file": "scripts/check/cpu-time.sh",
+      "find": "NR == 2 {",
+      "replace": "NR == 1 {",
+      "by": "test",
+      "kills": [
+        "CPU 时间：算上孙进程空转的那段"
+      ]
+    },
+    {
+      "id": "M-H254-zk",
+      "req": "harness",
+      "why": "在子 shell 里数：那样数到的是子 shell 自己的子进程，是 0",
+      "file": "scripts/check/cpu-time.sh",
+      "find": "times > \"$spent\"",
+      "replace": "(times) > \"$spent\"",
+      "by": "test",
+      "kills": [
+        "CPU 时间：算上孙进程空转的那段"
+      ]
+    },
+    {
+      "id": "M-H254-zl",
+      "req": "harness",
+      "why": "不管那条命令红没红都以 0 退出，红了的检查链被报成绿",
+      "file": "scripts/check/cpu-time.sh",
+      "find": "\"$GITHUB_STEP_SUMMARY\"\nexit \"$status\"",
+      "replace": "\"$GITHUB_STEP_SUMMARY\"\nexit 0",
+      "by": "test",
+      "kills": [
+        "CPU 时间：原样交回那条命令的退出码，打一行名字、CPU、墙钟与退出码"
+      ]
+    },
+    {
+      "id": "M-H254-zm",
+      "req": "harness",
+      "why": "不往 Summary 里写",
+      "file": "scripts/check/cpu-time.sh",
+      "find": "[ -z \"${GITHUB_STEP_SUMMARY:-}\" ] || echo",
+      "replace": "[ -n \"${GITHUB_STEP_SUMMARY:-}\" ] || echo",
+      "by": "test",
+      "kills": [
+        "CPU 时间：设了 GITHUB_STEP_SUMMARY 就把同一行写进去"
+      ]
+    },
+    {
+      "id": "M-H254-zn",
+      "req": "harness",
+      "why": "只给名字、没给命令也照跑",
+      "file": "scripts/check/cpu-time.sh",
+      "find": "[ $# -lt 2 ]",
+      "replace": "[ $# -lt 1 ]",
+      "by": "test",
+      "kills": [
+        "CPU 时间：少了名字或命令以 2 退出，什么都不跑"
+      ]
+    },
+    {
+      "id": "M-H254-zo",
+      "req": "harness",
+      "why": "问 GitHub 时不带令牌：私有仓库什么都取不到",
+      "file": "scripts/check/main-costs.sh",
+      "find": "-H \"Authorization: Bearer ${GH_TOKEN:-}\" ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "取数：日志正文带着令牌取，三份各取一次"
+      ]
+    },
+    {
+      "id": "M-H254-zp",
+      "req": "harness",
+      "why": "每一问不封顶 30 秒：卡住的一问能把剩下的时限全用掉",
+      "file": "scripts/check/main-costs.sh",
+      "find": "[ \"$left\" -le 30 ] || left=30",
+      "replace": ":",
+      "by": "test",
+      "kills": [
+        "取数：有一问卡过 30 秒，写取不到与为什么、不等 job 超时，仍以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H254-zq",
+      "req": "harness",
+      "why": "过了总限时照样问：一跑一跑问下去，等到 job 超时被杀",
+      "file": "scripts/check/main-costs.sh",
+      "find": "[ \"$left\" -gt 0 ] || {",
+      "replace": "true || {",
+      "by": "test",
+      "kills": [
+        "取数：过了总限时就一问也不再问，写取不到，仍以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H254-x",
+      "req": "harness",
+      "why": "挑中之后不停，接着往更旧的挑、把文件盖掉",
+      "file": "scripts/check/main-costs.sh",
+      "find": "份变异\"\n  exit 0\n",
+      "replace": "份变异\"\n",
+      "by": "test",
+      "kills": [
+        "取数：挑中之后不再问更旧的那一跑，这一跑自己的 job 也不问"
+      ]
+    },
+    {
+      "id": "M-H254-y",
+      "req": "harness",
+      "why": "有一份日志摘不出那一行也照写，份数不齐",
+      "file": "scripts/check/main-costs.sh",
+      "find": "      || none \"run $id 的 job $job：日志取不下来，或里面没有成本报告那一行\"",
+      "replace": "      || true",
+      "by": "test",
+      "kills": [
+        "取数：挑中那一跑有一份日志里没有成本报告，写取不到与为什么，不改挑更旧的，仍以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H254-z",
+      "req": "harness",
+      "why": "份数写错也照跑",
+      "file": "scripts/check/main-costs.sh",
+      "find": "if [ -z \"$out\" ] || ! [[ $shards =~ ^[1-9][0-9]*$ ]]; then",
+      "replace": "if [ -z \"$out\" ]; then",
+      "by": "test",
+      "kills": [
+        "取数：少了份数，以 2 退出、不写文件"
+      ]
+    },
+    {
+      "id": "M-H254-q",
+      "req": "harness",
+      "why": "交回的提交不是第一行说的那个",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  return { weights: got.weights, run, headSha }",
+      "replace": "  return { weights: got.weights, run, ...{ headSha: headSha.slice(1) } }",
+      "by": "test",
+      "kills": [
+        "主干实测：三份对得上，交回取自哪一跑与算好的秒数"
+      ]
+    },
+    {
+      "id": "M-H254-za",
+      "req": "harness",
+      "why": "交回的秒数丢了取自哪几跑",
+      "file": "scripts/check/shard-load-rule.ts",
+      "find": "  return { weights: got.weights, run, headSha }",
+      "replace": "  return { weights: { ...got.weights, runs: [] }, run, headSha }",
+      "by": "test",
+      "kills": [
+        "主干实测：三份对得上，交回取自哪一跑与算好的秒数"
       ]
     },
     {

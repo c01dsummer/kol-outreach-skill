@@ -34,8 +34,30 @@ permissions:
 # ⚠️ 这份文件钉死在 scripts/check/shard-load-rule.ts 的 WORKFLOW_PIN 里（ADR-203 第八节）：除了整行注释与空行，
 # 改一个字都要在同一条 PR 里改那一份，否则检查链第三步的变异负载闸门红在第一处不一样的那一行。
 jobs:
+  # 变异分份与变异负载闸门按主干上一跑的实测秒数称每一摞（ADR-254，需求所有者 2026-11-28 选的「直接用主干上一跑实测」）：
+  # 这个 job 从主干上一跑各份变异的日志里摘出成本报告，交给下面两种 job。只挑一次、各份读同一个文件 —— 各份自己去挑，
+  # 主干上恰好有一跑在中间跑完，几份就会按不同的数分，有的变异没有一份跑。取不到时文件里写为什么，照样绿：
+  # 分份退回按条数分，闸门在 PR 上红。挑哪一跑、取不到算什么，写在脚本头上
+  main-costs:
+    name: 取主干上一跑的变异实测
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 摘主干上一跑各份变异的成本报告
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/check/main-costs.sh output/main-costs/main-costs.txt 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: main-mutation-costs
+          path: output/main-costs/main-costs.txt
+          if-no-files-found: error
+          retention-days: 3
+
   chain:
     name: 检查链（变异以外各步）
+    needs: [main-costs]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,14 +97,21 @@ jobs:
       # 同样命中缓存。--prefer-offline 有缓存就不回源问元数据,--no-audit 去掉装完
       # 之后那次审计请求
       - run: npm ci --prefer-offline --no-audit
-      # 与本地 `npm run check` 同一串，只少了变异与启动数两步（各在下面的 job 里）
-      - run: npm run anchors && npm run size && npm run shard-load && npm run ticket-refs && npm run child-process-use && npm run spec && npm run skill && npm run adr && npm run iou-gate && npm run typecheck && npm run fields && npm run compile && npm test && npm run selfcheck && npm run audit
+      # 主干上一跑的成本报告：检查链第三步的变异负载闸门读它（ADR-254）
+      - uses: actions/download-artifact@v4
+        with:
+          name: main-mutation-costs
+          path: output/main-costs
+      # 与本地 `npm run check` 同一串，只少了变异与启动数两步（各在下面的 job 里）。
+      # 经 cpu-time.sh 跑：跑完打一行这一串的 CPU 时间与墙钟（ADR-254，只报数）
+      - run: bash scripts/check/cpu-time.sh 检查链 bash -c 'npm run anchors && npm run size && npm run shard-load && npm run ticket-refs && npm run child-process-use && npm run spec && npm run skill && npm run adr && npm run iou-gate && npm run typecheck && npm run fields && npm run compile && npm test && npm run selfcheck && npm run audit'
         # 体量闸门只数这条 PR 自己的提交：PR 叠在另一条没合的 PR 上（base 选的是下面那条分支）时，
         # 下面那条已有的提交连同它的 size-ok 豁免都不算这条的（ADR-235）。给的是 base 分支此刻的头（origin/<分支名>，
         # 上面取完整历史时拉下来了），不用事件里记的 base.sha：那是开 PR 时的快照，base 分支往前走了它不一定跟。
         # 推 main 时这个表达式是空串，按主干量
         env:
           SIZE_PR_BASE: ${{ github.event.pull_request.base.ref && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
+          MUTATION_MAIN_COSTS: output/main-costs/main-costs.txt
       # 只提醒：这一跑改到的文件被哪几条开着的欠条写进了正文（需求所有者 2026-11-14 要的；ADR-196）。
       # 汇总那一句打成一条 notice（PR 的 Checks 页与这一跑的总览上看得到），全文写进这一跑的 Summary。
       # 「改到的」与体量闸门同一个起点：PR 上是这次合并用的主干头，推 main 时是上一版。
@@ -118,6 +147,7 @@ jobs:
 
   mutate:
     name: 变异（第 ${{ matrix.shard }}/3 份）
+    needs: [main-costs]
     runs-on: ubuntu-latest
     strategy:
       # 一份红了别的照跑完：一次推送看得到全部存活的变异，不用一份一份地修
@@ -147,12 +177,18 @@ jobs:
       - run: npm ci --prefer-offline --no-audit
       # 预编 JS：验证者跑预编的那份，缺了就照旧 tsx（ADR-158），只是慢
       - run: npm run compile
+      # 主干上一跑的成本报告：各份照它分，读的是同一个文件，分法处处一样（ADR-254）
+      - uses: actions/download-artifact@v4
+        with:
+          name: main-mutation-costs
+          path: output/main-costs
       # 4 核的 runner 上派 6 个 worker（ADR-200）：验证者有不少时间在等子进程起来，多派两个把空出来的核填上。
-      # 本地不写，照旧按核数派
-      - run: npm run mutate
+      # 本地不写，照旧按核数派。经 cpu-time.sh 跑：跑完打一行这一份的 CPU 时间与墙钟（ADR-254，只报数）
+      - run: bash scripts/check/cpu-time.sh 变异 npm run mutate
         env:
           MUTATE_SHARD: ${{ matrix.shard }}/3
           MUTATE_JOBS: '6'
+          MUTATION_MAIN_COSTS: output/main-costs/main-costs.txt
       # 每一份只跑自己那几种配置的基线、数它们的启动数，写 launches-k-of-3.json（ADR-200）；三份都交给最后一步拼回整份
       - uses: actions/upload-artifact@v4
         with:

@@ -82,7 +82,7 @@ import {
   billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardKey, shardOf, shardPlan, shardWanted,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
-import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, pileSeconds, pileWeigher, readWeights, shardLoadGate, weightsFromReports, pinnedLinesFaults, pinnedWorkflow, workflowWiringFaults } from './check/shard-load-rule.js'
+import { type ShardWeights, CEILING_MINUTES, CEILING_SECONDS, WALL_PER_VERIFIER_SECOND, growthWaivers, mainCostWeights, pileSeconds, pileWeigher, shardLoadGate, weightsFromReports, pinnedLinesFaults, pinnedWorkflow, workflowWiringFaults } from './check/shard-load-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -431,6 +431,9 @@ const GROUPS: readonly Group[] = [
   { id: 'h-adr-fact-table', needs: [] },
   { id: 'h-adr-plain-index', needs: [] },
   { id: 'h-jargon', needs: [] },
+  { id: 'h-main-costs-entry', needs: [] },
+  { id: 'h-main-costs-unavailable', needs: [] },
+  { id: 'h-cpu-time-entry', needs: [] },
   { id: 'h-jargon-entry', needs: [] },
   { id: 'h-same-spot', needs: [] },
   { id: 'h-never-red', needs: [] },
@@ -15516,19 +15519,10 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   // 14 分钟墙钟 ÷ 0.19 = 4421.05 → 4421 验证者秒：两条上限说的是同一条线
   eq('时间上限换成验证者秒数就是那条秒数上限', Math.round(CEILING_MINUTES * 60 / WALL_PER_VERIFIER_SECOND), CEILING_SECONDS)
 
-  // 权重文件是反序列化进来的：形状不对要说不对，不能带着 NaN 往下分
-  const good: ShardWeights = { schema: 'mutation-shard-weights/v1', runs: ['abc'],
+  // 秒数：每种配置一次基线几秒、一条几秒，实测里没有的按验证者的默认
+  const good: ShardWeights = { runs: ['abc'],
     defaults: { test: { base: 10, each: 2 }, selfcheck: { base: 30, each: 5 } }, configs: { K: { base: 100, each: 3 } } }
   const faulted = (r: { weights: unknown } | { fault: string }) => 'fault' in r && r.fault.trim() !== ''
-  eq('权重文件：形状对的原样交回', readWeights(JSON.parse(JSON.stringify(good))), { weights: good })
-  ok('权重文件：schema 不是 v1，说不对', faulted(readWeights({ ...good, schema: 'mutation-shard-weights/v2' })))
-  ok('权重文件：runs 里混了个数，说不对', faulted(readWeights({ ...good, runs: ['abc', 7] })))
-  ok('权重文件：defaults 缺 selfcheck，说不对', faulted(readWeights({ ...good, defaults: { test: good.defaults.test } })))
-  ok('权重文件：defaults 缺 test，说不对', faulted(readWeights({ ...good, defaults: { selfcheck: good.defaults.selfcheck } })))
-  ok('权重文件：某种配置的 each 是负数，说不对', faulted(readWeights({ ...good, configs: { K: { base: 100, each: -1 } } })))
-  ok('权重文件：某种配置的 base 是字符串，说不对', faulted(readWeights({ ...good, configs: { K: { base: '100', each: 3 } } })))
-  ok('权重文件：defaults 的 base 是无穷大，说不对', faulted(readWeights({ ...good, defaults: { ...good.defaults, test: { base: Infinity, each: 2 } } })))
-  ok('权重文件：configs 是 null，说不对', faulted(readWeights({ ...good, configs: null })))
   // 一摞多少秒：配置实测过就用它的 base + n × each；没测过按验证者的默认。K 四条 = 100 + 4×3；没测过的自检三条 = 30 + 3×5
   const refuses = (by: string) => { try { pileSeconds(good, 'Z', by, 1); return false } catch { return true } }
   eq('一摞秒数：实测过的配置用它自己的 base 与 each', pileSeconds(good, 'K', 'test', 4), 112)
@@ -15570,11 +15564,51 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('算权重：自检验证的配置照同一套算', pair(w?.configs['S1']), [30, 5])
   eq('算权重：需求测试的默认 = 各配置 base 的中位数、全部毫秒除以全部样本', pair(w?.defaults.test), [10, 2.3])
   eq('算权重：自检的默认只算自检验证的那些行', pair(w?.defaults.selfcheck), [30, 5.67])
-  eq('算权重：算出来的东西过得了权重文件的形状检查', w === undefined ? '没算出来' : 'weights' in readWeights(JSON.parse(JSON.stringify(w))), true)
   ok('算权重：一份报告都没有，说算不了', faulted(weightsFromReports([])))
   ok('算权重：有一份报告没有 rows，说算不了', faulted(weightsFromReports([report('aaa', row('T1', 'test', [[1, 1000]], [[1, 1000]]), row('S1', 'selfcheck', [[1, 1000]], [[1, 1000]])), { identity: { headSha: 'bbb' } }])))
   ok('算权重：报告里有负的毫秒，说算不了', faulted(weightsFromReports([report('aaa', row('T1', 'test', [[1, 1000]], [[1, 1000]]), row('S1', 'selfcheck', [[1, 1000]], [[1, -1000]]))])))
   ok('算权重：自检验证的一条都没有，说算不了', faulted(weightsFromReports([report('aaa', row('T1', 'test', [[1, 1000]], [[1, 1000]]))])))
+
+  // 主干上一跑的实测（mainCostWeights）：main-costs.sh 写的那份文件，第一行说取自哪一跑，后面是从三份变异日志里摘出的成本报告行。
+  // 手算（秒）：T1 base 4、each 3000/2/1000=1.5；T2 base 10、each 1；S1 base 30、each 20000/4/1000=5
+  const H = 'd'.repeat(40)
+  const costLine = (rep: unknown) => `2026-11-28T00:00:00.0000000Z MUTATION_COST_JSON ${JSON.stringify({ schema: 'mutation-cost/v1', kind: 'summary', report: rep })}`
+  const shardRep = (...rows: unknown[]) => ({ identity: { headSha: H, state: 'succeeded' }, complete: true, rows })
+  const three = [shardRep(row('T1', 'test', [[1, 4000]], [[2, 3000]])), shardRep(row('T2', 'test', [[1, 10000]], [[1, 1000]])), shardRep(row('S1', 'selfcheck', [[1, 30000]], [[4, 20000]]))]
+  const costsFile = (reports: readonly unknown[] = three, head: unknown = { schema: 'main-mutation-costs/v1', run: 99, headSha: H }, extra: readonly string[] = []) =>
+    [JSON.stringify(head), ...extra, ...reports.map(costLine), ''].join('\n')
+  const main = mainCostWeights(costsFile())
+  const mw = 'weights' in main ? main.weights : undefined
+  eq('主干实测：三份对得上，交回取自哪一跑与算好的秒数',
+    ['run' in main ? [main.run, main.headSha] : main, pair(mw?.configs['T1']), pair(mw?.configs['T2']), pair(mw?.configs['S1']), mw?.runs], [[99, H], [4, 1.5], [10, 1], [30, 5], [H]])
+  const why = (text: string): string => { const r = mainCostWeights(text); return 'unavailable' in r ? r.unavailable : '（取到了）' }
+  eq('主干实测：文件第一行写着取不到，原样交回为什么', why(costsFile([], { schema: 'main-mutation-costs/v1', unavailable: '列不出主干上的运行记录' })), '列不出主干上的运行记录')
+  eq('主干实测：第一行不是一行 JSON，取不到', why(`不是 JSON\n${costLine(three[0])}`), '第一行不是一行 JSON')
+  ok('主干实测：第一行的 schema 不对，取不到', why(costsFile(three, { schema: 'main-mutation-costs/v0', run: 99, headSha: H })).includes('schema'))
+  ok('主干实测：run 不是正整数，取不到', why(costsFile(three, { schema: 'main-mutation-costs/v1', run: 0, headSha: H })).includes('run 不是正整数'))
+  ok('主干实测：headSha 不是 40 位十六进制，取不到', why(costsFile(three, { schema: 'main-mutation-costs/v1', run: 99, headSha: H.slice(1) })).includes('40 位十六进制'))
+  ok('主干实测：少一份成本报告，取不到', why(costsFile(three.slice(0, 2))).includes('摘出 2 份成本报告，应为 3 份'))
+  ok('主干实测：多一份成本报告，取不到', why(costsFile([...three, shardRep(row('T9', 'test', [[1, 1000]], [[1, 1000]]))])).includes('摘出 4 份成本报告，应为 3 份'))
+  eq('主干实测：不是 summary 的那几段与别的行不算',
+    why(costsFile(three, undefined, ['别的一行', `x MUTATION_COST_JSON ${JSON.stringify({ kind: 'configuration', report: shardRep(row('T1', 'test', [[1, 1], [1, 1]], [[1, 1]])) })}`])), '（取到了）')
+  ok('主干实测：成本报告那一行读不出来，取不到，说是第几行', why(costsFile(three, undefined, ['x MUTATION_COST_JSON {坏了'])).includes('第 2 行的成本报告读不出来'))
+  ok('主干实测：成本报告没有 report，取不到', why(costsFile(three, undefined, [`x MUTATION_COST_JSON ${JSON.stringify({ kind: 'summary', report: 7 })}`])).includes('没有 report'))
+  ok('主干实测：有一份是别的提交的，取不到', why(costsFile([three[0], three[1], { ...shardRep(row('S1', 'selfcheck', [[1, 30000]], [[4, 20000]])), identity: { headSha: 'e'.repeat(40), state: 'succeeded' } }])).includes('第 3 份成本报告不是提交 ddddddd 的'))
+  ok('主干实测：有一份没跑完（complete 不是 true），取不到', why(costsFile([three[0], { ...three[1], complete: false }, three[2]])).includes('第 2 份成本报告不是一次跑完的变异'))
+  // 整跑的变异（路由没有 only）：configurationCost 给这种行（outsideBaseline）无条件记一条「全量正常基线在本命令外」，complete 因此是 false；
+  // 整跑的各自成摞、会散到几份，键都是同一个，所以同一个整跑的键出现在几份里也收。W 是整跑的键
+  const whole = (issues: string[] = ['全量正常基线在本命令外'], outsideBaseline = true) => ({ ...row('W', 'test', [[0, 0]], [[1, 1000]]), outsideBaseline, issues })
+  const plain = (r: unknown) => ({ ...(r as object), issues: [] })
+  const partial = (rep: { rows: unknown[] }, ...extra: unknown[]) => ({ ...rep, rows: [...rep.rows.map(plain), ...extra], complete: false, issues: [] })
+  eq('主干实测：整跑的行只缺正常基线（complete 因此不是 true）、散在两份里，照样取到', why(costsFile([three[0], partial(three[1], whole()), partial(three[2], whole())])), '（取到了）')
+  ok('主干实测：整跑那一行除了缺正常基线还缺别的，取不到', why(costsFile([three[0], partial(three[1], whole(['全量正常基线在本命令外', 'M-1 启动观测无从确认'])), three[2]])).includes('第 2 份成本报告不是一次跑完的变异'))
+  ok('主干实测：不是整跑的一行记了一条问题，取不到', why(costsFile([three[0], partial(three[1], whole(['M-1 经过时间未观测'], false)), three[2]])).includes('第 2 份成本报告不是一次跑完的变异'))
+  ok('主干实测：报告本身记了问题，取不到', why(costsFile([three[0], { ...partial(three[1], whole()), issues: ['变异活动观测表未取得'] }, three[2]])).includes('第 2 份成本报告不是一次跑完的变异'))
+  ok('主干实测：有一份 state 不是 succeeded，取不到', why(costsFile([{ ...three[0], identity: { headSha: H, state: 'failed' } }, three[1], three[2]])).includes('第 1 份成本报告不是一次跑完的变异'))
+  ok('主干实测：同一种配置出现在两份里，取不到', why(costsFile([three[0], shardRep(row('T1', 'test', [[1, 4000]], [[2, 3000]])), three[2]])).includes('配置 T1 出现在不止一份成本报告里'))
+  ok('主干实测：算不出秒数（自检一条都没有）时取不到', why(costsFile([three[0], three[1], shardRep(row('T3', 'test', [[1, 1000]], [[1, 1000]]))])).includes('算不出秒数（selfcheck 一条变异的实测都没有）'))
+  ok('主干实测：每种配置都是 0 秒（计时坏了），取不到', why(costsFile([shardRep(row('T1', 'test', [[1, 0]], [[2, 0]])), shardRep(row('T2', 'test', [[1, 0]], [[1, 0]])), shardRep(row('S1', 'selfcheck', [[1, 0]], [[4, 0]]))])).includes('每种配置都是 0 秒'))
+  eq('主干实测：只有一种配置不是 0 秒，照样取到', why(costsFile([shardRep(row('T1', 'test', [[1, 0]], [[2, 0]])), shardRep(row('T2', 'test', [[1, 0]], [[1, 0]])), shardRep(row('S1', 'selfcheck', [[1, 0]], [[4, 40]]))])), '（取到了）')
 
   // 豁免：只认键恰为 mutation-growth-ok 的 trailer，理由非空才收
   eq('豁免：理由去掉首尾空白后收下', growthWaivers(['mutation-growth-ok:   新增一组判定  ']), ['新增一组判定'])
@@ -15586,13 +15620,24 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
 
   // 闸。loads 是每份的验证者秒数。底子：三份差不多重（合计 6300.6），基线 6290（长了 0.17%），PR 上
   type GateInput = Parameters<typeof shardLoadGate>[0]
-  const clean: GateInput = { loads: [2100.2, 2099.1, 2101.3], base: { total: 6290 }, trunk: { onTrunk: false }, waivers: [], wiring: [] }
+  const clean: GateInput = { measured: { run: 123, headSha: 'c'.repeat(40) }, loads: [2100.2, 2099.1, 2101.3], base: { total: 6290 }, trunk: { onTrunk: false }, waivers: [], wiring: [] }
   const gate = (over: Partial<GateInput>) => shardLoadGate({ ...clean, ...over })
   const crossLines = (over: Partial<GateInput>) => gate(over).lines.filter(l => l.startsWith('✗'))
   const crossed = (over: Partial<GateInput>) => crossLines(over).length > 0
   eq('闸：三份差不多重、没怎么长，PR 上不红', gate({}).red, false)
   eq('闸：都没越线时没有一行以 ✗ 开头', crossed({}), false)
   ok('闸：第一行报出每份秒数，取整', gate({}).lines[0]!.includes('2100 / 2099 / 2101'))
+  ok('闸：报数行说秒数取自主干哪一跑', gate({}).lines[0]!.includes('按主干 run 123、提交 ccccccc 的实测'))
+  // 秒数不是取自某一跑：本地没有就不判三道线（接线照核），取不到在 PR 上红、主干上只报数
+  const heavy = { loads: [126, 100, 74], base: { total: 1 } }
+  eq('闸：本地没有主干实测，越了线也不红、没有一行 ✗', [gate({ ...heavy, measured: { local: true } }).red, crossed({ ...heavy, measured: { local: true } })], [false, false])
+  ok('闸：本地没有主干实测，那一行说三道线只在 CI 上判', gate({ measured: { local: true } }).lines.some(l => l.includes('三道线只在 CI 上判')))
+  eq('闸：本地没有主干实测，接线不对照样红', gate({ measured: { local: true }, wiring: ['x'] }).red, true)
+  eq('闸：PR 上取不到主干实测，红', gate({ measured: { unavailable: '列不出主干上的运行记录' } }).red, true)
+  ok('闸：PR 上取不到主干实测，那一行 ✗ 带着为什么', crossLines({ measured: { unavailable: '列不出主干上的运行记录' } }).some(l => l.includes('取不到主干上一跑的实测（列不出主干上的运行记录）')))
+  eq('闸：主干上取不到主干实测，不红也没有 ✗', [gate({ measured: { unavailable: 'x' }, trunk: { onTrunk: true } }).red, crossed({ measured: { unavailable: 'x' }, trunk: { onTrunk: true } })], [false, false])
+  eq('闸：取不到主干实测时越了线也不按那几个数判，只有取不到那一行 ✗', crossLines({ ...heavy, measured: { unavailable: 'x' } }).length, 1)
+  eq('闸：主干上取不到主干实测，接线不对照样红', gate({ measured: { unavailable: 'x' }, trunk: { onTrunk: true }, wiring: ['x'] }).red, true)
   // 第一道（不均）：平均 100，最重 126 高 26% 越线；最重 125 恰好 25% 不算
   eq('闸：最重一份比平均高过 25%，PR 上红', gate({ loads: [126, 100, 74], base: { total: 300 } }).red, true)
   eq('闸：最重一份比平均高过 25%，有一行 ✗', crossed({ loads: [126, 100, 74], base: { total: 300 } }), true)
@@ -15643,7 +15688,7 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   const faults = (text: string, script: string | undefined = check) => workflowWiringFaults(text, script)
   const says = (text: string, ...parts: string[]) => { const f = faults(text); return f.length === 1 && parts.every(p => f[0].includes(p)) }
   ok('接线：钉死的样子按份数、worker 数与 chain 那一串填', pinned.includes('        shard: [1, 2, 3]') && pinned.includes('          MUTATE_SHARD: ${{ matrix.shard }}/3')
-    && pinned.includes("          MUTATE_JOBS: '6'") && pinned.includes('      - run: npm run a && npm run shard-load && npm run b')
+    && pinned.includes("          MUTATE_JOBS: '6'") && pinned.includes("      - run: bash scripts/check/cpu-time.sh 检查链 bash -c 'npm run a && npm run shard-load && npm run b'")
     && pinned.includes('          path: output/mutation-launches/launches-${{ matrix.shard }}-of-3.json') && !pinned.some(l => l.includes('«')))
   eq('接线：与钉死的样子相同（夹着整行注释与空行），一处都不报', faults(wf), [])
   eq('接线：换行写成 CRLF，不报', faults(wf.replace(/\n/g, '\r\n')), [])
@@ -15666,15 +15711,15 @@ harness('变异分份的负载闸：每份多重、长了多少、接线对不�
   eq('接线：check 那一串里夹「\\ #」，红', faults(pinnedWorkflow('npm run a && npm run shard-load && true \\ # && npm run b').join('\n'),
     'npm run a && npm run shard-load && true \\ # && npm run b'), [shape])
   eq('接线：check 那一串里夹「$$」，红', faults(pinnedWorkflow('npm run a && echo $$').join('\n'), 'npm run a && echo $$'), [shape])
-  eq('接线：钉死的样子照字面填 chain，「$&」不被当成替换记号', pinnedWorkflow('npm run a$&').filter(l => l.includes('npm run a')), ['      - run: npm run a$&'])
+  eq('接线：钉死的样子照字面填 chain，「$&」不被当成替换记号', pinnedWorkflow('npm run a$&').filter(l => l.includes('npm run a')), ["      - run: bash scripts/check/cpu-time.sh 检查链 bash -c 'npm run a$&'"])
   eq('接线：只去掉恰好是 mutate、launches 的那两步，放在开头也去', faults(wf, 'npm run launches && npm run a && npm run shard-load && npm run b && npm run mutate'), [])
   ok('接线：名字只是以 mutate 起头的那一步不去', faults(wf, 'npm run a && npm run shard-load && npm run mutate-x && npm run b')
-    .some(f => f.includes('应为「- run: npm run a && npm run shard-load && npm run mutate-x && npm run b」')))
+    .some(f => f.includes("应为「- run: bash scripts/check/cpu-time.sh 检查链 bash -c 'npm run a && npm run shard-load && npm run mutate-x && npm run b'」")))
   eq('接线：全是空格的行算空行，不报', faults(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n      \n')), [])
   ok('接线：怪空白那一行报原文件的行号', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n    # x\u2028\n'), `第 ${wf.split('\n').indexOf('    needs: [chain, mutate]') + 2} 行`))
   ok('接线：续行后的注释报它自己的行号', says(swap(`${cont}\n`, `${cont}\n          # x\n`), `第 ${wf.split('\n').indexOf(cont) + 2} 行`))
   ok('接线：check 那一串多了一步、chain 没跟上，红在 chain 那一行', faults(wf, 'npm run a && npm run shard-load && npm run c && npm run mutate && npm run b && npm run launches')
-    .some(f => f.includes('应为「- run: npm run a && npm run shard-load && npm run c && npm run b」')))
+    .some(f => f.includes("应为「- run: bash scripts/check/cpu-time.sh 检查链 bash -c 'npm run a && npm run shard-load && npm run c && npm run b'」")))
   ok('接线：MUTATE_JOBS 改成 4，说是第几行、应为什么', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), "是「MUTATE_JOBS: '4'」", "应为「MUTATE_JOBS: '6'」"))
   ok('接线：报的行号是原文件里的行号（注释与空行照数）', says(swap("MUTATE_JOBS: '6'", "MUTATE_JOBS: '4'"), `第 ${wf.split('\n').findIndex(l => l.includes('MUTATE_JOBS')) + 1} 行`))
   ok('接线：引号括起来的键多写一行，红', says(swap('    needs: [chain, mutate]\n', '    needs: [chain, mutate]\n    "continue-on-error": true\n'), '"continue-on-error": true'))
@@ -15726,7 +15771,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/admission.ts', 'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
     'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/never-red.ts', 'scripts/check/observer-cert.ts',
-    'scripts/check/selfcheck.ts', 'scripts/check/shard-load.ts', 'scripts/check/shard-weights.ts', 'scripts/check/skill.ts',
+    'scripts/check/selfcheck.ts', 'scripts/check/shard-load.ts', 'scripts/check/skill.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
@@ -29817,6 +29862,123 @@ await group('h-jargon', () => {
   eq('整次改动：有新加的行却读不到的那一份记下来，不当成没东西可报；没有新加行的（删掉的）不读', [unread.hits, unread.unread], [[], ['locked.md（读不到：locked.md 没权限）']])
   eq('全文：每处一行带位置与种类，最后是汇总；没有时只有汇总', [jargonLines(hits)[0], jargonLines(hits).at(-1)?.includes('1 处生词、0 处行号引用、0 处没配白话的需求编号'), jargonLines([]).length, jargonSummary([]).includes('没有要配白话的写法')],
     ['a.md:3  [生词]  新词甲', true, 1, true])
+})
+
+// 两组共用的玩具：假 curl 与造好的几跑。
+// 假 curl 只认脚本用到的三种请求（运行记录、某一跑的 job 列表、某个 job 的日志），要带令牌，答案取自 FAKE_GH_DIR 里的文件。
+// 有 slow-<文件> 时那一问要那么多秒：多过脚本给的 --max-time 就照 curl 的样子以 28 退出（不真等）。
+// 每次请求记一行「<--max-time 的值> <网址>」进 calls.txt，看脚本问了谁、没问谁、给了多少时限
+function mainCostsToy(toy: Parameters<Parameters<typeof withToyRepo>[0]>[0]) {
+  const script = join(process.cwd(), 'scripts/check/main-costs.sh')
+  const fake = ['#!/usr/bin/env bash', 'url=${@: -1}; t=; prev=', 'for a in "$@"; do [ "$prev" = --max-time ] && t=$a; prev=$a; done',
+    'echo "$t $url" >> "$FAKE_GH_DIR/calls.txt"',
+    'case "$*" in *"Authorization: Bearer tok"*) ;; *) echo "curl: (22) HTTP 401" >&2; exit 22 ;; esac',
+    'case $url in',
+    '  https://api.github.test/repos/o/r/actions/workflows/check.yml/runs\\?*) f=runs.json ;;',
+    '  https://api.github.test/repos/o/r/actions/runs/*/jobs\\?*) id=${url#*/actions/runs/}; f=jobs-${id%%/*}.json ;;',
+    '  https://api.github.test/repos/o/r/actions/jobs/*/logs) id=${url#*/actions/jobs/}; f=log-${id%%/*}.txt ;;',
+    '  *) exit 9 ;;', 'esac',
+    '[ -f "$FAKE_GH_DIR/slow-$f" ] && [ "$(cat "$FAKE_GH_DIR/slow-$f")" -gt "${t:-999999}" ] && { echo "curl: (28) Operation timed out" >&2; exit 28; }',
+    '[ -f "$FAKE_GH_DIR/$f" ] || { echo "curl: (22) HTTP 404" >&2; exit 22; }', 'cat "$FAKE_GH_DIR/$f"', ''].join('\n')
+  toy.write('bin/curl', fake)
+  chmodSync(join(toy.dir, 'bin/curl'), 0o755)
+  const sha = (c: string) => c.repeat(40)
+  const job = (id: number, name: string, conclusion: string) => ({ id, name, conclusion })
+  const mutateJobs = (base: number, conclusions: string[]) => ({ jobs: [job(base, '检查链（变异以外各步）', 'success'),
+    ...conclusions.map((c, i) => job(base + 1 + i, `变异（第 ${i + 1}/3 份）`, c)), job(base + 9, 'check', 'success')] })
+  const mark = (id: number) => `2026-11-28T00:00:00.0000000Z MUTATION_COST_JSON {"kind":"summary","job":${id}}`
+  // 四跑，新的在前：500 是这一跑自己；400 只有两份绿；300 三份都绿（要挑的）；200 也三份都绿（更旧，不该问到）。
+  // drop：那一份日志里没有成本报告；nul：那一份日志里成本报告前夹一个 NUL 字节（grep 会当成二进制文件）；gone：删掉的那几个答案文件（假 curl 答 404）；slow：那几问各要多少秒
+  const lay = (name: string, opts: { runs?: boolean; drop?: number; nul?: number; gone?: string[]; slow?: Record<string, number> } = {}) => {
+    const dir = `gh-${name}`
+    if (opts.runs !== false) toy.write(`${dir}/runs.json`, JSON.stringify({ workflow_runs: [500, 400, 300, 200].map(id => ({ id, head_sha: sha(String(id / 100)) })) }))
+    toy.write(`${dir}/jobs-400.json`, JSON.stringify(mutateJobs(400, ['success', 'failure', 'success'])))
+    toy.write(`${dir}/jobs-300.json`, JSON.stringify(mutateJobs(300, ['success', 'success', 'success'])))
+    toy.write(`${dir}/jobs-200.json`, JSON.stringify(mutateJobs(200, ['success', 'success', 'success'])))
+    for (const id of [301, 302, 303, 201, 202, 203]) toy.write(`${dir}/log-${id}.txt`, [id === opts.nul ? '别的\0一行' : '别的一行', id === opts.drop ? '没有那一行' : mark(id), 'MUTATION_LAUNCHES_JSON {}', ''].join('\n'))
+    for (const f of opts.gone ?? []) rmSync(join(toy.dir, dir, f))
+    for (const [f, sec] of Object.entries(opts.slow ?? {})) toy.write(`${dir}/slow-${f}`, `${sec}\n`)
+    return join(toy.dir, dir)
+  }
+  const run = (dir: string, args: string[] = ['out/main-costs.txt', '3'], extra: Record<string, string> = {}) => {
+    const r = cxSpawnSync('bash', [script, ...args], { cwd: toy.dir, encoding: 'utf8', timeout: 60_000,
+      env: { ...fixtureEnv({}), PATH: `${join(toy.dir, 'bin')}:${process.env.PATH ?? ''}`, FAKE_GH_DIR: dir, GITHUB_REPOSITORY: 'o/r', GITHUB_RUN_ID: '500', GH_TOKEN: 'tok', GITHUB_API_URL: 'https://api.github.test', MAIN_COSTS_BUDGET: '', ...extra } })
+    const out = (() => { try { return rf(join(toy.dir, 'out/main-costs.txt'), 'utf8') } catch { return '' } })()
+    const calls = (() => { try { return rf(join(dir, 'calls.txt'), 'utf8').split('\n').filter(Boolean) } catch { return [] } })()
+    rmSync(join(toy.dir, 'out'), { recursive: true, force: true })
+    return { status: r.status, stdout: r.stdout ?? '', out, calls }
+  }
+  const head = (out: string): unknown => { try { return JSON.parse(out.split('\n')[0]) } catch { return out } }
+  return { sha, mark, lay, run, head }
+}
+
+await group('h-main-costs-entry', () => {
+  harness('取主干上一跑变异实测的脚本：在玩具目录里拿假的 curl 真起，挑对那一跑、摘对那几行，每一问限时')
+  withToyRepo(toy => {
+    const { sha, mark, lay, run, head } = mainCostsToy(toy)
+    const good = run(lay('good'))
+    eq('取数：跳过这一跑自己与只有两份绿的那一跑，挑最新一跑三份变异都绿的，第一行写它的编号与提交',
+      [good.status, head(good.out)], [0, { schema: 'main-mutation-costs/v1', run: 300, headSha: sha('3') }])
+    eq('取数：只摘带 MUTATION_COST_JSON 的那几行，三份各一行，照原样', good.out.split('\n').slice(1), [mark(301), mark(302), mark(303), ''])
+    eq('取数：挑中之后不再问更旧的那一跑，这一跑自己的 job 也不问', [good.calls.some(c => c.includes('/runs/200/') || c.includes('/jobs/20')), good.calls.some(c => c.includes('/runs/500/'))], [false, false])
+    ok('取数：只问主干上 push 触发、已经跑完的 check.yml', good.calls[0]?.includes('actions/workflows/check.yml/runs?branch=main&event=push&status=completed&per_page=20') === true)
+    eq('取数：日志正文带着令牌取，三份各取一次', good.calls.map(c => /\/actions\/jobs\/(\d+)\/logs$/.exec(c)?.[1]).filter(Boolean), ['301', '302', '303'])
+    ok('取数：每一问都限时，最多 30 秒', good.calls.length > 0 && good.calls.every(c => { const t = Number(c.split(' ')[0]); return Number.isInteger(t) && t >= 1 && t <= 30 }))
+    ok('取数：说出取自哪一跑', good.stdout.includes('取自 run 300（提交 3333333）的 3 份变异'))
+    const nul = run(lay('nul', { nul: 302 }))
+    eq('取数：日志里夹着 NUL 字节也照文本摘，三份各一行', nul.out.split('\n').slice(1), [mark(301), mark(302), mark(303), ''])
+    const fewer = run(lay('fewer'), ['out/main-costs.txt', '4'])
+    eq('取数：哪一跑都凑不齐那么多份绿的，写取不到', [fewer.status, head(fewer.out)], [0, { schema: 'main-mutation-costs/v1', unavailable: '主干最近 20 跑里没有一跑 4 份变异都绿' }])
+    const noRuns = run(lay('no-runs', { runs: false }))
+    eq('取数：列不出主干的运行记录，写取不到', [noRuns.status, head(noRuns.out)], [0, { schema: 'main-mutation-costs/v1', unavailable: '列不出主干上的运行记录' }])
+    eq('取数：少了份数，以 2 退出、不写文件', [run(lay('usage'), ['out/main-costs.txt']).status, run(lay('usage2'), ['out/main-costs.txt', 'x']).out], [2, ''])
+  })
+})
+
+await group('h-main-costs-unavailable', () => {
+  harness('取主干上一跑变异实测的脚本：卡住、过了总限时、日志缺那一行或取不下来、job 列表读不出时，写取不到与为什么，仍以 0 退出')
+  withToyRepo(toy => {
+    const { lay, run, head } = mainCostsToy(toy)
+    const stuck = run(lay('stuck', { slow: { 'jobs-400.json': 45 } }))
+    eq('取数：有一问卡过 30 秒，写取不到与为什么、不等 job 超时，仍以 0 退出', [stuck.status, head(stuck.out)], [0, { schema: 'main-mutation-costs/v1', unavailable: '读不出 run 400 的 job 列表' }])
+    const late = run(lay('late'), undefined, { MAIN_COSTS_BUDGET: '0' })
+    eq('取数：过了总限时就一问也不再问，写取不到，仍以 0 退出', [late.status, head(late.out), late.calls.length], [0, { schema: 'main-mutation-costs/v1', unavailable: '列不出主干上的运行记录' }, 0])
+    const dropped = run(lay('dropped', { drop: 302 }))
+    eq('取数：挑中那一跑有一份日志里没有成本报告，写取不到与为什么，不改挑更旧的，仍以 0 退出',
+      [dropped.status, head(dropped.out), dropped.out.split('\n').length, dropped.calls.some(c => c.includes('/runs/200/'))],
+      [0, { schema: 'main-mutation-costs/v1', unavailable: 'run 300 的 job 302：日志取不下来，或里面没有成本报告那一行' }, 2, false])
+    const noLog = run(lay('no-log', { gone: ['log-303.txt'] }))
+    eq('取数：挑中那一跑有一份日志取不下来（404），写取不到与为什么，不改挑更旧的，仍以 0 退出',
+      [noLog.status, head(noLog.out), noLog.calls.some(c => c.includes('/runs/200/'))],
+      [0, { schema: 'main-mutation-costs/v1', unavailable: 'run 300 的 job 303：日志取不下来，或里面没有成本报告那一行' }, false])
+    const noJobs = run(lay('no-jobs', { gone: ['jobs-400.json'] }))
+    eq('取数：有一跑的 job 列表读不出来，写取不到与为什么，不跳过它去挑更旧的，仍以 0 退出',
+      [noJobs.status, head(noJobs.out), noJobs.calls.some(c => c.includes('/runs/300/'))],
+      [0, { schema: 'main-mutation-costs/v1', unavailable: '读不出 run 400 的 job 列表' }, false])
+  })
+})
+
+await group('h-cpu-time-entry', () => {
+  harness('打 CPU 时间的包装脚本：真起它跑一条命令，CPU 时间算上子孙进程，原样交回退出码，写进 Summary')
+  const script = join(process.cwd(), 'scripts/check/cpu-time.sh')
+  withToyRepo(toy => {
+    const summary = join(toy.dir, 'summary.md')
+    const run = (args: string[], extra: Record<string, string> = {}) => {
+      rmSync(summary, { force: true })
+      const r = cxSpawnSync('bash', [script, ...args], { cwd: toy.dir, encoding: 'utf8', timeout: 60_000, env: { ...fixtureEnv({}), GITHUB_STEP_SUMMARY: '', ...extra } })
+      return { status: r.status, stdout: r.stdout ?? '', summary: (() => { try { return rf(summary, 'utf8') } catch { return '' } })() }
+    }
+    // 孙进程空转到自己花满 0.3 秒 CPU：bash 起 bash、它再起 node。按 CPU 时间烧，机器再忙也烧够（只数这个 shell 自己的话是 0.0）
+    const burn = ['bash', '-c', `bash -c '${process.execPath} -e "while (process.cpuUsage().user < 300000);"'; exit 3`]
+    const got = run(['玩具', ...burn], { GITHUB_STEP_SUMMARY: summary })
+    const m = /^::notice title=CPU 时间::CPU 时间：玩具：CPU (\d+\.\d) 秒（用户 (\d+\.\d) · 系统 (\d+\.\d)，含子进程） · 墙钟 (\d+) 秒 · 退出码 3$/m.exec(got.stdout)
+    eq('CPU 时间：原样交回那条命令的退出码，打一行名字、CPU、墙钟与退出码', [got.status, m !== null], [3, true])
+    ok('CPU 时间：算上孙进程空转的那段', m !== null && Number(m[1]) >= 0.3)
+    ok('CPU 时间：总数是用户加系统', m !== null && Math.abs(Number(m[1]) - Number(m[2]) - Number(m[3])) <= 0.11)
+    eq('CPU 时间：设了 GITHUB_STEP_SUMMARY 就把同一行写进去', got.summary, m === null ? '（没打那一行）' : `${m[0].replace('::notice title=CPU 时间::', '')}\n`)
+    eq('CPU 时间：命令以 0 退出就以 0 退出，没设 GITHUB_STEP_SUMMARY 就不写', [run(['玩具', 'true']).status, existsSync(summary)], [0, false])
+    eq('CPU 时间：少了名字或命令以 2 退出，什么都不跑', [run(['玩具']).status, run([]).status, run(['', 'true']).stdout], [2, 2, ''])
+  })
 })
 
 await group('h-jargon-entry', () => {

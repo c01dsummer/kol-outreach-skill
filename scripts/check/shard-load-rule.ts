@@ -7,17 +7,19 @@
  * - **一次涨一点、涨了很多次**：每次都不显眼，十月和十一月那两轮变慢都是这么涨上去的 ——
  *   跟上一次比永远「差不多」，所以第三道不跟谁比，看的是最重的那一份离上限还有多远。
  *
- * **量用仓库里的实测秒数文件，不用这一跑的秒数**（需求所有者 2026-11-15 06:06Z 选的，ADR-203 第二节）：
- * `scripts/check/shard-weights.json` 记着每种配置一次正常基线几秒、一条变异几秒，取自 CI 上几跑变异一步的成本报告
- * （`weightsFromReports`，由 `npm run shard-weights` 写）。拿这一跑的秒数判红，同一个提交重跑一次就可能换个结论
- * （同一份代码在不同 runner 上差到 ×1.6）；拿文件里的数，同一棵树永远算出同一个数。文件里没有的配置按验证者取默认值。
- * 分份也按同一份数分（`jobs-rule.ts` 的 `shardPlan`），闸门量的就是变异一步实际的分法。文件旧了只影响分得平不平、
- * 估得准不准，不影响哪条变异被抓到。
+ * **量用主干上一跑的实测秒数**（需求所有者 2026-11-28 02:55Z 选的「直接用主干上一跑实测」，ADR-254；先前是仓库里一份手写的秒数文件，
+ * ADR-203 第二节，十一月中以后没人重写，分份与闸门一起失明）。CI 上第一个 job 跑 `scripts/check/main-costs.sh`，
+ * 从主干上一跑各份变异的日志里摘出成本报告（`MUTATION_COST_JSON` 那一行），交给这一跑的各份变异与检查链；
+ * `mainCostWeights` 把它算成每种配置一次正常基线几秒、一条变异几秒（`weightsFromReports`），这一跑里没有的配置按验证者取默认值。
+ * 各份与闸门读的是同一个文件、同一个函数，所以分法处处一样，闸门量的就是变异一步实际的分法。
+ * 代价：同一棵树换一个时候跑，主干上一跑换了，数就跟着换（同一份代码在不同 runner 上差到 ×1.6）；涨幅那一道两边用同一份数，不受影响。
+ * 取不到时（`unavailable`）：分份退回按条数分（每条都照跑，只是分得不平），闸门在 PR 上红、主干上只报数；
+ * 本地没有这份数（入口没拿到 `MAIN_COSTS_ENV`），闸门只核接线，三道线只在 CI 上判。
  *
  * 三道线与有没有豁免是需求所有者 2026-11-15 05:41Z 在选择卡上定的（ADR-203 第三节）：PR 上越线就红；主干上只报数 ——
  * CI 跑在推送之后，主干上判红只会让主干变红（同体量闸门、启动数闸门的理由）。只有「一次涨一大截」那一道
  * 可以用提交信息末段的 `mutation-growth-ok: <理由>` 豁免；另两道不设豁免，越线的改法写在各自那一行里。
- * 读不到就红：主干上算不出、PR 基线的清单读不出来、秒数文件认不得，都不当成「没涨」。
+ * 读不到就红：主干上算不出、PR 基线的清单读不出来、PR 上取不到主干上一跑的实测，都不当成「没涨」。
  */
 
 /** CI 上变异一步分几份。`.github/workflows/check.yml` 里写死的几处与它对不对得上由 `workflowWiringFaults` 核（ADR-203 第八节） */
@@ -42,9 +44,10 @@ export const CEILING_SECONDS = Math.round(CEILING_MINUTES * 60 / WALL_PER_VERIFI
 /** 「一次涨一大截」那一道的豁免写在提交信息末段的 trailer 里，键是这个 */
 export const GROWTH_WAIVER_KEY = 'mutation-growth-ok'
 
-/** 树内的实测秒数文件 */
-export const SHARD_WEIGHTS_FILE = 'scripts/check/shard-weights.json'
-export const SHARD_WEIGHTS_SCHEMA = 'mutation-shard-weights/v1'
+/** CI 上把主干上一跑的成本报告交给入口的环境变量：值是 `scripts/check/main-costs.sh` 写的那份文件的路径 */
+export const MAIN_COSTS_ENV = 'MUTATION_MAIN_COSTS'
+/** 那份文件第一行的 schema */
+export const MAIN_COSTS_SCHEMA = 'main-mutation-costs/v1'
 const VERIFIER_NAMES = ['test', 'selfcheck'] as const
 type VerifierName = (typeof VERIFIER_NAMES)[number]
 const isVerifier = (v: unknown): v is VerifierName => (VERIFIER_NAMES as readonly unknown[]).includes(v)
@@ -52,30 +55,15 @@ const isVerifier = (v: unknown): v is VerifierName => (VERIFIER_NAMES as readonl
 /** 一种配置：一次正常基线几秒、一条变异几秒 */
 export interface PileCost { readonly base: number; readonly each: number }
 export interface ShardWeights {
-  readonly schema: typeof SHARD_WEIGHTS_SCHEMA
   /** 取自哪几跑（成本报告里的 headSha），按字典序 */
   readonly runs: readonly string[]
-  /** 文件里没有的配置按验证者取这里的 */
+  /** 实测里没有的配置按验证者取这里的 */
   readonly defaults: Readonly<Record<VerifierName, PileCost>>
   /** 键是变异一步的配置键（`jobs-rule.ts` 的 `shardKey`） */
   readonly configs: Readonly<Record<string, PileCost>>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
-const isCost = (v: unknown): v is PileCost => isObject(v)
-  && typeof v.base === 'number' && Number.isFinite(v.base) && v.base >= 0
-  && typeof v.each === 'number' && Number.isFinite(v.each) && v.each >= 0
-
-/** 认秒数文件。认不得交回为什么 —— 认不得就不分、不判，不拿一个猜的数顶上 */
-export function readWeights(json: unknown): { weights: ShardWeights } | { fault: string } {
-  if (!isObject(json) || json.schema !== SHARD_WEIGHTS_SCHEMA) return { fault: `schema 不是 ${SHARD_WEIGHTS_SCHEMA}` }
-  if (!Array.isArray(json.runs) || json.runs.some(r => typeof r !== 'string')) return { fault: 'runs 不是一组字符串' }
-  if (!isObject(json.defaults)) return { fault: 'defaults 不是对象' }
-  for (const by of VERIFIER_NAMES) if (!isCost(json.defaults[by])) return { fault: `defaults.${by} 不是一对非负的 base、each` }
-  if (!isObject(json.configs)) return { fault: 'configs 不是对象' }
-  for (const [key, cost] of Object.entries(json.configs)) if (!isCost(cost)) return { fault: `configs 里 ${key} 不是一对非负的 base、each` }
-  return { weights: json as unknown as ShardWeights }
-}
 
 /** 跑一遍整个验证者大约几秒：文件里这个验证者各种配置的一次基线加起来（键认不出来的不算） */
 const fullRunSeconds = (w: ShardWeights, name: VerifierName): number => {
@@ -119,7 +107,7 @@ const sumOf = (o: unknown, field: 'totalMs' | 'samples'): number | undefined => 
 }
 
 /**
- * 从 CI 上几跑变异一步的成本报告（每份分片一份 `MUTATION_COST_JSON` 的 `report`）派生秒数文件。
+ * 从 CI 上几跑变异一步的成本报告（每份分片一份 `MUTATION_COST_JSON` 的 `report`）算出每种配置的秒数（`mainCostWeights` 用它）。
  * 同一个 headSha 的几份算同一跑。每种配置每一跑：base = 基线各类毫秒之和，each = 变异各类毫秒之和 ÷ 各类样本数之和
  * （样本为 0 的那一跑不取 each）；文件里记各跑的中位数，两位小数。默认值：base 取该验证者各配置各跑 base 的中位数，
  * each 取该验证者全部变异毫秒 ÷ 全部样本。报告形状不对、一份都没有、某个验证者一条都没有，交回为什么。
@@ -160,15 +148,68 @@ export function weightsFromReports(reports: readonly unknown[]): { weights: Shar
     const each = eaches.get(key)
     configs[key] = { base: round2(median(bases.get(key)!)), each: each === undefined ? defaults[byKey.get(key)!].each : round2(median(each)) }
   }
-  return { weights: { schema: SHARD_WEIGHTS_SCHEMA, runs: [...perRun.keys()].sort(), defaults, configs } }
+  return { weights: { runs: [...perRun.keys()].sort(), defaults, configs } }
 }
 
-/** 秒数文件的全文：一种配置一行，键按字典序，末尾一个换行 —— 回写两次逐字节相同 */
-export function weightsText(w: ShardWeights): string {
-  const cost = (c: PileCost): string => `{"base":${c.base},"each":${c.each}}`
-  return ['{', `  "schema": ${JSON.stringify(w.schema)},`, `  "runs": ${JSON.stringify(w.runs)},`,
-    `  "defaults": {"test":${cost(w.defaults.test)},"selfcheck":${cost(w.defaults.selfcheck)}},`,
-    '  "configs": {', Object.keys(w.configs).sort().map(k => `    ${JSON.stringify(k)}: ${cost(w.configs[k])}`).join(',\n'), '  }', '}', ''].join('\n')
+const COST_MARK = 'MUTATION_COST_JSON '
+/**
+ * 一份成本报告的观测齐不齐：`complete` 为 true；或报告本身没记问题、每一行都没记问题，只有整跑的那几行（`outsideBaseline`）各记了一条。
+ * 整跑的变异不另起正常基线，`configurationCost` 给这种行无条件记一条「全量正常基线在本命令外」，别的缺漏都会再多记；
+ * 所以「恰好一条」就是只缺这一样。不放这一样，清单里一有整跑的变异，它那一份就永远不完整，之后每跑都取不到。
+ */
+const costsWhole = (r: Record<string, unknown>): boolean => r.complete === true || (Array.isArray(r.issues) && r.issues.length === 0 && Array.isArray(r.rows) &&
+  r.rows.every(row => isObject(row) && Array.isArray(row.issues) && row.issues.length === (row.outsideBaseline === true ? 1 : 0)))
+/** 主干上一跑的实测：算好的秒数与它取自哪一跑；或取不到、为什么 */
+export type MainCosts =
+  | { readonly weights: ShardWeights; readonly run: number; readonly headSha: string }
+  | { readonly unavailable: string }
+
+/**
+ * 认 `scripts/check/main-costs.sh` 写的那份文件，算成秒数（ADR-254）。第一行是说明取自哪一跑（或取不到、为什么）的一行 JSON，
+ * 后面每行是从那几份变异日志里摘出的、带 `MUTATION_COST_JSON ` 的行。只收 `kind` 为 summary 的那几段，要：
+ * 恰好 `SHARD_COUNT` 份（每份变异一份）；每份的 `identity.headSha` 都是第一行说的那个提交、`identity.state` 是 succeeded、成本观测齐（`costsWhole`：`complete` 为 true，或只缺整跑那几行的正常基线）；
+ * 同一种带子集的配置只出现在一份里（份与份不重叠 —— 同一份日志摘了两遍、或几跑混在一起，就会重叠；整跑的各自成摞、本来就散在几份里，不算）。
+ * 都对上了交给 `weightsFromReports` 算；算出来每种配置的秒数全是 0（计时坏了）也算取不到。
+ * 哪一样对不上都交回 `unavailable` 与为什么，不拿一份残缺的数顶上。
+ */
+export function mainCostWeights(text: string): MainCosts {
+  const [first, ...rest] = text.split('\n')
+  let head: unknown
+  try { head = JSON.parse(first) } catch { return { unavailable: '第一行不是一行 JSON' } }
+  if (!isObject(head) || head.schema !== MAIN_COSTS_SCHEMA) return { unavailable: `第一行的 schema 不是 ${MAIN_COSTS_SCHEMA}` }
+  if (typeof head.unavailable === 'string') return { unavailable: head.unavailable }
+  const { run, headSha } = head
+  if (typeof run !== 'number' || !Number.isSafeInteger(run) || run <= 0) return { unavailable: '第一行没说取自哪一跑（run 不是正整数）' }
+  if (typeof headSha !== 'string' || !/^[0-9a-f]{40}$/.test(headSha)) return { unavailable: '第一行没说取自哪个提交（headSha 不是 40 位十六进制）' }
+  const reports: Record<string, unknown>[] = []
+  for (const [i, line] of rest.entries()) {
+    const at = line.indexOf(COST_MARK)
+    if (at < 0) continue
+    let seg: unknown
+    try { seg = JSON.parse(line.slice(at + COST_MARK.length)) } catch { return { unavailable: `第 ${i + 2} 行的成本报告读不出来` } }
+    if (!isObject(seg) || seg.kind !== 'summary') continue
+    if (!isObject(seg.report)) return { unavailable: `第 ${i + 2} 行的成本报告没有 report` }
+    reports.push(seg.report)
+  }
+  if (reports.length !== SHARD_COUNT) return { unavailable: `run ${run} 摘出 ${reports.length} 份成本报告，应为 ${SHARD_COUNT} 份` }
+  const seen = new Set<string>()
+  for (const [i, r] of reports.entries()) {
+    const id = isObject(r.identity) ? r.identity : {}
+    if (id.headSha !== headSha) return { unavailable: `第 ${i + 1} 份成本报告不是提交 ${headSha.slice(0, 7)} 的` }
+    if (id.state !== 'succeeded' || !costsWhole(r)) return { unavailable: `第 ${i + 1} 份成本报告不是一次跑完的变异（state 不是 succeeded，或成本观测缺了整跑那几行的正常基线以外的东西）` }
+    for (const row of Array.isArray(r.rows) ? r.rows : []) {
+      // 整跑的变异各自成摞、散在几份里，键都一样；只有带子集的配置要求份与份不重叠
+      const key = isObject(row) && row.outsideBaseline !== true ? row.key : undefined
+      if (typeof key !== 'string') continue
+      if (seen.has(key)) return { unavailable: `配置 ${key} 出现在不止一份成本报告里` }
+      seen.add(key)
+    }
+  }
+  const got = weightsFromReports(reports)
+  if ('fault' in got) return { unavailable: `run ${run} 的成本报告算不出秒数（${got.fault}）` }
+  const all = Object.values(got.weights.configs)
+  if (all.every(c => c.base === 0 && c.each === 0)) return { unavailable: `run ${run} 的成本报告里每种配置都是 0 秒，计时多半坏了` }
+  return { weights: got.weights, run, headSha }
 }
 
 /**
@@ -204,8 +245,25 @@ const WORKFLOW_PIN: readonly string[] = [
   "  contents: read",
   "  actions: read",
   "jobs:",
+  "  main-costs:",
+  "    name: 取主干上一跑的变异实测",
+  "    runs-on: ubuntu-latest",
+  "    timeout-minutes: 5",
+  "    steps:",
+  "      - uses: actions/checkout@v4",
+  "      - name: 摘主干上一跑各份变异的成本报告",
+  "        env:",
+  "          GH_TOKEN: ${{ github.token }}",
+  "        run: bash scripts/check/main-costs.sh output/main-costs/main-costs.txt «N»",
+  "      - uses: actions/upload-artifact@v4",
+  "        with:",
+  "          name: main-mutation-costs",
+  "          path: output/main-costs/main-costs.txt",
+  "          if-no-files-found: error",
+  "          retention-days: 3",
   "  chain:",
   "    name: 检查链（变异以外各步）",
+  "    needs: [main-costs]",
   "    runs-on: ubuntu-latest",
   "    steps:",
   "      - uses: actions/checkout@v4",
@@ -227,9 +285,14 @@ const WORKFLOW_PIN: readonly string[] = [
   "          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
   "          sysctl kernel.apparmor_restrict_unprivileged_userns",
   "      - run: npm ci --prefer-offline --no-audit",
-  "      - run: «CHAIN»",
+  "      - uses: actions/download-artifact@v4",
+  "        with:",
+  "          name: main-mutation-costs",
+  "          path: output/main-costs",
+  "      - run: bash scripts/check/cpu-time.sh 检查链 bash -c '«CHAIN»'",
   "        env:",
   "          SIZE_PR_BASE: ${{ github.event.pull_request.base.ref && format('origin/{0}', github.event.pull_request.base.ref) || '' }}",
+  "          MUTATION_MAIN_COSTS: output/main-costs/main-costs.txt",
   "      - name: 欠条点名提醒（只提醒）",
   "        if: always()",
   "        continue-on-error: true",
@@ -253,6 +316,7 @@ const WORKFLOW_PIN: readonly string[] = [
   "        continue-on-error: true",
   "  mutate:",
   "    name: 变异（第 ${{ matrix.shard }}/«N» 份）",
+  "    needs: [main-costs]",
   "    runs-on: ubuntu-latest",
   "    strategy:",
   "      fail-fast: false",
@@ -279,10 +343,15 @@ const WORKFLOW_PIN: readonly string[] = [
   "          sysctl kernel.apparmor_restrict_unprivileged_userns",
   "      - run: npm ci --prefer-offline --no-audit",
   "      - run: npm run compile",
-  "      - run: npm run mutate",
+  "      - uses: actions/download-artifact@v4",
+  "        with:",
+  "          name: main-mutation-costs",
+  "          path: output/main-costs",
+  "      - run: bash scripts/check/cpu-time.sh 变异 npm run mutate",
   "        env:",
   "          MUTATE_SHARD: ${{ matrix.shard }}/«N»",
   "          MUTATE_JOBS: '«JOBS»'",
+  "          MUTATION_MAIN_COSTS: output/main-costs/main-costs.txt",
   "      - uses: actions/upload-artifact@v4",
   "        with:",
   "          name: mutation-launches-${{ matrix.shard }}",
@@ -428,9 +497,14 @@ export function pinnedLinesFaults(workflow: string, want: readonly string[], hin
 
 /** 闸门要的量。`trunk` 同启动数闸门：在不在主干上，或者问不出来 */
 export interface ShardLoadInput {
+  /**
+   * 秒数取自哪里：主干上的哪一跑（`mainCostWeights` 认出来的）；取不到、为什么；或者本地根本没拿到那份数（`MAIN_COSTS_ENV` 没设）。
+   * 不是取自某一跑时 `loads` 与 `base` 不看
+   */
+  readonly measured: { readonly run: number; readonly headSha: string } | { readonly unavailable: string } | { readonly local: true }
   /** 每一份的验证者秒数（`shardPlan` 交回的 `loads`），按份的编号排 */
   readonly loads: readonly number[]
-  /** PR 基线（主干上是上一版）那份清单按同一份秒数文件算出的总秒数；读不出来时说为什么 */
+  /** PR 基线（主干上是上一版）那份清单按同一份秒数算出的总秒数；读不出来时说为什么 */
   readonly base: { readonly total: number } | { readonly unknown: string }
   readonly trunk: { readonly onTrunk: boolean } | { readonly unknown: string }
   /** 这条分支自己的提交里 `growthWaivers` 读出来的理由 */
@@ -446,10 +520,11 @@ const minutes = (seconds: number): string => (seconds * WALL_PER_VERIFIER_SECOND
 /**
  * 判三道线。先打一行报数（每份秒数、最重一份比平均高多少、预计几分钟、总秒数比基线涨了多少），再每越一道线打一行 ✗。
  * 红：问不出在不在主干上、接线对不上（两样主干上也红：它们是数据错，不是越线）；
- * PR 上越了线（「一次涨一大截」有理由豁免的除外）、PR 基线读不出来。
+ * PR 上越了线（「一次涨一大截」有理由豁免的除外）、PR 基线读不出来、取不到主干上一跑的实测。
+ * 本地没拿到实测时只核接线，三道线不判、不红（CI 上判）。
  */
 export function shardLoadGate(input: ShardLoadInput): ShardLoadGate {
-  const { loads, base, trunk, waivers, wiring } = input
+  const { measured, loads, base, trunk, waivers, wiring } = input
   const lines: string[] = []
   let fault = false
   if ('unknown' in trunk) { lines.push(`✗ 变异负载：问不出这棵树在不在主干上（${trunk.unknown}），三道线都没法判`); return { red: true, lines } }
@@ -458,6 +533,15 @@ export function shardLoadGate(input: ShardLoadInput): ShardLoadGate {
     lines.push(`✗ 变异负载：check.yml 的接线对不上（份数按 ${SHARD_COUNT}、派 ${CI_MUTATE_JOBS} 个 worker）—— ${wiring.join('；')}`)
   }
   const onTrunk = trunk.onTrunk
+  if ('local' in measured) {
+    lines.push(`变异负载：本地没有主干上一跑的实测（没设 ${MAIN_COSTS_ENV}），三道线只在 CI 上判；这里只核了接线`)
+    return { red: fault, lines }
+  }
+  if ('unavailable' in measured) {
+    if (onTrunk) lines.push(`变异负载：取不到主干上一跑的实测（${measured.unavailable}），三道线没法判 —— 主干上只报数`)
+    else lines.push(`✗ 变异负载：取不到主干上一跑的实测（${measured.unavailable}），三道线没法判，不当成没越线 —— 重跑这一跑的全部 job（只重跑失败的，取数那一步不重跑）；还取不到就看「取主干上一跑的变异实测」那个 job`)
+    return { red: fault || !onTrunk, lines }
+  }
   const total = loads.reduce((a, b) => a + b, 0)
   const heaviest = Math.max(0, ...loads)
   const mean = loads.length === 0 ? 0 : total / loads.length
@@ -470,7 +554,7 @@ export function shardLoadGate(input: ShardLoadInput): ShardLoadGate {
     growth = base.total === 0 ? (total > 0 ? Infinity : 0) : (total - base.total) / base.total
     delta = `比${vs} ${d > 0 ? '+' : ''}${d} 秒（${Number.isFinite(growth) ? `${growth >= 0 ? '+' : ''}${pct(growth)}` : '基线为 0'}，线 ${pct(GROWTH_LIMIT)}）`
   } else delta = `比${vs}：读不出来（${base.unknown}）`
-  lines.push(`变异负载（验证者秒数，按 ${SHARD_WEIGHTS_FILE}）：`
+  lines.push(`变异负载（验证者秒数，按主干 run ${measured.run}、提交 ${measured.headSha.slice(0, 7)} 的实测）：`
     + `${loads.length} 份 ${loads.map(Math.round).join(' / ')}，最重一份比平均高 ${pct(over)}（线 ${pct(BALANCE_LIMIT)}），`
     + `预计约 ${minutes(heaviest)} 分钟（线 ${CEILING_MINUTES} 分钟）；总 ${Math.round(total)} 秒，${delta}`
     + (onTrunk ? ' —— 主干上只报数' : ''))
