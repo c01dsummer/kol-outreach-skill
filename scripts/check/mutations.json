@@ -39865,12 +39865,12 @@
       "id": "M-H252-bj",
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
-      "why": "按行号绑的不写原文那一段也过 —— 行号挪了、同一行换成另一条，核对照样过",
-      "find": "if (c.says === undefined || flat(c.says) === '')",
-      "replace": "if (c.says === undefined)",
+      "why": "按行号绑的不写指纹、写错格式也过 —— 行号挪了、同一行换成另一条，核对照样过",
+      "find": "if (c.pin === undefined || !/^[0-9a-f]{16}$/.test(c.pin))",
+      "replace": "if (c.pin === undefined)",
       "by": "test",
       "kills": [
-        "核对：按行号绑的，没写原文、写了空白的、写的与那一行原文不是整句相同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行；只差空白的算相同"
+        "核对：按行号绑的，没写指纹、指纹不是 16 位十六进制、指纹与那一行原文此刻的不同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行并报出现在的指纹；只差空白的算同一句"
       ]
     },
     {
@@ -39878,11 +39878,11 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "原文不比 —— 同一行换成了另一条死亡条件，探针越线时从轮值里拿掉的是那一条",
-      "find": "else if (hits.length === 1 && flat(hits[0].text) !== flat(c.says))",
+      "find": "else if (hits.length === 1 && pinOf(hits[0].text) !== c.pin)",
       "replace": "else if (false)",
       "by": "test",
       "kills": [
-        "核对：按行号绑的，没写原文、写了空白的、写的与那一行原文不是整句相同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行；只差空白的算相同"
+        "核对：按行号绑的，没写指纹、指纹不是 16 位十六进制、指纹与那一行原文此刻的不同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行并报出现在的指纹；只差空白的算同一句"
       ]
     },
     {
@@ -39958,27 +39958,15 @@
       ]
     },
     {
-      "id": "M-H252-br",
-      "req": "harness",
-      "file": "scripts/check/condition-rule.ts",
-      "why": "只要登记的那几个字还在那一行里就算对上 —— 同一行换成另一条、新的一条里还含着那几个字，核对照样过",
-      "find": "flat(hits[0].text) !== flat(c.says)",
-      "replace": "!flat(hits[0].text).includes(flat(c.says))",
-      "by": "test",
-      "kills": [
-        "核对：按行号绑的，没写原文、写了空白的、写的与那一行原文不是整句相同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行；只差空白的算相同"
-      ]
-    },
-    {
       "id": "M-H252-bs",
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
-      "why": "登记的那一句不去空白就比 —— 只差空白也说对不上",
-      "find": "!== flat(c.says))",
-      "replace": "!== c.says)",
+      "why": "指纹不去空白就算 —— 原文换个行、多个空格就说不是同一句",
+      "find": "createHash('sha256').update(flat(text))",
+      "replace": "createHash('sha256').update(text)",
       "by": "test",
       "kills": [
-        "核对：按行号绑的，没写原文、写了空白的、写的与那一行原文不是整句相同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行；只差空白的算相同"
+        "核对：按行号绑的，没写指纹、指纹不是 16 位十六进制、指纹与那一行原文此刻的不同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行并报出现在的指纹；只差空白的算同一句"
       ]
     },
     {

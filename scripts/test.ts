@@ -45,7 +45,7 @@ import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
 import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, ledgerDiff as rawLedgerDiff, NEVER_RED_RUNS, neverRedLines, neverRedStop, optValue, parseJobs, parseRuns, pickNeverRed, type RawGit, rawLine, readNeverRed, slowRuns, topTen } from './check/revisit-raw-rule.js'
 import { addDays, beijingDate, bornReport, carriedUntil, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex, type Listing } from './check/revisit-rule.js'
-import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, conditionReport, evaluate as evaluateConditions, firedSet, judge as judgeCondition, ledgerIndex, mergedBy, parseSubjects, readTreeFile, type Condition, type ConditionRaw, type Measure, type Op, type Outcome as ConditionOutcome, type Probe, type TreeFile, type Verdict } from './check/condition-rule.js'
+import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, conditionReport, evaluate as evaluateConditions, firedSet, judge as judgeCondition, ledgerIndex, mergedBy, parseSubjects, pinOf as conditionPin, readTreeFile, type Condition, type ConditionRaw, type Measure, type Op, type Outcome as ConditionOutcome, type Probe, type TreeFile, type Verdict } from './check/condition-rule.js'
 import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
@@ -28311,7 +28311,7 @@ await group('h-conditions', () => {
 
   // 核对登记表
   const cdocs = new Map([['docs/adr/ADR-1-一.md', `# ADR-1\n\n${iou('开着')}\n${iou('关了')}\n> ⚠️ 已还：ADR-1「关了」 · 还在 #3\n\n${iou('续了')}\n> ⚠️ 续挂：ADR-1「续了」 · 在 #4 · 到 2026-12-21 · 因为\n\n> **什么条件下撤**：一\n`]])
-  const C = (binds: string, kind: Condition['kind'], probe: Probe, says = '什么条件下撤：一'): Condition => ({ binds, kind, name: '某条', probe, ...binds.includes('「') ? {} : { says } })
+  const C = (binds: string, kind: Condition['kind'], probe: Probe, pin = conditionPin('什么条件下撤：一')): Condition => ({ binds, kind, name: '某条', probe, ...binds.includes('「') ? {} : { pin } })
   const merged: Probe = { judge: 'pr-merged', pr: 1 }
   const faults = (table: Condition[], kindOf = (_p: string): 'file' | 'dir' | undefined => 'file') => conditionFaults(table, cdocs, kindOf)
   eq('核对：开着、续挂的欠条与死亡条件都过', faults([C('ADR-1「开着」', '欠条', merged), C('ADR-1「续了」', '欠条', merged), C('ADR-1 第 13 行', '死亡条件', merged)]), [])
@@ -28346,12 +28346,11 @@ await group('h-conditions', () => {
   eq('核对：拆过的记录主文件与历史文件同一行各有一张没名字的欠条、都开着，按行号绑认不出是哪张，报；有名字的同名同状态算一条',
     [conditionFaults([C('ADR-9 第 3 行', '欠条', merged)], udocs, () => 'file'), conditionFaults([C('ADR-9「甲」', '欠条', merged)], new Map([['docs/adr/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}`], ['docs/adr/历史/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}`]]), () => 'file')],
     [['条件探针「某条」（绑 ADR-9 第 3 行）：这个行号在台账里对上不止一条（拆过的记录主文件与历史文件同一行各有一张），不知道绑的是哪一张'], []])
-  eq('核对：按行号绑的，没写原文、写了空白的、写的与那一行原文不是整句相同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行；只差空白的算相同',
-    faults([C('ADR-1 第 13 行', '死亡条件', merged, ' '), { binds: 'ADR-1 第 13 行', kind: '死亡条件', name: '某条', probe: merged }, C('ADR-1 第 13 行', '死亡条件', merged, '什么条件下退'), C('ADR-1 第 13 行', '死亡条件', merged, '什么条件下撤'), C('ADR-1 第 13 行', '死亡条件', merged, ' 什么条件下撤： 一 ')]).filter(f => !f.includes('一条至多一个')), [
-      '条件探针「某条」（绑 ADR-1 第 13 行）：按行号绑的要写 says（那一行的条件原文，整句），核对时比',
-      '条件探针「某条」（绑 ADR-1 第 13 行）：按行号绑的要写 says（那一行的条件原文，整句），核对时比',
-      '条件探针「某条」（绑 ADR-1 第 13 行）：这一行现在写的与登记时那一句不是整句相同（行号挪了，或换成了另一条），撤掉这一行或改绑',
-      '条件探针「某条」（绑 ADR-1 第 13 行）：这一行现在写的与登记时那一句不是整句相同（行号挪了，或换成了另一条），撤掉这一行或改绑'])
+  eq('核对：按行号绑的，没写指纹、指纹不是 16 位十六进制、指纹与那一行原文此刻的不同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行并报出现在的指纹；只差空白的算同一句',
+    faults([C('ADR-1 第 13 行', '死亡条件', merged, conditionPin('一').toUpperCase()), { binds: 'ADR-1 第 13 行', kind: '死亡条件', name: '某条', probe: merged }, C('ADR-1 第 13 行', '死亡条件', merged, conditionPin('什么条件下退')), C('ADR-1 第 13 行', '死亡条件', merged, conditionPin('什么条件下撤')), C('ADR-1 第 13 行', '死亡条件', merged, conditionPin(' 什么条件下撤： 一 '))]).filter(f => !f.includes('一条至多一个')), [
+      ...Array(2).fill('条件探针「某条」（绑 ADR-1 第 13 行）：按行号绑的要写 pin（那一行条件原文的指纹，pinOf 算的 16 位十六进制），核对时比'),
+      ...Array(2).fill(`条件探针「某条」（绑 ADR-1 第 13 行）：这一行现在写的与登记时那一句不是同一句（行号挪了、换成了另一条或措辞改了；现在的指纹是 ${conditionPin('什么条件下撤：一')}），撤掉这一行或核过原文后改绑`)])
+  eq('指纹：去掉空白后的 SHA-256 前 16 位', conditionPin(' a\nb '), createHash('sha256').update('ab').digest('hex').slice(0, 16))
   eq('核对：续挂到哪天按记法交回，只有续挂行指着的才有', [...carriedUntil(cdocs)], [['ADR-1「续了」', '2026-12-21']])
 
   // 回访那一段
@@ -28388,8 +28387,8 @@ await group('h-conditions', () => {
   eq('轮值：只按记法拿掉 —— 同一份主文件两节写了一模一样的死亡条件，越线的是哪一条就只拿掉那一条', deathRota(twin, '2026-11-30', 4, new Set(['ADR-1 第 3 行'])),
     ['死亡条件 2 条（历史文件里与主文件整句相同的 0 条不重复算）；这一周轮到编号除以 4 余 1 的 1 条（条件探针越线、已排在最前面的 1 条不在这里列）', 'ADR-1 第 7 行  什么条件下撤：一'])
   eq('核对：绑死亡条件的只认轮值里会列出的那一份 —— 绑了历史文件里与主文件整句相同的那份，报；绑主文件那一行过',
-    [conditionFaults([{ binds: 'ADR-1 第 3 行', kind: '死亡条件', name: '某条', says: '什么条件下撤：一', probe: { judge: 'pr-merged', pr: 1 } }], hdocs, () => 'file'),
-      conditionFaults([{ binds: 'ADR-1 主文件第 3 行', kind: '死亡条件', name: '某条', says: '什么条件下撤：一', probe: { judge: 'pr-merged', pr: 1 } }], hdocs, () => 'file')],
+    [conditionFaults([{ binds: 'ADR-1 第 3 行', kind: '死亡条件', name: '某条', pin: conditionPin('什么条件下撤：一'), probe: { judge: 'pr-merged', pr: 1 } }], hdocs, () => 'file'),
+      conditionFaults([{ binds: 'ADR-1 主文件第 3 行', kind: '死亡条件', name: '某条', pin: conditionPin('什么条件下撤：一'), probe: { judge: 'pr-merged', pr: 1 } }], hdocs, () => 'file')],
     [['条件探针「某条」（绑 ADR-1 第 3 行）：轮值里不列这一份（历史文件里与主文件整句相同，只列主文件那一份），改绑主文件那一行'], []])
 })
 await group('h-conditions-entry', () => {
