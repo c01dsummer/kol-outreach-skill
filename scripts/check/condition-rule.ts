@@ -434,8 +434,12 @@ export function conditionReport(outcomes: Outcome[], today: string, listed: Map<
   for (const { verdict: v, ...c } of fired) {
     const l = listed.get(c.binds)
     const judged = l !== undefined && JUDGED[c.kind].has(l.verdict.trim())
-    if (judged && today < addDays(l.day, QUIET_DAYS)) { quiet++; held.push(`先不列：${c.binds} · ${c.kind} · ${c.name} · 判过，${addDays(l.day, QUIET_DAYS)} 起再列`); continue }
     const u = c.kind === '欠条' ? until.get(c.binds) : undefined
+    // 判过的又续挂了：两道都过了才再列，说的日子取晚的那个
+    if (judged && today < addDays(l.day, QUIET_DAYS)) {
+      const back = u !== undefined && u > addDays(l.day, QUIET_DAYS) ? u : addDays(l.day, QUIET_DAYS)
+      quiet++; held.push(`先不列：${c.binds} · ${c.kind} · ${c.name} · 判过，${back} 起再列`); continue
+    }
     if (u !== undefined && today < u) { carried++; held.push(`先不列：${c.binds} · ${c.kind} · ${c.name} · 续挂到 ${u}`); continue }
     // 续挂过（续挂行写了日子）或哪一次判过留的欠条，与到期清单同一个标记：「留」只许一次
     const again = c.kind === '欠条' && (u !== undefined || l?.kept === true) ? ' · 续挂过，只能还或收尾' : ''
