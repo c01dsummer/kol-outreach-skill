@@ -55,7 +55,7 @@ export interface Condition {
   /** 一句白话：这一行算的是什么 */
  
   name: string
-  /** 按行号绑的（记法里没有「」名字的）必写：原文里的一段，核对时要还在那一行的条件原文里（去掉空白比）。行号挪了、同一行换成了另一条，核对红 */
+  /** 按行号绑的（记法里没有「」名字的）必写：那一行的条件原文，整句（台账抽出来的那一句），核对时去掉空白整句比。行号挪了、同一行换成了另一条（哪怕新的一条里还含着原来的几个字），核对红 */
   says?: string
  
   probe: Probe
@@ -67,18 +67,34 @@ export interface Condition {
  */
 export const CONDITIONS: readonly Condition[] = [
   // 原文：「重启条件：PR #73 已合入」（后半句另有所等的话，越线时由人判）
-  { binds: 'ADR-69 第 20 行', kind: '欠条', says: 'PR #73 已合入', name: 'PR #73 合入', probe: { judge: 'pr-merged', pr: 73 } },
+  { binds: 'ADR-69 第 20 行', kind: '欠条',
+    says: '它活着，跑的是被改过的源码，而父进程已经还原完、退出了 · 重启条件：PR #73 已合入 ——',
+    name: 'PR #73 合入', probe: { judge: 'pr-merged', pr: 73 } },
   // 原文：「本登记合入 main 后」，本登记就是 #255；若原意是等另一条改动，就是多报，越线时由人判
-  { binds: 'ADR-130 第 110 行', kind: '欠条', says: '重启条件：本登记合入', name: 'PR #255（本登记）合入', probe: { judge: 'pr-merged', pr: 255 } },
+  { binds: 'ADR-130 第 110 行', kind: '欠条',
+    says: '⚠️ 欠条：#254 的 render 原件直接联系验证记录尚未给各阶段的可计算计数明确绑定完整不可变树；同处引用块另有 MD028 格式提示。历史首次失败、旧稿、归因更正与最终成功须分别保留，不能用最终成功覆盖旧记录。去向见[原回复](https://github.com/c01dsummer/kol-outreach-skill/pull/254#discussion_r4157429200)及[评审认可](https://github.com/c01dsummer/kol-outreach-skill/pull/254#discussion_r4157435661)。重启条件：本登记合入 main 后，作者另开只追加的文档维护改动，复核各阶段树引用并处理同处 MD028 提示。',
+    name: 'PR #255（本登记）合入', probe: { judge: 'pr-merged', pr: 255 } },
   // 原文：「重启条件：#376 已合入」
-  { binds: 'ADR-180 第 62 行', kind: '欠条', says: '#376 已合入', name: 'PR #376 合入', probe: { judge: 'pr-merged', pr: 376 } },
+  { binds: 'ADR-180 第 62 行', kind: '欠条',
+    says: '⚠️ 欠条（延期 5；档：既有缺陷；承接第二节统计卡片那张）：公开指标已测账号数与高风险人数缺值时的 ?? 0 在本 PR 前已经存在，第二节原标“登记”不准确；本 PR 只包转义，没有改默认零。按既有缺陷另开最小修补，合后排在其余代码工作之前 · 重启条件：#376 已合入（本条件已满足，不等待另一次触发）',
+    name: 'PR #376 合入', probe: { judge: 'pr-merged', pr: 376 } },
   // 原文：#417 合入后（D13 缺省预算那一片）
-  { binds: 'ADR-184 第 217 行', kind: '欠条', says: 'D13×P3 ruling 尚未写入', name: 'PR #417 合入', probe: { judge: 'pr-merged', pr: 417 } },
-  { binds: 'ADR-184 第 219 行', kind: '欠条', says: 'D13.t 的 stderr 默认预算提示', name: 'PR #417 合入', probe: { judge: 'pr-merged', pr: 417 } },
+  { binds: 'ADR-184 第 217 行', kind: '欠条',
+    says: '⚠️ 欠条：D13×P3 ruling 尚未写入“用户没给预算时，明示按 $2 告知算确认”，并需同步生成 SPEC、在修改时核红线交点的测试认领；ADR-184 末尾认定不等于已同步需求登记表 · 来源：PR #417 CodeRabbit review 5734184892，CR 4440537856（锚 1622a8e 的 ADR-184:206，2026-11-02 17:06:18 CST），原回复 4442835288；轮次写法依丸子 2026-11-02 21:02 CST 对该评论的决定；去向：另开普通变更 PR 按 2-CHANGE 改，丸子 2026-11-02 21:50 CST（卡 t222s1881；仓外记录 /workspace/kol21-iou1/decision-2150.md）；本欠条 PR 只登记 · 档：本改动(轮次核不出,合并者 2026-11-02 20:10 CST 判不阻塞) · 重启条件：#417 已合入',
+    name: 'PR #417 合入', probe: { judge: 'pr-merged', pr: 417 } },
+  { binds: 'ADR-184 第 219 行', kind: '欠条',
+    says: '⚠️ 欠条：D13.t 的 stderr 默认预算提示尚未与 $2 预算选择、持久化拆成独立判据；已拆出的显式 --budget 判据 D13.u 不等于完成本项 · 来源：PR #417 CodeRabbit review 5734184892，CR 4440537873（锚 1622a8e 的 docs/requirements.json:998，2026-11-02 17:06:18 CST），原回复 4442838133；轮次写法依丸子 2026-11-02 21:02 CST 对该评论的决定；去向：另开普通变更 PR 按 2-CHANGE 改，丸子 2026-11-02 21:50 CST（卡 t222s1881；仓外记录 /workspace/kol21-iou1/decision-2150.md）；本欠条 PR 只登记 · 档：本改动(轮次核不出,合并者 2026-11-02 20:10 CST 判不阻塞) · 重启条件：#417 已合入',
+    name: 'PR #417 合入', probe: { judge: 'pr-merged', pr: 417 } },
   // 原文写的是「独立测试包」那条分支合入（记录里写着分支名）；那条分支开的 PR 是 #425，合入时压成一个提交，标题末尾「 (#425)」
-  { binds: 'ADR-183 第 118 行', kind: '欠条', says: 'D6.x 没有认领', name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
-  { binds: 'ADR-184 第 193 行', kind: '欠条', says: 'D13.u 没有认领', name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
-  { binds: 'ADR-184 第 272 行', kind: '欠条', says: '未还部分只剩 D13.v', name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
+  { binds: 'ADR-183 第 118 行', kind: '欠条',
+    says: '⚠️ 欠条：D6.x 没有认领 —— 需求测试与自检都还没有 `criterion` 认领它；它不是红线判据，按 `docs/SYNC.md` 第 24 行审计不会因此硬失败 · 来源：本条写入时自登（KOL-21 正本一片 D） · 档：登记 · 重启条件：KOL-21 独立测试包 T（`claude/kol-21-independent-testpack`）合入',
+    name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
+  { binds: 'ADR-184 第 193 行', kind: '欠条',
+    says: '⚠️ 欠条：D13.u 没有认领 —— 需求测试与自检都还没有 `criterion` 认领它；它不是红线判据，按 `docs/SYNC.md` 第 24 行审计不会因此硬失败 · 来源：本节写入时自登（KOL-21 缺省预算正本片，#417 拆出 D13.u 的追加提交） · 档：登记 · 重启条件：KOL-21 独立测试包 T（`claude/kol-21-independent-testpack`）合入',
+    name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
+  { binds: 'ADR-184 第 272 行', kind: '欠条',
+    says: '⚠️ 未认领余额接替：第 120、191 行原 D13.t 没有认领的同一笔余额中，D13.w 已由 `d13-default-budget-entry` 组认领；未还部分只剩 D13.v，由其承接，旧块保留，不重复登记两份同额欠款；来源仍为本条缺省预算正本片的自登，档仍为登记 · 重启条件：KOL-21 独立测试包 T（`claude/kol-21-independent-testpack`）合入。第 193 行 D13.u 欠条与其原重启条件不变；本块不称 D13.v 或 D13.u 的测试欠条已还。',
+    name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
   // 原文：「还法：台账认得出已还、已重挂、收尾之后（ADR-151「台账不判哪张欠条已还」…）」
   { binds: 'ADR-236「还欠什么那一栏没有机器跟着改」', kind: '欠条', name: 'ADR-151「台账不判哪张欠条已还」已还',
     probe: { judge: 'ledger-status', waits: 'ADR-151「台账不判哪张欠条已还」', status: '已还' } },
@@ -89,16 +105,24 @@ export const CONDITIONS: readonly Condition[] = [
   { binds: 'ADR-211「回访台账过线后挪块只靠回访 PR 正文一句提醒」', kind: '欠条', name: '回访台账主文件超过 30 000 字节',
     probe: { judge: 'tree-number', measure: { kind: 'bytes', path: 'docs/adr/ADR-152-回访台账：例程每周往这里追加一块，人合每一块.md' }, op: '>', line: 30000 } },
   // 原文：「它超过 30 行、或者里面出现任何一条……」：只算前一腿
-  { binds: 'ADR-83 第 61 行', kind: '死亡条件', says: '它超过 30 行', name: 'REVIEW.md 超过 30 行（只算前一腿）',
+  { binds: 'ADR-83 第 61 行', kind: '死亡条件',
+    says: '`REVIEW.md` 本身什么时候撤：它超过 30 行、或者里面出现任何一条',
+    name: 'REVIEW.md 超过 30 行（只算前一腿）',
     probe: { judge: 'tree-number', measure: { kind: 'lines', path: 'REVIEW.md' }, op: '>', line: 30 } },
   // 原文：「仓库里不再有 `skill/SKILL.md` 时」
-  { binds: 'ADR-156 第 210 行', kind: '死亡条件', says: '仓库里不再有 `skill/SKILL.md` 时', name: 'skill/SKILL.md 不在了',
+  { binds: 'ADR-156 第 210 行', kind: '死亡条件',
+    says: '什么条件下整个撤掉：仓库里不再有 `skill/SKILL.md` 时（这个 Skill 不再以这个目录发出去）。对着 git 就核得出。',
+    name: 'skill/SKILL.md 不在了',
     probe: { judge: 'tree-number', measure: { kind: 'exists', path: 'skill/SKILL.md' }, op: '=', line: 0 } },
   // 原文：「`scripts/lib` 或 `scripts/providers` 里出现第一份手写的 `.d.ts` 时」：手写的就是进了仓库的
-  { binds: 'ADR-202 第 473 行', kind: '欠条', says: '里出现第一份手写的 `.d.ts` 时', name: 'scripts/lib、scripts/providers 里出现手写的 .d.ts（只算前一腿）',
+  { binds: 'ADR-202 第 473 行', kind: '欠条',
+    says: '⚠️ 欠条：准入读物包的入口有几处没守住或没想清的：登记表读不出（文件不在或不是 JSON）那一支以 2 拒收，没有自检例，手改成以 1 退出也不红；手写的 `.d.ts` 被滤掉、不进包（第二节写的是「全部 `.ts`」，真树两个源目录今天 0 份）；类型有错的树照样出包（入口不看编译诊断） · 来源：ADR-202 第二片的独立复核非阻塞第 4、5、6 条 · 档：登记 · 重启条件：`scripts/lib` 或 `scripts/providers` 里出现第一份手写的 `.d.ts` 时，或下一次有人拿一个类型有错的树出了包、写测试的上下文照着错的签名写时，或下一条改入口读登记表那一段的 PR，先到为准',
+    name: 'scripts/lib、scripts/providers 里出现手写的 .d.ts（只算前一腿）',
     probe: { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['scripts/lib', 'scripts/providers'], suffix: '.d.ts' }, op: '>=', line: 1 } },
   // 原文：「`--brief` 不再打豁免（或不再有豁免）……」：只算「不再有豁免」那一腿
-  { binds: 'ADR-70 主文件第 273 行', kind: '死亡条件', says: '不再有豁免', name: '变异目录里不再有豁免（只算这一腿）',
+  { binds: 'ADR-70 主文件第 273 行', kind: '死亡条件',
+    says: '什么条件下整个撤掉：`--brief` 不再打豁免（或不再有豁免），或者不再把 `--brief` 交给写测试的上下文。',
+    name: '变异目录里不再有豁免（只算这一腿）',
     probe: { judge: 'tree-number', measure: { kind: 'catalog-exemptions' }, op: '=', line: 0 } },
 ]
 
@@ -126,7 +150,7 @@ export interface LedgerHit {
   // 字段不入断言：同上
   status: RowStatus | null
   /** 这一行的条件原文（台账抽出来的那一句） */
-  // 字段不入断言：同上，核对按行号绑的那几行比 `says`
+  // 字段不入断言：同上，核对按行号绑的那几行与 `says` 整句比
   text: string
 }
 
@@ -306,7 +330,7 @@ const flat = (t: string): string => t.replace(/\s+/g, '')
  * 1. 绑的记法在台账里恰好对上一条（拆过的记录主文件与历史文件同名的那张，状态相同算一条；没名字、按行号对上两条的，不知道是哪一张，报），种类与登记的同；
  * 2. 欠条要开着或续挂：已还、收尾、已重挂了，这个探针管的那条已经关了或改挂了，要撤掉或改绑；死亡条件没有状态，
  *    只核它是轮值里会列出的那一份（拆过的记录，历史文件里与主文件整句相同的那份不列，绑它就红）—— 拿掉越线的只按这个记法；
- * 3. 一条至多一个探针；按行号绑的，登记时写下的那一段（`says`）要还在那一行的原文里 —— 行号挪了、同一行换成了另一条，都在这里红；
+ * 3. 一条至多一个探针；按行号绑的，登记时写下的那一句（`says`，整句）要与那一行的条件原文去掉空白后相同 —— 行号挪了、同一行换成了另一条，都在这里红；
  * 4. 参数：PR 号是正整数；`ledger-status` 等的那张在台账里是一张欠条；量的是普通文件（量「在不在」与变异目录豁免条数的除外）、数份数的是目录。
  *
  * `kindOf` 答一个路径在树里是普通文件、目录，还是不在（或别的）。
@@ -331,8 +355,8 @@ export function conditionFaults(table: readonly Condition[], docs: Map<string, s
       out.push(`${at}：这个探针管的那条已经${hits[0].status === '已重挂' ? '改挂' : hits[0].status === '已还' ? '还了' : '收尾'}，撤掉这一行或改绑到现行那一张`)
     }
     if (!c.binds.includes('「')) {
-      if (c.says === undefined || flat(c.says) === '') out.push(`${at}：按行号绑的要写 says（原文里的一段），核对时比`)
-      else if (hits.length === 1 && !flat(hits[0].text).includes(flat(c.says))) out.push(`${at}：这一行现在写的不是登记时那一句（行号挪了，或换成了另一条），撤掉这一行或改绑`)
+      if (c.says === undefined || flat(c.says) === '') out.push(`${at}：按行号绑的要写 says（那一行的条件原文，整句），核对时比`)
+      else if (hits.length === 1 && flat(hits[0].text) !== flat(c.says)) out.push(`${at}：这一行现在写的与登记时那一句不是整句相同（行号挪了，或换成了另一条），撤掉这一行或改绑`)
     }
     const p = c.probe
     if (p.judge === 'pr-merged' && !(Number.isInteger(p.pr) && p.pr > 0)) out.push(`${at}：PR 号要是正整数`)
@@ -397,17 +421,19 @@ export function conditionReport(outcomes: Outcome[], today: string, listed: Map<
   const fired = outcomes.filter(o => o.verdict.state === '越线')
   let quiet = 0, carried = 0
   const shown: string[] = []
+  // 先不列的也按记法各打一行：例程靠它认出「新增」里哪几张已归探针管，不再列一遍
+  const held: string[] = []
   for (const { verdict: v, ...c } of fired) {
     const l = listed.get(c.binds)
     const judged = l !== undefined && JUDGED[c.kind].has(l.verdict.trim())
-    if (judged && today < addDays(l.day, QUIET_DAYS)) { quiet++; continue }
+    if (judged && today < addDays(l.day, QUIET_DAYS)) { quiet++; held.push(`先不列：${c.binds} · ${c.kind} · ${c.name} · 判过，${addDays(l.day, QUIET_DAYS)} 起再列`); continue }
     const u = c.kind === '欠条' ? until.get(c.binds) : undefined
-    if (u !== undefined && today < u) { carried++; continue }
+    if (u !== undefined && today < u) { carried++; held.push(`先不列：${c.binds} · ${c.kind} · ${c.name} · 续挂到 ${u}`); continue }
     // 续挂过（续挂行写了日子）或哪一次判过留的欠条，与到期清单同一个标记：「留」只许一次
     const again = c.kind === '欠条' && (u !== undefined || l?.kept === true) ? ' · 续挂过，只能还或收尾' : ''
     shown.push(`${c.binds} · ${c.kind} · ${c.name} · 越线：${cell(v.value)}${l !== undefined && !judged ? ' · 列过没判' : ''}${again}`)
   }
   const unknown = outcomes.filter(o => o.verdict.state === '无从确认').map(o => `无从确认：${o.binds} · ${o.name} · ${cell(o.verdict.value)}`)
   return [`条件探针 ${outcomes.length} 条：越线 ${fired.length}、没越线 ${n('没越线')}、无从确认 ${n('无从确认')}；这次列 ${shown.length} 条（判过、${QUIET_DAYS} 天内不再列的 ${quiet} 条，续挂没到那天的 ${carried} 条）`,
-    ...shown, ...unknown]
+    ...shown, ...held, ...unknown]
 }
