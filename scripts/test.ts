@@ -29917,6 +29917,7 @@ await group('h-main-costs-entry', () => {
     eq('取数：挑中之后不再问更旧的那一跑，这一跑自己的 job 也不问', [good.calls.some(c => c.includes('/runs/200/') || c.includes('/jobs/20')), good.calls.some(c => c.includes('/runs/500/'))], [false, false])
     ok('取数：只问主干上 push 触发、已经跑完的 check.yml', good.calls[0]?.includes('actions/workflows/check.yml/runs?branch=main&event=push&status=completed&per_page=20') === true)
     eq('取数：日志正文带着令牌经 curl 取，三份各取一次', good.calls.filter(c => c.startsWith('curl ')).map(c => /\/actions\/jobs\/(\d+)\/logs/.exec(c)?.[1]), ['301', '302', '303'])
+    ok('取数：取日志每份限 60 秒，卡住的走到取不到、不等 job 超时', good.calls.filter(c => c.startsWith('curl ')).every(c => c.includes(' --max-time 60 ')) && good.calls.some(c => c.startsWith('curl ')))
     ok('取数：说出取自哪一跑', good.stdout.includes('取自 run 300（提交 3333333）的 3 份变异'))
     const dropped = run(lay('dropped', { drop: 302 }))
     eq('取数：挑中那一跑有一份日志里没有成本报告，写取不到与为什么，不改挑更旧的，仍以 0 退出',

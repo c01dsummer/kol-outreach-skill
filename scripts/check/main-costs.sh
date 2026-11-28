@@ -24,7 +24,8 @@ if [ -z "${GITHUB_REPOSITORY:-}" ]; then echo "要 GITHUB_REPOSITORY（形如 ow
 for tool in gh curl jq grep; do command -v "$tool" > /dev/null || { echo "找不到 $tool" >&2; exit 2; }; done
 repo=$GITHUB_REPOSITORY
 self=${GITHUB_RUN_ID:-}
-# 日志正文用 curl 取（跟着跳到存储那边；跳过去时 curl 不带令牌）：日志里有终端控制字符，新版 gh 见了就不吐、以 1 退出
+# 日志正文用 curl 取（跟着跳到存储那边；跳过去时 curl 不带令牌）：日志里有终端控制字符，新版 gh 见了就不吐、以 1 退出。
+# 每份限 60 秒：卡住的那一份照样走到「取不到」，不等 job 的 5 分钟超时把整个 job 杀掉（那样下游全跳过，连按条数分都没有）
 api=${GITHUB_API_URL:-https://api.github.com}
 mkdir -p "$(dirname "$out")" || exit 2
 
@@ -46,7 +47,7 @@ while read -r id sha; do
   [ "${#ids[@]}" = "$shards" ] || continue
   : > "$body"
   for job in "${ids[@]}"; do
-    curl -fsSL -H "Authorization: Bearer ${GH_TOKEN:-}" "$api/repos/$repo/actions/jobs/$job/logs" | grep -aF 'MUTATION_COST_JSON ' >> "$body" \
+    curl -fsSL --max-time 60 -H "Authorization: Bearer ${GH_TOKEN:-}" "$api/repos/$repo/actions/jobs/$job/logs" | grep -aF 'MUTATION_COST_JSON ' >> "$body" \
       || none "run $id 的 job $job：日志取不下来，或里面没有成本报告那一行"
   done
   { jq -nc --argjson run "$id" --arg sha "$sha" '{schema: "main-mutation-costs/v1", run: $run, headSha: $sha}' && cat "$body"; } > "$out" || exit 2

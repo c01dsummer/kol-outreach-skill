@@ -19971,11 +19971,23 @@
       "req": "harness",
       "why": "取日志时不带令牌：私有仓库的日志取不到",
       "file": "scripts/check/main-costs.sh",
-      "find": "curl -fsSL -H \"Authorization: Bearer ${GH_TOKEN:-}\" ",
-      "replace": "curl -fsSL ",
+      "find": "-H \"Authorization: Bearer ${GH_TOKEN:-}\" ",
+      "replace": "",
       "by": "test",
       "kills": [
         "取数：日志正文带着令牌经 curl 取，三份各取一次"
+      ]
+    },
+    {
+      "id": "M-H254-zp",
+      "req": "harness",
+      "why": "取日志不限时：卡住的那一份等到整个 job 超时被杀，下游全跳过",
+      "file": "scripts/check/main-costs.sh",
+      "find": "curl -fsSL --max-time 60 -H",
+      "replace": "curl -fsSL -H",
+      "by": "test",
+      "kills": [
+        "取数：取日志每份限 60 秒，卡住的走到取不到、不等 job 超时"
       ]
     },
     {
