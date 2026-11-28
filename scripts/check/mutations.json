@@ -40038,7 +40038,7 @@
       "replace": "adrSync('.', process.argv.includes('--write'))",
       "by": "test",
       "kills": [
-        "决策记录同步的入口交给它真 git：分支删了主干钉过的历史文件、本树指纹表那一行也删了，比主干报红、以 1 退出"
+        "决策记录同步的入口交给它真 git：分支删了主干钉过的历史文件、本树的指纹表也删了，比主干报红、以 1 退出，报的只有比主干那一句"
       ]
     },
     {
@@ -40141,9 +40141,9 @@
       "id": "M-H252-cj",
       "req": "harness",
       "file": "scripts/check/conditions.ts",
-      "why": "不问 --run 给的那个提交 —— 补跑前几周的回访，PR 合没合按别的提交算",
+      "why": "不问 --run 给的那个提交 —— 补跑前几周的回访，PR 合没合按本树的提交算",
       "find": "conditionRaw(docs, cliConditionGit(), run, readTreeFile)",
-      "replace": "conditionRaw(docs, cliConditionGit(), 'origin/main', readTreeFile)",
+      "replace": "conditionRaw(docs, cliConditionGit(), 'HEAD', readTreeFile)",
       "by": "test",
       "kills": [
         "条件探针的入口照换过的登记表算：问 --run 给的提交、读树里的文件，越线的各打一行，续挂没到那天的打成先不列，标准错误说用的是换过的登记表，以 0 退出"
@@ -40240,7 +40240,7 @@
       "file": "scripts/check/revisit-due.ts",
       "why": "不问 --run 给的那个提交 —— PR 合没合按别的提交算，该拿掉的没拿掉",
       "find": "conditionRaw(docs, cliConditionGit(), run, readTreeFile)",
-      "replace": "conditionRaw(docs, cliConditionGit(), 'origin/main', readTreeFile)",
+      "replace": "conditionRaw(docs, cliConditionGit(), 'HEAD', readTreeFile)",
       "by": "test",
       "kills": [
         "到期清单的入口先拿掉条件探针越线的那张：只列没越线的那张，第一行说拿掉了几张"
@@ -40545,6 +40545,18 @@
       "by": "test",
       "kills": [
         "换登记表：三种判法、五种量法、三种比较符带齐参数都认"
+      ]
+    },
+    {
+      "id": "M-H252-dr",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "数份数的目录写成 ./d、d/ 这种也收 —— 目录在却一份都比不上，量出来是 0 也不报",
+      "find": "if (d === '' || d === '.' || d.startsWith('/') || d.startsWith('./') || d.endsWith('/'))",
+      "replace": "if (false)",
+      "by": "test",
+      "kills": [
+        "核对：数份数的目录写成 d/、./d、/d、. 或空，目录在也报：按「<目录>/」开头比 git 列出的路径，这几种写法一份都比不上"
       ]
     }
   ],

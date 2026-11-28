@@ -372,7 +372,11 @@ export function conditionFaults(table: readonly Condition[], docs: Map<string, s
     if (p.judge === 'tree-number') {
       const m = p.measure
       if (m.kind === 'tracked-suffix') {
-        for (const d of m.dirs) { const k = kindOf(d); if (k !== 'dir') out.push(`${at}：${k === undefined ? `目录 ${d} 不在` : `${d} 不是目录`}`) }
+        for (const d of m.dirs) {
+          // 数份数按「路径以 `<目录>/` 开头」比 git 列出的路径：`d/`、`./d`、`.`、`/d` 这种写法目录在也一份都比不上，不替人改写，报出来
+          if (d === '' || d === '.' || d.startsWith('/') || d.startsWith('./') || d.endsWith('/')) { out.push(`${at}：目录 ${JSON.stringify(d)} 要写成仓库里的相对路径（不带开头的 ./ 或 /、结尾的 /，也不是 .）`); continue }
+          const k = kindOf(d); if (k !== 'dir') out.push(`${at}：${k === undefined ? `目录 ${d} 不在` : `${d} 不是目录`}`)
+        }
       } else if (m.kind !== 'exists' && m.kind !== 'catalog-exemptions') {
         const k = kindOf(m.path)
         if (k !== 'file') out.push(`${at}：${k === undefined ? `文件 ${m.path} 不在` : `${m.path} 不是普通文件`}`)

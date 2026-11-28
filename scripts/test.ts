@@ -28545,6 +28545,9 @@ await group('h-conditions', () => {
       '条件探针「某条」（绑 ADR-1「续了」）：等的那张 ADR-1 第 13 行 在台账里不是一张欠条',
       '条件探针「某条」（绑 ADR-1 第 13 行）：文件 x.md 不在',
       '条件探针「某条」（绑 ADR-1「开着」）：目录 d 不在'])
+  eq('核对：数份数的目录写成 d/、./d、/d、. 或空，目录在也报：按「<目录>/」开头比 git 列出的路径，这几种写法一份都比不上',
+    faults([C('ADR-1「开着」', '欠条', { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['d/', './d', '/d', '.', '', 'd/e'], suffix: '.x' }, op: '>', line: 1 })], () => 'dir'),
+    ['"d/"', '"./d"', '"/d"', '"."', '""'].map(d => `条件探针「某条」（绑 ADR-1「开着」）：目录 ${d} 要写成仓库里的相对路径（不带开头的 ./ 或 /、结尾的 /，也不是 .）`))
   eq('核对：数份数的写成了普通文件、量字节的写成了目录，各报一行（路径在，种类不对）',
     faults([C('ADR-1「开着」', '欠条', { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['d'], suffix: '.x' }, op: '>', line: 1 }),
       C('ADR-1 第 13 行', '死亡条件', { judge: 'tree-number', measure: { kind: 'lines', path: 'x.md' }, op: '>', line: 1 })], p => p === 'd' ? 'file' : 'dir'), [
@@ -28633,7 +28636,7 @@ await group('h-conditions', () => {
       .flatMap(measure => ['>', '>=', '='].map(op => ({ judge: 'tree-number', measure, op, line: 0 })))]
   eq('换登记表：三种判法、五种量法、三种比较符带齐参数都认', full.map(probe => regError(['--conditions', 'r.json'], rows({ ...goodRow, probe }))), Array(full.length).fill('用得了'))
 })
-// 条件探针接线的两组共用的玩具仓库：三份决策记录、一个文件、一个标题带「(#5)」的提交，和一份换过的登记表（丙等 PR #5 合入，九号与戊量「x.txt 在」，都越线；戊续挂到 12 月 21 日）
+// 条件探针接线的两组共用的玩具仓库：三份决策记录、一个文件、分支 pr 上一个标题带「(#5)」的提交（检出的 main 上没有），和一份换过的登记表（丙等 PR #5 合入，九号与戊量「x.txt 在」，都越线；戊续挂到 12 月 21 日）
 function withConditionsToy(fn: (t: { reg: string; note: string; fired: unknown[]; docs: Array<[string, string]>; run: (file: string, ...args: string[]) => { status: number | null; stdout: string; stderr: string } }) => void): void {
   withToyRepo((toy, more) => {
     toy.git('init', '-q', '-b', 'main')
@@ -28645,9 +28648,11 @@ function withConditionsToy(fn: (t: { reg: string; note: string; fired: unknown[]
     for (const [f, t] of docs) toy.write(f, t)
     toy.write('x.txt', 'abc')
     toy.git('add', '-A')
-    // 提交标题带「(#5)」：「PR #5 合入」那一条要问 --run 给的那个提交才算得到
-    fixtureGitOrThrow(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'a (#5)'],
-      { cwd: toy.dir, env: { GIT_AUTHOR_DATE: '2026-01-02T04:00:00+00:00', GIT_COMMITTER_DATE: '2026-01-02T04:00:00+00:00' } })
+    const dated = { cwd: toy.dir, env: { GIT_AUTHOR_DATE: '2026-01-02T04:00:00+00:00', GIT_COMMITTER_DATE: '2026-01-02T04:00:00+00:00' } }
+    const commit = (msg: string) => fixtureGitOrThrow(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', msg], dated)
+    commit('a')
+    // 标题带「(#5)」的提交只在分支 pr 上，检出的 main 没有：「PR #5 合入」那一条要问 --run 给的 pr 才算得到，问 HEAD 就没合入
+    toy.git('switch', '-q', '-c', 'pr'); commit('b (#5)'); toy.git('switch', '-q', 'main')
     // 换的那份登记表放在玩具仓库外面
     const reg = join(more('reg'), 'fired.json')
     const exists: Probe = { judge: 'tree-number', measure: { kind: 'exists', path: 'x.txt' }, op: '=', line: 1 }
@@ -28673,11 +28678,11 @@ await group('h-conditions-entry', () => {
         none.stderr.includes('：文件 REVIEW.md 不在')], [1, '', CONDITIONS.length, true, true])
     const bad = run('conditions.ts', '--today', '2026-02-30')
     eq('条件探针的入口 --today 写的不是成立的日子：以 2 退出、什么都不打', [bad.status, bad.stdout], [2, ''])
-    const report = run('conditions.ts', '--today', '2026-03-31', '--run', 'HEAD', '--conditions', reg)
+    const report = run('conditions.ts', '--today', '2026-03-31', '--run', 'pr', '--conditions', reg)
     eq('条件探针的入口照换过的登记表算：问 --run 给的提交、读树里的文件，越线的各打一行，续挂没到那天的打成先不列，标准错误说用的是换过的登记表，以 0 退出',
       [report.status, report.stdout, report.stderr], [0, [
         '条件探针 3 条：越线 3、没越线 0、无从确认 0；这次列 2 条（判过、28 天内不再列的 0 条，续挂没到那天的 1 条）',
-        'ADR-8「丙」 · 欠条 · 丙合入 · 越线：#5 已合入：a (#5)',
+        'ADR-8「丙」 · 欠条 · 丙合入 · 越线：#5 已合入：b (#5)',
         'ADR-9 第 5 行 · 死亡条件 · 九号越线 · 越线：x.txt 在不在（在 1，不在 0） 1（线：= 1）',
         '先不列：ADR-10「戊」 · 欠条 · 戊越线 · 续挂到 2026-12-21', ''].join('\n'), note])
     writeFileSync(reg, JSON.stringify([{ binds: 'ADR-8「丙」', kind: '欠条', name: '判法不认得', probe: { judge: 'guess' } }]))
@@ -28689,7 +28694,7 @@ await group('h-revisit-conditions-entry', () => {
   harness('到期清单与死亡条件轮值的入口：换一份登记表在玩具仓库里真起，越线的拿掉；登记表核不过一张都不拿掉')
   // 与上一组分开：两组的变异各乘各的启动数（ADR-145）
   withConditionsToy(({ reg, note, fired, docs, run }) => {
-    const list = run('revisit-due.ts', '--list', '--today', '2026-03-31', '--run', 'HEAD', '--conditions', reg)
+    const list = run('revisit-due.ts', '--list', '--today', '2026-03-31', '--run', 'pr', '--conditions', reg)
     eq('到期清单的入口先拿掉条件探针越线的那张：只列没越线的那张，第一行说拿掉了几张',
       [list.status, list.stdout, list.stderr], [0, [
         '到期 1 张、列过没判 0 张、取不到登记日 0 张；这次列 1 张（最多 10 张）；条件探针越线、已排在最前面的 2 张不在这里列',
@@ -28702,7 +28707,7 @@ await group('h-revisit-conditions-entry', () => {
     // 再加一行量一个不在的文件：登记表核不过，那一步什么都没列出来，这里就一张都不拿掉、说一声
     const pin9 = conditionPin(ledgerIndex(new Map(docs)).get('ADR-9 第 3 行')?.[0]?.text ?? '')
     writeFileSync(reg, JSON.stringify([...fired, { binds: 'ADR-9 第 3 行', kind: '欠条', name: '量不在的', pin: pin9, probe: { judge: 'tree-number', measure: { kind: 'bytes', path: 'nope.txt' }, op: '>', line: 0 } }]))
-    const faulty = run('revisit-due.ts', '--list', '--today', '2026-03-31', '--run', 'HEAD', '--conditions', reg)
+    const faulty = run('revisit-due.ts', '--list', '--today', '2026-03-31', '--run', 'pr', '--conditions', reg)
     eq('到期清单的入口：换的登记表核不过（量的文件不在），一张都不拿掉，标准错误说这一次不拿掉越线的',
       [faulty.status, faulty.stdout.split('\n')[0], faulty.stderr], [0, '到期 2 张、列过没判 0 张、取不到登记日 0 张；这次列 2 张（最多 10 张）', `${note}条件探针的登记表核不过：这一次不拿掉越线的\n`])
     writeFileSync(reg, JSON.stringify([{ binds: 'ADR-8「丙」', kind: '欠条', name: '判法不认得', probe: { judge: 'guess' } }]))
@@ -28733,13 +28738,13 @@ await group('h-adr-sync-entry', () => {
         faulty.status, faulty.stderr.includes('条件探针「不在」（绑 ADR-01 第 9 行）：台账里没有这个记法'), faulty.stderr.includes('：文件 nope.txt 不在')], [0, true, true, 1, true, true])
     const unreadable = run('--conditions', join(reg, '不在.json'))
     eq('决策记录同步的入口：换的登记表读不出，以 2 退出、什么都不比', [unreadable.status, unreadable.stdout, unreadable.stderr.includes('读不出或不是 JSON')], [2, '', true])
-    // 分支上删了主干钉过的历史文件、也删了本树指纹表里那一行：本树比不出来，只有拿主干上那份比才红
+    // 分支上删了主干钉过的历史文件、也删了本树的指纹表：本树什么都比不出来、自己是过的，只有拿主干上那份比才红
     toy.git('checkout', '-q', '-b', 'work')
     rmSync(join(toy.dir, 'docs/adr/历史/ADR-01-甲.md'))
-    toy.write('docs/adr/' + PINS_FILE, '{}\n')
+    rmSync(join(toy.dir, 'docs/adr', PINS_FILE))
     const gone = run('--conditions', empty)
-    eq('决策记录同步的入口交给它真 git：分支删了主干钉过的历史文件、本树指纹表那一行也删了，比主干报红、以 1 退出',
-      [gone.status, gone.stderr.includes('比主干上的指纹表'), gone.stderr.includes('ADR-01-甲.md')], [1, true, true])
+    eq('决策记录同步的入口交给它真 git：分支删了主干钉过的历史文件、本树的指纹表也删了，比主干报红、以 1 退出，报的只有比主干那一句',
+      [gone.status, gone.stderr.split('\n').filter(l => l !== '' && !l.startsWith('用的是换过的登记表'))], [1, ['✗ 决策记录：1 项', `  · 比主干上的指纹表：${PINS_FILE} 钉着 历史/ADR-01-甲.md，历史目录里却没有这一份 —— 历史文件只加不删`]])
   })
 })
 await group('h-iou-file-reminder-entry', () => {
