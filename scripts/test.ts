@@ -432,6 +432,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-adr-plain-index', needs: [] },
   { id: 'h-jargon', needs: [] },
   { id: 'h-main-costs-entry', needs: [] },
+  { id: 'h-main-costs-unavailable', needs: [] },
   { id: 'h-cpu-time-entry', needs: [] },
   { id: 'h-jargon-entry', needs: [] },
   { id: 'h-same-spot', needs: [] },
@@ -29863,52 +29864,58 @@ await group('h-jargon', () => {
     ['a.md:3  [生词]  新词甲', true, 1, true])
 })
 
-await group('h-main-costs-entry', () => {
-  harness('取主干上一跑变异实测的脚本：在玩具目录里拿假的 curl 真起，挑对那一跑、摘对那几行，限时，取不到时写为什么')
-  // 假 curl 只认脚本用到的三种请求（运行记录、某一跑的 job 列表、某个 job 的日志），要带令牌，答案取自 FAKE_GH_DIR 里的文件。
-  // 有 slow-<文件> 时那一问要那么多秒：多过脚本给的 --max-time 就照 curl 的样子以 28 退出（不真等）。
-  // 每次请求记一行「<--max-time 的值> <网址>」进 calls.txt，看脚本问了谁、没问谁、给了多少时限
+// 两组共用的玩具：假 curl 与造好的几跑。
+// 假 curl 只认脚本用到的三种请求（运行记录、某一跑的 job 列表、某个 job 的日志），要带令牌，答案取自 FAKE_GH_DIR 里的文件。
+// 有 slow-<文件> 时那一问要那么多秒：多过脚本给的 --max-time 就照 curl 的样子以 28 退出（不真等）。
+// 每次请求记一行「<--max-time 的值> <网址>」进 calls.txt，看脚本问了谁、没问谁、给了多少时限
+function mainCostsToy(toy: Parameters<Parameters<typeof withToyRepo>[0]>[0]) {
   const script = join(process.cwd(), 'scripts/check/main-costs.sh')
+  const fake = ['#!/usr/bin/env bash', 'url=${@: -1}; t=; prev=', 'for a in "$@"; do [ "$prev" = --max-time ] && t=$a; prev=$a; done',
+    'echo "$t $url" >> "$FAKE_GH_DIR/calls.txt"',
+    'case "$*" in *"Authorization: Bearer tok"*) ;; *) echo "curl: (22) HTTP 401" >&2; exit 22 ;; esac',
+    'case $url in',
+    '  https://api.github.test/repos/o/r/actions/workflows/check.yml/runs\\?*) f=runs.json ;;',
+    '  https://api.github.test/repos/o/r/actions/runs/*/jobs\\?*) id=${url#*/actions/runs/}; f=jobs-${id%%/*}.json ;;',
+    '  https://api.github.test/repos/o/r/actions/jobs/*/logs) id=${url#*/actions/jobs/}; f=log-${id%%/*}.txt ;;',
+    '  *) exit 9 ;;', 'esac',
+    '[ -f "$FAKE_GH_DIR/slow-$f" ] && [ "$(cat "$FAKE_GH_DIR/slow-$f")" -gt "${t:-999999}" ] && { echo "curl: (28) Operation timed out" >&2; exit 28; }',
+    '[ -f "$FAKE_GH_DIR/$f" ] || { echo "curl: (22) HTTP 404" >&2; exit 22; }', 'cat "$FAKE_GH_DIR/$f"', ''].join('\n')
+  toy.write('bin/curl', fake)
+  chmodSync(join(toy.dir, 'bin/curl'), 0o755)
+  const sha = (c: string) => c.repeat(40)
+  const job = (id: number, name: string, conclusion: string) => ({ id, name, conclusion })
+  const mutateJobs = (base: number, conclusions: string[]) => ({ jobs: [job(base, '检查链（变异以外各步）', 'success'),
+    ...conclusions.map((c, i) => job(base + 1 + i, `变异（第 ${i + 1}/3 份）`, c)), job(base + 9, 'check', 'success')] })
+  const mark = (id: number) => `2026-11-28T00:00:00.0000000Z MUTATION_COST_JSON {"kind":"summary","job":${id}}`
+  // 四跑，新的在前：500 是这一跑自己；400 只有两份绿；300 三份都绿（要挑的）；200 也三份都绿（更旧，不该问到）。
+  // drop：那一份日志里没有成本报告；nul：那一份日志里成本报告前夹一个 NUL 字节（grep 会当成二进制文件）；gone：删掉的那几个答案文件（假 curl 答 404）；slow：那几问各要多少秒
+  const lay = (name: string, opts: { runs?: boolean; drop?: number; nul?: number; gone?: string[]; slow?: Record<string, number> } = {}) => {
+    const dir = `gh-${name}`
+    if (opts.runs !== false) toy.write(`${dir}/runs.json`, JSON.stringify({ workflow_runs: [500, 400, 300, 200].map(id => ({ id, head_sha: sha(String(id / 100)) })) }))
+    toy.write(`${dir}/jobs-400.json`, JSON.stringify(mutateJobs(400, ['success', 'failure', 'success'])))
+    toy.write(`${dir}/jobs-300.json`, JSON.stringify(mutateJobs(300, ['success', 'success', 'success'])))
+    toy.write(`${dir}/jobs-200.json`, JSON.stringify(mutateJobs(200, ['success', 'success', 'success'])))
+    for (const id of [301, 302, 303, 201, 202, 203]) toy.write(`${dir}/log-${id}.txt`, [id === opts.nul ? '别的\0一行' : '别的一行', id === opts.drop ? '没有那一行' : mark(id), 'MUTATION_LAUNCHES_JSON {}', ''].join('\n'))
+    for (const f of opts.gone ?? []) rmSync(join(toy.dir, dir, f))
+    for (const [f, sec] of Object.entries(opts.slow ?? {})) toy.write(`${dir}/slow-${f}`, `${sec}\n`)
+    return join(toy.dir, dir)
+  }
+  const run = (dir: string, args: string[] = ['out/main-costs.txt', '3'], extra: Record<string, string> = {}) => {
+    const r = cxSpawnSync('bash', [script, ...args], { cwd: toy.dir, encoding: 'utf8', timeout: 60_000,
+      env: { ...fixtureEnv({}), PATH: `${join(toy.dir, 'bin')}:${process.env.PATH ?? ''}`, FAKE_GH_DIR: dir, GITHUB_REPOSITORY: 'o/r', GITHUB_RUN_ID: '500', GH_TOKEN: 'tok', GITHUB_API_URL: 'https://api.github.test', MAIN_COSTS_BUDGET: '', ...extra } })
+    const out = (() => { try { return rf(join(toy.dir, 'out/main-costs.txt'), 'utf8') } catch { return '' } })()
+    const calls = (() => { try { return rf(join(dir, 'calls.txt'), 'utf8').split('\n').filter(Boolean) } catch { return [] } })()
+    rmSync(join(toy.dir, 'out'), { recursive: true, force: true })
+    return { status: r.status, stdout: r.stdout ?? '', out, calls }
+  }
+  const head = (out: string): unknown => { try { return JSON.parse(out.split('\n')[0]) } catch { return out } }
+  return { sha, mark, lay, run, head }
+}
+
+await group('h-main-costs-entry', () => {
+  harness('取主干上一跑变异实测的脚本：在玩具目录里拿假的 curl 真起，挑对那一跑、摘对那几行，每一问限时')
   withToyRepo(toy => {
-    const fake = ['#!/usr/bin/env bash', 'url=${@: -1}; t=; prev=', 'for a in "$@"; do [ "$prev" = --max-time ] && t=$a; prev=$a; done',
-      'echo "$t $url" >> "$FAKE_GH_DIR/calls.txt"',
-      'case "$*" in *"Authorization: Bearer tok"*) ;; *) echo "curl: (22) HTTP 401" >&2; exit 22 ;; esac',
-      'case $url in',
-      '  https://api.github.test/repos/o/r/actions/workflows/check.yml/runs\\?*) f=runs.json ;;',
-      '  https://api.github.test/repos/o/r/actions/runs/*/jobs\\?*) id=${url#*/actions/runs/}; f=jobs-${id%%/*}.json ;;',
-      '  https://api.github.test/repos/o/r/actions/jobs/*/logs) id=${url#*/actions/jobs/}; f=log-${id%%/*}.txt ;;',
-      '  *) exit 9 ;;', 'esac',
-      '[ -f "$FAKE_GH_DIR/slow-$f" ] && [ "$(cat "$FAKE_GH_DIR/slow-$f")" -gt "${t:-999999}" ] && { echo "curl: (28) Operation timed out" >&2; exit 28; }',
-      '[ -f "$FAKE_GH_DIR/$f" ] || { echo "curl: (22) HTTP 404" >&2; exit 22; }', 'cat "$FAKE_GH_DIR/$f"', ''].join('\n')
-    toy.write('bin/curl', fake)
-    chmodSync(join(toy.dir, 'bin/curl'), 0o755)
-    const sha = (c: string) => c.repeat(40)
-    const job = (id: number, name: string, conclusion: string) => ({ id, name, conclusion })
-    const mutateJobs = (base: number, conclusions: string[]) => ({ jobs: [job(base, '检查链（变异以外各步）', 'success'),
-      ...conclusions.map((c, i) => job(base + 1 + i, `变异（第 ${i + 1}/3 份）`, c)), job(base + 9, 'check', 'success')] })
-    const mark = (id: number) => `2026-11-28T00:00:00.0000000Z MUTATION_COST_JSON {"kind":"summary","job":${id}}`
-    // 四跑，新的在前：500 是这一跑自己；400 只有两份绿；300 三份都绿（要挑的）；200 也三份都绿（更旧，不该问到）。
-    // drop：那一份日志里没有成本报告；nul：那一份日志里成本报告前夹一个 NUL 字节（grep 会当成二进制文件）；gone：删掉的那几个答案文件（假 curl 答 404）；slow：那几问各要多少秒
-    const lay = (name: string, opts: { runs?: boolean; drop?: number; nul?: number; gone?: string[]; slow?: Record<string, number> } = {}) => {
-      const dir = `gh-${name}`
-      if (opts.runs !== false) toy.write(`${dir}/runs.json`, JSON.stringify({ workflow_runs: [500, 400, 300, 200].map(id => ({ id, head_sha: sha(String(id / 100)) })) }))
-      toy.write(`${dir}/jobs-400.json`, JSON.stringify(mutateJobs(400, ['success', 'failure', 'success'])))
-      toy.write(`${dir}/jobs-300.json`, JSON.stringify(mutateJobs(300, ['success', 'success', 'success'])))
-      toy.write(`${dir}/jobs-200.json`, JSON.stringify(mutateJobs(200, ['success', 'success', 'success'])))
-      for (const id of [301, 302, 303, 201, 202, 203]) toy.write(`${dir}/log-${id}.txt`, [id === opts.nul ? '别的\0一行' : '别的一行', id === opts.drop ? '没有那一行' : mark(id), 'MUTATION_LAUNCHES_JSON {}', ''].join('\n'))
-      for (const f of opts.gone ?? []) rmSync(join(toy.dir, dir, f))
-      for (const [f, sec] of Object.entries(opts.slow ?? {})) toy.write(`${dir}/slow-${f}`, `${sec}\n`)
-      return join(toy.dir, dir)
-    }
-    const run = (dir: string, args: string[] = ['out/main-costs.txt', '3'], extra: Record<string, string> = {}) => {
-      const r = cxSpawnSync('bash', [script, ...args], { cwd: toy.dir, encoding: 'utf8', timeout: 60_000,
-        env: { ...fixtureEnv({}), PATH: `${join(toy.dir, 'bin')}:${process.env.PATH ?? ''}`, FAKE_GH_DIR: dir, GITHUB_REPOSITORY: 'o/r', GITHUB_RUN_ID: '500', GH_TOKEN: 'tok', GITHUB_API_URL: 'https://api.github.test', MAIN_COSTS_BUDGET: '', ...extra } })
-      const out = (() => { try { return rf(join(toy.dir, 'out/main-costs.txt'), 'utf8') } catch { return '' } })()
-      const calls = (() => { try { return rf(join(dir, 'calls.txt'), 'utf8').split('\n').filter(Boolean) } catch { return [] } })()
-      rmSync(join(toy.dir, 'out'), { recursive: true, force: true })
-      return { status: r.status, stdout: r.stdout ?? '', out, calls }
-    }
-    const head = (out: string): unknown => { try { return JSON.parse(out.split('\n')[0]) } catch { return out } }
+    const { sha, mark, lay, run, head } = mainCostsToy(toy)
     const good = run(lay('good'))
     eq('取数：跳过这一跑自己与只有两份绿的那一跑，挑最新一跑三份变异都绿的，第一行写它的编号与提交',
       [good.status, head(good.out)], [0, { schema: 'main-mutation-costs/v1', run: 300, headSha: sha('3') }])
@@ -29917,17 +29924,29 @@ await group('h-main-costs-entry', () => {
     ok('取数：只问主干上 push 触发、已经跑完的 check.yml', good.calls[0]?.includes('actions/workflows/check.yml/runs?branch=main&event=push&status=completed&per_page=20') === true)
     eq('取数：日志正文带着令牌取，三份各取一次', good.calls.map(c => /\/actions\/jobs\/(\d+)\/logs$/.exec(c)?.[1]).filter(Boolean), ['301', '302', '303'])
     ok('取数：每一问都限时，最多 30 秒', good.calls.length > 0 && good.calls.every(c => { const t = Number(c.split(' ')[0]); return Number.isInteger(t) && t >= 1 && t <= 30 }))
+    ok('取数：说出取自哪一跑', good.stdout.includes('取自 run 300（提交 3333333）的 3 份变异'))
+    const nul = run(lay('nul', { nul: 302 }))
+    eq('取数：日志里夹着 NUL 字节也照文本摘，三份各一行', nul.out.split('\n').slice(1), [mark(301), mark(302), mark(303), ''])
+    const fewer = run(lay('fewer'), ['out/main-costs.txt', '4'])
+    eq('取数：哪一跑都凑不齐那么多份绿的，写取不到', [fewer.status, head(fewer.out)], [0, { schema: 'main-mutation-costs/v1', unavailable: '主干最近 20 跑里没有一跑 4 份变异都绿' }])
+    const noRuns = run(lay('no-runs', { runs: false }))
+    eq('取数：列不出主干的运行记录，写取不到', [noRuns.status, head(noRuns.out)], [0, { schema: 'main-mutation-costs/v1', unavailable: '列不出主干上的运行记录' }])
+    eq('取数：少了份数，以 2 退出、不写文件', [run(lay('usage'), ['out/main-costs.txt']).status, run(lay('usage2'), ['out/main-costs.txt', 'x']).out], [2, ''])
+  })
+})
+
+await group('h-main-costs-unavailable', () => {
+  harness('取主干上一跑变异实测的脚本：卡住、过了总限时、日志缺那一行或取不下来、job 列表读不出时，写取不到与为什么，仍以 0 退出')
+  withToyRepo(toy => {
+    const { lay, run, head } = mainCostsToy(toy)
     const stuck = run(lay('stuck', { slow: { 'jobs-400.json': 45 } }))
     eq('取数：有一问卡过 30 秒，写取不到与为什么、不等 job 超时，仍以 0 退出', [stuck.status, head(stuck.out)], [0, { schema: 'main-mutation-costs/v1', unavailable: '读不出 run 400 的 job 列表' }])
     const late = run(lay('late'), undefined, { MAIN_COSTS_BUDGET: '0' })
     eq('取数：过了总限时就一问也不再问，写取不到，仍以 0 退出', [late.status, head(late.out), late.calls.length], [0, { schema: 'main-mutation-costs/v1', unavailable: '列不出主干上的运行记录' }, 0])
-    ok('取数：说出取自哪一跑', good.stdout.includes('取自 run 300（提交 3333333）的 3 份变异'))
     const dropped = run(lay('dropped', { drop: 302 }))
     eq('取数：挑中那一跑有一份日志里没有成本报告，写取不到与为什么，不改挑更旧的，仍以 0 退出',
       [dropped.status, head(dropped.out), dropped.out.split('\n').length, dropped.calls.some(c => c.includes('/runs/200/'))],
       [0, { schema: 'main-mutation-costs/v1', unavailable: 'run 300 的 job 302：日志取不下来，或里面没有成本报告那一行' }, 2, false])
-    const nul = run(lay('nul', { nul: 302 }))
-    eq('取数：日志里夹着 NUL 字节也照文本摘，三份各一行', nul.out.split('\n').slice(1), [mark(301), mark(302), mark(303), ''])
     const noLog = run(lay('no-log', { gone: ['log-303.txt'] }))
     eq('取数：挑中那一跑有一份日志取不下来（404），写取不到与为什么，不改挑更旧的，仍以 0 退出',
       [noLog.status, head(noLog.out), noLog.calls.some(c => c.includes('/runs/200/'))],
@@ -29936,11 +29955,6 @@ await group('h-main-costs-entry', () => {
     eq('取数：有一跑的 job 列表读不出来，写取不到与为什么，不跳过它去挑更旧的，仍以 0 退出',
       [noJobs.status, head(noJobs.out), noJobs.calls.some(c => c.includes('/runs/300/'))],
       [0, { schema: 'main-mutation-costs/v1', unavailable: '读不出 run 400 的 job 列表' }, false])
-    const fewer = run(lay('fewer'), ['out/main-costs.txt', '4'])
-    eq('取数：哪一跑都凑不齐那么多份绿的，写取不到', [fewer.status, head(fewer.out)], [0, { schema: 'main-mutation-costs/v1', unavailable: '主干最近 20 跑里没有一跑 4 份变异都绿' }])
-    const noRuns = run(lay('no-runs', { runs: false }))
-    eq('取数：列不出主干的运行记录，写取不到', [noRuns.status, head(noRuns.out)], [0, { schema: 'main-mutation-costs/v1', unavailable: '列不出主干上的运行记录' }])
-    eq('取数：少了份数，以 2 退出、不写文件', [run(lay('usage'), ['out/main-costs.txt']).status, run(lay('usage2'), ['out/main-costs.txt', 'x']).out], [2, ''])
   })
 })
 
