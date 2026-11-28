@@ -28299,7 +28299,7 @@ await group('h-conditions', () => {
 
   // 核对登记表
   const cdocs = new Map([['docs/adr/ADR-1-一.md', `# ADR-1\n\n${iou('开着')}\n${iou('关了')}\n> ⚠️ 已还：ADR-1「关了」 · 还在 #3\n\n${iou('续了')}\n> ⚠️ 续挂：ADR-1「续了」 · 在 #4 · 到 2026-12-21 · 因为\n\n> **什么条件下撤**：一\n`]])
-  const C = (binds: string, kind: Condition['kind'], probe: Probe): Condition => ({ binds, kind, name: '某条', probe })
+  const C = (binds: string, kind: Condition['kind'], probe: Probe, says = '什么条件下撤'): Condition => ({ binds, kind, name: '某条', probe, ...binds.includes('「') ? {} : { says } })
   const merged: Probe = { judge: 'pr-merged', pr: 1 }
   const faults = (table: Condition[], kindOf = (_p: string): 'file' | 'dir' | undefined => 'file') => conditionFaults(table, cdocs, kindOf)
   eq('核对：开着、续挂的欠条与死亡条件都过', faults([C('ADR-1「开着」', '欠条', merged), C('ADR-1「续了」', '欠条', merged), C('ADR-1 第 13 行', '死亡条件', merged)]), [])
@@ -28334,6 +28334,11 @@ await group('h-conditions', () => {
   eq('核对：拆过的记录主文件与历史文件同一行各有一张没名字的欠条、都开着，按行号绑认不出是哪张，报；有名字的同名同状态算一条',
     [conditionFaults([C('ADR-9 第 3 行', '欠条', merged)], udocs, () => 'file'), conditionFaults([C('ADR-9「甲」', '欠条', merged)], new Map([['docs/adr/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}`], ['docs/adr/历史/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}`]]), () => 'file')],
     [['条件探针「某条」（绑 ADR-9 第 3 行）：这个行号在台账里对上不止一条（拆过的记录主文件与历史文件同一行各有一张），不知道绑的是哪一张'], []])
+  eq('核对：按行号绑的，没写原文那一段、写了空白的、写的那一段不在那一行原文里（行号挪了或换了一条），各报一行',
+    faults([C('ADR-1 第 13 行', '死亡条件', merged, ' '), { binds: 'ADR-1 第 13 行', kind: '死亡条件', name: '某条', probe: merged }, C('ADR-1 第 13 行', '死亡条件', merged, '什么条件下退')]).filter(f => !f.includes('一条至多一个')), [
+      '条件探针「某条」（绑 ADR-1 第 13 行）：按行号绑的要写 says（原文里的一段），核对时比',
+      '条件探针「某条」（绑 ADR-1 第 13 行）：按行号绑的要写 says（原文里的一段），核对时比',
+      '条件探针「某条」（绑 ADR-1 第 13 行）：这一行现在写的不是登记时那一句（行号挪了，或换成了另一条），撤掉这一行或改绑'])
   eq('核对：续挂到哪天按记法交回，只有续挂行指着的才有', [...carriedUntil(cdocs)], [['ADR-1「续了」', '2026-12-21']])
 
   // 回访那一段

@@ -55,6 +55,8 @@ export interface Condition {
   /** 一句白话：这一行算的是什么 */
  
   name: string
+  /** 按行号绑的（记法里没有「」名字的）必写：原文里的一段，核对时要还在那一行的条件原文里（去掉空白比）。行号挪了、同一行换成了另一条，核对红 */
+  says?: string
  
   probe: Probe
 }
@@ -65,18 +67,18 @@ export interface Condition {
  */
 export const CONDITIONS: readonly Condition[] = [
   // 原文：「重启条件：PR #73 已合入」（后半句另有所等的话，越线时由人判）
-  { binds: 'ADR-69 第 20 行', kind: '欠条', name: 'PR #73 合入', probe: { judge: 'pr-merged', pr: 73 } },
+  { binds: 'ADR-69 第 20 行', kind: '欠条', says: 'PR #73 已合入', name: 'PR #73 合入', probe: { judge: 'pr-merged', pr: 73 } },
   // 原文：「本登记合入 main 后」，本登记就是 #255；若原意是等另一条改动，就是多报，越线时由人判
-  { binds: 'ADR-130 第 110 行', kind: '欠条', name: 'PR #255（本登记）合入', probe: { judge: 'pr-merged', pr: 255 } },
+  { binds: 'ADR-130 第 110 行', kind: '欠条', says: '重启条件：本登记合入', name: 'PR #255（本登记）合入', probe: { judge: 'pr-merged', pr: 255 } },
   // 原文：「重启条件：#376 已合入」
-  { binds: 'ADR-180 第 62 行', kind: '欠条', name: 'PR #376 合入', probe: { judge: 'pr-merged', pr: 376 } },
+  { binds: 'ADR-180 第 62 行', kind: '欠条', says: '#376 已合入', name: 'PR #376 合入', probe: { judge: 'pr-merged', pr: 376 } },
   // 原文：#417 合入后（D13 缺省预算那一片）
-  { binds: 'ADR-184 第 217 行', kind: '欠条', name: 'PR #417 合入', probe: { judge: 'pr-merged', pr: 417 } },
-  { binds: 'ADR-184 第 219 行', kind: '欠条', name: 'PR #417 合入', probe: { judge: 'pr-merged', pr: 417 } },
+  { binds: 'ADR-184 第 217 行', kind: '欠条', says: 'D13×P3 ruling 尚未写入', name: 'PR #417 合入', probe: { judge: 'pr-merged', pr: 417 } },
+  { binds: 'ADR-184 第 219 行', kind: '欠条', says: 'D13.t 的 stderr 默认预算提示', name: 'PR #417 合入', probe: { judge: 'pr-merged', pr: 417 } },
   // 原文写的是「独立测试包」那条分支合入（记录里写着分支名）；那条分支开的 PR 是 #425，合入时压成一个提交，标题末尾「 (#425)」
-  { binds: 'ADR-183 第 118 行', kind: '欠条', name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
-  { binds: 'ADR-184 第 193 行', kind: '欠条', name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
-  { binds: 'ADR-184 第 272 行', kind: '欠条', name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
+  { binds: 'ADR-183 第 118 行', kind: '欠条', says: 'D6.x 没有认领', name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
+  { binds: 'ADR-184 第 193 行', kind: '欠条', says: 'D13.u 没有认领', name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
+  { binds: 'ADR-184 第 272 行', kind: '欠条', says: '未还部分只剩 D13.v', name: '独立测试包那条分支（PR #425）合入', probe: { judge: 'pr-merged', pr: 425 } },
   // 原文：「还法：台账认得出已还、已重挂、收尾之后（ADR-151「台账不判哪张欠条已还」…）」
   { binds: 'ADR-236「还欠什么那一栏没有机器跟着改」', kind: '欠条', name: 'ADR-151「台账不判哪张欠条已还」已还',
     probe: { judge: 'ledger-status', waits: 'ADR-151「台账不判哪张欠条已还」', status: '已还' } },
@@ -87,16 +89,16 @@ export const CONDITIONS: readonly Condition[] = [
   { binds: 'ADR-211「回访台账过线后挪块只靠回访 PR 正文一句提醒」', kind: '欠条', name: '回访台账主文件超过 30 000 字节',
     probe: { judge: 'tree-number', measure: { kind: 'bytes', path: 'docs/adr/ADR-152-回访台账：例程每周往这里追加一块，人合每一块.md' }, op: '>', line: 30000 } },
   // 原文：「它超过 30 行、或者里面出现任何一条……」：只算前一腿
-  { binds: 'ADR-83 第 61 行', kind: '死亡条件', name: 'REVIEW.md 超过 30 行（只算前一腿）',
+  { binds: 'ADR-83 第 61 行', kind: '死亡条件', says: '它超过 30 行', name: 'REVIEW.md 超过 30 行（只算前一腿）',
     probe: { judge: 'tree-number', measure: { kind: 'lines', path: 'REVIEW.md' }, op: '>', line: 30 } },
   // 原文：「仓库里不再有 `skill/SKILL.md` 时」
-  { binds: 'ADR-156 第 210 行', kind: '死亡条件', name: 'skill/SKILL.md 不在了',
+  { binds: 'ADR-156 第 210 行', kind: '死亡条件', says: '仓库里不再有 `skill/SKILL.md` 时', name: 'skill/SKILL.md 不在了',
     probe: { judge: 'tree-number', measure: { kind: 'exists', path: 'skill/SKILL.md' }, op: '=', line: 0 } },
   // 原文：「`scripts/lib` 或 `scripts/providers` 里出现第一份手写的 `.d.ts` 时」：手写的就是进了仓库的
-  { binds: 'ADR-202 第 473 行', kind: '欠条', name: 'scripts/lib、scripts/providers 里出现手写的 .d.ts（只算前一腿）',
+  { binds: 'ADR-202 第 473 行', kind: '欠条', says: '里出现第一份手写的 `.d.ts` 时', name: 'scripts/lib、scripts/providers 里出现手写的 .d.ts（只算前一腿）',
     probe: { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['scripts/lib', 'scripts/providers'], suffix: '.d.ts' }, op: '>=', line: 1 } },
   // 原文：「`--brief` 不再打豁免（或不再有豁免）……」：只算「不再有豁免」那一腿
-  { binds: 'ADR-70 主文件第 273 行', kind: '死亡条件', name: '变异目录里不再有豁免（只算这一腿）',
+  { binds: 'ADR-70 主文件第 273 行', kind: '死亡条件', says: '不再有豁免', name: '变异目录里不再有豁免（只算这一腿）',
     probe: { judge: 'tree-number', measure: { kind: 'catalog-exemptions' }, op: '=', line: 0 } },
 ]
 
@@ -118,7 +120,15 @@ export interface ConditionRaw {
 }
 
 /** 台账里对上一个记法的一行 */
-export interface LedgerHit { kind: '欠条' | '死亡条件'; status: RowStatus | null }
+export interface LedgerHit {
+  // 字段不入断言：核对与判法按它比，各自的用例按结果比
+  kind: '欠条' | '死亡条件'
+  // 字段不入断言：同上
+  status: RowStatus | null
+  /** 这一行的条件原文（台账抽出来的那一句） */
+  // 字段不入断言：同上，核对按行号绑的那几行比 `says`
+  text: string
+}
 
 /**
  * 台账按记法索引：重启条件记作欠条，死亡条件照轮值的记法；重开讨论不进（没有探针绑它）。
@@ -130,7 +140,7 @@ export function ledgerIndex(docs: Map<string, string>): Map<string, LedgerHit[]>
   for (const r of ledgerStatus(docs).rows) {
     if (r.entry.notation === '重开讨论') continue
     const n = notationOf(r.entry, docs.get(r.entry.file) ?? '', split)
-    const hit: LedgerHit = { kind: r.entry.notation === '重启条件' ? '欠条' : '死亡条件', status: r.status }
+    const hit: LedgerHit = { kind: r.entry.notation === '重启条件' ? '欠条' : '死亡条件', status: r.status, text: r.entry.text }
     out.set(n, [...out.get(n) ?? [], hit])
   }
   return out
@@ -268,11 +278,14 @@ export function judge(raw: ConditionRaw, p: Probe): Verdict {
 
 /* ───────────── 核对登记表（检查链） ───────────── */
 
+/** 去掉全部空白：原文跨行、多一个空格不算换了一句 */
+const flat = (t: string): string => t.replace(/\s+/g, '')
+
 /**
  * 登记表核不过的地方，一处一行；空数组就是过。由 `adr-sync.ts` 调，进检查链：
  * 1. 绑的记法在台账里恰好对上一条（拆过的记录主文件与历史文件同名的那张，状态相同算一条；没名字、按行号对上两条的，不知道是哪一张，报），种类与登记的同；
  * 2. 欠条要开着或续挂：已还、收尾、已重挂了，这个探针管的那条已经关了或改挂了，要撤掉或改绑；死亡条件没有状态，只核在不在；
- * 3. 一条至多一个探针；
+ * 3. 一条至多一个探针；按行号绑的，登记时写下的那一段（`says`）要还在那一行的原文里 —— 行号挪了、同一行换成了另一条，都在这里红；
  * 4. 参数：PR 号是正整数；`ledger-status` 等的那张在台账里是一张欠条；量的是普通文件（量「在不在」与变异目录豁免条数的除外）、数份数的是目录。
  *
  * `kindOf` 答一个路径在树里是普通文件、目录，还是不在（或别的）。
@@ -293,6 +306,10 @@ export function conditionFaults(table: readonly Condition[], docs: Map<string, s
     else if (hits[0].kind !== c.kind) out.push(`${at}：台账里它是${hits[0].kind}，登记的是${c.kind}`)
     else if (c.kind === '欠条' && hits[0].status !== '开着' && hits[0].status !== '续挂') {
       out.push(`${at}：这个探针管的那条已经${hits[0].status === '已重挂' ? '改挂' : hits[0].status === '已还' ? '还了' : '收尾'}，撤掉这一行或改绑到现行那一张`)
+    }
+    if (!c.binds.includes('「')) {
+      if (c.says === undefined || flat(c.says) === '') out.push(`${at}：按行号绑的要写 says（原文里的一段），核对时比`)
+      else if (hits.length === 1 && !flat(hits[0].text).includes(flat(c.says))) out.push(`${at}：这一行现在写的不是登记时那一句（行号挪了，或换成了另一条），撤掉这一行或改绑`)
     }
     const p = c.probe
     if (p.judge === 'pr-merged' && !(Number.isInteger(p.pr) && p.pr > 0)) out.push(`${at}：PR 号要是正整数`)

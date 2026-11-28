@@ -39626,8 +39626,8 @@
       "req": "harness",
       "file": "scripts/check/condition-rule.ts",
       "why": "台账里每一条都当成开着 —— 探针管的欠条还了，检查链也不红",
-      "find": "'死亡条件', status: r.status }",
-      "replace": "'死亡条件', status: '开着' as RowStatus }",
+      "find": "'死亡条件', status: r.status, text",
+      "replace": "'死亡条件', status: '开着' as RowStatus, text",
       "by": "test",
       "kills": [
         "核对：记法不在台账里、种类不对、管的那条已经还了、同一条绑两个，各报一行"
@@ -39871,6 +39871,30 @@
       "by": "test",
       "kills": [
         "到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"
+      ]
+    },
+    {
+      "id": "M-H252-bj",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "按行号绑的不写原文那一段也过 —— 行号挪了、同一行换成另一条，核对照样过",
+      "find": "if (c.says === undefined || flat(c.says) === '')",
+      "replace": "if (c.says === undefined)",
+      "by": "test",
+      "kills": [
+        "核对：按行号绑的，没写原文那一段、写了空白的、写的那一段不在那一行原文里（行号挪了或换了一条），各报一行"
+      ]
+    },
+    {
+      "id": "M-H252-bk",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "原文那一段不比 —— 同一行换成了另一条死亡条件，探针越线时从轮值里拿掉的是那一条",
+      "find": "else if (hits.length === 1 && !flat(hits[0].text).includes(flat(c.says)))",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "核对：按行号绑的，没写原文那一段、写了空白的、写的那一段不在那一行原文里（行号挪了或换了一条），各报一行"
       ]
     }
   ],
