@@ -44,7 +44,8 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { type StatusLine, adrDocs, entries, iouName, iouNameFaults, ledgerGaps, ledgerReport, ledgerStatus, ledgerSummary, orphanIous, recordNum, splitRecords, statusLines } from './check/debt-rule.js'
 import { CHECK_RUNS, catalogCount, cliRawGit, gatherRaw, ledgerDiff as rawLedgerDiff, NEVER_RED_RUNS, neverRedLines, neverRedStop, optValue, parseJobs, parseRuns, pickNeverRed, type RawGit, rawLine, readNeverRed, slowRuns, topTen } from './check/revisit-raw-rule.js'
-import { addDays, beijingDate, bornReport, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex } from './check/revisit-rule.js'
+import { addDays, beijingDate, bornReport, carriedUntil, cliGit, conditionLineOf, currentOf, deathRota, dueItems, dueList, dueRow, iouNameAt, listings, movesUnread, rehungLines, rowCompare, weekIndex, type Listing } from './check/revisit-rule.js'
+import { CONDITIONS, RawShapeError, cliConditionGit, conditionFaults, conditionRaw, conditionReport, evaluate as evaluateConditions, firedSet, judge as judgeCondition, ledgerIndex, mergedBy, parseSubjects, pinOf as conditionPin, readTreeFile, type Condition, type ConditionRaw, type Measure, type Op, type Outcome as ConditionOutcome, type Probe, type TreeFile, type Verdict } from './check/condition-rule.js'
 import { addedMarkdown, glossaryTerms, headingTexts, isShortWord, jargonHits, jargonLines, jargonSummary, lineHits, requirementIds, stripCodeSpans } from './check/jargon-rule.js'
 import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, nameKey, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { TICKET_PATTERN, grepOutput, judgeRefs, ledgerOf, parseRefs, refsArgs, refsLines } from './check/ticket-refs-rule.js'
@@ -384,6 +385,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-revisit-raw', needs: [] },
   { id: 'h-revisit-raw-entry', needs: [] },
   { id: 'h-revisit-raw-log-entry', needs: [] },
+  { id: 'h-conditions', needs: [] },
+  { id: 'h-conditions-entry', needs: [] },
   { id: 'h-iou-file-reminder-entry', needs: [] },
   { id: 'h-ticket-refs', needs: [] },
   { id: 'h-ticket-refs-entry', needs: [] },
@@ -19897,10 +19900,11 @@ harness('到期清单：开着、到期或列过没判的，最老先列，最�
     eq('到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天',
       got, [
         { key: 'ADR-2「续」', aliases: [], date: '2026-01-05', until: '2026-03-01', carried: true },
-        { key: 'ADR-3「新」', aliases: ['ADR-1「旧」', 'ADR-1 第 11 行', 'ADR-1「最早」', 'ADR-1 第 5 行'], date: '2026-01-01', until: undefined, carried: true },
+        { key: 'ADR-3「新」', aliases: ['ADR-1「旧」', 'ADR-1 第 11 行', 'ADR-1「最早」', 'ADR-1 第 5 行'], date: '2026-01-01', until: '2026-02-20', carried: true },
         { key: 'ADR-5「近」', aliases: [], date: '2026-02-10', until: undefined, carried: false },
         { key: 'ADR-6「接六」', aliases: ['ADR-6「早六」', 'ADR-6 第 5 行'], date: '2026-01-01', until: undefined, carried: false },
       ])
+    eq('续挂到哪天（条件探针用）：整张改挂过来的接着旧的那张续挂写的那天，与到期清单同一个日子', [...carriedUntil(docs)].sort(), [['ADR-2「续」', '2026-03-01'], ['ADR-3「新」', '2026-02-20']])
     eq('已重挂行里认不出现行那张的只数不猜：「本条下一张」算一行，「本条第 11 行」按所在记录认得出', movesUnread(docs), 1)
     // 旧行不许改：别处追加一行补记，点名原来那行在哪，那张就接得上，原来那行不再数
     const at = (docs.get(f4) ?? '').split('\n').findIndex(l => l.includes('本条下一张')) + 1
@@ -28208,6 +28212,202 @@ await group('h-revisit-raw-log-entry', () => {
     eq('入口 --never-red：哪一份日志形状不对都以 2 退出、什么都不打；上一跑的日志里只是没有那一行，照样打，比上一跑写无从确认',
       [badMine.status, badMine.stdout, badPrev.status, badPrev.stdout, noMark.status, noMark.stdout.split('\n')[1]],
       [2, '', 2, '', 0, 'test：清册 9 条，从没红过 3 条（没有负片跑到 0 条），比上一跑：无从确认：日志里没有 NEVER_RED_JSON 那一行'])
+  })
+})
+await group('h-conditions', () => {
+  harness('条件探针：三种判法、登记表核对、回访那一段，判定直接调；问 git 的两件在玩具仓库里真问')
+  const raw = (over: Partial<ConditionRaw> = {}): ConditionRaw => ({ subjects: [], ledger: new Map(), read: () => ({ kind: '不在' }), tracked: [], ...over })
+  const pr = (subjects: string[] | undefined, n: number) => judgeCondition(raw({ subjects }), { judge: 'pr-merged', pr: n })
+
+  // PR 合没合：只认 GitHub 的两种定死写法
+  eq('合入：合并提交「Merge pull request #N from …」与压成一个提交的「… (#N)」都认；别的号、只在中间提到、回退提交、号的前缀相同都不认',
+    [mergedBy('Merge pull request #425 from o/b', 425), mergedBy('标题 (#425)', 425), mergedBy('改 #425 留下的 (#428)', 425), mergedBy('Merge pull request #4250 from o/b', 425),
+      mergedBy('标题 (#4255)', 425), mergedBy('Revert "标题 (#425)"', 425), mergedBy('标题(#425)', 425)],
+    [true, true, false, false, false, false, false])
+  eq('合入判法：标题里有就越线、说是哪一条；没有就没越线；取不到标题就无从确认',
+    [pr(['乙 (#2)', '甲 (#1)'], 1), pr(['乙 (#2)'], 1), pr(undefined, 1)],
+    [{ state: '越线', value: '#1 已合入：甲 (#1)' }, { state: '没越线', value: '#1 没有合入主干' }, { state: '无从确认', value: '取不到主干第一亲代链上的提交标题' }])
+
+  // 切 cat-file --batch 的回答：字节数按字节算，中文标题不错位；问过链头的 missing 到此为止
+  const obj = (msg: string) => { const body = `tree t\nauthor a\n\n${msg}\n`; return `${'a'.repeat(40)} commit ${Buffer.byteLength(body)}\n${body}\n` }
+  eq('切提交标题：字节数按字节切、中文不错位，取消息第一行，到 missing 为止；不是 commit、字节数不够都交回取不到',
+    [parseSubjects(Buffer.from(obj(`第一 (#2)\n\n${'很长的中文正文'.repeat(20)}`) + obj('初始') + 'HEAD~2 missing\n')),
+      parseSubjects(Buffer.from(`${'a'.repeat(40)} blob 3\nabc\n`)), parseSubjects(Buffer.from(`${'a'.repeat(40)} commit 99\nabc\n`))],
+    [['第一 (#2)', '初始'], undefined, undefined])
+  eq('切提交标题：头一问就答 missing（给的修订不是一个提交，例如 A..B）交回取不到，不当成一个都没合入',
+    parseSubjects(Buffer.from('HEAD^..HEAD~0 missing\n')), undefined)
+
+  withToyRepo(toy => {
+    const commit = (msg: string) => fixtureGitOrThrow(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-qm', msg], { cwd: toy.dir })
+    toy.git('init', '-q', '-b', 'main')
+    toy.write('a.txt', 'a\n'); toy.git('add', '-A'); commit('初始')
+    toy.git('checkout', '-q', '-b', 'side')
+    toy.write('scripts/lib/x.d.ts', 'x\n'); toy.git('add', '-A'); commit('分支上的 (#9)')
+    toy.git('checkout', '-q', 'main')
+    fixtureGitOrThrow(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'merge', '-q', '--no-ff', '-m', 'Merge pull request #5 from o/side', 'side'], { cwd: toy.dir })
+    const git = cliConditionGit(toy.dir, fixtureEnv({}))
+    eq('问 git：标题只取第一亲代链（分支上那一条不算），从新到旧；受跟踪的路径全列；修订不在就取不到',
+      [git.subjects('HEAD'), git.tracked()?.sort(), git.subjects('nope')],
+      [['Merge pull request #5 from o/side', '初始'], ['a.txt', 'scripts/lib/x.d.ts'], undefined])
+    eq('问 git：分支上的「(#9)」不在第一亲代链上，判没合入', pr(git.subjects('HEAD'), 9).state, '没越线')
+    const whole = conditionRaw(new Map(), git, 'HEAD', () => ({ kind: '不在' }))
+    eq('整份原料：提交标题与受跟踪的路径都从交进来的 git 问来', [whole.subjects, whole.tracked?.length], [['Merge pull request #5 from o/side', '初始'], 2])
+    // 浅克隆：git 认 .git/shallow 里列的提交为边界，链到那里就断
+    writeFileSync(join(toy.dir, '.git', 'shallow'), `${toy.read('rev-parse', 'HEAD^1').trim()}\n`)
+    eq('问 git：浅克隆的链在边界上断了，标题算取不到（不说成没合入）', git.subjects('HEAD'), undefined)
+  })
+
+  // 等另一张欠条的状态
+  const iou = (name: string) => `> ⚠️ 欠条「${name}」：缺 x · 重启条件：下次\n`
+  const ledgerOf = (extra: string) => ledgerIndex(new Map([['docs/adr/ADR-1-一.md', `# ADR-1\n\n${iou('等')}\n${iou('被等')}\n${extra}`]]))
+  const wait = (extra: string, waits = 'ADR-1「被等」') => judgeCondition(raw({ ledger: ledgerOf(extra) }), { judge: 'ledger-status', waits, status: '已还' })
+  eq('等状态：等的那张开着是没越线、写着状态；已还就越线；收尾或改挂了等不到已还，判无从确认并说为什么；台账里找不到也无从确认',
+    [wait(''), wait('\n> ⚠️ 已还：ADR-1「被等」 · 还在 #3\n'), wait('\n> ⚠️ 收尾：ADR-1「被等」 · 不做了\n'), wait('\n> ⚠️ 已重挂：ADR-1「被等」 · 现行的是 ADR-1「等」\n'), wait('', 'ADR-1「没有」')],
+    [{ state: '没越线', value: 'ADR-1「被等」 开着' }, { state: '越线', value: 'ADR-1「被等」 已还' },
+      { state: '无从确认', value: '等的那张 ADR-1「被等」 已收尾，等不到已还' }, { state: '无从确认', value: '等的那张 ADR-1「被等」 已改挂，等不到已还' },
+      { state: '无从确认', value: '等的那张 ADR-1「没有」 在台账里找不到' }])
+
+  // 树里的数
+  const catalog = (text: string | undefined) => new Map<string, string>([['a.md', '一\n二\n三'], ...(text === undefined ? [] : [[MUTATION_CATALOG, text] as [string, string]])])
+  let files = catalog('{"mutations":[],"exemptions":[1,2]}')
+  const odd = new Map<string, TreeFile>([['锁着.md', { kind: '读不到' }], ['目录', { kind: '不是普通文件' }]])
+  const tree = (measure: Measure, op: Op, line: number, tracked: string[] | undefined = []) => judgeCondition(raw({ read: p => files.has(p) ? { kind: 'file', bytes: Buffer.from(files.get(p)!) } : odd.get(p) ?? { kind: '不在' }, tracked }),
+    { judge: 'tree-number', measure, op, line }).state
+  eq('树里的数：字节数按字节（中文三字节）、正好等于线不算过 >；行数数换行（末行没换行不算）；>= 正好等于算过',
+    [tree({ kind: 'bytes', path: 'a.md' }, '>', 10), tree({ kind: 'bytes', path: 'a.md' }, '>', 11), tree({ kind: 'lines', path: 'a.md' }, '>=', 2), tree({ kind: 'lines', path: 'a.md' }, '>=', 3)],
+    ['越线', '没越线', '越线', '没越线'])
+  eq('树里的数：= 只认相等；文件在不在（不在是 0）；要量的文件不在就无从确认，量「在不在」的不算取不到',
+    [tree({ kind: 'catalog-exemptions' }, '=', 2), tree({ kind: 'catalog-exemptions' }, '=', 0),
+      tree({ kind: 'exists', path: '没有.md' }, '=', 0), tree({ kind: 'exists', path: 'a.md' }, '=', 0), tree({ kind: 'bytes', path: '没有.md' }, '>', 1)],
+    ['越线', '没越线', '越线', '没越线', '无从确认'])
+  const why = (measure: Measure) => judgeCondition(raw({ read: p => odd.get(p) ?? { kind: '不在' } }), { judge: 'tree-number', measure, op: '=', line: 0 })
+  eq('树里的数：在、却读不到或不是普通文件的，量「在不在」不算不在、判无从确认；量字节的写明是读不到还是不是普通文件',
+    [why({ kind: 'exists', path: '锁着.md' }), why({ kind: 'exists', path: '目录' }), why({ kind: 'bytes', path: '锁着.md' }), why({ kind: 'lines', path: '目录' }), why({ kind: 'catalog-exemptions' })], [
+      { state: '无从确认', value: '锁着.md 读不到' }, { state: '无从确认', value: '目录 不是普通文件' }, { state: '无从确认', value: '锁着.md 读不到' },
+      { state: '无从确认', value: '目录 不是普通文件' }, { state: '无从确认', value: '变异目录不在' }])
+  withToyRepo(toy => {
+    toy.write('a.txt', '一\n')
+    const at = (p: string) => { const f = readTreeFile(join(toy.dir, p)); return f.kind === 'file' ? f.bytes.toString('utf8') : f.kind }
+    eq('读树里的文件：读到了给全文；没有这个文件、路径中间一段是文件，都算不在；目录算不是普通文件',
+      [at('a.txt'), at('没有.txt'), at('a.txt/下面'), at('.')], ['一\n', '不在', '不在', '不是普通文件'])
+  })
+  const shape = (text: string | undefined) => { files = catalog(text); try { return tree({ kind: 'catalog-exemptions' }, '=', 0) } catch (e) { return e instanceof RawShapeError ? e.message : '别的错' } }
+  eq('树里的数：变异目录经它的读口读，读不出、豁免不是数组是原料形状不对，抛出来（整跑以 1 退出）；目录不在才算取不到',
+    [shape('不是'), shape('{"mutations":[],"exemptions":3}'), shape('{"mutations":[]}'), shape(undefined)],
+    ['变异目录读不出：不是 JSON（Unexpected token \'不\', "不是" is not valid JSON）', '变异目录形状不对：exemptions 不是数组', '越线', '无从确认'])
+  const dts = (tracked: string[] | undefined) => judgeCondition(raw({ tracked }), { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['scripts/lib', 'scripts/providers'], suffix: '.d.ts' }, op: '>=', line: 1 })
+  eq('树里的数：受跟踪的后缀文件只数给的目录（含子目录），名字相近的目录、别处的不算；取不到受跟踪的路径就无从确认',
+    [dts(['scripts/lib/deep/a.d.ts', 'scripts/libx/b.d.ts', 'skill/c.d.ts', 'scripts/lib/d.ts']), dts(['scripts/libx/b.d.ts', 'scripts/lib/a.ts']), dts(undefined).state],
+    [{ state: '越线', value: 'scripts/lib、scripts/providers 下受跟踪的 .d.ts 份数 1（线：>= 1）' }, { state: '没越线', value: 'scripts/lib、scripts/providers 下受跟踪的 .d.ts 份数 0（线：>= 1）' }, '无从确认'])
+
+  // 记法：到期清单、轮值、登记表同一个
+  const ndocs = new Map([
+    ['docs/adr/ADR-7-七.md', `# ADR-7\n\n${iou('有名')}\n> ⚠️ 欠条：没名字 · 重启条件：下次\n\n> **什么条件下撤**：七\n`],
+    ['docs/adr/ADR-08-补零.md', '# ADR-08\n\n> **什么条件下撤**：补零\n'],
+    ['docs/adr/历史/ADR-7-七.md', '# ADR-7\n\n> **什么条件下停**：旧\n'],
+  ])
+  eq('记法：有短名字的欠条按名字，没名字的按行号；拆过的记录主文件里的死亡条件写「主文件」，历史文件里的不写；编号照文件名原样（补零的不改写）',
+    [...ledgerIndex(ndocs).keys()].sort(), ['ADR-08 第 3 行', 'ADR-7 主文件第 7 行', 'ADR-7 第 3 行', 'ADR-7 第 5 行', 'ADR-7「有名」'].sort())
+
+  // 核对登记表
+  const cdocs = new Map([['docs/adr/ADR-1-一.md', `# ADR-1\n\n${iou('开着')}\n${iou('关了')}\n> ⚠️ 已还：ADR-1「关了」 · 还在 #3\n\n${iou('续了')}\n> ⚠️ 续挂：ADR-1「续了」 · 在 #4 · 到 2026-12-21 · 因为\n\n> **什么条件下撤**：一\n`]])
+  const C = (binds: string, kind: Condition['kind'], probe: Probe, pin = conditionPin('什么条件下撤：一')): Condition => ({ binds, kind, name: '某条', probe, ...binds.includes('「') ? {} : { pin } })
+  const merged: Probe = { judge: 'pr-merged', pr: 1 }
+  const faults = (table: Condition[], kindOf = (_p: string): 'file' | 'dir' | undefined => 'file') => conditionFaults(table, cdocs, kindOf)
+  eq('核对：开着、续挂的欠条与死亡条件都过', faults([C('ADR-1「开着」', '欠条', merged), C('ADR-1「续了」', '欠条', merged), C('ADR-1 第 13 行', '死亡条件', merged)]), [])
+  eq('核对：记法不在台账里、种类不对、管的那条已经还了、同一条绑两个，各报一行',
+    faults([C('ADR-1「没有」', '欠条', merged), C('ADR-1 第 13 行', '欠条', merged), C('ADR-1「关了」', '欠条', merged), C('ADR-1「开着」', '欠条', merged), C('ADR-1「开着」', '欠条', merged)]), [
+      '条件探针「某条」（绑 ADR-1「没有」）：台账里没有这个记法（行号挪了、名字改了，或那一条删了）',
+      '条件探针「某条」（绑 ADR-1 第 13 行）：台账里它是死亡条件，登记的是欠条',
+      '条件探针「某条」（绑 ADR-1「关了」）：这个探针管的那条已经还了，撤掉这一行或改绑到现行那一张',
+      '条件探针「某条」（绑 ADR-1「开着」）：这一条已经绑了一个探针，一条至多一个'])
+  eq('核对：PR 号不是正整数、等的那张不是欠条、量的文件不在、数份数的目录不在，各报一行；量「在不在」的文件不在不报',
+    faults([C('ADR-1「开着」', '欠条', { judge: 'pr-merged', pr: 0 }), C('ADR-1「续了」', '欠条', { judge: 'ledger-status', waits: 'ADR-1 第 13 行', status: '已还' }),
+      C('ADR-1 第 13 行', '死亡条件', { judge: 'tree-number', measure: { kind: 'bytes', path: 'x.md' }, op: '>', line: 1 })], () => undefined).concat(
+      conditionFaults([C('ADR-1「开着」', '欠条', { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['d'], suffix: '.x' }, op: '>', line: 1 }),
+        C('ADR-1 第 13 行', '死亡条件', { judge: 'tree-number', measure: { kind: 'exists', path: 'x.md' }, op: '=', line: 0 })], cdocs, () => undefined)), [
+      '条件探针「某条」（绑 ADR-1「开着」）：PR 号要是正整数',
+      '条件探针「某条」（绑 ADR-1「续了」）：等的那张 ADR-1 第 13 行 在台账里不是一张欠条',
+      '条件探针「某条」（绑 ADR-1 第 13 行）：文件 x.md 不在',
+      '条件探针「某条」（绑 ADR-1「开着」）：目录 d 不在'])
+  eq('核对：数份数的写成了普通文件、量字节的写成了目录，各报一行（路径在，种类不对）',
+    faults([C('ADR-1「开着」', '欠条', { judge: 'tree-number', measure: { kind: 'tracked-suffix', dirs: ['d'], suffix: '.x' }, op: '>', line: 1 }),
+      C('ADR-1 第 13 行', '死亡条件', { judge: 'tree-number', measure: { kind: 'lines', path: 'x.md' }, op: '>', line: 1 })], p => p === 'd' ? 'file' : 'dir'), [
+      '条件探针「某条」（绑 ADR-1「开着」）：d 不是目录',
+      '条件探针「某条」（绑 ADR-1 第 13 行）：x.md 不是普通文件'])
+  const tdocs = new Map([['docs/adr/ADR-1-一.md', `# ADR-1\n\n${iou('收了')}\n> ⚠️ 收尾：ADR-1「收了」 · 不做了\n\n${iou('挪了')}\n> ⚠️ 已重挂：ADR-1「挪了」 · 现行的是 ADR-1「收了」\n`],
+    ['docs/adr/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}`], ['docs/adr/历史/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}\n> ⚠️ 已还：ADR-9 第 3 行 · 还在 #9\n`]])
+  eq('核对：管的那条收尾了、改挂了各说一句；拆过的记录主文件与历史文件同名的那张状态不同，对上不止一条也报',
+    conditionFaults([C('ADR-1「收了」', '欠条', merged), C('ADR-1「挪了」', '欠条', merged), C('ADR-9「甲」', '欠条', merged)], tdocs, () => 'file'), [
+      '条件探针「某条」（绑 ADR-1「收了」）：这个探针管的那条已经收尾，撤掉这一行或改绑到现行那一张',
+      '条件探针「某条」（绑 ADR-1「挪了」）：这个探针管的那条已经改挂，撤掉这一行或改绑到现行那一张',
+      '条件探针「某条」（绑 ADR-9「甲」）：这个记法在台账里对上不止一条、种类或状态不同'])
+  const udocs = new Map([['docs/adr/ADR-9-九.md', '# ADR-9\n\n> ⚠️ 欠条：主文件这张 · 重启条件：下次\n'], ['docs/adr/历史/ADR-9-九.md', '# ADR-9\n\n> ⚠️ 欠条：历史这张 · 重启条件：下次\n']])
+  eq('核对：拆过的记录主文件与历史文件同一行各有一张没名字的欠条、都开着，按行号绑认不出是哪张，报；有名字的同名同状态算一条',
+    [conditionFaults([C('ADR-9 第 3 行', '欠条', merged)], udocs, () => 'file'), conditionFaults([C('ADR-9「甲」', '欠条', merged)], new Map([['docs/adr/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}`], ['docs/adr/历史/ADR-9-九.md', `# ADR-9\n\n${iou('甲')}`]]), () => 'file')],
+    [['条件探针「某条」（绑 ADR-9 第 3 行）：这个行号在台账里对上不止一条（拆过的记录主文件与历史文件同一行各有一张），不知道绑的是哪一张'], []])
+  eq('核对：按行号绑的，没写指纹、指纹不是 16 位十六进制、指纹与那一行原文此刻的不同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行并报出现在的指纹；只差空白的算同一句',
+    faults([C('ADR-1 第 13 行', '死亡条件', merged, conditionPin('一').toUpperCase()), { binds: 'ADR-1 第 13 行', kind: '死亡条件', name: '某条', probe: merged }, C('ADR-1 第 13 行', '死亡条件', merged, conditionPin('什么条件下退')), C('ADR-1 第 13 行', '死亡条件', merged, conditionPin('什么条件下撤')), C('ADR-1 第 13 行', '死亡条件', merged, conditionPin(' 什么条件下撤： 一 '))]).filter(f => !f.includes('一条至多一个')), [
+      ...Array(2).fill('条件探针「某条」（绑 ADR-1 第 13 行）：按行号绑的要写 pin（那一行条件原文的指纹，pinOf 算的 16 位十六进制），核对时比'),
+      ...Array(2).fill(`条件探针「某条」（绑 ADR-1 第 13 行）：这一行现在写的与登记时那一句不是同一句（行号挪了、换成了另一条或措辞改了；现在的指纹是 ${conditionPin('什么条件下撤：一')}），撤掉这一行或核过原文后改绑`)])
+  eq('指纹：去掉空白后的 SHA-256 前 16 位', conditionPin(' a\nb '), createHash('sha256').update('ab').digest('hex').slice(0, 16))
+  eq('核对：续挂到哪天按记法交回，只有续挂行指着的才有', [...carriedUntil(cdocs)], [['ADR-1「续了」', '2026-12-21']])
+
+  // 回访那一段
+  const out = (binds: string, kind: Condition['kind'], state: Verdict['state'], value = '值'): ConditionOutcome => ({ binds, kind, name: binds, verdict: { state, value } })
+  const L = (day: string, verdict: string): Listing => ({ day, verdict, at: 0, kept: false })
+  const outcomes = [out('甲', '欠条', '越线'), out('乙', '欠条', '越线'), out('丙', '欠条', '越线'), out('丁', '死亡条件', '越线'), out('戊', '死亡条件', '越线'),
+    out('己', '欠条', '越线'), out('庚', '欠条', '没越线'), out('辛', '欠条', '无从确认', '取不到'), out('壬', '死亡条件', '越线')]
+  const listed = new Map([['乙', L('2026-11-03', ' 留 ')], ['丙', L('2026-11-02', '还')], ['丁', L('2026-11-03', '拒绝')], ['戊', L('2026-11-03', '留')], ['甲', L('2026-11-29', '')], ['庚', L('2026-11-01', '')]])
+  eq('回访那一段：越线的列出来（列过没判的标上）；判过的 28 天内不列、满 28 天照列；死亡条件只认接受、拒绝（判「留」算没判）；续挂没到那天的不列；先不列的按记法各一行、说哪天起再列；无从确认的每条点名',
+    conditionReport(outcomes, '2026-11-30', listed, new Map([['己', '2026-12-01'], ['壬', '2026-12-25']])), [
+      '条件探针 9 条：越线 7、没越线 1、无从确认 1；这次列 4 条（判过、28 天内不再列的 2 条，续挂没到那天的 1 条）',
+      '甲 · 欠条 · 甲 · 越线：值 · 列过没判', '丙 · 欠条 · 丙 · 越线：值', '戊 · 死亡条件 · 戊 · 越线：值 · 列过没判', '壬 · 死亡条件 · 壬 · 越线：值',
+      '先不列：乙 · 欠条 · 乙 · 判过，2026-12-01 起再列', '先不列：丁 · 死亡条件 · 丁 · 判过，2026-12-01 起再列', '先不列：己 · 欠条 · 己 · 续挂到 2026-12-01',
+      '无从确认：辛 · 辛 · 取不到'])
+  eq('回访那一段：判过又续挂到更晚的，先不列那一行说的是续挂那天；续挂早于 28 天满的，说 28 天满那天',
+    [conditionReport([out('乙', '欠条', '越线')], '2026-11-30', listed, new Map([['乙', '2026-12-21']])).slice(1),
+      conditionReport([out('乙', '欠条', '越线')], '2026-11-30', listed, new Map([['乙', '2026-11-20']])).slice(1)],
+    [['先不列：乙 · 欠条 · 乙 · 判过，2026-12-21 起再列'], ['先不列：乙 · 欠条 · 乙 · 判过，2026-12-01 起再列']])
+  eq('回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角',
+    [conditionReport([out('己', '欠条', '越线')], '2026-12-01', new Map(), new Map([['己', '2026-12-01']])).slice(1),
+      conditionReport([out('庚', '欠条', '越线', 'a|b')], '2026-12-01', new Map([['庚', { day: '2026-11-01', verdict: '', at: 0, kept: true }]]), new Map()).slice(1)],
+    [['己 · 欠条 · 己 · 越线：值 · 续挂过，只能还或收尾'], ['庚 · 欠条 · 庚 · 越线：a｜b · 列过没判 · 续挂过，只能还或收尾']])
+  eq('照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表',
+    evaluateConditions([C('乙', '欠条', { judge: 'pr-merged', pr: 2 }), C('甲', '欠条', merged)], raw({ subjects: ['一 (#1)'] })).map(o => [o.binds, o.verdict.state]), [['乙', '没越线'], ['甲', '越线']])
+  eq('越线的记法含先不列的，没越线、无从确认的不算', [...firedSet(outcomes)], ['甲', '乙', '丙', '丁', '戊', '己', '壬'])
+
+  // 到期清单与轮值先拿掉越线的
+  const items = [{ key: '甲', aliases: [], date: '2026-01-01', carried: false }, { key: '乙', aliases: [], date: '2026-01-02', carried: false }, { key: '丙', aliases: [], date: '2026-01-03', carried: false }]
+  eq('到期清单：越线的先拿掉再截名额，不数进到期、不占名额，第一行说拿掉了几张；不给就照旧',
+    [dueList(items, '2026-03-01', new Map(), 28, 2, new Set(['甲'])).lines, dueList(items, '2026-03-01', new Map(), 28, 2).lines], [
+      ['到期 2 张、列过没判 0 张、取不到登记日 0 张；这次列 2 张（最多 2 张）；条件探针越线、已排在最前面的 1 张不在这里列', '2026-01-02 乙', '2026-01-03 丙'],
+      ['到期 3 张、列过没判 0 张、取不到登记日 0 张；这次列 2 张（最多 2 张）', '2026-01-01 甲', '2026-01-02 乙']])
+  const rdocs = new Map([['docs/adr/ADR-1-一.md', '# ADR-1\n\n> **什么条件下撤**：一\n\n> **什么条件下退**：二\n']])
+  eq('轮值：越线的那条这一周不在这里列，第一行说拿掉了几条', deathRota(rdocs, '2026-11-30', 4, new Set(['ADR-1 第 3 行'])),
+    ['死亡条件 2 条（历史文件里与主文件整句相同的 0 条不重复算）；这一周轮到编号除以 4 余 1 的 1 条（条件探针越线、已排在最前面的 1 条不在这里列）', 'ADR-1 第 5 行  什么条件下退：二'])
+  const hdocs = new Map([['docs/adr/ADR-1-一.md', '# ADR-1\n\n> **什么条件下撤**：一\n'], ['docs/adr/历史/ADR-1-一.md', '# ADR-1\n\n> **什么条件下撤**：一\n']])
+  const twin = new Map([['docs/adr/ADR-1-一.md', '# ADR-1\n\n> **什么条件下撤**：一\n\n## 另一节\n\n> **什么条件下撤**：一\n']])
+  eq('轮值：只按记法拿掉 —— 同一份主文件两节写了一模一样的死亡条件，越线的是哪一条就只拿掉那一条', deathRota(twin, '2026-11-30', 4, new Set(['ADR-1 第 3 行'])),
+    ['死亡条件 2 条（历史文件里与主文件整句相同的 0 条不重复算）；这一周轮到编号除以 4 余 1 的 1 条（条件探针越线、已排在最前面的 1 条不在这里列）', 'ADR-1 第 7 行  什么条件下撤：一'])
+  eq('核对：绑死亡条件的只认轮值里会列出的那一份 —— 绑了历史文件里与主文件整句相同的那份，报；绑主文件那一行过',
+    [conditionFaults([{ binds: 'ADR-1 第 3 行', kind: '死亡条件', name: '某条', pin: conditionPin('什么条件下撤：一'), probe: { judge: 'pr-merged', pr: 1 } }], hdocs, () => 'file'),
+      conditionFaults([{ binds: 'ADR-1 主文件第 3 行', kind: '死亡条件', name: '某条', pin: conditionPin('什么条件下撤：一'), probe: { judge: 'pr-merged', pr: 1 } }], hdocs, () => 'file')],
+    [['条件探针「某条」（绑 ADR-1 第 3 行）：轮值里不列这一份（历史文件里与主文件整句相同，只列主文件那一份），改绑主文件那一行'], []])
+})
+await group('h-conditions-entry', () => {
+  harness('条件探针的入口：在玩具仓库里真起；登记表绑的真记录这里没有，核不过以 1 退出')
+  // 真起单独成组：判定在 h-conditions 里直接调；入口每起一次，都会乘上这一组的全部变异（启动数闸门，ADR-145）
+  withToyRepo(toy => {
+    toy.git('init', '-q', '-b', 'main')
+    toy.write('docs/adr/ADR-1-甲.md', '# ADR-1\n')
+    const entry = (...args: string[]) => spawnSync(...tsxCommand([join(process.cwd(), 'scripts/check/conditions.ts'), ...args]),
+      { cwd: toy.dir, env: fixtureEnv({}), encoding: 'utf8', timeout: 60_000 })
+    const none = entry('--today', '2026-11-30')
+    eq('入口：登记表核不过，每一行都报到标准错误、什么都不算，以 1 退出',
+      [none.status, none.stdout, none.stderr.split('\n').filter(l => l.includes('台账里没有这个记法')).length, none.stderr.includes('条件探针「PR #73 合入」（绑 ADR-69 第 20 行）：台账里没有这个记法')], [1, '', CONDITIONS.length, true])
+    const bad = entry('--today', '2026-02-30')
+    eq('条件探针的入口 --today 写的不是成立的日子：以 2 退出、什么都不打', [bad.status, bad.stdout], [2, ''])
   })
 })
 await group('h-iou-file-reminder-entry', () => {

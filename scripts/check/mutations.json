@@ -30205,8 +30205,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "整张改挂过来的不接原来那张的登记日 —— 改挂一次就从头算 28 天",
-      "find": "        if (d.date !== undefined && (date === undefined || d.date < date)) date = d.date",
-      "replace": "        if (false) date = d.date",
+      "find": "      if (d.date !== undefined && (date === undefined || d.date < date)) date = d.date",
+      "replace": "      if (false) date = d.date",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
     },
@@ -30215,7 +30215,7 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "只往回找一层 —— 改挂过两次的，取到的是中间那张的登记日",
-      "find": "        walk(srcKeys)\n",
+      "find": "      walk(keysOf(src, docs, split))\n",
       "replace": "",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
@@ -30225,8 +30225,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "改挂过来之前续挂过不标 —— 续挂只许一次绕得过去",
-      "find": "        if (all.some(x => x.kind === '续挂' && srcKeys.includes(x.key))) carried = true",
-      "replace": "        if (false) carried = true",
+      "find": "      if (all.some(x => x.kind === '续挂' && srcKeys.includes(x.key))) carried = true",
+      "replace": "      if (false) carried = true",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
     },
@@ -30275,8 +30275,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-due.ts",
       "why": "入口不读 ADR-152 的人判 —— 判过的照样再列",
-      "find": "dueList(dueItems(realGit, run, docs), today, listings(adr152()))",
-      "replace": "dueList(dueItems(realGit, run, docs), today, new Map())",
+      "find": "dueList(dueItems(realGit, run, docs), today, listings(adr152()),",
+      "replace": "dueList(dueItems(realGit, run, docs), today, new Map(),",
       "by": "test",
       "kills": ["入口 --list：读整份决策记录与 ADR-152 的人判，按给的那天判到期，最老先列，第一行是几个数；只读，工作区一个字没动"]
     },
@@ -30335,7 +30335,7 @@
       "req": "harness",
       "file": "scripts/check/revisit-rule.ts",
       "why": "续挂写的那天丢了 —— 续挂过的满 28 天就又列",
-      "find": "      until: untilOf(keys),",
+      "find": "      until: untilOf(all, chain),",
       "replace": "      until: undefined,",
       "by": "test",
       "kills": ["到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"]
@@ -30615,8 +30615,8 @@
       "req": "harness",
       "file": "scripts/check/revisit-due.ts",
       "why": "入口不认给的日子 —— 补跑前几周的回访，轮到的组是错的",
-      "find": "deathRota(adrDocs(), today)",
-      "replace": "deathRota(adrDocs(), '2026-11-30')",
+      "find": "deathRota(docs, today, undefined, fired(docs))",
+      "replace": "deathRota(docs, '2026-11-30', undefined, fired(docs))",
       "by": "test",
       "kills": ["入口 --deaths：按给的那天定轮到哪一组，第一行是几个数，后面是记法与条件原文"]
     },
@@ -39139,6 +39139,870 @@
       "by": "test",
       "kills": [
         "新登记闸门：两张欠条之间没隔开时各算各的 —— 截到下一张的块头，状态行留在前一张里，扩范围、既有缺陷的不算登记"
+      ]
+    },
+    {
+      "id": "M-H252-a",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "标题里只要提到这个 PR 号就算它合入了 —— 改它留下的事的那条 PR 会被当成它本身",
+      "find": "subject.startsWith(`Merge pull request #${pr} from `)",
+      "replace": "subject.includes(`#${pr}`)",
+      "by": "test",
+      "kills": [
+        "合入：合并提交「Merge pull request #N from …」与压成一个提交的「… (#N)」都认；别的号、只在中间提到、回退提交、号的前缀相同都不认"
+      ]
+    },
+    {
+      "id": "M-H252-b",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "号的前缀相同也算合入 —— #4255 合入被当成 #425 合入",
+      "find": "subject.endsWith(` (#${pr})`)",
+      "replace": "subject.includes(`(#${pr}`)",
+      "by": "test",
+      "kills": [
+        "合入：合并提交「Merge pull request #N from …」与压成一个提交的「… (#N)」都认；别的号、只在中间提到、回退提交、号的前缀相同都不认"
+      ]
+    },
+    {
+      "id": "M-H252-c",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "取不到主干的提交标题时说「没合入」—— 原料没取到被说成条件没成立，每周汇总看起来一切正常",
+      "find": "if (raw.subjects === undefined) return { state: '无从确认'",
+      "replace": "if (raw.subjects === undefined) return { state: '没越线'",
+      "by": "test",
+      "kills": [
+        "合入判法：标题里有就越线、说是哪一条；没有就没越线；取不到标题就无从确认"
+      ]
+    },
+    {
+      "id": "M-H252-d",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "问到主干链头以后整份当取不到 —— 每一条「某 PR 合入」都永远无从确认",
+      "find": "if (head.at(-1) === 'missing') return subjects.length > 0 ? subjects : undefined",
+      "replace": "if (head.at(-1) === 'missing') return undefined",
+      "by": "test",
+      "kills": [
+        "切提交标题：字节数按字节切、中文不错位，取消息第一行，到 missing 为止；不是 commit、字节数不够都交回取不到"
+      ]
+    },
+    {
+      "id": "M-H252-e",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "提交按字符数切而不是按字节数 —— 中文标题一多，后面的提交全错位",
+      "find": "out.subarray(nl + 1, nl + 1 + size).toString('utf8')",
+      "replace": "out.toString('utf8').slice(nl + 1, nl + 1 + size)",
+      "by": "test",
+      "kills": [
+        "切提交标题：字节数按字节切、中文不错位，取消息第一行，到 missing 为止；不是 commit、字节数不够都交回取不到"
+      ]
+    },
+    {
+      "id": "M-H252-f",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "读回来的不是提交也照切 —— 形状不对的回答被当成标题",
+      "find": "head[1] !== 'commit' ||",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "切提交标题：字节数按字节切、中文不错位，取消息第一行，到 missing 为止；不是 commit、字节数不够都交回取不到"
+      ]
+    },
+    {
+      "id": "M-H252-g",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "只问主干最新的一个提交 —— 早就合入的 PR 被说成没合入",
+      "find": "Array.from({ length: n + 1 }",
+      "replace": "Array.from({ length: 1 }",
+      "by": "test",
+      "kills": [
+        "问 git：标题只取第一亲代链（分支上那一条不算），从新到旧；受跟踪的路径全列；修订不在就取不到"
+      ]
+    },
+    {
+      "id": "M-H252-h",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "等的那张被收尾或改挂了仍说「没越线」—— 那张永远等不到已还，这条就没人管了",
+      "find": "if (closed !== undefined) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": [
+        "等状态：等的那张开着是没越线、写着状态；已还就越线；收尾或改挂了等不到已还，判无从确认并说为什么；台账里找不到也无从确认"
+      ]
+    },
+    {
+      "id": "M-H252-i",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "等的那张改挂到别处了仍说「没越线」—— 那张永远等不到已还",
+      "find": "s === '收尾' || s === '已重挂'",
+      "replace": "s === '收尾'",
+      "by": "test",
+      "kills": [
+        "等状态：等的那张开着是没越线、写着状态；已还就越线；收尾或改挂了等不到已还，判无从确认并说为什么；台账里找不到也无从确认"
+      ]
+    },
+    {
+      "id": "M-H252-j",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "名字开头相同的别的目录（scripts/libx）里的文件也数进来 —— 多报越线",
+      "find": "p.startsWith(`${d}/`)",
+      "replace": "p.startsWith(d)",
+      "by": "test",
+      "kills": [
+        "树里的数：受跟踪的后缀文件只数给的目录（含子目录），名字相近的目录、别处的不算；取不到受跟踪的路径就无从确认"
+      ]
+    },
+    {
+      "id": "M-H252-k",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "末行没有换行也算一行 —— 行数多一，正好在线上的被说成过线",
+      "find": "if (m.kind === 'lines') { let n = 0;",
+      "replace": "if (m.kind === 'lines') { let n = 1;",
+      "by": "test",
+      "kills": [
+        "树里的数：字节数按字节（中文三字节）、正好等于线不算过 >；行数数换行（末行没换行不算）；>= 正好等于算过"
+      ]
+    },
+    {
+      "id": "M-H252-l",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "字节数按字符数量 —— 中文文件过了字节线却说没过",
+      "find": "  return f.bytes.length\n}",
+      "replace": "  return f.bytes.toString('utf8').length\n}",
+      "by": "test",
+      "kills": [
+        "树里的数：字节数按字节（中文三字节）、正好等于线不算过 >；行数数换行（末行没换行不算）；>= 正好等于算过"
+      ]
+    },
+    {
+      "id": "M-H252-m",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "「超过」写成「不少于」—— 正好在线上就报越线",
+      "find": "op === '>' ? n > line",
+      "replace": "op === '>' ? n >= line",
+      "by": "test",
+      "kills": [
+        "树里的数：字节数按字节（中文三字节）、正好等于线不算过 >；行数数换行（末行没换行不算）；>= 正好等于算过"
+      ]
+    },
+    {
+      "id": "M-H252-n",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "「不少于」写成「超过」—— 出现第一份时不报",
+      "find": ": op === '>=' ? n >= line",
+      "replace": ": op === '>=' ? n > line",
+      "by": "test",
+      "kills": [
+        "树里的数：字节数按字节（中文三字节）、正好等于线不算过 >；行数数换行（末行没换行不算）；>= 正好等于算过"
+      ]
+    },
+    {
+      "id": "M-H252-o",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "文件在不在反过来 —— 文件还在就说它没了",
+      "find": "if (m.kind === 'exists') return f.kind === '不在' ? 0 : f.kind === 'file' ? 1 :",
+      "replace": "if (m.kind === 'exists') return f.kind === '不在' ? 1 : f.kind === 'file' ? 0 :",
+      "by": "test",
+      "kills": [
+        "树里的数：= 只认相等；文件在不在（不在是 0）；要量的文件不在就无从确认，量「在不在」的不算取不到"
+      ]
+    },
+    {
+      "id": "M-H252-p",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "变异目录读不出也不报形状不对 —— 文件改坏了整跑照样过",
+      "find": "if (!r.ok) throw new RawShapeError",
+      "replace": "if (false) throw new RawShapeError",
+      "by": "test",
+      "kills": [
+        "树里的数：变异目录经它的读口读，读不出、豁免不是数组是原料形状不对，抛出来（整跑以 1 退出）；目录不在才算取不到"
+      ]
+    },
+    {
+      "id": "M-H252-q",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "变异目录不在就当成没有豁免 —— 原料没取到被说成死亡条件成立",
+      "find": "    if (f.kind !== 'file') return `变异目录${f.kind}`",
+      "replace": "    if (f.kind !== 'file') return 0",
+      "by": "test",
+      "kills": [
+        "树里的数：变异目录经它的读口读，读不出、豁免不是数组是原料形状不对，抛出来（整跑以 1 退出）；目录不在才算取不到"
+      ]
+    },
+    {
+      "id": "M-H252-r",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "要量的文件不在就当成 0 —— 原料没取到被说成「没越线」",
+      "find": "  if (f.kind !== 'file') return `${m.path} ${f.kind}`\n  if (m.kind === 'lines')",
+      "replace": "  if (f.kind !== 'file') return 0\n  if (m.kind === 'lines')",
+      "by": "test",
+      "kills": [
+        "树里的数：= 只认相等；文件在不在（不在是 0）；要量的文件不在就无从确认，量「在不在」的不算取不到"
+      ]
+    },
+    {
+      "id": "M-H252-s",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "取不到受跟踪的路径就当 0 份 —— 原料没取到被说成「没越线」",
+      "find": "return raw.tracked?.filter",
+      "replace": "return (raw.tracked ?? []).filter",
+      "by": "test",
+      "kills": [
+        "树里的数：受跟踪的后缀文件只数给的目录（含子目录），名字相近的目录、别处的不算；取不到受跟踪的路径就无从确认"
+      ]
+    },
+    {
+      "id": "M-H252-t",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "一条台账条目绑两个探针也不红 —— 同一条每周列两次",
+      "find": "if (seen.has(c.binds)) out.push",
+      "replace": "if (false) out.push",
+      "by": "test",
+      "kills": [
+        "核对：记法不在台账里、种类不对、管的那条已经还了、同一条绑两个，各报一行"
+      ]
+    },
+    {
+      "id": "M-H252-u",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "登记的种类与台账不同也不红 —— 死亡条件按欠条的判词请人判",
+      "find": "else if (hits[0].kind !== c.kind)",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "核对：记法不在台账里、种类不对、管的那条已经还了、同一条绑两个，各报一行"
+      ]
+    },
+    {
+      "id": "M-H252-v",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "探针管的欠条已经还了也不红 —— 关了的欠条每周仍被报越线",
+      "find": "hits[0].status !== '开着' && hits[0].status !== '续挂'",
+      "replace": "hits[0].status === '收尾'",
+      "by": "test",
+      "kills": [
+        "核对：记法不在台账里、种类不对、管的那条已经还了、同一条绑两个，各报一行"
+      ]
+    },
+    {
+      "id": "M-H252-w",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "续挂着的欠条也当成关了 —— 续挂的那张撤不了探针又过不了检查",
+      "find": "&& hits[0].status !== '续挂'",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "核对：开着、续挂的欠条与死亡条件都过"
+      ]
+    },
+    {
+      "id": "M-H252-x",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "PR 号写成 0 也过检查 —— 那一行永远不会越线",
+      "find": "!(Number.isInteger(p.pr) && p.pr > 0)",
+      "replace": "!Number.isInteger(p.pr)",
+      "by": "test",
+      "kills": [
+        "核对：PR 号不是正整数、等的那张不是欠条、量的文件不在、数份数的目录不在，各报一行；量「在不在」的文件不在不报"
+      ]
+    },
+    {
+      "id": "M-H252-y",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "等的那条不是欠条也过检查 —— 它没有状态，永远等不到已还",
+      "find": ".some(h => h.kind === '欠条')) out.push",
+      "replace": ".length) out.push",
+      "by": "test",
+      "kills": [
+        "核对：PR 号不是正整数、等的那张不是欠条、量的文件不在、数份数的目录不在，各报一行；量「在不在」的文件不在不报"
+      ]
+    },
+    {
+      "id": "M-H252-z",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "量「在不在」的文件已经不在时检查变红 —— 条件刚成立就逼着把探针撤掉",
+      "find": "} else if (m.kind !== 'exists' && m.kind !== 'catalog-exemptions') {",
+      "replace": "} else if (m.kind !== 'catalog-exemptions') {",
+      "by": "test",
+      "kills": [
+        "核对：PR 号不是正整数、等的那张不是欠条、量的文件不在、数份数的目录不在，各报一行；量「在不在」的文件不在不报"
+      ]
+    },
+    {
+      "id": "M-H252-aa",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "数份数的目录写错也过检查 —— 永远数到 0，永远不越线",
+      "find": "const k = kindOf(d); if (k !== 'dir')",
+      "replace": "const k = kindOf(d); if (false)",
+      "by": "test",
+      "kills": [
+        "核对：PR 号不是正整数、等的那张不是欠条、量的文件不在、数份数的目录不在，各报一行；量「在不在」的文件不在不报"
+      ]
+    },
+    {
+      "id": "M-H252-ab",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "判过一次就永远不再列 —— 判了还却没写状态行的，四周后也没人再提",
+      "find": "today < addDays(l.day, QUIET_DAYS)",
+      "replace": "true",
+      "by": "test",
+      "kills": [
+        "回访那一段：越线的列出来（列过没判的标上）；判过的 28 天内不列、满 28 天照列；死亡条件只认接受、拒绝（判「留」算没判）；续挂没到那天的不列；先不列的按记法各一行、说哪天起再列；无从确认的每条点名"
+      ]
+    },
+    {
+      "id": "M-H252-ac",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "死亡条件判「留」也算判过 —— 不是死亡条件的判词，四周内不再列",
+      "find": "死亡条件: new Set(['接受', '拒绝'])",
+      "replace": "死亡条件: new Set(['接受', '拒绝', '留'])",
+      "by": "test",
+      "kills": [
+        "回访那一段：越线的列出来（列过没判的标上）；判过的 28 天内不列、满 28 天照列；死亡条件只认接受、拒绝（判「留」算没判）；续挂没到那天的不列；先不列的按记法各一行、说哪天起再列；无从确认的每条点名"
+      ]
+    },
+    {
+      "id": "M-H252-ad",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "续挂写的那天到了仍不列 —— 晚一周才报",
+      "find": "if (u !== undefined && today < u)",
+      "replace": "if (u !== undefined && today <= u)",
+      "by": "test",
+      "kills": [
+        "回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角"
+      ]
+    },
+    {
+      "id": "M-H252-ae",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "死亡条件也按续挂日期压着不列",
+      "find": "c.kind === '欠条' ? until.get(c.binds) : undefined",
+      "replace": "until.get(c.binds)",
+      "by": "test",
+      "kills": [
+        "回访那一段：越线的列出来（列过没判的标上）；判过的 28 天内不列、满 28 天照列；死亡条件只认接受、拒绝（判「留」算没判）；续挂没到那天的不列；先不列的按记法各一行、说哪天起再列；无从确认的每条点名"
+      ]
+    },
+    {
+      "id": "M-H252-af",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "列过没判的不标出来 —— 需求所有者看不出这条上周已经列过",
+      "find": "l !== undefined && !judged ? ' · 列过没判' : ''",
+      "replace": "''",
+      "by": "test",
+      "kills": [
+        "回访那一段：越线的列出来（列过没判的标上）；判过的 28 天内不列、满 28 天照列；死亡条件只认接受、拒绝（判「留」算没判）；续挂没到那天的不列；先不列的按记法各一行、说哪天起再列；无从确认的每条点名"
+      ]
+    },
+    {
+      "id": "M-H252-ag",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "无从确认的不点名 —— 原料取不到的那几条每周悄悄不算",
+      "find": "...shown, ...held, ...unknown]",
+      "replace": "...shown, ...held]",
+      "by": "test",
+      "kills": [
+        "回访那一段：越线的列出来（列过没判的标上）；判过的 28 天内不列、满 28 天照列；死亡条件只认接受、拒绝（判「留」算没判）；续挂没到那天的不列；先不列的按记法各一行、说哪天起再列；无从确认的每条点名"
+      ]
+    },
+    {
+      "id": "M-H252-ah",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "无从确认的也从到期清单里拿掉 —— 这几条哪儿都不列",
+      "find": "o.verdict.state === '越线').map(o => o.binds)",
+      "replace": "o.verdict.state !== '没越线').map(o => o.binds)",
+      "by": "test",
+      "kills": [
+        "越线的记法含先不列的，没越线、无从确认的不算"
+      ]
+    },
+    {
+      "id": "M-H252-ai",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "死亡条件在台账里也当成欠条 —— 绑错种类查不出来",
+      "find": "r.entry.notation === '重启条件' ? '欠条' : '死亡条件'",
+      "replace": "'欠条'",
+      "by": "test",
+      "kills": [
+        "核对：记法不在台账里、种类不对、管的那条已经还了、同一条绑两个，各报一行"
+      ]
+    },
+    {
+      "id": "M-H252-aj",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "越线、已排在最前面的欠条在到期清单里又列一次，还占名额",
+      "find": "if (exclude.has(it.key)) { moved++; continue }",
+      "replace": "if (exclude.has(it.key)) { moved++ }",
+      "by": "test",
+      "kills": [
+        "到期清单：越线的先拿掉再截名额，不数进到期、不占名额，第一行说拿掉了几张；不给就照旧"
+      ]
+    },
+    {
+      "id": "M-H252-ak",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "越线、已排在最前面的死亡条件在轮值里又列一次",
+      "find": "turned.filter(p => !exclude.has(p.at))",
+      "replace": "turned",
+      "by": "test",
+      "kills": [
+        "轮值：越线的那条这一周不在这里列，第一行说拿掉了几条"
+      ]
+    },
+    {
+      "id": "M-H252-al",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "有短名字的欠条也按行号记 —— 与回访台账里列过的写法对不上",
+      "find": "return name ? `${id}「${name}」` : `${id} 第 ${e.line} 行`",
+      "replace": "return `${id} 第 ${e.line} 行`",
+      "by": "test",
+      "kills": [
+        "记法：有短名字的欠条按名字，没名字的按行号；拆过的记录主文件里的死亡条件写「主文件」，历史文件里的不写；编号照文件名原样（补零的不改写）"
+      ]
+    },
+    {
+      "id": "M-H252-am",
+      "req": "harness",
+      "file": "scripts/check/conditions.ts",
+      "why": "登记表核不过也以 0 退出 —— 回访照常往下走，没人看见",
+      "find": "  process.exitCode = 1\n} else {",
+      "replace": "  process.exitCode = 0\n} else {",
+      "by": "test",
+      "kills": [
+        "入口：登记表核不过，每一行都报到标准错误、什么都不算，以 1 退出"
+      ]
+    },
+    {
+      "id": "M-H252-an",
+      "req": "harness",
+      "file": "scripts/check/conditions.ts",
+      "why": "日子写错也以 0 退出 —— 判过四周的口径全算错",
+      "find": "  process.exit(2)\n}",
+      "replace": "  process.exit(0)\n}",
+      "by": "test",
+      "kills": [
+        "条件探针的入口 --today 写的不是成立的日子：以 2 退出、什么都不打"
+      ]
+    },
+    {
+      "id": "M-H252-ao",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "台账里每一条都当成开着 —— 探针管的欠条还了，检查链也不红",
+      "find": "'死亡条件', status: r.status, text",
+      "replace": "'死亡条件', status: '开着' as RowStatus, text",
+      "by": "test",
+      "kills": [
+        "核对：记法不在台账里、种类不对、管的那条已经还了、同一条绑两个，各报一行"
+      ]
+    },
+    {
+      "id": "M-H252-ap",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "受跟踪的路径里混进一个空名字",
+      "find": "?.split('\\0').filter(Boolean) ?? undefined",
+      "replace": "?.split('\\0') ?? undefined",
+      "by": "test",
+      "kills": [
+        "问 git：标题只取第一亲代链（分支上那一条不算），从新到旧；受跟踪的路径全列；修订不在就取不到"
+      ]
+    },
+    {
+      "id": "M-H252-aq",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "越线时不说是哪一个提交合入的 —— 判的人核不了",
+      "find": "{ state: '越线', value: `#${pr} 已合入：${hit}` }",
+      "replace": "{ state: '越线', value: `#${pr} 已合入` }",
+      "by": "test",
+      "kills": [
+        "合入判法：标题里有就越线、说是哪一条；没有就没越线；取不到标题就无从确认"
+      ]
+    },
+    {
+      "id": "M-H252-ar",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "每一行的结果都挂在登记表第一行名下 —— 越线的报成别的条目",
+      "find": "({ binds, kind, name, verdict: judge(raw, probe) })",
+      "replace": "({ binds: table[0].binds, kind, name, verdict: judge(raw, probe) })",
+      "by": "test",
+      "kills": [
+        "照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表"
+      ]
+    },
+    {
+      "id": "M-H252-as",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "每一行都按登记表第一行的判法算",
+      "find": "=> ({ binds, kind, name, verdict: judge(raw, probe) }))",
+      "replace": "=> ({ binds, kind, name, verdict: judge(raw, table[0].probe) }))",
+      "by": "test",
+      "kills": [
+        "照登记表逐行算：每一行带着它那一行的登记与它自己的判法算出来的结果，次序照登记表"
+      ]
+    },
+    {
+      "id": "M-H252-at",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "交给判法的原料里没有受跟踪的路径 —— 数文件份数的那几行永远无从确认",
+      "find": "tracked: git.tracked() }",
+      "replace": "tracked: undefined }",
+      "by": "test",
+      "kills": [
+        "整份原料：提交标题与受跟踪的路径都从交进来的 git 问来"
+      ]
+    },
+    {
+      "id": "M-H252-au",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "续挂过的欠条越线时不标「只能还或收尾」—— 需求所有者可以第二次判留",
+      "find": "c.kind === '欠条' && (u !== undefined || l?.kept === true)",
+      "replace": "c.kind === '欠条' && l?.kept === true",
+      "by": "test",
+      "kills": [
+        "回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角"
+      ]
+    },
+    {
+      "id": "M-H252-av",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "判过留的欠条越线再列时不标「只能还或收尾」",
+      "find": "(u !== undefined || l?.kept === true)",
+      "replace": "(u !== undefined)",
+      "by": "test",
+      "kills": [
+        "回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角"
+      ]
+    },
+    {
+      "id": "M-H252-aw",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "提交标题里的竖线原样抄进候选表 —— 表格被切开，人判栏读错",
+      "find": "s.replace(/\\|/g, '｜')",
+      "replace": "s",
+      "by": "test",
+      "kills": [
+        "回访那一段：续挂写的那天到了就列，与判过留的一样标「续挂过，只能还或收尾」；算出来的值里的竖线换成全角"
+      ]
+    },
+    {
+      "id": "M-H252-ax",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "浅克隆上照样一路问下去 —— 早先合入的 PR 被说成没合入",
+      "find": "?.trim() !== 'false') return undefined",
+      "replace": "?.trim() === '从不') return undefined",
+      "by": "test",
+      "kills": [
+        "问 git：浅克隆的链在边界上断了，标题算取不到（不说成没合入）"
+      ]
+    },
+    {
+      "id": "M-H252-ay",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "同一个记法对上主文件与历史文件里状态不同的两张也不报 —— 按其中一张判开着，另一张已经还了",
+      "find": "else if (states.size > 1)",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "核对：管的那条收尾了、改挂了各说一句；拆过的记录主文件与历史文件同名的那张状态不同，对上不止一条也报"
+      ]
+    },
+    {
+      "id": "M-H252-az",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "管的那条改挂了说成收尾 —— 该改绑到现行那一张，读的人以为不做了",
+      "find": "hits[0].status === '已重挂' ? '改挂' : hits[0].status === '已还' ? '还了' : '收尾'",
+      "replace": "hits[0].status === '已还' ? '还了' : '收尾'",
+      "by": "test",
+      "kills": [
+        "核对：管的那条收尾了、改挂了各说一句；拆过的记录主文件与历史文件同名的那张状态不同，对上不止一条也报"
+      ]
+    },
+    {
+      "id": "M-H252-ba",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "判过的满 28 天那天仍不列 —— 晚一周才再报",
+      "find": "today < addDays(l.day, QUIET_DAYS)",
+      "replace": "today <= addDays(l.day, QUIET_DAYS)",
+      "by": "test",
+      "kills": [
+        "回访那一段：越线的列出来（列过没判的标上）；判过的 28 天内不列、满 28 天照列；死亡条件只认接受、拒绝（判「留」算没判）；续挂没到那天的不列；先不列的按记法各一行、说哪天起再列；无从确认的每条点名"
+      ]
+    },
+    {
+      "id": "M-H252-bb",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "续挂到哪天读错 —— 越线的欠条续挂期满了也一直不列",
+      "find": "if (until !== undefined) out.set(notationOf(r.entry, docs.get(r.entry.file) ?? '', split), until)",
+      "replace": "if (until !== undefined) out.set(notationOf(r.entry, docs.get(r.entry.file) ?? '', split), '2099-12-31')",
+      "by": "test",
+      "kills": [
+        "核对：续挂到哪天按记法交回，只有续挂行指着的才有"
+      ]
+    },
+    {
+      "id": "M-H252-bc",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "头一问就 missing（修订写成了 A..B）当成链是空的 —— 每条「某 PR 合入」都被说成没合入",
+      "find": "return subjects.length > 0 ? subjects : undefined",
+      "replace": "return subjects",
+      "by": "test",
+      "kills": [
+        "切提交标题：头一问就答 missing（给的修订不是一个提交，例如 A..B）交回取不到，不当成一个都没合入"
+      ]
+    },
+    {
+      "id": "M-H252-bd",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "数份数的路径是个普通文件也过检查 —— 永远数到 0，永远不越线",
+      "find": "if (k !== 'dir')",
+      "replace": "if (k === undefined)",
+      "by": "test",
+      "kills": [
+        "核对：数份数的写成了普通文件、量字节的写成了目录，各报一行（路径在，种类不对）"
+      ]
+    },
+    {
+      "id": "M-H252-be",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "量字节、行数的路径是个目录也过检查 —— 读出来无从确认，检查却说登记表没问题",
+      "find": "if (k !== 'file')",
+      "replace": "if (k === undefined)",
+      "by": "test",
+      "kills": [
+        "核对：数份数的写成了普通文件、量字节的写成了目录，各报一行（路径在，种类不对）"
+      ]
+    },
+    {
+      "id": "M-H252-bf",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "按行号绑、主文件与历史文件同一行各有一张开着的欠条也过 —— 不知道管的是哪一张",
+      "find": "else if (hits.length > 1 && !c.binds.includes('「'))",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "核对：拆过的记录主文件与历史文件同一行各有一张没名字的欠条、都开着，按行号绑认不出是哪张，报；有名字的同名同状态算一条"
+      ]
+    },
+    {
+      "id": "M-H252-bh",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "续挂日期不接改挂过来之前那几张 —— 旧的续挂到某天、改挂过来，新的那张没到那天就列",
+      "find": "    const until = untilOf(all, [r, ...movedInto(r, all, byKey, docs, split)].flatMap(x => keysOf(x, docs, split)))",
+      "replace": "    const until = untilOf(all, [r].flatMap(x => keysOf(x, docs, split)))",
+      "by": "test",
+      "kills": [
+        "续挂到哪天（条件探针用）：整张改挂过来的接着旧的那张续挂写的那天，与到期清单同一个日子"
+      ]
+    },
+    {
+      "id": "M-H252-bi",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "到期清单的续挂日期不接改挂过来之前那几张 —— 旧的续挂到某天、改挂过来，新的那张按登记日加 28 天就到期",
+      "find": "      chain.push(...srcKeys)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "到期清单的每一张：关上的不算；整张改挂过来的一路往回取最早的登记日、旧的记法当别名、旧的续挂过就标上；续挂取写的最晚那天"
+      ]
+    },
+    {
+      "id": "M-H252-bj",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "按行号绑的不写指纹、写错格式也过 —— 行号挪了、同一行换成另一条，核对照样过",
+      "find": "if (c.pin === undefined || !/^[0-9a-f]{16}$/.test(c.pin))",
+      "replace": "if (c.pin === undefined)",
+      "by": "test",
+      "kills": [
+        "核对：按行号绑的，没写指纹、指纹不是 16 位十六进制、指纹与那一行原文此刻的不同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行并报出现在的指纹；只差空白的算同一句"
+      ]
+    },
+    {
+      "id": "M-H252-bk",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "原文不比 —— 同一行换成了另一条死亡条件，探针越线时从轮值里拿掉的是那一条",
+      "find": "else if (hits.length === 1 && pinOf(hits[0].text) !== c.pin)",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "核对：按行号绑的，没写指纹、指纹不是 16 位十六进制、指纹与那一行原文此刻的不同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行并报出现在的指纹；只差空白的算同一句"
+      ]
+    },
+    {
+      "id": "M-H252-bl",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "在、却读不到的也当不在 —— skill/SKILL.md 只是没有读权限，死亡条件就被说成成立",
+      "find": "return f.kind === '不在' ? 0 : f.kind === 'file' ? 1 : `${m.path} ${f.kind}`",
+      "replace": "return f.kind === 'file' ? 1 : 0",
+      "by": "test",
+      "kills": [
+        "树里的数：在、却读不到或不是普通文件的，量「在不在」不算不在、判无从确认；量字节的写明是读不到还是不是普通文件"
+      ]
+    },
+    {
+      "id": "M-H252-bm",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "路径中间一段是文件（ENOTDIR）不算不在 —— 量「在不在」的判无从确认，条件永远不成立",
+      "find": "code === 'ENOENT' || code === 'ENOTDIR'",
+      "replace": "code === 'ENOENT'",
+      "by": "test",
+      "kills": [
+        "读树里的文件：读到了给全文；没有这个文件、路径中间一段是文件，都算不在；目录算不是普通文件"
+      ]
+    },
+    {
+      "id": "M-H252-bn",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "目录也当文件读 —— 读出来抛错，算成读不到，说不出是路径写成了目录",
+      "find": "  if (!st.isFile()) return { kind: '不是普通文件' }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读树里的文件：读到了给全文；没有这个文件、路径中间一段是文件，都算不在；目录算不是普通文件"
+      ]
+    },
+    {
+      "id": "M-H252-bo",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "绑死亡条件的不核是不是轮值里列的那一份 —— 绑了历史文件里的重复那份，越线时轮值里主文件那一份照样列",
+      "find": "else if (c.kind === '死亡条件' && !rota.has(c.binds))",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": [
+        "核对：绑死亡条件的只认轮值里会列出的那一份 —— 绑了历史文件里与主文件整句相同的那份，报；绑主文件那一行过"
+      ]
+    },
+    {
+      "id": "M-H252-bp",
+      "req": "harness",
+      "file": "scripts/check/revisit-rule.ts",
+      "why": "轮值按整条原文拿掉 —— 同一份主文件两节写了同一句，越线一条两条都不列",
+      "find": "turned.filter(p => !exclude.has(p.at))",
+      "replace": "turned.filter(p => !turned.some(q => exclude.has(q.at) && q.text.slice(q.at.length) === p.text.slice(p.at.length)))",
+      "by": "test",
+      "kills": [
+        "轮值：只按记法拿掉 —— 同一份主文件两节写了一模一样的死亡条件，越线的是哪一条就只拿掉那一条"
+      ]
+    },
+    {
+      "id": "M-H252-bq",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "读到了也说读不到 —— 每条量文件的都无从确认",
+      "find": "try { return { kind: 'file', bytes: readFileSync(path) } }",
+      "replace": "try { return { kind: '读不到' } as TreeFile }",
+      "by": "test",
+      "kills": [
+        "读树里的文件：读到了给全文；没有这个文件、路径中间一段是文件，都算不在；目录算不是普通文件"
+      ]
+    },
+    {
+      "id": "M-H252-bs",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "指纹不去空白就算 —— 原文换个行、多个空格就说不是同一句",
+      "find": "createHash('sha256').update(flat(text))",
+      "replace": "createHash('sha256').update(text)",
+      "by": "test",
+      "kills": [
+        "核对：按行号绑的，没写指纹、指纹不是 16 位十六进制、指纹与那一行原文此刻的不同（行号挪了、换了一条、新的一条里还含着登记的那几个字），各报一行并报出现在的指纹；只差空白的算同一句"
+      ]
+    },
+    {
+      "id": "M-H252-bt",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "先不列的不打记法 —— 例程认不出「新增」里哪张已归探针管，同一张列两遍",
+      "find": "...shown, ...held, ...unknown]",
+      "replace": "...shown, ...unknown]",
+      "by": "test",
+      "kills": [
+        "回访那一段：越线的列出来（列过没判的标上）；判过的 28 天内不列、满 28 天照列；死亡条件只认接受、拒绝（判「留」算没判）；续挂没到那天的不列；先不列的按记法各一行、说哪天起再列；无从确认的每条点名"
+      ]
+    },
+    {
+      "id": "M-H252-bu",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "判过又续挂到更晚的，先不列那一行照 28 天满那天说 —— 到了那天它照样不列",
+      "find": "const back = u !== undefined && u > addDays(l.day, QUIET_DAYS) ? u : addDays(l.day, QUIET_DAYS)",
+      "replace": "const back = addDays(l.day, QUIET_DAYS)",
+      "by": "test",
+      "kills": [
+        "回访那一段：判过又续挂到更晚的，先不列那一行说的是续挂那天；续挂早于 28 天满的，说 28 天满那天"
+      ]
+    },
+    {
+      "id": "M-H252-bv",
+      "req": "harness",
+      "file": "scripts/check/condition-rule.ts",
+      "why": "不比早晚，有续挂日就用续挂日 —— 续挂早于 28 天满的，说早了",
+      "find": "u !== undefined && u > addDays(l.day, QUIET_DAYS) ? u",
+      "replace": "u !== undefined ? u",
+      "by": "test",
+      "kills": [
+        "回访那一段：判过又续挂到更晚的，先不列那一行说的是续挂那天；续挂早于 28 天满的，说 28 天满那天"
       ]
     }
   ],
