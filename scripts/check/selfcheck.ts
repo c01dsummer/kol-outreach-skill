@@ -66,8 +66,8 @@ const EXEMPT: Record<string, string> = {
   'scripts/check/debt-touch.ts': '欠条点名提醒入口：需求测试组 h-iou-file-reminder-entry 在玩具仓库上真起',
   // 生词提示同一类：只提醒、恒以 0 退出，CI 单列一步；真起由需求测试组 `h-jargon-entry` 在玩具仓库上做（ADR-237）
   'scripts/check/jargon.ts': '生词提示入口：需求测试组 h-jargon-entry 在玩具仓库上真起',
-  'scripts/check/conditions.ts': '条件探针的入口：需求测试组 h-conditions-entry 在玩具仓库上真起（登记表核不过以 1 退出、日子写错以 2 退出）',
-  'scripts/check/revisit-due.ts': '周回访到期清单、死亡条件轮换与只起草一条的入口：需求测试组 h-revisit-entry 在玩具仓库上真起 --list、--deaths 与 --born',
+  'scripts/check/conditions.ts': '条件探针的入口：需求测试组 h-conditions-entry 在玩具仓库上真起（登记表核不过以 1 退出、日子写错以 2 退出，换一份登记表打出越线的、换的不对以 2 退出）',
+  'scripts/check/revisit-due.ts': '周回访到期清单、死亡条件轮换与只起草一条的入口：需求测试组 h-revisit-entry 在玩具仓库上真起 --list、--deaths 与 --born，h-revisit-conditions-entry 换一份登记表真起 --list、--deaths 拿掉越线的',
   'scripts/check/revisit-raw.ts': '周回访取原料与 (a)、(d)、(e) 三段的入口：需求测试组 h-revisit-raw-entry 在玩具仓库上真起 --gather、--top、--slow、--never-red-pick 与 --never-red，h-revisit-raw-log-entry 拿形状不对的日志真起 --never-red',
   // 增强结果格式说明的命令行入口不在检查链里：它只比对、回写一个文件，判定由需求测试调同一个生成函数做
   'scripts/check/data-shapes.ts': '存下来的数据的形状快照的检查与回写入口（npm run data-shapes）：只读写一个文件；判定「快照与按类型现生成的一样」由需求测试组 h-data-shapes 调同一个生成与比较函数守（ADR-246）',
