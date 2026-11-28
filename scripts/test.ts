@@ -18791,12 +18791,12 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   ok('写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里', !bad.ok)
 }
 
-// 独立上下文先于实现写成：期望只出自接口提交里 TRUNK_CANDIDATES／GitAsk／Baseline／resolveBaseline
-// 的契约说明（下文「第 N 步」就是 resolveBaseline 说明里的编号），外加 CONVENTIONS 第十节与 ADR-98
-// 末两节；没读入口 size.ts 里现有的那段实现。写下时函数体只会抛「尚未实现」。
 })
 
 await group('h-check-rules-size-base', () => {
+// 独立上下文先于实现写成：期望只出自接口提交里 TRUNK_CANDIDATES／GitAsk／Baseline／resolveBaseline
+// 的契约说明（下文「第 N 步」就是 resolveBaseline 说明里的编号），外加 CONVENTIONS 第十节与 ADR-98
+// 末两节；没读入口 size.ts 里现有的那段实现。写下时函数体只会抛「尚未实现」。
 harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂假的 git 应答，逐步问、答不上来就停')
 {
   // 假 sha 起成一眼认得出的名字，而且没有一个是字面的 `HEAD` 或主干名 ——
