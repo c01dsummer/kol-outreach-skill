@@ -206,7 +206,6 @@ import type {
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
 import { enrichmentSchemaProblems } from './lib/enrichment-check.js'
-import { generateShapes, SHAPES_SNAPSHOT_PATH, shapeChanges } from './check/data-shapes-rule.js'
 import { loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
@@ -27919,7 +27918,9 @@ await group('h-revisit-entry', () => {
     [0, '到期 1 张、列过没判 0 张、取不到登记日 0 张；这次列 1 张（最多 10 张）\n2026-01-02 ADR-9 第 3 行\n已重挂行里认不出现行那张的 0 行：它们的接手者按自己的登记日算\n'])
   rmSync(repo, { recursive: true, force: true })
 })
-await group('h-data-shapes', () => {
+await group('h-data-shapes', async () => {
+  // 用到时才加载：那个模块一加载就装进 TypeScript 编译器与生成格式说明的库，放在文件开头会让每一次启动需求测试都先装一遍（ADR-246 第六节）
+  const { generateShapes, SHAPES_SNAPSHOT_PATH, shapeChanges } = await import('./check/data-shapes-rule.js')
   harness('存下来的数据的形状快照：按类型现生成的与入库那份比，哪一类变了点名（ADR-246）')
   eq('形状快照：入库那份与按当前类型现生成的一样；不一样时先照 process/3-BUILD.md 第 9 条写明缺着怎么读，再 npm run data-shapes -- --write 回写',
     shapeChanges((() => { try { return rf(SHAPES_SNAPSHOT_PATH, 'utf8') } catch { return undefined } })(), generateShapes(process.cwd())), [])
