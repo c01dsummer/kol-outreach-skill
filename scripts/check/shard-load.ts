@@ -2,8 +2,9 @@
 /**
  * 变异负载闸门（ADR-203）—— 检查链第三步，紧跟体量闸门：两道都只看这次改了什么，不跑任何东西。
  *
- * 读当前树的变异清单，照变异一步的分法（`jobs-rule.ts` 的 `shardPlan`，同一个键、同一份 `shard-weights.json`）算出每一份的验证者秒数；
- * 读 PR 基线（主干上是上一版）那份清单，按同一份秒数文件算出总秒数；从这条分支自己的提交信息末段读豁免；
+ * 读当前树的变异清单，照变异一步的分法（`jobs-rule.ts` 的 `shardPlan`，同一个键、同一份秒数）算出每一份的验证者秒数；
+ * 秒数取自 `MAIN_COSTS_ENV` 指着的那份文件（CI 上 `scripts/check/main-costs.sh` 写的主干上一跑的成本报告，`mainCostWeights` 认，ADR-254）。
+ * 读 PR 基线（主干上是上一版）那份清单，按同一份秒数算出总秒数；从这条分支自己的提交信息末段读豁免；
  * 读 `.github/workflows/check.yml` 与 `package.json` 的 `check`，交 `workflowWiringFaults` 核接线（ADR-203 第八节）。
  * 交给 `shard-load-rule.ts` 的 `shardLoadGate`，照它交回的打、退出。判法全在那里，这里没有一条路把「读不到」变成「没超」。
  *
@@ -13,7 +14,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { shardKey, shardPlan } from './jobs-rule.js'
 import { executionRoutes } from './mutate-rule.js'
 import { MUTATION_CATALOG, catalogFaultText, readCatalog } from './catalog-rule.js'
-import { SHARD_COUNT, SHARD_WEIGHTS_FILE, growthWaivers, pileWeigher, readWeights, shardLoadGate, workflowWiringFaults, type ShardLoadInput, type ShardWeights } from './shard-load-rule.js'
+import { MAIN_COSTS_ENV, SHARD_COUNT, growthWaivers, mainCostWeights, pileWeigher, shardLoadGate, workflowWiringFaults, type ShardLoadInput, type ShardWeights } from './shard-load-rule.js'
 import { askGit } from './git-entry.js'
 import { resolveBaseline } from './size-rule.js'
 import { trailerLines } from './trailer.js'
@@ -30,26 +31,38 @@ const listOf = (text: string | undefined): Mut[] => {
   return read.mutations as Mut[]
 }
 
-/** 一份清单每一份的秒数：与变异一步同一个路由、同一个键、同一份秒数文件。算不出来就抛 —— 由调用处打成红 */
+/** 一份清单每一份的秒数：与变异一步同一个路由、同一个键、同一份秒数。算不出来就抛 —— 由调用处打成红 */
 const loadsOf = (muts: Mut[], readSource: (file: string) => string | undefined, w: ShardWeights): { loads: number[]; defaulted: Mut[] } => {
   const routes = new Map(executionRoutes(muts as unknown as Parameters<typeof executionRoutes>[0], readSource).routes.map(r => [r.id, r]))
   const keyOf = (m: Mut) => shardKey(m.by, routes.get(m.id)!.only)
-  // 不在秒数文件里的（新加或改了名的组、整跑的）按默认值或整跑的算法估：报出来有多少条，量丢了看得见
+  // 主干上一跑里没有的配置（新加或改了名的组、整跑的）按默认值或整跑的算法估：报出来有多少条，量丢了看得见
   const defaulted = muts.filter(m => { const k = keyOf(m); return k === undefined || !Object.hasOwn(w.configs, k) })
   return { loads: shardPlan(muts, keyOf, pileWeigher(w), SHARD_COUNT).loads, defaulted }
 }
 
 const main = (): number => {
-  let weights: ShardWeights
-  let loads: number[]
-  let defaulted: number
+  // 秒数取自哪里：CI 上是主干上一跑的实测；本地没设那个变量就是没有（三道线只在 CI 上判）。读不到、认不得都交给闸门判，不在这里放行
+  const costsPath = process.env[MAIN_COSTS_ENV]
+  let measured: ShardLoadInput['measured'] = { local: true }
+  let weights: ShardWeights | undefined
+  if (costsPath !== undefined) {
+    let got: ReturnType<typeof mainCostWeights>
+    try { got = mainCostWeights(readFileSync(costsPath, 'utf8')) } catch (e) {
+      got = { unavailable: `读不到 ${MAIN_COSTS_ENV} 指着的 ${JSON.stringify(costsPath)}（${e instanceof Error ? e.message : String(e)}）` }
+    }
+    if ('unavailable' in got) measured = got
+    else { measured = { run: got.run, headSha: got.headSha }; weights = got.weights }
+  }
+  let loads: number[] = []
+  let defaulted = 0
   try {
-    const read = readWeights(JSON.parse(readFileSync(SHARD_WEIGHTS_FILE, 'utf8')))
-    if ('fault' in read) throw new Error(`${SHARD_WEIGHTS_FILE}：${read.fault}`)
-    weights = read.weights
-    const now = loadsOf(listOf(existsSync(MUTATIONS) ? readFileSync(MUTATIONS, 'utf8') : undefined), file => existsSync(file) ? readFileSync(file, 'utf8') : undefined, weights)
-    loads = now.loads
-    defaulted = now.defaulted.length
+    // 当前树的清单读不出来，有没有秒数都红
+    const muts = listOf(existsSync(MUTATIONS) ? readFileSync(MUTATIONS, 'utf8') : undefined)
+    if (weights !== undefined) {
+      const now = loadsOf(muts, file => existsSync(file) ? readFileSync(file, 'utf8') : undefined, weights)
+      loads = now.loads
+      defaulted = now.defaulted.length
+    }
   } catch (e) {
     console.log(`✗ 变异负载：当前树算不出每一份的秒数（${e instanceof Error ? e.message : String(e)}）`)
     return 1
@@ -67,9 +80,10 @@ const main = (): number => {
     base = { unknown: '主干上的第一个提交，没有上一版' }
   } else {
     trunk = { onTrunk: baseline.onTrunk }
-    // 基线那份清单与它那时的源码，按这棵树的秒数文件算 —— 量的是变异变了多少，不是秒数文件换了多少
+    // 基线那份清单与它那时的源码，按同一份秒数算 —— 量的是变异变了多少，不是秒数换了多少
     const at = baseline.base
-    try {
+    if (weights === undefined) base = { unknown: '没有秒数' }
+    else try {
       const text = tryGit('show', `${at}:${MUTATIONS}`)
       if (text === null) throw new Error(`${at.slice(0, 7)} 上没有 ${MUTATIONS}`)
       base = { total: loadsOf(listOf(text), file => tryGit('show', `${at}:${file}`) ?? undefined, weights).loads.reduce((a, b) => a + b, 0) }
@@ -85,9 +99,9 @@ const main = (): number => {
   })()
   const wiring = workflow === undefined ? [`读不到 ${WORKFLOW}`] : workflowWiringFaults(workflow, checkScript)
 
-  const gate = shardLoadGate({ loads, base, trunk, waivers: growthWaivers(messages.flatMap(trailerLines)), wiring })
+  const gate = shardLoadGate({ measured, loads, base, trunk, waivers: growthWaivers(messages.flatMap(trailerLines)), wiring })
   for (const line of gate.lines) console.log(line)
-  if (defaulted > 0) console.log(`  其中 ${defaulted} 条变异的配置不在 ${SHARD_WEIGHTS_FILE} 里（新加或改了名的组、整跑的），按验证者的默认值估；多了就该重写秒数文件（ADR-203 第五节）`)
+  if (defaulted > 0) console.log(`  其中 ${defaulted} 条变异的配置不在主干上一跑的实测里（新加或改了名的组、整跑的），按验证者的默认值估；主干跑过一次就有了`)
   return gate.red ? 1 : 0
 }
 process.exitCode = main()

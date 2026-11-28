@@ -53,6 +53,7 @@ import { SELFCHECK_LAUNCHES_FILE, SELFCHECK_LAUNCHES_SCHEMA } from './launch-rul
 import { type Group, parseOnlyStrict, wanted } from './group-rule.js'
 import { type ShardRun, families, mergeShards, readShardReport, shardJobs, shardOrder } from './group-rule.js'
 import { type ProcessProbe, processEnded } from './jobs-rule.js'
+import { MAIN_COSTS_ENV } from './shard-load-rule.js'
 import { cwdUnder, judgeCwds, scanShares } from './share-rule.js'
 import { writeFileAtomic } from '../lib/atomic.js'
 import {
@@ -163,6 +164,9 @@ const env = {
   // 与变异那一步共用一份编译缓存：检查链里它先跑，这里起的几百个进程直接命中（ADR-132）
   NODE_COMPILE_CACHE: compileCacheDir(),
   NODE_OPTIONS: `--import ${JSON.stringify(pathToFileURL(resolve('scripts', SELFCHECK_PRELOAD)).href)}`,
+  // CI 的检查链给这一串设了主干上一跑的成本报告在哪（ADR-254），还是相对路径：玩具树里起的负载闸门、分份的 mutate 不认它，
+  // 要的夹具自己显式写上（值写成 undefined：子进程的环境里就没有这一项）
+  [MAIN_COSTS_ENV]: undefined,
 }
 
 let failed = 0
@@ -8019,12 +8023,13 @@ group('anchor-staged-entry', [], () => {
   }
 })
 
-// ---- 变异负载闸门对着真仓库：入口真的读了清单、秒数文件、PR 基线与提交信息（ADR-203，接线证明）----
+// ---- 变异负载闸门对着真仓库：入口真的读了清单、主干实测文件、PR 基线与提交信息（ADR-203，接线证明）----
 group('shard-load-entry', [], () => {
-  // 判定是纯函数（shardLoadGate、shardPlan、pileSeconds、growthWaivers），由需求测试 h-shard-load、h-jobs 断言、
-  // M-H203-* 守着；剩下的那一半是**入口真的照变异一步的路由与秒数文件算了每一份、真的从 git 读了 PR 基线那份清单与
-  // 这条分支自己的提交信息、真的读了 check.yml 与 package.json 核接线，照判定退出**。不配负片的理由同 anchor-residue-entry。
-  // 玩具仓库：三组需求测试各一条断言，秒数文件只给默认值（一摞 = 1 + 条数），主干上三组各 10 条 —— 三份各 11 秒。
+  // 判定是纯函数（shardLoadGate、shardPlan、pileSeconds、growthWaivers、mainCostWeights），由需求测试 h-shard-load、h-jobs 断言、
+  // M-H203-*、M-H254-* 守着；剩下的那一半是**入口真的读了环境变量指着的主干实测、照变异一步的路由与那份秒数算了每一份、真的从 git 读了
+  // PR 基线那份清单与这条分支自己的提交信息、真的读了 check.yml 与 package.json 核接线，照判定退出**。不配负片的理由同 anchor-residue-entry。
+  // 玩具仓库：三组需求测试各一条断言；主干实测里没有这三组（只有别的几种配置），都按默认值（一摞 = 1 + 条数），
+  // 主干上三组各 10 条 —— 三份各 11 秒。
   // 期望从这几个数手推：PR 上第 1 组加 1 条 → 12 / 11 / 11，总 34 比 33 涨 3.0%；三组各加 1 条 → 36 比 33 涨 9.1%。
   const git = (cwd: string, ...args: string[]): boolean => {
     const r = fixtureGit(args, { cwd })
@@ -8041,14 +8046,27 @@ group('shard-load-entry', [], () => {
   const workflow = (jobs: string) => realWorkflow.replace("MUTATE_JOBS: '6'", `MUTATE_JOBS: '${jobs}'`)
   const muts = (per: readonly number[]) => ({ mutations: per.flatMap((n, g) => Array.from({ length: n }, (_unused, i) =>
     ({ id: `M-T-${g + 1}-${i}`, req: 'X', why: 'w', file: 'a.ts', find: 'a', replace: 'b', by: 'test', kills: [`甲${g + 1}`] }))) })
-  const write = (dir: string, per: readonly number[], jobs = '6', weights = '{"schema":"mutation-shard-weights/v1","runs":[],"defaults":{"test":{"base":1,"each":1},"selfcheck":{"base":10,"each":10}},"configs":{}}\n') => {
+  // 主干实测（mainCostWeights 认的那种文件）：三份报告各有别的几种配置，需求测试的默认 = 一次基线 1 秒、一条 1 秒，自检的 10 与 10
+  const costSha = 'a'.repeat(40)
+  const costRow = (key: string, by: string, ms: number) =>
+    ({ key, route: { by }, baselineTimes: { x: { samples: 1, totalMs: ms } }, mutationTimes: { x: { samples: 1, totalMs: ms } } })
+  const costSeg = (rows: unknown[]) => `2026-11-28T00:00:00.0Z MUTATION_COST_JSON ${JSON.stringify({ kind: 'summary', report: { identity: { headSha: costSha, state: 'succeeded' }, complete: true, rows } })}`
+  const costs = join(tmp, 'shard-load-costs.txt')
+  writeFileSync(costs, [JSON.stringify({ schema: 'main-mutation-costs/v1', run: 42, headSha: costSha }),
+    costSeg([costRow('["test",["z1"]]', 'test', 1000)]), costSeg([costRow('["test",["z2"]]', 'test', 1000)]),
+    costSeg([costRow('["test",["z3"]]', 'test', 1000), costRow('["selfcheck",["s"]]', 'selfcheck', 10000)]), ''].join('\n'), 'utf8')
+  const unavailable = join(tmp, 'shard-load-costs-unavailable.txt')
+  writeFileSync(unavailable, `${JSON.stringify({ schema: 'main-mutation-costs/v1', unavailable: '主干最近 20 跑里没有一跑 3 份变异都绿' })}\n`, 'utf8')
+  // 起负载闸门：costsAt 是给 MUTATION_MAIN_COSTS 的值，undefined 就是不设（本地）
+  const gate = (label: string, cwd: string, costsAt: string | undefined, expect?: { status: number }) =>
+    runBoth(label, [S(SELFCHECK_TOOLS['shard-load'])], cwd, expect, { ...mutationFixtureEnv('shard-load', [], cwd), [MAIN_COSTS_ENV]: costsAt })
+  const write = (dir: string, per: readonly number[], jobs = '6') => {
     mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
     mkdirSync(join(dir, '.github', 'workflows'), { recursive: true })
     writeFileSync(join(dir, 'scripts', 'test.ts'), "const GROUPS = [{ id: 'g1', needs: [] }, { id: 'g2', needs: [] }, { id: 'g3', needs: [] }]\n"
       + [1, 2, 3].map(g => `await group('g${g}', () => { eq('甲${g}', 1, 1) })\n`).join(''), 'utf8')
     writeFileSync(join(dir, 'scripts', 'check', 'selfcheck.ts'), "group('s1', [], () => { named('乙', true) })\n", 'utf8')
     writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'), JSON.stringify(muts(per)), 'utf8')
-    writeFileSync(join(dir, 'scripts', 'check', 'shard-weights.json'), weights, 'utf8')
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { check } }), 'utf8')
     writeFileSync(join(dir, '.github', 'workflows', 'check.yml'), workflow(jobs), 'utf8')
   }
@@ -8067,10 +8085,10 @@ group('shard-load-entry', [], () => {
   if (repo(greenTmp, true)) {
     write(greenTmp, [11, 10, 10])
     if (commit(greenTmp, 'add one')) {
-      const green = runToolBoth('shard-load PR 上没越线即以退出码 0 结束', 'shard-load', [], greenTmp)
+      const green = gate('shard-load PR 上没越线即以退出码 0 结束', greenTmp, costs)
       if (green.ok) {
-        named('shard-load 报数行按秒数文件与 PR 基线算出每份、涨幅',
-          report(green.stdout).includes('3 份 12 / 11 / 11') && report(green.stdout).includes('总 34 秒，比 PR 基线 +1 秒（+3.0%'), green.stdout)
+        named('shard-load 报数行按主干实测与 PR 基线算出每份、涨幅，说出取自哪一跑',
+          report(green.stdout).includes('按主干 run 42、提交 aaaaaaa 的实测') && report(green.stdout).includes('3 份 12 / 11 / 11') && report(green.stdout).includes('总 34 秒，比 PR 基线 +1 秒（+3.0%'), green.stdout)
         named('shard-load 没越线时没有一行以 ✗ 开头', !green.stdout.split('\n').some(l => l.startsWith('✗')), green.stdout)
       }
     }
@@ -8081,7 +8099,7 @@ group('shard-load-entry', [], () => {
     const one = muts([1, 0, 0]).mutations[0]
     writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [one, one] }), 'utf8')
     if (commit(dupTmp, 'dup')) {
-      const dup = runToolBoth('shard-load 变异目录编号重复即以退出码 1 结束', 'shard-load', [], dupTmp, { status: 1 })
+      const dup = gate('shard-load 变异目录编号重复即以退出码 1 结束', dupTmp, costs, { status: 1 })
       if (dup.ok) named('shard-load 变异目录编号重复时说算不出、点名那个编号',
         dup.stdout.includes('当前树算不出每一份的秒数（变异目录里编号重复：M-T-1-0）'), dup.stdout)
     }
@@ -8091,7 +8109,7 @@ group('shard-load-entry', [], () => {
   if (repo(growTmp, true)) {
     write(growTmp, [11, 11, 11])
     if (commit(growTmp, 'add three')) {
-      const grow = runToolBoth('shard-load PR 上涨过 5% 即以退出码 1 结束', 'shard-load', [], growTmp, { status: 1 })
+      const grow = gate('shard-load PR 上涨过 5% 即以退出码 1 结束', growTmp, costs, { status: 1 })
       if (grow.ok) named('shard-load 涨过 5% 时那一行说涨了多少', grow.stdout.split('\n').some(l => l.startsWith('✗ 一次涨太多') && l.includes('9.1%')), grow.stdout)
     }
   }
@@ -8100,7 +8118,7 @@ group('shard-load-entry', [], () => {
   if (repo(waiveTmp, true)) {
     write(waiveTmp, [11, 11, 11])
     if (commit(waiveTmp, 'add three\n\nmutation-growth-ok: 三组各补一条负片')) {
-      const waive = runToolBoth('shard-load 写了涨幅豁免即以退出码 0 结束', 'shard-load', [], waiveTmp)
+      const waive = gate('shard-load 写了涨幅豁免即以退出码 0 结束', waiveTmp, costs)
       if (waive.ok) named('shard-load 豁免那一行带着从提交信息读出的理由', waive.stdout.includes('已豁免') && waive.stdout.includes('三组各补一条负片'), waive.stdout)
     }
   }
@@ -8109,7 +8127,7 @@ group('shard-load-entry', [], () => {
   if (repo(trunkTmp, false)) {
     write(trunkTmp, [11, 11, 11])
     if (commit(trunkTmp, 'add three') && git(trunkTmp, 'update-ref', 'refs/remotes/origin/main', 'HEAD')) {
-      const trunk = runToolBoth('shard-load 主干上越线只报数、以退出码 0 结束', 'shard-load', [], trunkTmp)
+      const trunk = gate('shard-load 主干上越线只报数、以退出码 0 结束', trunkTmp, costs)
       if (trunk.ok) named('shard-load 主干上报数行说只报数、比的是上一版',
         report(trunk.stdout).includes('比上一版 +3 秒') && report(trunk.stdout).includes('主干上只报数'), trunk.stdout)
     }
@@ -8119,7 +8137,7 @@ group('shard-load-entry', [], () => {
   if (repo(wiringTmp, false)) {
     write(wiringTmp, [10, 10, 10], '4')
     if (commit(wiringTmp, 'fewer jobs') && git(wiringTmp, 'update-ref', 'refs/remotes/origin/main', 'HEAD')) {
-      const wiring = runToolBoth('shard-load 接线对不上时主干上也以退出码 1 结束', 'shard-load', [], wiringTmp, { status: 1 })
+      const wiring = gate('shard-load 接线对不上时主干上也以退出码 1 结束', wiringTmp, costs, { status: 1 })
       if (wiring.ok) named('shard-load 接线那一行说出是 MUTATE_JOBS', wiring.stdout.split('\n').some(l => l.startsWith('✗ 变异负载：check.yml 的接线对不上') && l.includes("MUTATE_JOBS: '6'")), wiring.stdout)
     }
   }
@@ -8128,7 +8146,7 @@ group('shard-load-entry', [], () => {
   if (repo(noWfTmp, false)) {
     rmSync(join(noWfTmp, '.github'), { recursive: true, force: true })
     if (commit(noWfTmp, 'no workflow') && git(noWfTmp, 'update-ref', 'refs/remotes/origin/main', 'HEAD')) {
-      const noWf = runToolBoth('shard-load 读不到工作流时主干上也以退出码 1 结束', 'shard-load', [], noWfTmp, { status: 1 })
+      const noWf = gate('shard-load 读不到工作流时主干上也以退出码 1 结束', noWfTmp, costs, { status: 1 })
       if (noWf.ok) named('shard-load 读不到工作流时那一行说读不到哪个文件', noWf.stdout.split('\n').some(l => l.startsWith('✗ 变异负载：check.yml 的接线对不上') && l.includes('读不到 .github/workflows/check.yml')), noWf.stdout)
     }
   }
@@ -8136,17 +8154,44 @@ group('shard-load-entry', [], () => {
   if (repo(noPkgTmp, false)) {
     writeFileSync(join(noPkgTmp, 'package.json'), '{"scripts":{}}', 'utf8')
     if (commit(noPkgTmp, 'no check script') && git(noPkgTmp, 'update-ref', 'refs/remotes/origin/main', 'HEAD')) {
-      const noPkg = runToolBoth('shard-load package.json 里没有 check 时主干上也以退出码 1 结束', 'shard-load', [], noPkgTmp, { status: 1 })
+      const noPkg = gate('shard-load package.json 里没有 check 时主干上也以退出码 1 结束', noPkgTmp, costs, { status: 1 })
       if (noPkg.ok) named('shard-load package.json 里没有 check 时那一行说读不到 check 那一串', noPkg.stdout.includes('读不到 package.json 的 check 那一串'), noPkg.stdout)
     }
   }
-  // 秒数文件认不得：不拿猜的数分，以 1 退出
-  const weightsTmp = join(tmp, 'shard-load-weights')
-  if (repo(weightsTmp, true)) {
-    write(weightsTmp, [10, 10, 10], '6', '{"schema":"mutation-shard-weights/v0"}\n')
-    if (commit(weightsTmp, 'bad weights')) {
-      const bad = runToolBoth('shard-load 秒数文件认不得即以退出码 1 结束', 'shard-load', [], weightsTmp, { status: 1 })
-      if (bad.ok) named('shard-load 秒数文件认不得时说是哪个文件', bad.stdout.includes('算不出每一份的秒数') && bad.stdout.includes('shard-weights.json'), bad.stdout)
+  // 取不到主干实测：PR 上不当成没越线，以 1 退出、说为什么；主干上只报数；环境变量指着的文件不在也算取不到
+  const noCostTmp = join(tmp, 'shard-load-no-costs')
+  if (repo(noCostTmp, true)) {
+    write(noCostTmp, [11, 10, 10])
+    if (commit(noCostTmp, 'add one')) {
+      const bad = gate('shard-load PR 上取不到主干实测即以退出码 1 结束', noCostTmp, unavailable, { status: 1 })
+      if (bad.ok) named('shard-load 取不到主干实测时那一行带着为什么',
+        bad.stdout.split('\n').some(l => l.startsWith('✗ 变异负载：取不到主干上一跑的实测（主干最近 20 跑里没有一跑 3 份变异都绿）')), bad.stdout)
+      const gone = gate('shard-load 主干实测文件不在即以退出码 1 结束', noCostTmp, join(tmp, 'shard-load-costs-gone.txt'), { status: 1 })
+      if (gone.ok) named('shard-load 主干实测文件不在时说读不到哪个文件',
+        gone.stdout.split('\n').some(l => l.startsWith('✗ 变异负载：取不到主干上一跑的实测（读不到') && l.includes('shard-load-costs-gone.txt')), gone.stdout)
+    }
+  }
+  const noCostTrunkTmp = join(tmp, 'shard-load-no-costs-trunk')
+  if (repo(noCostTrunkTmp, false)) {
+    const trunk = gate('shard-load 主干上取不到主干实测只报数、以退出码 0 结束', noCostTrunkTmp, unavailable)
+    if (trunk.ok) named('shard-load 主干上取不到主干实测时那一行说只报数', trunk.stdout.includes('取不到主干上一跑的实测（主干最近 20 跑里没有一跑 3 份变异都绿），三道线没法判 —— 主干上只报数'), trunk.stdout)
+  }
+  // 本地（没设那个变量）：三道线不判 —— 涨了 9.1% 也以 0 退出，说只在 CI 上判；接线照核
+  const localTmp = join(tmp, 'shard-load-local')
+  if (repo(localTmp, true)) {
+    write(localTmp, [11, 11, 11])
+    if (commit(localTmp, 'add three')) {
+      const local = gate('shard-load 本地没有主干实测时以退出码 0 结束', localTmp, undefined)
+      if (local.ok) named('shard-load 本地没有主干实测时说三道线只在 CI 上判、没有一行以 ✗ 开头',
+        local.stdout.includes('本地没有主干上一跑的实测（没设 MUTATION_MAIN_COSTS），三道线只在 CI 上判') && !local.stdout.split('\n').some(l => l.startsWith('✗')), local.stdout)
+    }
+  }
+  const localWiringTmp = join(tmp, 'shard-load-local-wiring')
+  if (repo(localWiringTmp, true)) {
+    write(localWiringTmp, [10, 10, 10], '4')
+    if (commit(localWiringTmp, 'fewer jobs')) {
+      const wiring = gate('shard-load 本地接线对不上时以退出码 1 结束', localWiringTmp, undefined, { status: 1 })
+      if (wiring.ok) named('shard-load 本地也核接线，那一行说出是 MUTATE_JOBS', wiring.stdout.split('\n').some(l => l.startsWith('✗ 变异负载：check.yml 的接线对不上') && l.includes("MUTATE_JOBS: '6'")), wiring.stdout)
     }
   }
   // PR 基线那份清单读不出来（主干上那份写坏了）：不当成没涨，以 1 退出；报数行说读不出来
@@ -8156,35 +8201,12 @@ group('shard-load-entry', [], () => {
     if (commit(noBaseTmp, 'broken list') && git(noBaseTmp, 'update-ref', 'refs/remotes/origin/main', 'HEAD') && git(noBaseTmp, 'switch', '--quiet', '-c', 'topic')) {
       write(noBaseTmp, [10, 10, 10])
       if (commit(noBaseTmp, 'fixed list')) {
-        const noBase = runToolBoth('shard-load PR 基线清单读不出即以退出码 1 结束', 'shard-load', [], noBaseTmp, { status: 1 })
+        const noBase = gate('shard-load PR 基线清单读不出即以退出码 1 结束', noBaseTmp, costs, { status: 1 })
         if (noBase.ok) named('shard-load PR 基线清单读不出时报数行说读不出来、另有一行 ✗',
           report(noBase.stdout).includes('比 PR 基线：读不出来') && noBase.stdout.split('\n').some(l => l.startsWith('✗ 变异负载：PR 基线那份变异清单读不出来')), noBase.stdout)
       }
     }
   }
-  // 回写秒数文件的入口：从日志里认出成本报告那几行（行首带着 CI 的时间戳），按 headSha 归成几跑，写到树内那个路径。
-  // 手推：g1 两跑基线 2、4 秒，一条 1.5、2.5 秒 → 取较小的那个中位数 2 与 1.5；s1 只有一跑。别的行与不是 summary 的那一段不认
-  const row = (key: string, by: string, baseMs: number, samples: number, ms: number) =>
-    ({ key, route: { by }, baselineTimes: { x: { samples: 1, totalMs: baseMs } }, mutationTimes: { x: { samples, totalMs: ms } } })
-  const seg = (sha: string, rows: unknown[]) => `2026-11-15T00:00:00.0Z MUTATION_COST_JSON ${JSON.stringify({ kind: 'summary', report: { identity: { headSha: sha }, rows } })}`
-  const weighTmp = join(tmp, 'shard-weights-write')
-  mkdirSync(join(weighTmp, 'scripts', 'check'), { recursive: true })
-  writeFileSync(join(weighTmp, 'a.log'), ['别的一行', seg('aaa', [row('["test",["g1"]]', 'test', 2000, 2, 3000), row('["selfcheck",["s1"]]', 'selfcheck', 10000, 1, 8000)]),
-    `MUTATION_COST_JSON ${JSON.stringify({ kind: 'configuration', report: { identity: { headSha: 'zzz' }, rows: [] } })}`, ''].join('\n'), 'utf8')
-  writeFileSync(join(weighTmp, 'b.log'), seg('bbb', [row('["test",["g1"]]', 'test', 4000, 2, 5000)]) + '\n', 'utf8')
-  // a.log 给两遍：同一份报告只收一次，不然 aaa 那一跑的秒数翻倍、中位数跟着变
-  const wrote = runToolBoth('shard-weights 读得出报告即写回、以退出码 0 结束', 'shard-weights', ['a.log', 'b.log', 'a.log'], weighTmp)
-  if (wrote.ok) {
-    const file = existsSync(join(weighTmp, 'scripts', 'check', 'shard-weights.json')) ? readFileSync(join(weighTmp, 'scripts', 'check', 'shard-weights.json'), 'utf8') : ''
-    named('shard-weights 写回的文件按手推的数、两跑都记下、同一份报告只收一次',
-      file.includes('"runs": ["aaa","bbb"]') && file.includes('    "[\\"test\\",[\\"g1\\"]]": {"base":2,"each":1.5}')
-        && file.includes('"selfcheck":{"base":10,"each":8}'), file)
-  }
-  const emptyTmp = join(tmp, 'shard-weights-empty')
-  mkdirSync(join(emptyTmp, 'scripts', 'check'), { recursive: true })
-  writeFileSync(join(emptyTmp, 'a.log'), '别的一行\n', 'utf8')
-  const none = runToolBoth('shard-weights 一份报告都读不到即以退出码 1 结束', 'shard-weights', ['a.log'], emptyTmp, { status: 1 })
-  if (none.ok) named('shard-weights 读不到报告时不写文件', !existsSync(join(emptyTmp, 'scripts', 'check', 'shard-weights.json')), none.stdout)
 })
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
@@ -9884,19 +9906,26 @@ group('mutate-shard', [], () => {
   // 四条变异各改一处：清单第 1、3 条改 v，第 2、4 条改 w —— 验证者每跑一遍记下它看见的两个值，
   // 哪一份跑了哪几条就看得出来
   const shardTmp = join(tmp, 'mutate-shard'), shardMark = join(tmp, 'mutate-shard-seen.txt')
+  const shardCosts = join(tmp, 'mutate-shard-costs.txt'), shardNoCosts = join(tmp, 'mutate-shard-no-costs.txt')
   try {
     seedJobs(shardTmp, [jobMut('M-S-a', 'keep', 'gone'), jobMut('M-S-b', 'hold', 'lost'),
       jobMut('M-S-c', `${q}keep${q}`, `${q}kept${q}`), jobMut('M-S-d', `${q}hold${q}`, `${q}held${q}`)], shardMark)
     writeFileSync(join(shardTmp, 'scripts', 'test.ts'), [
       `import { v, w } from ${q}./check/a.js${q}`,
       `import { appendFileSync } from ${q}node:fs${q}`,
-      `appendFileSync(${JSON.stringify(shardMark)}, v + ${q},${q} + w + ${q},${q} + (process.env.MUTATE_SHARD ?? ${q}-${q}) + ${q}\\n${q})`,
+      `appendFileSync(${JSON.stringify(shardMark)}, v + ${q},${q} + w + ${q},${q} + (process.env.MUTATE_SHARD ?? ${q}-${q}) + ${q},${q} + (process.env.${MAIN_COSTS_ENV} ?? ${q}-${q}) + ${q},${q} + (process.env.NODE_COMPILE_CACHE ?? ${q}-${q}) + ${q}\\n${q})`,
       `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
       `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
     ].join('\n') + '\n', 'utf8')
-    // 分份时变异一步要读树内的秒数文件（ADR-203）。四条都是整跑的、同一个验证者，称出来一样重，落点与按条数分相同
-    writeFileSync(join(shardTmp, 'scripts', 'check', 'shard-weights.json'),
-      '{"schema":"mutation-shard-weights/v1","runs":[],"defaults":{"test":{"base":1,"each":1},"selfcheck":{"base":1,"each":1}},"configs":{}}\n', 'utf8')
+    // 分份时变异一步要读主干上一跑的实测（ADR-254）。四条都是整跑的、同一个验证者，称出来一样重，落点与按条数分相同；
+    // 称出来的重量不同：整跑的一条按那个验证者各配置基线之和算 —— 需求测试两种配置基线 3 秒、4 秒，一条 7 秒（按条数称是 1）。
+    // 每份两条，打出来该是「这一份约 14 验证者秒（各份 14 / 14）」；称法换回按条数就成了 2 / 2
+    const sha = 'b'.repeat(40)
+    const seg = (key: string, by: string, ms: number) => `MUTATION_COST_JSON ${JSON.stringify({ kind: 'summary', report: { identity: { headSha: sha, state: 'succeeded' }, complete: true,
+      rows: [{ key, route: { by }, baselineTimes: { x: { samples: 1, totalMs: ms } }, mutationTimes: { x: { samples: 1, totalMs: 1000 } } }] } })}`
+    writeFileSync(shardCosts, [JSON.stringify({ schema: 'main-mutation-costs/v1', run: 7, headSha: sha }),
+      seg('["test",["z1"]]', 'test', 3000), seg('["test",["z2"]]', 'test', 4000), seg('["selfcheck",["s"]]', 'selfcheck', 1000), ''].join('\n'), 'utf8')
+    writeFileSync(shardNoCosts, `${JSON.stringify({ schema: 'main-mutation-costs/v1', unavailable: '列不出主干上的运行记录' })}\n`, 'utf8')
   } catch (e) {
     failed++
     console.error(`  ✗ 分份夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
@@ -9907,9 +9936,10 @@ group('mutate-shard', [], () => {
     rmSync(shardMark, { force: true })
     return lines
   }
-  const shardRun = (label: string, shard: string, jobs: string, status: number) =>
+  // costs 是给 MUTATION_MAIN_COSTS 的值，null 就是不设（不用 undefined：传 undefined 会落到默认值上）
+  const shardRun = (label: string, shard: string, jobs: string, status: number, costs: string | null = shardCosts) =>
     runBoth(label, [S(SELFCHECK_TOOLS.mutate), jobs], shardTmp, { status },
-      { ...mutationFixtureEnv('mutate', [jobs], shardTmp), MUTATE_SHARD: shard })
+      { ...mutationFixtureEnv('mutate', [jobs], shardTmp), MUTATE_SHARD: shard, [MAIN_COSTS_ENV]: costs ?? undefined, NODE_COMPILE_CACHE: undefined })
   // 第 1 份走派工那条路（两个 worker），第 2 份走串行那条路
   // 分份时启动数写这一份自己的文件（ADR-200），开跑先删上一跑留下的整份文件与各份文件
   const launchDir = join(shardTmp, 'output', 'mutation-launches')
@@ -9924,22 +9954,32 @@ group('mutate-shard', [], () => {
   const secondSeen = seen()
   const bad = shardRun('mutate 分份：写成 3/2', '3/2', '--jobs=1', 1)
   const badSeen = seen()
-  // 秒数文件认不得：不拿猜的数分，在施变之前退出
-  const weightsFile = join(shardTmp, 'scripts', 'check', 'shard-weights.json'), weightsText = readFileSync(weightsFile, 'utf8')
-  writeFileSync(weightsFile, '{"schema":"mutation-shard-weights/v0"}\n', 'utf8')
-  const noWeights = shardRun('mutate 分份：秒数文件认不得', '1/2', '--jobs=1', 1)
-  const noWeightsSeen = seen()
-  writeFileSync(weightsFile, weightsText, 'utf8')
+  // 没设主干实测那个变量：接线错了，在施变之前退出
+  const noEnv = shardRun('mutate 分份：没设主干实测那个变量', '1/2', '--jobs=1', 1, null)
+  const noEnvSeen = seen()
+  // 设了但取不到：按条数分，照样只跑这一份
+  const noCosts = shardRun('mutate 分份：取不到主干实测', '1/2', '--jobs=1', 0, shardNoCosts)
+  const noCostsSeen = seen()
   const mutated = (lines: string[]) => lines.map(l => l.split(',').slice(0, 2).join(',')).filter(l => l !== 'keep,hold').sort()
   named('分份：第 1 份派工只跑了清单第 1、3 条', first.ok && JSON.stringify(mutated(firstSeen)) === JSON.stringify(['gone,hold', 'kept,hold']), firstSeen.join(' | '))
   named('分份：第 2 份串行只跑了清单第 2、4 条', second.ok && JSON.stringify(mutated(secondSeen)) === JSON.stringify(['keep,held', 'keep,lost']), secondSeen.join(' | '))
   named('分份：收尾那一句按这一份说', /第 1\/2 份 2 个变异全部被抓到（整份 4 个/.test(first.stdout) && /第 2\/2 份 2 个变异全部被抓到（整份 4 个/.test(second.stdout),
     [first.stdout, second.stdout].map(o => o.split('\n').slice(-3).join(' / ')).join(' ‖ '))
-  named('分份：验证者的环境里不带 MUTATE_SHARD', [...firstSeen, ...secondSeen].length > 0 && [...firstSeen, ...secondSeen].every(l => l.endsWith(',-')), [...firstSeen, ...secondSeen].join(' | '))
+  named('分份：验证者的环境里不带 MUTATE_SHARD', [...firstSeen, ...secondSeen].length > 0 && [...firstSeen, ...secondSeen].every(l => l.split(',')[2] === '-'), [...firstSeen, ...secondSeen].join(' | '))
+  named('分份：验证者的环境里不带主干实测那个变量', [...firstSeen, ...secondSeen].length > 0 && [...firstSeen, ...secondSeen].every(l => l.split(',')[3] === '-'), [...firstSeen, ...secondSeen].join(' | '))
+  // 验证者那一处 env 带着编译缓存的目录（ADR-72 第 708 行那张的验证者一半）：起 mutate 时不给这个变量，验证者那里有，只能是变异一步自己补的。
+  // 起 worker 那一处看不出来 —— worker 没拿到也会自己补同一个默认值
+  const cacheAt = join(shardTmp, '.check-cache', 'compile-cache')
+  named('分份：验证者的环境里带着变异一步补上的编译缓存目录', [...firstSeen, ...secondSeen].length > 0 && [...firstSeen, ...secondSeen].every(l => l.split(',')[4] === cacheAt), [...firstSeen, ...secondSeen].join(' | '))
+  named('分份：按主干实测分时说出取自哪一跑、按实测秒数称出每份多重', /按主干 run 7、提交 bbbbbbb 的实测秒数分份：这一份约 14 验证者秒（各份 14 \/ 14）/.test(first.stdout)
+    && /按主干 run 7、提交 bbbbbbb 的实测秒数分份：这一份约 14 验证者秒（各份 14 \/ 14）/.test(second.stdout),
+    [first.stdout, second.stdout].map(o => o.split('\n').slice(0, 3).join(' / ')).join(' ‖ '))
   named('分份：启动数写这一份自己的文件，上一跑的整份文件删了', JSON.stringify(firstFiles) === JSON.stringify(['launches-1-of-2.json']), firstFiles.join(' | '))
   named('分份：上一份留下的分份文件也删了', JSON.stringify(secondFiles) === JSON.stringify(['launches-2-of-2.json']), secondFiles.join(' | '))
-  named('分份：秒数文件认不得以 1 退出、一条也没施、说出是哪个文件', noWeights.ok && mutated(noWeightsSeen).length === 0
-    && /要分份却读不出 scripts\/check\/shard-weights\.json/.test(noWeights.stdout + noWeights.stderr), `${noWeightsSeen.join(' | ')} ‖ ${(noWeights.stdout + noWeights.stderr).split('\n').slice(-3).join(' / ')}`)
+  named('分份：没设主干实测那个变量以 1 退出、一条也没施、说出是哪个变量', noEnv.ok && mutated(noEnvSeen).length === 0
+    && /要分份却没设 MUTATION_MAIN_COSTS/.test(noEnv.stdout + noEnv.stderr), `${noEnvSeen.join(' | ')} ‖ ${(noEnv.stdout + noEnv.stderr).split('\n').slice(-3).join(' / ')}`)
+  named('分份：取不到主干实测时按条数分、照样只跑这一份、说为什么', noCosts.ok && JSON.stringify(mutated(noCostsSeen)) === JSON.stringify(['gone,hold', 'kept,hold'])
+    && /取不到主干上一跑的实测（列不出主干上的运行记录），这一跑按条数分份/.test(noCosts.stdout), `${noCostsSeen.join(' | ')} ‖ ${noCosts.stdout.split('\n').slice(0, 3).join(' / ')}`)
   named('分份：写成 3/2 以 1 退出、一条也没施', bad.ok && mutated(badSeen).length === 0 && /说不清这一跑是第几份/.test(bad.stdout + bad.stderr), `${badSeen.join(' | ')} ‖ ${(bad.stdout + bad.stderr).split('\n').slice(-3).join(' / ')}`)
 })
 

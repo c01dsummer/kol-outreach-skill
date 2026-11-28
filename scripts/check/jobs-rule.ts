@@ -286,7 +286,7 @@ export function shardWanted(env: string | undefined): { index: number; count: nu
 
 /**
  * 分份时一条变异归哪一摞（ADR-200）：验证者（没写的是需求测试）与它选跑的那几组（排好序）。整跑的（`only` 是 undefined）没有子集基线，交回 undefined，各自成一摞。
- * 变异一步分份、负载闸门（`shard-load.ts`）与实测秒数文件都用这一个键，与成本报告的配置键（`configurationKey`）同形 —— 各写一份的话，闸门量的就不是实际的分法。
+ * 变异一步分份、负载闸门（`shard-load.ts`）与主干实测（`mainCostWeights`）都用这一个键，与成本报告的配置键（`configurationKey`）同形 —— 各写一份的话，闸门量的就不是实际的分法。
  */
 export function shardKey(by: string | undefined, only: readonly string[] | undefined): string | undefined {
   return only === undefined ? undefined : JSON.stringify([by === undefined ? 'test' : by, [...only].sort()])
@@ -299,8 +299,8 @@ export function shardKey(by: string | undefined, only: readonly string[] | undef
  * 摞从重到轻排（一样重的按在清单里第一次出现的先后），逐摞发给眼下最轻的那一份（一样轻的给编号小的）。
  * 交回 `shardAt`（第 i 条落在第几份，从 0 数）与 `loads`（每一份的重量）。
  *
- * 按仓库里的实测秒数配而不按条数配（ADR-203 第二节）：按条数分时三份条数一样多，实测秒数差到最重一份比平均高三成 ——
- * 各种配置每条变异的代价差几十倍。用的是树内文件里的数、不是这一跑量的数：同一棵树永远分得一样。
+ * 按实测秒数配而不按条数配（ADR-203 第二节）：按条数分时三份条数一样多，实测秒数差到最重一份比平均高三成 ——
+ * 各种配置每条变异的代价差几十倍。用的是主干上一跑量的数（ADR-254）、不是这一跑量的数：这一跑的各份读同一份，分得一样。
  * 不再轮流发：轮流发时每一份都碰到约八成的配置，每种配置的基线三份各跑一遍（ADR-197 第五节那张欠条）。
  */
 export function shardPlan<T>(items: readonly T[], keyOf: (item: T) => string | undefined, weigh: (key: string | undefined, pile: readonly T[]) => number, count: number):

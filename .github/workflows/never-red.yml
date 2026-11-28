@@ -10,8 +10,10 @@ on:
     - cron: '0 20 * * 0'
   workflow_dispatch:
 
+# actions: read 给下面取主干上一跑变异实测那一步读主干的运行记录与日志（ADR-254）
 permissions:
   contents: read
+  actions: read
 
 # 同一时刻只跑一份；手动多点一次排在后面，不顶掉正在跑的
 concurrency:
@@ -19,8 +21,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 同 check.yml 的 main-costs：分份按主干上一跑的实测秒数称每一摞，只挑一次、各份读同一个文件（ADR-254）。
+  # 那是见齐就停的秒数，比这里不提前停的整跑轻，三份之间的比例大致仍在；取不到时按条数分
+  main-costs:
+    name: 取主干上一跑的变异实测
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 摘主干上一跑各份变异的成本报告
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/check/main-costs.sh output/main-costs/main-costs.txt 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: main-mutation-costs
+          path: output/main-costs/main-costs.txt
+          if-no-files-found: error
+          retention-days: 3
+
   mutate:
     name: 不提前停的整跑（第 ${{ matrix.shard }}/3 份）
+    needs: [main-costs]
     runs-on: ubuntu-latest
     # 关了提前停，一条卡住的变异不会再被「见齐就停」截住；本机 4 核不停整跑全部约 31 分钟，这里给足余量，不等满默认的六小时
     timeout-minutes: 120
@@ -51,15 +73,20 @@ jobs:
           sysctl kernel.apparmor_restrict_unprivileged_userns
       - run: npm ci --prefer-offline --no-audit
       - run: npm run compile
+      - uses: actions/download-artifact@v4
+        with:
+          name: main-mutation-costs
+          path: output/main-costs
       # 变异一步要一个可信的旧版本来比维护变化；定时触发的事件里没有，取这个提交的上一版
       - name: 定变异基线（这个提交的上一版）
         run: echo "MUTATE_BASE_SHA=$(git rev-parse HEAD^1)" >> "$GITHUB_ENV"
       # 有变异没被抓到时这一步照实红；记录在判结论之前已经写好，下一步照传
-      - run: npm run mutate
+      - run: bash scripts/check/cpu-time.sh 变异 npm run mutate
         env:
           MUTATE_SHARD: ${{ matrix.shard }}/3
           MUTATE_JOBS: '6'
           MUTATE_NO_EARLY_STOP: '1'
+          MUTATION_MAIN_COSTS: output/main-costs/main-costs.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
