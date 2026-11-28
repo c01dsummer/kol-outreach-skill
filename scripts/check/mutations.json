@@ -36326,6 +36326,30 @@
       ]
     },
     {
+      "id": "M-H246-s",
+      "req": "harness",
+      "why": "需求测试一启动就装的模块在开头引入形状快照的判定，每次启动需求测试都先装进编译器与生成格式说明的库",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "import { createRequire } from 'node:module'\n",
+      "replace": "import { createRequire } from 'node:module'\nimport './data-shapes-rule.js'\n",
+      "by": "test",
+      "kills": [
+        "需求测试一启动就装进来的开发用依赖（锁文件里标着只在开发时用的包）：一个都没有"
+      ]
+    },
+    {
+      "id": "M-H246-t",
+      "req": "harness",
+      "why": "出资料包的判定一加载就取编译器，不等真要扫声明时，每次启动需求测试都多初始化一遍编译器",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "let LITERALS: Set<Ts.SyntaxKind>\n",
+      "replace": "let LITERALS: Set<Ts.SyntaxKind>\nts = createRequire(import.meta.url)('typescript') as typeof Ts\n",
+      "by": "test",
+      "kills": [
+        "需求测试一启动就装进来的开发用依赖（锁文件里标着只在开发时用的包）：一个都没有"
+      ]
+    },
+    {
       "id": "M-H245-a",
       "req": "harness",
       "why": "去掉行号那一步没了，行号挪了就算一减一增",

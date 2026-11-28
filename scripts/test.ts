@@ -368,6 +368,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-prebuilt-no-config-lifecycle-contract', needs: [] },
   { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
   { id: 'h-lazy-typescript-contract', needs: [] },
+  { id: 'h-test-startup-loads', needs: [] },
   { id: 'h-worker-output-contract', needs: [] },
   { id: 'h-worker-output-guardian', needs: [] },
   { id: 'h-worker-output-cleanup', needs: [] },
@@ -27245,6 +27246,60 @@ await group('h-lazy-typescript-contract', async () => {
   harness('纯判定按需初始化TypeScript编译器')
   const { runLazyTypescriptContracts } = await import('./lazy-typescript-contract-test.js')
   eq('纯判定不预载TypeScript且AST调用保持同步', runLazyTypescriptContracts(), [])
+})
+
+await group('h-test-startup-loads', async () => {
+  // 只看启动：子进程里只选这一组跑，进组那一刻模块缓存里已有的，就是需求测试的静态引入一路装进来的。
+  // 变异一步每启动一次需求测试都要付这一笔，所以开发时才用的依赖（编译器、生成格式说明的库这一类）
+  // 只许在用到它的那一组里按需加载；哪些包算开发用，照锁文件里的标记，不另列名单（ADR-246 第七节）
+  const root = scRealpathSync(process.cwd())
+  type Locked = { dev?: boolean; dependencies?: Record<string, string>; optionalDependencies?: Record<string, string> }
+  const locked = (JSON.parse(rf(join(root, 'package-lock.json'), 'utf8')) as { packages: Record<string, Locked> }).packages
+  // 起需求测试的启动器（tsx）连同它自己的依赖：走 tsx 那条路时它们本来就在缓存里，不算需求测试装的
+  const launcher = new Set<string>()
+  const reach = (key: string): void => {
+    if (launcher.has(key) || locked[key] === undefined) return
+    launcher.add(key)
+    for (const name of Object.keys({ ...locked[key]!.dependencies, ...locked[key]!.optionalDependencies })) {
+      reach(locked[`${key}/node_modules/${name}`] !== undefined ? `${key}/node_modules/${name}` : `node_modules/${name}`)
+    }
+  }
+  // 变异一步的工作副本里 node_modules 是指回原仓库的符号链接，缓存里记的是解开链接后的真路径，所以按真路径比
+  const modules = scRealpathSync(join(root, 'node_modules'))
+  const keysLoaded = (): Set<string> => {
+    const keys = new Set<string>()
+    for (const path of Object.keys(createRequire(join(root, 'package.json')).cache)) {
+      const key = /^((?:node_modules\/(?:@[^/]+\/)?[^/]+\/)+)/.exec(`node_modules/${cxRelative(modules, path)}`)?.[1]?.slice(0, -1)
+      if (key !== undefined && !key.includes('/../')) keys.add(key)
+    }
+    return keys
+  }
+  // 只在这一次真是 tsx 起的时候才排除它那一串：裸 node 那条路上 tsx 不在，它的依赖（比如 esbuild）被需求测试装进来照样红
+  if (keysLoaded().has('node_modules/tsx')) reach('node_modules/tsx')
+  const devLoaded = (): string[] =>
+    [...keysLoaded()].filter(key => locked[key]?.dev === true && !launcher.has(key)).map(key => key.replace(/^.*node_modules\//, '')).sort()
+  const PREFIX = 'STARTUP_LOADS_JSON '
+  // 只认父进程那种起法（只选这一组）：外面环境里漏进来这个开关时，整跑仍走下面的父进程那一支
+  if (process.env.KOL_TEST_STARTUP_PROBE === '1' && onlyIds?.length === 1) {
+    const atStart = devLoaded()
+    createRequire(join(root, 'package.json'))('typescript')
+    const afterRequire = devLoaded()
+    console.log(PREFIX + JSON.stringify({ atStart, afterRequire }))
+    ok('启动探针：显式取一次 TypeScript 之后看得见它是开发用依赖（阳性对照）', afterRequire.includes('typescript'))
+    return
+  }
+  harness('需求测试启动时不装开发时才用的依赖')
+  const env = { ...process.env, KOL_TEST_STARTUP_PROBE: '1' }
+  const r = spawnSync(...prebuiltCommand(['scripts/test.ts', '--only=h-test-startup-loads'], root, env),
+    { cwd: root, env, encoding: 'utf8', timeout: 90_000, maxBuffer: 4 * 1024 * 1024 })
+  const lines = (r.stdout ?? '').split('\n').filter(line => line.startsWith(PREFIX))
+  let receipt: { atStart?: unknown; afterRequire?: unknown } | undefined
+  try { receipt = lines.length === 1 ? JSON.parse(lines[0]!.slice(PREFIX.length)) as typeof receipt : undefined } catch { receipt = undefined }
+  if (r.error || r.signal !== null || r.status !== 0 || receipt === undefined || !Array.isArray(receipt.atStart)
+    || !Array.isArray(receipt.afterRequire) || !receipt.afterRequire.includes('typescript')) {
+    throw new Error(`${SELFCHECK_FIXTURE_MARK} 启动探针没取得有效回执：${r.error?.message ?? r.signal ?? r.status}\n${r.stdout}\n${r.stderr}`)
+  }
+  eq('需求测试一启动就装进来的开发用依赖（锁文件里标着只在开发时用的包）：一个都没有', receipt.atStart, [])
 })
 
 await group('h-worker-output-contract', async () => {
